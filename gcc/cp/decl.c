@@ -2031,6 +2031,12 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	    }
 	}
     }
+  /* FIXME Is there a better place to handle this? Without this, we end up
+   * potentially merging a decl owned by a separate module with a friend decl
+   * injected in the current module (see modules/redecl-3). Returning olddecl
+   * relies on code higher up handling the issue.  */
+  else if (modules_p () && !module_may_redeclare (olddecl))
+    return olddecl;
 
   /* We have committed to returning OLDDECL at this point.  */
 
@@ -9517,6 +9523,14 @@ grokfndecl (tree ctype,
 
   if (TREE_CODE (type) == METHOD_TYPE)
     {
+      if (modules_p()
+	  && !module_may_redeclare (TYPE_NAME (ctype)))
+	{
+	  error_at (location, "declaration conflicts with import");
+	  inform (location_of (ctype), "import declared %q#T here", ctype);
+	  return NULL_TREE;
+	}
+
       tree parm = build_this_parm (decl, type, quals);
       DECL_CHAIN (parm) = parms;
       parms = parm;
