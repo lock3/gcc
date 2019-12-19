@@ -17668,6 +17668,34 @@ module_may_redeclare (tree decl)
   return me && get_primary (them) == get_primary (me);
 }
 
+bool
+module_friendship_compatible (tree decl1, tree decl2)
+{
+  int our_origin = get_originating_module (decl1);
+  int their_origin = get_originating_module (decl2);
+
+  module_state *them = (*modules)[their_origin];
+  module_state *me = (*modules)[our_origin];
+
+  if (them->is_header ())
+    /* If it came from a header, it's in the global module.  */
+    return (me->is_header ()
+	    || !module_purview_p ());
+
+  if (!their_origin)
+    return ((DECL_LANG_SPECIFIC (decl2) && DECL_MODULE_PURVIEW_P (decl2))
+	    == module_purview_p ());
+
+  if (!me->name)
+    me = me->parent;
+
+  /* We can't have found a GMF entity from a named module.  */
+  // FIXME
+  //gcc_checking_assert (DECL_LANG_SPECIFIC (decl2) && DECL_MODULE_PURVIEW_P (decl2));
+
+  return me && get_primary (them) == get_primary (me);
+}
+
 /* DECL is being created by this TU.  Record it came from here.  We
    record module purview, so we can see if partial or explicit
    specialization needs to be written out, even though its purviewness

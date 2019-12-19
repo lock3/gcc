@@ -2021,6 +2021,16 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	    }
 	}
     }
+  // FIXME should we always do this when modules are enabled?
+  // FIXME flag name
+  // FIXME this leaves it in an inconsistent state with the module writer
+  else if (modules_p () && flag_contracts
+      // && warn_long_distance_friends
+      && TREE_CODE (CP_DECL_CONTEXT (olddecl)) == NAMESPACE_DECL
+      && TREE_CODE (olddecl) != NAMESPACE_DECL
+      && newdecl_is_friend)
+    return olddecl;
+    //DECL_MODULE_ORIGIN (newdecl) = DECL_MODULE_ORIGIN (olddecl);
 
   /* We have committed to returning OLDDECL at this point.  */
 
@@ -9498,6 +9508,16 @@ grokfndecl (tree ctype,
 
   if (TREE_CODE (type) == METHOD_TYPE)
     {
+      if (modules_p()
+	  && !module_may_redeclare (TYPE_NAME (ctype)))
+	{
+	  error_at (location,
+		    "declaration conflicts with import");
+	  // FIXME original method decl loc?
+	  inform (location_of (ctype), "import declared %q#T here", ctype);
+	  return NULL_TREE;
+	}
+
       tree parm = build_this_parm (decl, type, quals);
       DECL_CHAIN (parm) = parms;
       parms = parm;
