@@ -7039,6 +7039,7 @@ inline bool module_exporting_p ()
 extern module_state *get_module (tree name, module_state *parent = NULL,
 				 bool partition = false);
 extern bool module_may_redeclare (tree decl);
+extern bool module_friendship_compatible (tree decl1, tree decl2);
 
 extern int module_initializer_kind ();
 extern void module_add_import_initializers ();

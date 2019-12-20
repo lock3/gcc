@@ -173,6 +173,16 @@ add_friend (tree type, tree decl, bool complain)
   if (decl == error_mark_node)
     return;
 
+  if (modules_p () && warn_long_distance_friends
+      && !module_friendship_compatible (TYPE_NAME (type), decl))
+    {
+      warning (OPT_Wlong_distance_friends,
+	       "%q#T is not visible to befriended declaration %q#D",
+	       type, decl);
+      // FIXME decl source loc of function decl mangled by friend decl?
+      //inform (DECL_SOURCE_LOCATION (decl), "import declared %q#D here", decl);
+    }
+
   typedecl = TYPE_MAIN_DECL (type);
   list = DECL_FRIENDLIST (typedecl);
   name = DECL_NAME (decl);
@@ -249,6 +259,16 @@ add_friend (tree type, tree decl, bool complain)
 void
 make_friend_class (tree type, tree friend_type, bool complain)
 {
+  if (modules_p () && warn_long_distance_friends
+      && !module_friendship_compatible (TYPE_NAME (type), TYPE_NAME (friend_type)))
+    {
+      warning (OPT_Wlong_distance_friends,
+	       "%q#T is not visible to befriended declaration %q#T",
+	       type, friend_type);
+      inform (location_of (friend_type), "import declared %q#T here",
+	      friend_type);
+    }
+
   tree classes;
 
   /* CLASS_TEMPLATE_DEPTH counts the number of template headers for

@@ -17693,6 +17693,17 @@ module_friendship_compatible (tree decl1, tree decl2)
   // FIXME
   //gcc_checking_assert (DECL_LANG_SPECIFIC (decl2) && DECL_MODULE_PURVIEW_P (decl2));
 
+  if (me && get_primary (them) == get_primary (me))
+    return true;
+
+  // it's never ok to friend a template declaration
+  if (TREE_CODE (decl2) == TEMPLATE_DECL)
+    return false;
+
+  // it's always ok to friend a template specialization
+  if (DECL_FUNCTION_TEMPLATE_P (decl2) && DECL_TEMPLATE_INFO (decl2))
+    return true;
+
   return me && get_primary (them) == get_primary (me);
 }
 

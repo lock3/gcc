@@ -2022,15 +2022,12 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	}
     }
   // FIXME should we always do this when modules are enabled?
-  // FIXME flag name
-  // FIXME this leaves it in an inconsistent state with the module writer
-  else if (modules_p () && flag_contracts
-      // && warn_long_distance_friends
+  else if (modules_p ()
+      && warn_long_distance_friends
       && TREE_CODE (CP_DECL_CONTEXT (olddecl)) == NAMESPACE_DECL
       && TREE_CODE (olddecl) != NAMESPACE_DECL
       && newdecl_is_friend)
     return olddecl;
-    //DECL_MODULE_ORIGIN (newdecl) = DECL_MODULE_ORIGIN (olddecl);
 
   /* We have committed to returning OLDDECL at this point.  */
 
