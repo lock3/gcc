@@ -739,6 +739,10 @@ Wlogical-not-parentheses
 C ObjC C++ ObjC++ Var(warn_logical_not_paren) Warning LangEnabledBy(C ObjC C++ ObjC++,Wall)
 Warn when logical not is used on the left hand side operand of a comparison.
 
+Wlong-distance-friends
+C++ Var(warn_long_distance_friends) Warning LangEnabledBy(C++,Wall)
+Warn when friends are declared across module boundaries.
+
 Wlong-long
 C ObjC C++ ObjC++ CPP(cpp_warn_long_long) CppReason(CPP_W_LONG_LONG) Var(warn_long_long) Init(-1) Warning LangEnabledBy(C ObjC,Wc90-c99-compat)
 Do not warn about using \"long long\" when -pedantic.

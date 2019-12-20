@@ -17718,6 +17718,44 @@ module_may_redeclare (tree decl)
   return me && get_primary (them) == get_primary (me);
 }
 
+/* Is it possible for two decls are friendship compatible -- that is, can they
+   reasonably use the other's definition.  */
+
+bool
+module_friendship_compatible (tree decl1, tree decl2)
+{
+  int our_origin = get_originating_module (decl1);
+  int their_origin = get_originating_module (decl2);
+
+  module_state *them = (*modules)[their_origin];
+  module_state *me = (*modules)[our_origin];
+
+  if (them->is_header ())
+    /* If it came from a header, it's in the global module.  */
+    return (me->is_header ()
+	    || !module_purview_p ());
+
+  if (!their_origin)
+    return ((DECL_LANG_SPECIFIC (decl2) && DECL_MODULE_PURVIEW_P (decl2))
+	    == module_purview_p ());
+
+  if (!me->name)
+    me = me->parent;
+
+  if (me && get_primary (them) == get_primary (me))
+    return true;
+
+  /* It's never ok to friend a template declaration.  */
+  if (TREE_CODE (decl2) == TEMPLATE_DECL)
+    return false;
+
+  /* It's always ok to friend a template specialization.  */
+  if (DECL_FUNCTION_TEMPLATE_P (decl2) && DECL_TEMPLATE_INFO (decl2))
+    return true;
+
+  return me && get_primary (them) == get_primary (me);
+}
+
 /* DECL is being created by this TU.  Record it came from here.  We
    record module purview, so we can see if partial or explicit
    specialization needs to be written out, even though its purviewness
