@@ -502,7 +502,9 @@ dfs_access_in_type (tree binfo, void *data)
     {
       /* If we have descended to the scope of DECL, just note the
 	 appropriate access.  */
-      if (TREE_PRIVATE (decl))
+      if (DECL_MODULE_ACCESS (decl))
+	access = module_may_redeclare (decl) ? ak_public : ak_none;
+      else if (TREE_PRIVATE (decl))
 	access = ak_private;
       else if (TREE_PROTECTED (decl))
 	access = ak_protected;

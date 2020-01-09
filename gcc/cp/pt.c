@@ -949,6 +949,7 @@ maybe_new_partial_specialization (tree type)
       DECL_SOURCE_LOCATION (d) = input_location;
       TREE_PRIVATE (d) = (current_access_specifier == access_private_node);
       TREE_PROTECTED (d) = (current_access_specifier == access_protected_node);
+      DECL_MODULE_ACCESS (d) = (current_access_specifier == access_module_node);
 
       set_instantiating_module (d);
       DECL_MODULE_EXPORT_P (d) = DECL_MODULE_EXPORT_P (tmpl);
@@ -3205,6 +3206,7 @@ check_explicit_specialization (tree declarator,
 	     template it specializes.  */
 	  TREE_PRIVATE (decl) = TREE_PRIVATE (gen_tmpl);
 	  TREE_PROTECTED (decl) = TREE_PROTECTED (gen_tmpl);
+	  DECL_MODULE_ACCESS (decl) = DECL_MODULE_ACCESS (gen_tmpl);
 
           /* 7.1.1-1 [dcl.stc]
 
@@ -4902,7 +4904,8 @@ build_template_decl (tree decl, tree parms, bool member_template_p)
   if (modules_p ())
     {
       /* Propagate module information from the decl.  */
-      DECL_MODULE_EXPORT_P (tmpl) = DECL_MODULE_EXPORT_P (decl);
+      if (TREE_CODE (CP_DECL_CONTEXT (tmpl)) != RECORD_TYPE)
+	DECL_MODULE_EXPORT_P (tmpl) = DECL_MODULE_EXPORT_P (decl);
       if (DECL_LANG_SPECIFIC (decl))
 	{
 	  DECL_MODULE_PURVIEW_P (tmpl) = DECL_MODULE_PURVIEW_P (decl);
@@ -9975,7 +9978,8 @@ lookup_template_class_1 (tree d1, tree arglist, tree in_decl, tree context,
       /* Although GEN_TMPL is the TEMPLATE_DECL, it has the same value
 	 of export flag.  We want to propagate this because it might
 	 be a friend declaration that pushes a new hidden binding.  */
-      DECL_MODULE_EXPORT_P (type_decl) = DECL_MODULE_EXPORT_P (gen_tmpl);
+      if (TREE_CODE (CP_DECL_CONTEXT (type_decl)) != RECORD_TYPE)
+	DECL_MODULE_EXPORT_P (type_decl) = DECL_MODULE_EXPORT_P (gen_tmpl);
 
       if (CLASS_TYPE_P (template_type))
 	{
@@ -9983,6 +9987,8 @@ lookup_template_class_1 (tree d1, tree arglist, tree in_decl, tree context,
 	    = TREE_PRIVATE (TYPE_MAIN_DECL (template_type));
 	  TREE_PROTECTED (type_decl)
 	    = TREE_PROTECTED (TYPE_MAIN_DECL (template_type));
+	  DECL_MODULE_ACCESS (type_decl)
+	    = DECL_MODULE_ACCESS (TYPE_MAIN_DECL (template_type));
 	  if (CLASSTYPE_VISIBILITY_SPECIFIED (template_type))
 	    {
 	      DECL_VISIBILITY_SPECIFIED (type_decl) = 1;
@@ -14156,7 +14162,8 @@ tsubst_template_decl (tree t, tree args, tsubst_flags_t complain,
   if (modules_p ())
     {
       /* Propagate module information from the decl.  */
-      DECL_MODULE_EXPORT_P (r) = DECL_MODULE_EXPORT_P (inner);
+      if (TREE_CODE (CP_DECL_CONTEXT (r)) != RECORD_TYPE)
+	DECL_MODULE_EXPORT_P (r) = DECL_MODULE_EXPORT_P (inner);
       if (DECL_LANG_SPECIFIC (inner))
 	{
 	  DECL_MODULE_PURVIEW_P (r) = DECL_MODULE_PURVIEW_P (inner);
@@ -14498,6 +14505,7 @@ tsubst_decl (tree t, tree args, tsubst_flags_t complain)
 		    {
 		      TREE_PROTECTED (elt) = TREE_PROTECTED (t);
 		      TREE_PRIVATE (elt) = TREE_PRIVATE (t);
+		      DECL_MODULE_ACCESS (elt) = DECL_MODULE_ACCESS (t);
 		    }
 		  TREE_VEC_ELT (r, i) = elt;
 		}
@@ -14513,6 +14521,7 @@ tsubst_decl (tree t, tree args, tsubst_flags_t complain)
 		{
 		  TREE_PROTECTED (r) = TREE_PROTECTED (t);
 		  TREE_PRIVATE (r) = TREE_PRIVATE (t);
+		  DECL_MODULE_ACCESS (r) = DECL_MODULE_ACCESS (t);
 		}
 	    }
 	}
@@ -26090,7 +26099,9 @@ tsubst_initializer_list (tree t, tree argvec)
 static void
 set_current_access_from_decl (tree decl)
 {
-  if (TREE_PRIVATE (decl))
+  if (DECL_MODULE_ACCESS (decl))
+    current_access_specifier = access_module_node;
+  else if (TREE_PRIVATE (decl))
     current_access_specifier = access_private_node;
   else if (TREE_PROTECTED (decl))
     current_access_specifier = access_protected_node;

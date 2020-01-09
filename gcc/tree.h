@@ -2368,8 +2368,9 @@ extern tree vector_element_bits_tree (const_tree);
 #define BINFO_VPTR_FIELD(NODE) (TREE_BINFO_CHECK (NODE)->binfo.vptr_field)
 
 /* Indicates the accesses this binfo has to its bases. The values are
-   access_public_node, access_protected_node or access_private_node.
-   If this array is not present, public access is implied.  */
+   access_public_node, access_protected_node, access_private_node, or
+   access_module_node.  If this array is not present, public access is
+   implied.  */
 #define BINFO_BASE_ACCESSES(NODE) \
   (TREE_BINFO_CHECK (NODE)->binfo.base_accesses)
 
@@ -4063,6 +4064,7 @@ tree_strip_any_location_wrapper (tree exp)
 #define access_public_node		global_trees[TI_PUBLIC]
 #define access_protected_node	        global_trees[TI_PROTECTED]
 #define access_private_node		global_trees[TI_PRIVATE]
+#define access_module_node		global_trees[TI_MODULE]
 
 #define null_pointer_node		global_trees[TI_NULL_POINTER]
 

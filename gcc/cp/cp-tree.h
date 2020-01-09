@@ -483,6 +483,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       DECLTYPE_FOR_REF_CAPTURE (in DECLTYPE_TYPE)
       CONSTRUCTOR_C99_COMPOUND_LITERAL (in CONSTRUCTOR)
       DECL_MODULE_EXPORT_P (in _DECL)
+      DECL_MODULE_ACCESS (in _DECL)
       OVL_NESTED_P (in OVERLOAD)
       LAMBDA_EXPR_INSTANTIATED (in LAMBDA_EXPR)
       Reserved for DECL_MODULE_EXPORT (in DECL_)
@@ -1750,6 +1751,9 @@ check_constraint_info (tree t)
 /* DECL that has attached decls for ODR-relatedness.  */
 #define DECL_ATTACHED_DECLS_P(NODE)			\
   (DECL_LANG_SPECIFIC (NODE)->u.base.attached_decls_p)
+
+/* Whether this field _DECL has module restricted access.  */
+#define DECL_MODULE_ACCESS(NODE) TREE_LANG_FLAG_3 (NODE)
 
 
 enum cp_tree_node_structure_enum {

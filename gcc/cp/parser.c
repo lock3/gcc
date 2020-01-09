@@ -25196,6 +25196,19 @@ cp_parser_member_specification_opt (cp_parser* parser)
 	      break;
 	    }
 
+	  if (token->type == CPP_NAME && modules_p ()
+	      && id_equal (token->u.value, "restrict")
+	      && cp_lexer_peek_nth_token (parser->lexer, 2)->type == CPP_COLON)
+	    {
+	      /* Consume the access-specifier.  */
+	      cp_lexer_consume_token (parser->lexer);
+	      /* Remember which access-specifier is active.  */
+	      current_access_specifier = access_module_node;
+	      /* Look for the `:'.  */
+	      cp_parser_require (parser, CPP_COLON, RT_COLON);
+	      break;
+	    }
+
 	  /* Otherwise, the next construction must be a
 	     member-declaration.  */
 	  cp_parser_member_declaration (parser);

@@ -7074,7 +7074,25 @@ build_op_delete_call (enum tree_code code, tree addr, tree size,
 void
 complain_about_access (tree decl, tree diag_decl, bool issue_error)
 {
-  if (TREE_PRIVATE (decl))
+  /* FIXME any complaint about a member that later had its access restricted
+     more (eg a protected member of a privately inherited base class) uses its
+     original access level in the complaint, not its effective access level.  */
+  if (DECL_MODULE_ACCESS (decl))
+    {
+      /* FIXME: module access members that are made private/protected through
+	 inheritance also report "restricted to the global module" -- is there
+	 a way to distinguish that case from a restricted member actually
+	 declared in the GMF?  */
+      if (issue_error && get_originating_module (diag_decl))
+	error ("%q#D is restricted to module %<%s%>",
+	       diag_decl,
+	       module_name (get_originating_module (diag_decl), false));
+      else if (issue_error)
+	error ("%q#D is restricted to the global module", diag_decl);
+      inform (DECL_SOURCE_LOCATION (diag_decl),
+	      "declared here");
+    }
+  else if (TREE_PRIVATE (decl))
     {
       if (issue_error)
 	error ("%q#D is private within this context", diag_decl);

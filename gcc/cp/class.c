@@ -7886,6 +7886,7 @@ init_class_processing (void)
   ridpointers[(int) RID_PUBLIC] = access_public_node;
   ridpointers[(int) RID_PRIVATE] = access_private_node;
   ridpointers[(int) RID_PROTECTED] = access_protected_node;
+  ridpointers[(int) RID__MODULE] = access_module_node;
 }
 
 /* Restore the cached PREVIOUS_CLASS_LEVEL.  */

@@ -10254,6 +10254,7 @@ build_common_tree_nodes (bool signed_char)
   access_public_node = get_identifier ("public");
   access_protected_node = get_identifier ("protected");
   access_private_node = get_identifier ("private");
+  access_module_node = get_identifier ("module");
 
   /* Define these next since types below may used them.  */
   integer_zero_node = build_int_cst (integer_type_node, 0);

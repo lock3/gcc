@@ -11879,8 +11879,11 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
       /* The template should have copied these from its result decl.  */
       tree res = DECL_TEMPLATE_RESULT (decl);
 
-      gcc_checking_assert (DECL_MODULE_EXPORT_P (decl)
-			   == DECL_MODULE_EXPORT_P (res));
+      /* If this is a field decl, we're reusing the export bit as the "module
+	 access" bit.  */
+      if (TREE_CODE (CP_DECL_CONTEXT (decl)) != RECORD_TYPE)
+	gcc_checking_assert (DECL_MODULE_EXPORT_P (decl)
+			     == DECL_MODULE_EXPORT_P (res));
       if (DECL_LANG_SPECIFIC (res))
 	{
 	  gcc_checking_assert (DECL_MODULE_PURVIEW_P (decl)
@@ -17627,6 +17630,24 @@ module_may_redeclare (tree decl)
 {
   module_state *me = (*modules)[0];
   module_state *them = me;
+
+  if (TREE_CODE (CP_DECL_CONTEXT (decl)) == RECORD_TYPE)
+    {
+      decl = TYPE_NAME (CP_DECL_CONTEXT (decl));
+
+      int use_tpl = -1;
+      if (tree ti = node_template_info (decl, use_tpl))
+	if (use_tpl != 2) // DECL_TEMPLATE_SPECIALIZATION
+	  decl = TI_TEMPLATE (ti);
+
+      if (!DECL_LANG_SPECIFIC (decl))
+	return !module_purview_p ();
+      if (!DECL_MODULE_IMPORT_P (decl)
+	  && DECL_MODULE_PURVIEW_P (decl) == module_purview_p ())
+	return true;
+
+      them = (*modules)[get_originating_module (decl)];
+    }
   if (DECL_LANG_SPECIFIC (decl) && DECL_MODULE_IMPORT_P (decl))
     {
       /* We can be given the TEMPLATE_RESULT.  We want the

@@ -3291,6 +3291,9 @@ finish_member_declaration (tree decl)
     = (current_access_specifier == access_private_node);
   TREE_PROTECTED (decl)
     = (current_access_specifier == access_protected_node);
+  DECL_MODULE_ACCESS (decl)
+    = (current_access_specifier == access_module_node);
+
   if (TREE_CODE (decl) == TEMPLATE_DECL)
     {
       TREE_PRIVATE (DECL_TEMPLATE_RESULT (decl)) = TREE_PRIVATE (decl);
