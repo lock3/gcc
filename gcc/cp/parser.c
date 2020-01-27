@@ -13608,10 +13608,245 @@ cp_parser_import_declaration (cp_parser *parser, module_preamble preamble,
 
 }
 
+static void
+cp_parser_filter_view_decls (cp_parser *parser, tree scope,
+			      auto_vec<cp_expr, 4> &initial_idents,
+			      hash_set<tree, true> *members,
+			      auto_vec<cp_expr, 4> &idents)
+{
+  unsigned int i;
+  cp_expr e;
+  bool errored = false;
+  FOR_EACH_VEC_ELT (initial_idents, i, e)
+    {
+      if (e == error_mark_node) { errored = true; continue; }
+      parser->scope = scope;
+      parser->object_scope = NULL_TREE;
+      parser->qualifying_scope = NULL_TREE;
+      push_deferring_access_checks (dk_deferred);
+      tree elem_decl = cp_parser_lookup_name (parser, e, /*tag_type=*/none_type,
+					      /*is_template=*/false,
+					      /*is_namespace=*/false,
+					      /*check_dependency=*/true,
+					      /*ambiguous_decls=*/NULL,
+					      /*name_location=*/e.get_location ());
+      pop_deferring_access_checks ();
+      if (elem_decl == error_mark_node)
+	{
+	  error ("%s is not a member of %q#T", IDENTIFIER_POINTER (e), scope);
+	  errored = true;
+	  continue;
+	}
+
+      if (TREE_CODE (elem_decl) == BASELINK)
+	elem_decl = OVL_FIRST (BASELINK_FUNCTIONS (elem_decl));
+      tree elem_decl_name = OVL_NAME (elem_decl);
+
+      /* Ensure the name is not strictly from a super type.  */
+      if (members && !members->contains (elem_decl_name)
+	  && !IDENTIFIER_CONV_OP_P (elem_decl_name))
+	{
+	  error ("%s is not a member of %q#D", IDENTIFIER_POINTER (e), scope);
+	  errored = true;
+	}
+      /* We treat the int conversion operator as spelling both the int
+	 conversion and any possible template conversion operators.  */
+      else if (IDENTIFIER_CONV_OP_P (elem_decl_name)
+	  && TREE_TYPE (TREE_TYPE (elem_decl)) == integer_type_node)
+	{
+	  idents.safe_push (conv_op_identifier);
+	  idents.safe_push (elem_decl_name);
+	}
+      else
+	idents.safe_push (elem_decl_name);
+    }
+  if (errored)
+    idents.truncate (0);
+}
+
+/* view-identifier
+ *   using-declarator
+ *   template<> template-id FIXME
+ *   template-head template-id FIXME
+ *  */
+
+static tree_pair
+cp_parser_view_identifier (cp_parser *parser)
+{
+  cp_expr id = cp_parser_id_expression (parser,
+					/*template_keyword_p=*/false,
+					/*check_dependency_p=*/true,
+					/*template_p=*/NULL,
+					/*declarator_p=*/false,
+					/*optional_p=*/false);
+  if (!id || (tree)id == error_mark_node)
+    return std::make_pair (error_mark_node, NULL_TREE);
+
+  tree decl = id;
+  /* If we parsed a template-id, we already have a TYPE_DECL. Otherwise, we
+     need to lookup the parsed name.  */
+  if (TREE_CODE (id) != TYPE_DECL)
+    decl = cp_parser_lookup_name (parser, id, /*tag_type=*/none_type,
+				  /*is_template=*/false,
+				  /*is_namespace=*/false,
+				  /*check_dependency=*/true,
+				  /*ambiguous_decls=*/NULL,
+				  /*name_location=*/id.get_location ());
+  if (decl == error_mark_node)
+    return std::make_pair (error_mark_node, NULL_TREE);
+
+  /* FIXME need to use strip_typedefs instead? */
+  if (TREE_CODE (decl) == TYPE_DECL)
+    decl = TYPE_NAME (TYPE_CANONICAL (TREE_TYPE (decl)));
+  /* FIXME strip alias templates.  */
+
+  /* If we're trying to restrict a template that is neither the general nor a
+     explicit specialization, issue an error.  */
+  if (TREE_CODE (decl) == TYPE_DECL
+      && TREE_CODE (TREE_TYPE (decl)) == RECORD_TYPE
+      && CLASSTYPE_TEMPLATE_INSTANTIATION (TREE_TYPE (decl)))
+    {
+      error ("cannot create a view of a template instantion");
+      return std::make_pair (error_mark_node, NULL_TREE);
+    }
+
+  /* Ensure we have either a complete type decl or a namespace.  */
+  tree scope = decl;
+  if (DECL_DECLARES_TYPE_P (scope))
+    scope = complete_type (TREE_TYPE (decl));
+  if (DECL_DECLARES_TYPE_P (decl) && !COMPLETE_TYPE_P (scope))
+    {
+      cxx_incomplete_type_error (location_of (id), NULL_TREE, scope);
+      return std::make_pair (error_mark_node, NULL_TREE);
+    }
+  if (!DECL_DECLARES_TYPE_P (decl) && TREE_CODE (scope) != NAMESPACE_DECL)
+    {
+      error ("views can only be created of types and namespaces");
+      return std::make_pair (error_mark_node, NULL_TREE);
+    }
+  return std::make_pair (decl, scope);
+}
+
+/*  view-declaration
+ *
+ *  export protected view-identifier permission-specification ;
+ *
+ *  permission-specification:
+ *    permit member-list
+ *    restrict member-list
+ *
+ *  member-list:
+ *    member-id
+ *    member-list, member-id
+ *
+ *  member-id:
+ *    unqualified-id
+ *    operator-function-id
+ *    conversion-function-id
+ *    literal-operator-id
+ *    ~ type-name
+ */
+
+static void
+cp_parser_view_declaration (cp_parser *parser)
+{
+  gcc_assert (cp_lexer_next_token_is_keyword (parser->lexer, RID_PROTECTED));
+  cp_lexer_consume_token (parser->lexer);
+
+  tree_pair info = cp_parser_view_identifier (parser);
+  tree decl = info.first;
+  tree scope = info.second;
+  if (decl == error_mark_node)
+    return;
+
+  /* Determine whether we're trying to permit or restrict members; for a
+   * namespace we only support restrictions since namespaces are open.  */
+  cp_token *token = cp_lexer_peek_token (parser->lexer);
+  if (token->type != CPP_NAME
+      || !(id_equal (token->u.value, "restrict")
+	|| id_equal (token->u.value, "permit")))
+    {
+      error ("expected %<permit%> or %<restrict%>");
+      return;
+    }
+
+  bool permit_p = id_equal (token->u.value, "permit");
+  if (TREE_CODE (decl) == NAMESPACE_DECL && permit_p)
+    {
+      error ("namespace views may only %<restrict%>");
+      return;
+    }
+  cp_lexer_consume_token (parser->lexer);
+
+  /* Parse an initial set of identifiers.  */
+  auto_vec<cp_expr, 4> initial_idents;
+  hash_set<tree, true> id_set;
+
+  bool first_p = true;
+  while (first_p || cp_lexer_next_token_is_not (parser->lexer, CPP_SEMICOLON))
+    {
+      if (!first_p && !cp_parser_require (parser, CPP_COMMA, RT_COMMA))
+	return;
+      first_p = false;
+
+      cp_expr elem = cp_parser_unqualified_id (parser,
+					       /*template_keyword_p=*/false,
+					       /*check_dependency_p=*/true,
+					       /*declarator_p=*/false,
+					       /*optional_p=*/false);
+      if (id_set.contains (elem))
+	error ("%<%s%> specified more than once", IDENTIFIER_POINTER (elem));
+      else
+	{
+	  initial_idents.safe_push (elem);
+	  id_set.add (elem);
+	}
+    }
+
+  /* Ensure each identifier is valid when qualified by view decl.  */
+  auto_vec<cp_expr, 4> idents;
+  hash_set<tree, true> *members = get_member_ids (scope);
+
+  cp_parser_filter_view_decls (parser, scope, initial_idents, members, idents);
+  if (idents.is_empty ())
+    {
+      delete members;
+      return;
+    }
+
+  /* If `restrict`, adds names to the restriction set
+   * Otherwise, add all but the listed names to the restriction set.  */
+  hash_set<tree, true> *restrictions = get_class_restriction_set (decl);
+
+  unsigned int i;
+  cp_expr e;
+  FOR_EACH_VEC_ELT (idents, i, e)
+    {
+      /* FIXME should this be relaxed/removed?  */
+      if (restrictions->contains (e))
+	error ("%sing already restricted member",
+	       permit_p ? "permitt" : "restrict");
+      else if (!permit_p)
+	restrictions->add (e);
+      else if (permit_p)
+	members->remove (e);
+    }
+  if (permit_p)
+    {
+      restrictions->empty ();
+      for (hash_set<tree, true>::iterator it = members->begin();
+	  it != members->end();
+	  ++it)
+	restrictions->add (*it);
+    }
+  delete members;
+}
+
 /*  export-declaration.
 
     export declaration
-    export { declaration-seq-opt }  */
+    export { declaration-seq-opt }
+    view-declaration  */
 
 static void
 cp_parser_module_export (cp_parser *parser)
@@ -13641,6 +13876,13 @@ cp_parser_module_export (cp_parser *parser)
       cp_lexer_consume_token (parser->lexer);
       cp_parser_declaration_seq_opt (parser);
       cp_parser_require (parser, CPP_CLOSE_BRACE, RT_CLOSE_BRACE);
+    }
+  else if (cp_lexer_next_token_is_keyword (parser->lexer, RID_PROTECTED))
+    {
+      cp_parser_view_declaration (parser);
+      cp_parser_skip_to_end_of_statement (parser);
+      if (cp_lexer_next_token_is (parser->lexer, CPP_SEMICOLON))
+	cp_lexer_consume_token (parser->lexer);
     }
   else
     {
@@ -28817,6 +29059,7 @@ cp_parser_lookup_name (cp_parser *parser, tree name,
   if (DECL_P (decl))
     check_accessibility_of_qualified_id (decl, object_type, parser->scope,
 					 tf_warning_or_error);
+  /* FIXME add namespace view check to ^ ?  */
 
   maybe_record_typedef_use (decl);
 

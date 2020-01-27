@@ -302,6 +302,92 @@ struct nodel_ptr_hash : pointer_hash<T>, typed_noop_remove <T *> {
 typedef simple_hashmap_traits<nodel_ptr_hash<void>, int> ptr_int_traits;
 typedef hash_map<void *,signed,ptr_int_traits> ptr_int_hash_map;
 
+static hash_map<tree_decl_hash, hash_set<tree, true> *> decl_perms;
+
+/* Return the set of all valid member identifiers inside SCOPE.  */
+
+hash_set<tree, true> *get_member_ids (tree scope)
+{
+  if (TREE_CODE (scope) == NAMESPACE_DECL) return NULL;
+  gcc_assert (COMPLETE_TYPE_P (scope));
+
+  vec<tree, va_gc> *member_vec = get_classtype_member_vec (scope);
+  gcc_assert (member_vec);
+
+  hash_set<tree, true> *member_ids = new hash_set<tree, true>;
+
+  for (unsigned ix = member_vec->length (); ix--;)
+    member_ids->add (OVL_NAME ((*member_vec)[ix]));
+  return member_ids;
+}
+
+/* Return the active set of restricted member identifiers inside DECL.  */
+
+hash_set<tree, true> *get_class_restriction_set (tree decl)
+{
+  if (!modules_p ())
+    return NULL;
+  if (hash_set<tree, true> **ids = decl_perms.get (decl))
+    return *ids;
+
+  hash_set<tree, true> *ids = new hash_set<tree, true>;
+  decl_perms.put (decl, ids);
+  return ids;
+}
+
+/* Return true IFF DECL has no applicable export protected declarations
+   restricting its use within TYPE.
+
+   Implicitly defined member functions are always permissible.  */
+
+bool module_type_member_permissible (tree type, tree decl)
+{
+  if (!modules_p ()) return true;
+
+  /* Implicitly defaulted functions are always unrestricted.  */
+  if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl)
+      && DECL_DEFAULTED_FN (decl)
+      && (DECL_ARTIFICIAL (decl) || !DECL_INITIALIZED_IN_CLASS_P (decl)))
+    return true;
+
+  /* Class template specializations use the restrictions from the general
+     TEMPLATE_DECL.  */
+  if (TREE_CODE (type) == TYPE_DECL
+      && TREE_CODE (TREE_TYPE (type)) == RECORD_TYPE
+      && CLASSTYPE_TEMPLATE_INSTANTIATION (TREE_TYPE (type)))
+    type = ((CLASSTYPE_TI_TEMPLATE (TREE_TYPE (type))));
+
+  tree name = DECL_NAME (decl);
+  /* FIXME are there any other weird mappings we need to be aware of? ctor and
+     dtors have some other related constants. Is there an existing function
+     for this?  */
+  if (name == complete_ctor_identifier)
+    name = ctor_identifier;
+  if (name == complete_dtor_identifier)
+    name = dtor_identifier;
+
+  /* Treat the template conversion operator as the base conv_op_identifier so
+     it's possible to spell in user code.  */
+  if (IDENTIFIER_CONV_OP_P (name) && TREE_CODE (decl) == TEMPLATE_DECL)
+    name = conv_op_identifier;
+
+  if (hash_set<tree, true> **restrictions = decl_perms.get (type))
+    return (!*restrictions) || !(*restrictions)->contains (name);
+  return true;
+}
+
+/* Return true IFF DECL has no applicable export protected declarations
+   restricting its use within the NAMESPACE_DECL NS.  */
+
+bool module_ns_member_permissible (tree ns, tree decl)
+{
+  if (!modules_p ()) return true;
+  tree name = OVL_NAME (decl);
+  if (hash_set<tree, true> **restrictions = decl_perms.get (ns))
+    return (!*restrictions) || !(*restrictions)->contains (name);
+  return true;
+}
+
 /********************************************************************/
 /* Basic streaming & ELF.  Serialization is usually via mmap.  For
    writing we slide a buffer over the output file, syncing it

@@ -1,5 +1,5 @@
 // { dg-additional-options "-fmodules-ts" }
-export module bar;
+export module bar; // { dg-warning "not writing module" }
 import foo;
 
 struct Bar {
@@ -32,6 +32,4 @@ int main(int, char**) {
 
   return 0;
 }
-
-// { dg-excess-errors "not writing module" }
 

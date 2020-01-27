@@ -1780,13 +1780,11 @@ get_class_binding (tree klass, tree name, bool want_type /*=false*/)
   return get_class_binding_direct (klass, name, want_type);
 }
 
-/* Find the slot containing overloads called 'NAME'.  If there is no
-   such slot and the class is complete, create an empty one, at the
-   correct point in the sorted member vector.  Otherwise return NULL.
-   Deals with conv_op marker handling.  */
+/* Return the CLASSTYPE_MEMBER_VEC of 'KLASS', building it if it is currently
+   unset and KLASS is complete.  */
 
-tree *
-find_member_slot (tree klass, tree name)
+vec<tree, va_gc> *
+get_classtype_member_vec (tree klass)
 {
   bool complete_p = COMPLETE_TYPE_P (klass);
 
@@ -1805,6 +1803,19 @@ find_member_slot (tree klass, tree name)
 	  member_vec = CLASSTYPE_MEMBER_VEC (klass);
 	}
     }
+  return member_vec;
+}
+
+/* Find the slot containing overloads called 'NAME'.  If there is no
+   such slot and the class is complete, create an empty one, at the
+   correct point in the sorted member vector.  Otherwise return NULL.
+   Deals with conv_op marker handling.  */
+
+tree *
+find_member_slot (tree klass, tree name)
+{
+  bool complete_p = COMPLETE_TYPE_P (klass);
+  vec<tree, va_gc> *member_vec = get_classtype_member_vec (klass);
 
   if (IDENTIFIER_CONV_OP_P (name))
     name = conv_op_identifier;
@@ -7181,6 +7192,10 @@ lookup_qualified_name (tree scope, tree name, int prefer_type, bool complain,
 	  if (TREE_CODE (t) == OVERLOAD && TREE_TYPE (t) != unknown_type_node)
 	    t = OVL_FUNCTION (t);
 	}
+
+      /* FIXME if this is done here, it's impossible to diagnose correctly?  */
+      if (modules_p () && t && !module_ns_member_permissible (scope, t))
+	t = error_mark_node;
     }
   else if (cxx_dialect != cxx98 && TREE_CODE (scope) == ENUMERAL_TYPE)
     t = lookup_enumerator (scope, name);

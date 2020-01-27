@@ -7077,7 +7077,19 @@ complain_about_access (tree decl, tree diag_decl, bool issue_error)
   /* FIXME any complaint about a member that later had its access restricted
      more (eg a protected member of a privately inherited base class) uses its
      original access level in the complaint, not its effective access level.  */
-  if (DECL_MODULE_ACCESS (decl))
+  if (modules_p ()
+      && !module_type_member_permissible (TYPE_NAME (CP_DECL_CONTEXT (decl)),
+					  decl))
+    {
+      if (issue_error)
+	error ("%q#D is restricted by an %<export protected%> declaration", diag_decl);
+      inform (DECL_SOURCE_LOCATION (diag_decl),
+	      "%<%s%> missing from perm map", IDENTIFIER_POINTER (DECL_NAME (decl)));
+      /* FIXME get where it was restricted at?  */
+      inform (DECL_SOURCE_LOCATION (diag_decl),
+	      "declared here");
+    }
+  else if (modules_p() && DECL_MODULE_ACCESS (decl))
     {
       /* FIXME: module access members that are made private/protected through
 	 inheritance also report "restricted to the global module" -- is there

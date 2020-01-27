@@ -1,7 +1,7 @@
 // { dg-additional-options "-fmodules-ts" }
 module;
 #include "module-access-specifier-2_a.hpp"
-export module foo;
+export module foo; // { dg-warning "not writing module" }
 
 void fn()
 {
@@ -21,6 +21,4 @@ struct T3
 {
   restrict :foo; // { dg-error "does not name a type" }
 };
-
-// { dg-excess-errors "not writing module" }
 
