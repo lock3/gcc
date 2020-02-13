@@ -7092,7 +7092,8 @@ extern bool handle_module_option (unsigned opt, const char *arg, int value);
 
 /* Class member restrictions.  */
 extern hash_set<tree, true> *get_member_ids (tree);
-extern hash_set<tree, true> *get_class_restriction_set (tree);
+#define RXN_EXPORT 0
+extern hash_set<tree, true> *get_class_restriction_set (tree, int);
 extern bool module_type_member_permissible (tree, tree);
 extern bool module_ns_member_permissible (tree, tree);
 

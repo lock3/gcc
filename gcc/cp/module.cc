@@ -302,91 +302,13 @@ struct nodel_ptr_hash : pointer_hash<T>, typed_noop_remove <T *> {
 typedef simple_hashmap_traits<nodel_ptr_hash<void>, int> ptr_int_traits;
 typedef hash_map<void *,signed,ptr_int_traits> ptr_int_hash_map;
 
-static hash_map<tree_decl_hash, hash_set<tree, true> *> decl_perms;
+/* Restriction maps to be exported - keyed with *_DECL */ 
+static hash_map<tree_decl_hash, hash_set<tree, true> *> exported_decl_perms; 
+/* Imported restriction maps, used for lookup, keyed with a "qualified id" */
+static hash_map<tree_hash, hash_set<tree, true> *> imported_decl_perms;
+/* Maps decls to "qualified id" */
+static hash_map<tree_decl_hash, tree> decl_qualified_ids;
 
-/* Return the set of all valid member identifiers inside SCOPE.  */
-
-hash_set<tree, true> *get_member_ids (tree scope)
-{
-  if (TREE_CODE (scope) == NAMESPACE_DECL) return NULL;
-  gcc_assert (COMPLETE_TYPE_P (scope));
-
-  vec<tree, va_gc> *member_vec = get_classtype_member_vec (scope);
-  gcc_assert (member_vec);
-
-  hash_set<tree, true> *member_ids = new hash_set<tree, true>;
-
-  for (unsigned ix = member_vec->length (); ix--;)
-    member_ids->add (OVL_NAME ((*member_vec)[ix]));
-  return member_ids;
-}
-
-/* Return the active set of restricted member identifiers inside DECL.  */
-
-hash_set<tree, true> *get_class_restriction_set (tree decl)
-{
-  if (!modules_p ())
-    return NULL;
-  if (hash_set<tree, true> **ids = decl_perms.get (decl))
-    return *ids;
-
-  hash_set<tree, true> *ids = new hash_set<tree, true>;
-  decl_perms.put (decl, ids);
-  return ids;
-}
-
-/* Return true IFF DECL has no applicable export protected declarations
-   restricting its use within TYPE.
-
-   Implicitly defined member functions are always permissible.  */
-
-bool module_type_member_permissible (tree type, tree decl)
-{
-  if (!modules_p ()) return true;
-
-  /* Implicitly defaulted functions are always unrestricted.  */
-  if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl)
-      && DECL_DEFAULTED_FN (decl)
-      && (DECL_ARTIFICIAL (decl) || !DECL_INITIALIZED_IN_CLASS_P (decl)))
-    return true;
-
-  /* Class template specializations use the restrictions from the general
-     TEMPLATE_DECL.  */
-  if (TREE_CODE (type) == TYPE_DECL
-      && TREE_CODE (TREE_TYPE (type)) == RECORD_TYPE
-      && CLASSTYPE_TEMPLATE_INSTANTIATION (TREE_TYPE (type)))
-    type = ((CLASSTYPE_TI_TEMPLATE (TREE_TYPE (type))));
-
-  tree name = DECL_NAME (decl);
-  /* FIXME are there any other weird mappings we need to be aware of? ctor and
-     dtors have some other related constants. Is there an existing function
-     for this?  */
-  if (name == complete_ctor_identifier)
-    name = ctor_identifier;
-  if (name == complete_dtor_identifier)
-    name = dtor_identifier;
-
-  /* Treat the template conversion operator as the base conv_op_identifier so
-     it's possible to spell in user code.  */
-  if (IDENTIFIER_CONV_OP_P (name) && TREE_CODE (decl) == TEMPLATE_DECL)
-    name = conv_op_identifier;
-
-  if (hash_set<tree, true> **restrictions = decl_perms.get (type))
-    return (!*restrictions) || !(*restrictions)->contains (name);
-  return true;
-}
-
-/* Return true IFF DECL has no applicable export protected declarations
-   restricting its use within the NAMESPACE_DECL NS.  */
-
-bool module_ns_member_permissible (tree ns, tree decl)
-{
-  if (!modules_p ()) return true;
-  tree name = OVL_NAME (decl);
-  if (hash_set<tree, true> **restrictions = decl_perms.get (ns))
-    return (!*restrictions) || !(*restrictions)->contains (name);
-  return true;
-}
 
 /********************************************************************/
 /* Basic streaming & ELF.  Serialization is usually via mmap.  For
@@ -3735,6 +3657,10 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
  public:
   static void undef_macro (cpp_reader *, location_t, cpp_hashnode *);
   static cpp_macro *deferred_macro (cpp_reader *, location_t, cpp_hashnode *);
+
+private:
+  void write_restriction_map(elf_out *to, unsigned *crc_ptr);
+  bool read_restriction_map();
 
  public:
   void write_location (bytes_out &, location_t);
@@ -17138,6 +17064,9 @@ module_state::write (elf_out *to, cpp_reader *reader)
       counts[MSC_inits] = write_inits (to, table, &crc);
     }
 
+  /* Write the restrictions.  FIXME - not if there's no restrictions */
+  write_restriction_map(to, &crc);
+
   unsigned clusters = counts[MSC_sec_hwm] - counts[MSC_sec_lwm];
   dump () && dump ("Wrote %u clusters, average %u bytes/cluster",
 		   clusters, (bytes + clusters / 2) / (clusters + !clusters));
@@ -17384,6 +17313,9 @@ module_state::read_language (bool outermost)
   // at you _Ioinit).
   if (ok && counts[MSC_inits] && !read_inits (counts[MSC_inits]))
     ok = false;
+
+  // Read the restrictions.  FIXME - this may be in the wrong place?
+  read_restriction_map();
 
   function_depth--;
   
@@ -19287,6 +19219,288 @@ handle_module_option (unsigned code, const char *str, int)
     default:
       return false;
     }
+}
+
+/* Return the set of all valid member identifiers inside SCOPE.  */
+
+hash_set<tree, true> *get_member_ids (tree scope)
+{
+  if (TREE_CODE (scope) == NAMESPACE_DECL) return NULL;
+  gcc_assert (COMPLETE_TYPE_P (scope));
+
+  vec<tree, va_gc> *member_vec = get_classtype_member_vec (scope);
+  gcc_assert (member_vec);
+
+  hash_set<tree, true> *member_ids = new hash_set<tree, true>;
+
+  for (unsigned ix = member_vec->length (); ix--;)
+    member_ids->add (OVL_NAME ((*member_vec)[ix]));
+  return member_ids;
+}
+
+#include <string>
+
+static void make_qualid_str(tree decl, int inner, std::string &id)
+{
+  tree ctx = CP_DECL_CONTEXT(decl);
+  if (TYPE_P(ctx))
+    ctx = TYPE_NAME(ctx);
+  if (ctx != global_namespace)
+    make_qualid_str(ctx, -1, id);
+
+  tree name = DECL_NAME(decl);
+  if (!name)
+    name = DECL_ASSEMBLER_NAME_RAW(decl);
+  id.append(IDENTIFIER_POINTER(name), IDENTIFIER_LENGTH(name));
+
+  if (inner)
+    id.append(&"::{}"[inner + 1], 2);
+}
+
+static tree make_qualid(tree decl)
+{
+  // TODO: use gcc's make_qualified_name or something?
+  // or reconcile this with elf_out's qualified id?
+  // probably don't use std::string :)
+  std::string id;
+  make_qualid_str(decl, 0, id);
+  return get_identifier_with_length(id.c_str(), id.size());
+}
+
+#define RXN_EXPORT 0 // same as in cp_tree.h
+#define RXN_IMPORT 1
+#define RXN_LOOKUP 2 
+
+/* Gets the restriction set for a declaration. 
+   Mode is one RXN_* */
+hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
+{
+  if (!modules_p())
+    return NULL;
+  if (mode < 0 || mode > 2) // TODO: error
+    return NULL;
+  if (mode == RXN_EXPORT && !named_module_p()) // TODO: error
+    return NULL;
+
+  hash_set<tree, true> *ids = NULL;
+  if (mode == RXN_EXPORT) 
+  {
+    bool existed;
+    ids = exported_decl_perms.get_or_insert(decl_or_id, &existed);
+    if (!existed)
+    {
+      // If we're exporting, make an empty restriction map so the
+      // parser can add members to it.
+      ids = new hash_set<tree, true>;
+      exported_decl_perms.put(decl_or_id, ids);
+    }
+  }
+  else
+  {
+    // If we're doing lookup, then decl_or_id is a decl.
+    // We need the qualified id.  Otherwise, we already have
+    // the qualified id from the CMI.
+    tree id = decl_or_id;
+    if (mode == RXN_LOOKUP)
+    {
+      // find the qualid
+      auto tree = decl_qualified_ids.get(decl_or_id);
+      if (tree)
+      {
+        id = *tree;
+      }
+      else
+      {
+        // TODO: make & store a qualified name.
+        id = make_qualid(decl_or_id);
+        decl_qualified_ids.put(decl_or_id, id);
+      }
+    }
+
+    ids = imported_decl_perms.get_or_insert(id, NULL);
+  }
+
+  return ids;
+}
+
+/* Return true IFF DECL has no applicable export protected declarations
+   restricting its use within TYPE.
+
+   Implicitly defined member functions are always permissible.  */
+
+bool module_type_member_permissible (tree type, tree decl)
+{
+  if (!modules_p ()) return true;
+
+  /* Implicitly defaulted functions are always unrestricted.  */
+  if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl)
+      && DECL_DEFAULTED_FN (decl)
+      && (DECL_ARTIFICIAL (decl) || !DECL_INITIALIZED_IN_CLASS_P (decl)))
+    return true;
+
+  /* Class template specializations use the restrictions from the general
+     TEMPLATE_DECL.  */
+  if (TREE_CODE (type) == TYPE_DECL
+      && TREE_CODE (TREE_TYPE (type)) == RECORD_TYPE
+      && CLASSTYPE_TEMPLATE_INSTANTIATION (TREE_TYPE (type)))
+    type = ((CLASSTYPE_TI_TEMPLATE (TREE_TYPE (type))));
+
+  tree name = DECL_NAME (decl);
+  /* FIXME are there any other weird mappings we need to be aware of? ctor and
+     dtors have some other related constants. Is there an existing function
+     for this?  */
+  if (name == complete_ctor_identifier)
+    name = ctor_identifier;
+  if (name == complete_dtor_identifier)
+    name = dtor_identifier;
+
+  /* Treat the template conversion operator as the base conv_op_identifier so
+     it's possible to spell in user code.  */
+  if (IDENTIFIER_CONV_OP_P (name) && TREE_CODE (decl) == TEMPLATE_DECL)
+    name = conv_op_identifier;
+
+  hash_set<tree, true> *restrictions = get_class_restriction_set(type, RXN_LOOKUP);
+  return (!restrictions) || !restrictions->contains(name);
+}
+
+/* Return true IFF DECL has no applicable export protected declarations
+   restricting its use within the NAMESPACE_DECL NS.  */
+
+bool module_ns_member_permissible (tree ns, tree decl)
+{
+  if (!modules_p ()) return true;
+  tree name = OVL_NAME (decl);
+
+  hash_set<tree, true> *restrictions = get_class_restriction_set(ns, RXN_LOOKUP);
+  return (!restrictions) || !restrictions->contains(name);
+}
+
+
+void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
+{
+  // TODO: iterate through partitions and intersect this module's
+  // permission map with all the partitions' permission maps.
+  // Maybe pass paritions as a parameter.
+
+  dump() && dump("Writing restriction map");
+  dump.indent();
+
+  bytes_out sec(to);
+  sec.begin();
+
+  sec.u(exported_decl_perms.elements());
+  //printf("wrote map %u\n", exported_decl_perms.elements());
+
+  for (auto i = exported_decl_perms.begin(); i != exported_decl_perms.end(); ++i)
+  {
+    auto pair = *i;
+    if (!pair.second)
+      continue;
+    sec.u(to->qualified_name(pair.first, false));
+    sec.u(pair.second->elements());
+
+    for (auto j = pair.second->begin(); j != pair.second->end(); ++j)
+    {
+      sec.u(to->name(*j));
+    }
+    //printf("  wrote decl: %zu members\n", pair.second->elements());
+  }
+
+  sec.end(to, to->name(MOD_SNAME_PFX ".rxn"), crc_ptr);
+  dump.outdent();
+}
+
+// Reads a cpp node whose name was serialized into
+// the string table.
+static tree read_cpp_node(elf_in *from, bytes_in *sec)
+{
+  unsigned u = sec->u();
+  const char *name = from->name(u);
+  return get_identifier(name);
+}
+
+// Find the actual declaration.
+static tree do_lookup(tree qualid)
+{
+  // TODO: implelemt me!
+  return qualid;
+}
+
+static void update_restrictions(hash_set<tree, true> *a, hash_set<tree, true> *b)
+{
+  // TODO: take the union if a and b form the same interface (i.e. from partitions or
+  // the same interface unit).
+
+  // If we import two views of a class, then we can only retain
+  // the the restricted members that are present in both a and b;
+  // so we want the intersection.
+  vec<tree> x;
+  x.create(a->elements());
+  for (auto ai = a->begin(); ai != a->end(); ++ai)
+  {
+    if (!b->contains(*ai))
+      x.quick_push(*ai);
+  }
+  for (auto xi = x.begin(); xi != x.end(); ++xi)
+  {
+    a->remove(*xi);
+  }
+  x.release();
+}
+
+bool module_state::read_restriction_map()
+{
+  bytes_in sec;
+
+  if (!sec.begin(loc, from(), MOD_SNAME_PFX ".rxn"))
+    return false;
+  dump() && dump("Reading restriction map");
+  dump.indent();
+
+  unsigned num_maps = sec.u();
+  //printf("read map: %zu elements\n", num_maps);
+
+  for (unsigned i = 0; i != num_maps && !sec.get_overrun(); i++)
+  {
+    tree decl = read_cpp_node(from(), &sec);
+    decl = do_lookup(decl);
+    hash_set<tree, true> *restrictions = get_class_restriction_set(decl, RXN_IMPORT);
+
+    unsigned num_members = sec.u();
+    if (num_members)
+    {
+      //printf("  read decl %s: %zu members\n", IDENTIFIER_POINTER(decl), num_members);
+      hash_set<tree, true> *new_restrictions  = new hash_set<tree, true>();
+      for (unsigned j = 0; j != num_members && !sec.get_overrun(); j++)
+      {
+        tree member = read_cpp_node(from(), &sec);
+        //printf("    read ident %s\n", IDENTIFIER_POINTER(member));
+        new_restrictions->add(member);
+      }
+
+      // If there are existing permissions, compute the intersection.
+      // Otherwise, this is the first restriction map for decl.
+      if (restrictions)
+      {
+        update_restrictions(restrictions, new_restrictions);
+      }
+      else
+      {
+        restrictions = new_restrictions;
+        imported_decl_perms.put(decl, restrictions);
+      }
+      for (auto ri = restrictions->begin(); ri != restrictions->end(); ++ri)
+      {
+        //printf("    restricted: %s::%s\n", IDENTIFIER_POINTER(decl), IDENTIFIER_POINTER(*ri));
+      }
+    }
+  }
+
+  dump.outdent();
+  if (!sec.end(from()))
+    return false;
+
+  return true;
 }
 
 #include "gt-cp-module.h"
