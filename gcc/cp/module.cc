@@ -308,6 +308,9 @@ static hash_map<tree_decl_hash, hash_set<tree, true> *> exported_decl_perms;
 static hash_map<tree_hash, hash_set<tree, true> *> imported_decl_perms;
 /* Maps decls to "qualified id" */
 static hash_map<tree_decl_hash, tree> decl_qualified_ids;
+/* Maps instantiations of partial specializations back to the partial
+   specialization they're an instantion of.  */
+static hash_map<tree_decl_hash, tree> partial_specialization_instantiations;
 
 
 /********************************************************************/
@@ -19238,35 +19241,21 @@ hash_set<tree, true> *get_member_ids (tree scope)
   return member_ids;
 }
 
-#include <string>
+/* Return an IDENTIFIER_NODE with a fully qualified name for DECL. This
+   includes both a nested namespace specifier and template head if required.
 
-static void make_qualid_str(tree decl, int inner, std::string &id)
-{
-  tree ctx = CP_DECL_CONTEXT(decl);
-  if (TYPE_P(ctx))
-    ctx = TYPE_NAME(ctx);
-  if (ctx != global_namespace)
-    make_qualid_str(ctx, -1, id);
+   The intention is to uniquely identify regular types, template types,
+   partial specializations of types, and full specializations of types.  */
 
-  tree name = DECL_NAME(decl);
-  if (!name)
-    name = DECL_ASSEMBLER_NAME_RAW(decl);
-  id.append(IDENTIFIER_POINTER(name), IDENTIFIER_LENGTH(name));
-
-  if (inner)
-    id.append(&"::{}"[inner + 1], 2);
-}
-
-static tree make_qualid(tree decl)
+tree
+make_qualid (tree decl)
 {
   // TODO: use gcc's make_qualified_name or something?
   // or reconcile this with elf_out's qualified id?
-  // probably don't use std::string :)
-  std::string id;
-  make_qualid_str(decl, 0, id);
-  return get_identifier_with_length(id.c_str(), id.size());
+  return get_identifier (decl_as_string (decl, TFF_TEMPLATE_HEADER));
 }
 
+/* FIXME turn into a public enum  */
 #define RXN_EXPORT 0 // same as in cp_tree.h
 #define RXN_IMPORT 1
 #define RXN_LOOKUP 2 
@@ -19323,12 +19312,42 @@ hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
   return ids;
 }
 
+/* Record that a particular template instantiation actually comes from a
+   partial specialization of the general template.
+
+   This is used later when checking restrictions of an instantiation that may
+   have come from a specialization and not the general decl.  */
+
+void
+record_partial_specialization_instantiation (tree spec, tree inst)
+{
+  if (!modules_p ()) return;
+  partial_specialization_instantiations.put (
+      TYPE_NAME (inst), TYPE_NAME (spec));
+}
+
+/* Return true IFF decls corresponding to NAME in CONTEXT are allowed to be
+   used by the current TU.
+
+   This is run after special decl to name mappings are applied by the methods
+   further down. */
+
+static bool
+member_permissible (tree context, tree name)
+{
+  if (!modules_p ()) return true;
+  hash_set<tree, true> *restrictions =
+    get_class_restriction_set (context, RXN_LOOKUP);
+  return (!restrictions) || !restrictions->contains (name);
+}
+
 /* Return true IFF DECL has no applicable export protected declarations
    restricting its use within TYPE.
 
    Implicitly defined member functions are always permissible.  */
 
-bool module_type_member_permissible (tree type, tree decl)
+bool
+module_type_member_permissible (tree type, tree decl)
 {
   if (!modules_p ()) return true;
 
@@ -19339,11 +19358,18 @@ bool module_type_member_permissible (tree type, tree decl)
     return true;
 
   /* Class template specializations use the restrictions from the general
-     TEMPLATE_DECL.  */
+     TEMPLATE_DECL or the most specialized template they're an instantiaton
+     of.  */
   if (TREE_CODE (type) == TYPE_DECL
       && TREE_CODE (TREE_TYPE (type)) == RECORD_TYPE
       && CLASSTYPE_TEMPLATE_INSTANTIATION (TREE_TYPE (type)))
-    type = ((CLASSTYPE_TI_TEMPLATE (TREE_TYPE (type))));
+    {
+      tree *spec = partial_specialization_instantiations.get (type);
+      if (spec)
+	type = *spec;
+      else
+	type = CLASSTYPE_TI_TEMPLATE (TREE_TYPE (type));
+    }
 
   tree name = DECL_NAME (decl);
   /* FIXME are there any other weird mappings we need to be aware of? ctor and
@@ -19358,9 +19384,10 @@ bool module_type_member_permissible (tree type, tree decl)
      it's possible to spell in user code.  */
   if (IDENTIFIER_CONV_OP_P (name) && TREE_CODE (decl) == TEMPLATE_DECL)
     name = conv_op_identifier;
+  else if (IDENTIFIER_CONV_OP_P (name))
+    name = make_qualid (decl);
 
-  hash_set<tree, true> *restrictions = get_class_restriction_set(type, RXN_LOOKUP);
-  return (!restrictions) || !restrictions->contains(name);
+  return member_permissible (type, name);
 }
 
 /* Return true IFF DECL has no applicable export protected declarations
@@ -19371,8 +19398,7 @@ bool module_ns_member_permissible (tree ns, tree decl)
   if (!modules_p ()) return true;
   tree name = OVL_NAME (decl);
 
-  hash_set<tree, true> *restrictions = get_class_restriction_set(ns, RXN_LOOKUP);
-  return (!restrictions) || !restrictions->contains(name);
+  return member_permissible (ns, name);
 }
 
 
@@ -19396,7 +19422,7 @@ void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
     auto pair = *i;
     if (!pair.second)
       continue;
-    sec.u(to->qualified_name(pair.first, false));
+    sec.u (to->name (make_qualid (pair.first)));
     sec.u(pair.second->elements());
 
     for (auto j = pair.second->begin(); j != pair.second->end(); ++j)
@@ -19489,10 +19515,12 @@ bool module_state::read_restriction_map()
         restrictions = new_restrictions;
         imported_decl_perms.put(decl, restrictions);
       }
+      /* FIXME we can't use auto yet
       for (auto ri = restrictions->begin(); ri != restrictions->end(); ++ri)
       {
         //printf("    restricted: %s::%s\n", IDENTIFIER_POINTER(decl), IDENTIFIER_POINTER(*ri));
       }
+      */
     }
   }
 

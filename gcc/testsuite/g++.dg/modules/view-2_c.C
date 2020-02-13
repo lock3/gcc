@@ -64,7 +64,6 @@ export void fn_op()
 {
   FooOp a, b;
   a += b; // { dg-error "export protected" }
-  /* FIXME: type of conversion operator not preserved in written DECL_NAME  */
   int z = (int)a; // { dg-error "export protected" }
   double zd = (double)a; // { dg-bogus "export protected" }
   bool zb = (bool)a; // { dg-error "export protected" }

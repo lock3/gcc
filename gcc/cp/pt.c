@@ -11653,6 +11653,7 @@ instantiate_class_template_1 (tree type)
 	 presently be {int*} -- but we need {int}.  */
       pattern = TREE_TYPE (t);
       args = TREE_PURPOSE (t);
+      record_partial_specialization_instantiation (pattern, type);
     }
   else
     {

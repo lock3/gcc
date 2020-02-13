@@ -75,7 +75,7 @@ export struct FooOp
   FooOp &operator+=(FooOp &) { return *this; }
   operator int() { return 3; }
   operator double() { return 5.7; }
-  template<typename T>
-  operator T() { return T{}; }
+  template<typename TZ>
+  operator TZ() { return TZ{}; }
 };
 

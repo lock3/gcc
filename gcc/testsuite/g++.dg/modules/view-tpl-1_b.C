@@ -12,8 +12,11 @@ export protected Foo<Bar> restrict xyz;
 export struct Dummy { };
 
 export protected FooPair restrict second;
-/* FIXME
-export protected template<typename T> FooPair<int, T> restrict x;
 export protected template<> FooPair<int, int> restrict y;
-*/
+export protected template<typename T> FooPair<int, T> restrict x;
+
+export template<typename T>
+using BlahSpec = FooPair<int, T>;
+
+export protected BlahSpec restrict x;
 

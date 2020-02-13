@@ -2,27 +2,7 @@
 export module foo;
 // { dg-module-cmi foo }
 
-export template<typename T>
-struct Foo
-{
-  T x, y, z;
-};
-
-export template<>
-struct Foo<char>
-{
-  double xyz;
-  int x;
-};
-
-export struct Bar { };
-
-export template<>
-struct Foo<Bar>
-{
-  double xyz;
-};
-
+namespace foons {
 export template<typename T1, typename T2>
 struct FooPair
 {
@@ -42,4 +22,5 @@ struct FooPair<int, int>
 {
   int x, y;
 };
+}
 

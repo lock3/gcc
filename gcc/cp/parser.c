@@ -13638,9 +13638,12 @@ cp_parser_filter_view_decls (cp_parser *parser, tree scope,
 	  continue;
 	}
 
+      if (TREE_CODE (elem_decl) == SCOPE_REF)
+	elem_decl = TREE_OPERAND (elem_decl, 1);
       if (TREE_CODE (elem_decl) == BASELINK)
 	elem_decl = OVL_FIRST (BASELINK_FUNCTIONS (elem_decl));
-      tree elem_decl_name = OVL_NAME (elem_decl);
+      tree elem_decl_name =
+	TREE_CODE (elem_decl) == IDENTIFIER_NODE ? elem_decl : OVL_NAME (elem_decl);
 
       /* Ensure the name is not strictly from a super type.  */
       if (members && !members->contains (elem_decl_name)
@@ -13655,8 +13658,10 @@ cp_parser_filter_view_decls (cp_parser *parser, tree scope,
 	  && TREE_TYPE (TREE_TYPE (elem_decl)) == integer_type_node)
 	{
 	  idents.safe_push (conv_op_identifier);
-	  idents.safe_push (elem_decl_name);
+	  idents.safe_push (make_qualid (elem_decl));
 	}
+      else if(IDENTIFIER_CONV_OP_P (elem_decl_name))
+	idents.safe_push (make_qualid (elem_decl));
       else
 	idents.safe_push (elem_decl_name);
     }
@@ -13666,13 +13671,79 @@ cp_parser_filter_view_decls (cp_parser *parser, tree scope,
 
 /* view-identifier
  *   using-declarator
- *   template<> template-id FIXME
- *   template-head template-id FIXME
+ *   template<> template-id
+ *   template-head template-id
  *  */
 
 static tree_pair
 cp_parser_view_identifier (cp_parser *parser)
 {
+  /* FIXME extract/unify with decl parsing? Is there anywhere else we parse
+     the template-head & template-id in isolation?  */
+  /* If we're seeing the template keyword, then we must be trying to introduce
+     at least one template parameter list for use in the view-identifier.
+     Parse the template-parameter-list and then recursively call ourselves to
+     parse the actual template-id following it.  */
+  if (cp_lexer_next_token_is_keyword (parser->lexer, RID_TEMPLATE))
+    {
+      cp_lexer_consume_token (parser->lexer);
+      tree parameter_list;
+
+      /* Look for the `<' token.  */
+      if (!cp_parser_require (parser, CPP_LESS, RT_LESS))
+	return std::make_pair (error_mark_node, NULL_TREE);
+
+      /* We cannot perform access checks on the template parameter
+	 declarations until we know what is being declared, just as we
+	 cannot check the decl-specifier list.  */
+      push_deferring_access_checks (dk_deferred);
+
+      /* If the next token is `>', then we have an invalid
+	 specialization.  Rather than complain about an invalid template
+	 parameter, issue an error message here.  */
+      if (cp_lexer_next_token_is (parser->lexer, CPP_GREATER))
+	{
+	  begin_specialization ();
+	  parameter_list = NULL_TREE;
+	}
+      else
+	{
+	  /* Parse the template parameters.  */
+	  parameter_list = cp_parser_template_parameter_list (parser);
+	}
+
+      /* Look for the `>'.  */
+      cp_parser_skip_to_end_of_template_parameter_list (parser);
+
+      /* Manage template requirements */
+      if (flag_concepts && current_template_parms)
+	{
+	  tree reqs = get_shorthand_constraints (current_template_parms);
+	  if (tree treqs = cp_parser_requires_clause_opt (parser, false))
+	    reqs = combine_constraint_expressions (reqs, treqs);
+	  TEMPLATE_PARMS_CONSTRAINTS (current_template_parms) = reqs;
+	}
+
+      /* We just processed one more parameter list.  */
+      ++parser->num_template_parameter_lists;
+
+      /* Get the deferred access checks from the parameter list.  These
+	 will be checked once we know what is being declared, as for a
+	 member template the checks must be performed in the scope of the
+	 class containing the member.  */
+      vec<deferred_access_check, va_gc> *checks = get_deferred_access_checks ();
+
+      tree_pair ident = cp_parser_view_identifier (parser);
+
+      /* We are done with the current parameter list.  */
+      --parser->num_template_parameter_lists;
+
+      pop_deferring_access_checks ();
+
+      finish_template_decl (parameter_list);
+      return ident;
+    }
+
   cp_expr id = cp_parser_id_expression (parser,
 					/*template_keyword_p=*/false,
 					/*check_dependency_p=*/true,
