@@ -49,6 +49,13 @@ export struct Foo4
   ~Foo4() { }
 };
 
+export struct Foo4B
+{
+  Foo4B() { }
+  Foo4B(int x) { }
+  ~Foo4B() { }
+};
+
 export struct Foo5
 {
   int x;

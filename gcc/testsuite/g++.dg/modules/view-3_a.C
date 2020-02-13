@@ -7,3 +7,8 @@ protected:
   int prot;
 };
 
+export struct FooB {
+protected:
+  int prot;
+};
+
