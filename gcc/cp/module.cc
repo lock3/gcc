@@ -19256,29 +19256,29 @@ make_qualid (tree decl)
 }
 
 /* FIXME turn into a public enum  */
-#define RXN_EXPORT 0 // same as in cp_tree.h
+#define RXN_PARSE 0 // same as in cp_tree.h
 #define RXN_IMPORT 1
 #define RXN_LOOKUP 2 
 
-/* Gets the restriction set for a declaration. 
-   Mode is one RXN_* */
+/* Gets the restriction set for a DECL_OR_ID. 
+   MODE is one RXN_* */
 hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
 {
   if (!modules_p())
     return NULL;
-  if (mode < 0 || mode > 2) // TODO: error
+  if (mode < 0 || mode > 3) // TODO: error
     return NULL;
-  if (mode == RXN_EXPORT && !named_module_p()) // TODO: error
+  if (mode == RXN_PARSE  && !named_module_p()) // TODO: error
     return NULL;
 
   hash_set<tree, true> *ids = NULL;
-  if (mode == RXN_EXPORT) 
+  if (mode == RXN_PARSE) 
   {
     bool existed;
     ids = exported_decl_perms.get_or_insert(decl_or_id, &existed);
     if (!existed)
     {
-      // If we're exporting, make an empty restriction map so the
+      // If we're parsing, make an empty restriction map so the
       // parser can add members to it.
       ids = new hash_set<tree, true>;
       exported_decl_perms.put(decl_or_id, ids);
@@ -19286,9 +19286,9 @@ hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
   }
   else
   {
-    // If we're doing lookup, then decl_or_id is a decl.
-    // We need the qualified id.  Otherwise, we already have
-    // the qualified id from the CMI.
+    // If mode=lookup, then decl_or_id is a decl and we 
+    // need the qualified id.
+    // If mode=import, then decl_or_id is the qualid from the cmi.
     tree id = decl_or_id;
     if (mode == RXN_LOOKUP)
     {
@@ -19419,13 +19419,8 @@ bool module_ns_member_permissible (tree ns, tree decl)
   return member_permissible (ns, name);
 }
 
-
 void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
 {
-  // TODO: iterate through partitions and intersect this module's
-  // permission map with all the partitions' permission maps.
-  // Maybe pass paritions as a parameter.
-
   dump() && dump("Writing restriction map");
   dump.indent();
 
@@ -19433,21 +19428,47 @@ void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
   sec.begin();
 
   sec.u(exported_decl_perms.elements());
-  //printf("wrote map %u\n", exported_decl_perms.elements());
 
   for (auto i = exported_decl_perms.begin(); i != exported_decl_perms.end(); ++i)
   {
     auto pair = *i;
     if (!pair.second)
       continue;
-    sec.u (to->name (make_qualid (pair.first)));
-    sec.u(pair.second->elements());
+    
+    tree decl = pair.first;
+    sec.u(to->qualified_name(decl, false));
 
-    for (auto j = pair.second->begin(); j != pair.second->end(); ++j)
+    hash_set<tree, true> *exp_ids = pair.second;
+    hash_set<tree, true> *imp_ids = get_class_restriction_set(decl, RXN_LOOKUP);
+    hash_set<tree, true> *ids;
+    if (imp_ids)
+    {
+      // union into a new, flat set.
+      // TODO: should use links here, but requires maintaining
+      // source info in the map.
+      ids = new hash_set<tree, true>();
+      for (auto j = imp_ids->begin(); j != imp_ids->end(); ++j)
+      {
+        ids->add(*j);
+      }
+      for (auto j = exp_ids->begin(); j != exp_ids->end(); ++j)
+      {
+        ids->add(*j);
+      }
+    }
+    else
+    {
+      ids = exp_ids;
+    }
+
+    sec.u(ids->elements());
+    for (auto j = ids->begin(); j != ids->end(); ++j)
     {
       sec.u(to->name(*j));
     }
-    //printf("  wrote decl: %zu members\n", pair.second->elements());
+
+    if (ids != exp_ids)
+      delete ids;
   }
 
   sec.end(to, to->name(MOD_SNAME_PFX ".rxn"), crc_ptr);
@@ -19463,82 +19484,103 @@ static tree read_cpp_node(elf_in *from, bytes_in *sec)
   return get_identifier(name);
 }
 
-// Find the actual declaration.
-static tree do_lookup(tree qualid)
+static hash_set<tree, true> *update_restrictions(module_state *mod,
+                                                 hash_set<tree, true> *a,
+                                                 hash_set<tree, true> *b)
 {
-  // TODO: implelemt me!
-  return qualid;
+  if (mod->direct_p)
+  {
+    // On first invokation, take the non-empty set.
+    if (!a)
+      return b;
+
+    // If we import two views of a class, then we can only retain
+    // the the restricted members that are present in both a and b;
+    // so we want the intersection.
+    vec<tree> x;
+    x.create(a->elements());
+    for (auto ai = a->begin(); ai != a->end(); ++ai)
+    {
+      if (!b->contains(*ai))
+        x.quick_push(*ai);
+    }
+    for (auto xi = x.begin(); xi != x.end(); ++xi)
+    {
+      a->remove(*xi);
+    }
+    x.release();
+
+    return a;
+  }
+  else
+  {
+    // For transitive imports, update is a noop.
+    return a;
+  }
 }
 
-static void update_restrictions(hash_set<tree, true> *a, hash_set<tree, true> *b)
+static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> *rxn)
 {
-  // TODO: take the union if a and b form the same interface (i.e. from partitions or
-  // the same interface unit).
-
-  // If we import two views of a class, then we can only retain
-  // the the restricted members that are present in both a and b;
-  // so we want the intersection.
-  vec<tree> x;
-  x.create(a->elements());
-  for (auto ai = a->begin(); ai != a->end(); ++ai)
+  printf("rxn's @%s for %s", mod, IDENTIFIER_POINTER(decl));
+  if (rxn && rxn->elements())
   {
-    if (!b->contains(*ai))
-      x.quick_push(*ai);
+    printf(": { ");
+    int n = 0;
+    for (auto i = rxn->begin(); i != rxn->end(); ++i, ++n) 
+    {
+      printf("%s%s", n ? "," : "",  IDENTIFIER_POINTER(*i));
+    }
+    printf(" }\n");
   }
-  for (auto xi = x.begin(); xi != x.end(); ++xi)
+  else 
   {
-    a->remove(*xi);
+    printf(" empty\n");
   }
-  x.release();
 }
 
 bool module_state::read_restriction_map()
 {
+  // TODO: Uncomment the following line.
+  // For transitive imports, we don't need 
+  // to actually read the table. 
+  // if (!direct_p)
+  //   return true;
+
   bytes_in sec;
 
-  if (!sec.begin(loc, from(), MOD_SNAME_PFX ".rxn"))
+  if (!sec.begin(loc, from(), MOD_SNAME_PFX ".rxn"))  
     return false;
   dump() && dump("Reading restriction map");
   dump.indent();
 
   unsigned num_maps = sec.u();
-  //printf("read map: %zu elements\n", num_maps);
 
   for (unsigned i = 0; i != num_maps && !sec.get_overrun(); i++)
   {
     tree decl = read_cpp_node(from(), &sec);
-    decl = do_lookup(decl);
     hash_set<tree, true> *restrictions = get_class_restriction_set(decl, RXN_IMPORT);
 
     unsigned num_members = sec.u();
     if (num_members)
     {
-      //printf("  read decl %s: %zu members\n", IDENTIFIER_POINTER(decl), num_members);
       hash_set<tree, true> *new_restrictions  = new hash_set<tree, true>();
       for (unsigned j = 0; j != num_members && !sec.get_overrun(); j++)
       {
         tree member = read_cpp_node(from(), &sec);
-        //printf("    read ident %s\n", IDENTIFIER_POINTER(member));
         new_restrictions->add(member);
       }
 
-      // If there are existing permissions, compute the intersection.
-      // Otherwise, this is the first restriction map for decl.
-      if (restrictions)
+      restrictions = update_restrictions(this, restrictions, new_restrictions);
+      if (restrictions == new_restrictions)
       {
-        update_restrictions(restrictions, new_restrictions);
-      }
-      else
-      {
-        restrictions = new_restrictions;
         imported_decl_perms.put(decl, restrictions);
       }
-      /* FIXME we can't use auto yet
-      for (auto ri = restrictions->begin(); ri != restrictions->end(); ++ri)
+      if (restrictions != new_restrictions)
       {
-        //printf("    restricted: %s::%s\n", IDENTIFIER_POINTER(decl), IDENTIFIER_POINTER(*ri));
+        delete new_restrictions;
       }
-      */
+
+      //print_restrictions(this->flatname, decl, restrictions);
     }
   }
 
