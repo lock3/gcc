@@ -19436,7 +19436,7 @@ void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
       continue;
     
     tree decl = pair.first;
-    sec.u(to->qualified_name(decl, false));
+    sec.u (to->name (make_qualid (pair.first)));
 
     hash_set<tree, true> *exp_ids = pair.second;
     hash_set<tree, true> *imp_ids = get_class_restriction_set(decl, RXN_LOOKUP);
@@ -19447,11 +19447,11 @@ void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
       // TODO: should use links here, but requires maintaining
       // source info in the map.
       ids = new hash_set<tree, true>();
-      for (auto j = imp_ids->begin(); j != imp_ids->end(); ++j)
+      for (hash_set<tree, true>::iterator j = imp_ids->begin(); j != imp_ids->end(); ++j)
       {
         ids->add(*j);
       }
-      for (auto j = exp_ids->begin(); j != exp_ids->end(); ++j)
+      for (hash_set<tree, true>::iterator j = exp_ids->begin(); j != exp_ids->end(); ++j)
       {
         ids->add(*j);
       }
@@ -19462,7 +19462,7 @@ void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
     }
 
     sec.u(ids->elements());
-    for (auto j = ids->begin(); j != ids->end(); ++j)
+    for (hash_set<tree, true>::iterator j = ids->begin(); j != ids->end(); ++j)
     {
       sec.u(to->name(*j));
     }
@@ -19488,7 +19488,7 @@ static hash_set<tree, true> *update_restrictions(module_state *mod,
                                                  hash_set<tree, true> *a,
                                                  hash_set<tree, true> *b)
 {
-  if (mod->direct_p)
+  if (mod->directness != MD_NONE)
   {
     // On first invokation, take the non-empty set.
     if (!a)
@@ -19499,12 +19499,12 @@ static hash_set<tree, true> *update_restrictions(module_state *mod,
     // so we want the intersection.
     vec<tree> x;
     x.create(a->elements());
-    for (auto ai = a->begin(); ai != a->end(); ++ai)
+    for (hash_set<tree, true>::iterator ai = a->begin(); ai != a->end(); ++ai)
     {
       if (!b->contains(*ai))
         x.quick_push(*ai);
     }
-    for (auto xi = x.begin(); xi != x.end(); ++xi)
+    for (tree *xi = x.begin(); xi != x.end(); ++xi)
     {
       a->remove(*xi);
     }
@@ -19519,6 +19519,7 @@ static hash_set<tree, true> *update_restrictions(module_state *mod,
   }
 }
 
+#if 0
 static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> *rxn)
 {
   printf("rxn's @%s for %s", mod, IDENTIFIER_POINTER(decl));
@@ -19526,7 +19527,7 @@ static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> 
   {
     printf(": { ");
     int n = 0;
-    for (auto i = rxn->begin(); i != rxn->end(); ++i, ++n) 
+    for (hash_set<tree, true>::iterator i = rxn->begin(); i != rxn->end(); ++i, ++n) 
     {
       printf("%s%s", n ? "," : "",  IDENTIFIER_POINTER(*i));
     }
@@ -19537,13 +19538,14 @@ static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> 
     printf(" empty\n");
   }
 }
+#endif
 
 bool module_state::read_restriction_map()
 {
   // TODO: Uncomment the following line.
   // For transitive imports, we don't need 
   // to actually read the table. 
-  // if (!direct_p)
+  // if (!directness != MD_NONE)
   //   return true;
 
   bytes_in sec;
@@ -19572,13 +19574,9 @@ bool module_state::read_restriction_map()
 
       restrictions = update_restrictions(this, restrictions, new_restrictions);
       if (restrictions == new_restrictions)
-      {
         imported_decl_perms.put(decl, restrictions);
-      }
       if (restrictions != new_restrictions)
-      {
         delete new_restrictions;
-      }
 
       //print_restrictions(this->flatname, decl, restrictions);
     }
