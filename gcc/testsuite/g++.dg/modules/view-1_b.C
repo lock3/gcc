@@ -11,9 +11,9 @@ export protected Foo permit bad, ; // { dg-error "expected unqualified-id" }
 // { dg-error "not a member" "" { target *-*-* } .-1 }
 
 /* export protected ignores access */
-export protected Foo restrict prot_x; // { dg-bogus "is protected" }
-export protected Foo restrict priv_x; // { dg-bogus "is private" }
-export protected Foo restrict mod_x; // { dg-bogus "is restricted" }
+export protected FooAccess restrict prot_x; // { dg-bogus "is protected" }
+export protected FooAccess restrict priv_x; // { dg-bogus "is private" }
+export protected FooAccess restrict mod_x; // { dg-bogus "is restricted" }
 
 export protected Foo permit quux, quux; // { dg-error "more than once" }
 

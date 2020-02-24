@@ -22,9 +22,9 @@ export void fn3()
 {
   Foo3 foo;
   foo.u2 = 3.5 + (int)foo.e1;
-  int z = (int)foo.e2; // { dg-error "inaccessible" }
+  int z = (int)foo.e2; // { dg-error "export protected" }
   Foo3 foo2;
-  foo2.u1 = 5; // { dg-error "inaccessible" }
+  foo2.u1 = 5; // { dg-error "export protected" }
 }
 
 export void fn4()

@@ -5677,14 +5677,15 @@ type_build_dtor_call (tree t)
   if (cxx_dialect < cxx11)
     return false;
   /* A user-declared destructor might be private, and a destructor might
-     be trivial but deleted.  */
+     be trivial but deleted or restricted.  */
   for (ovl_iterator iter (get_class_binding (inner, complete_dtor_identifier));
        iter; ++iter)
     {
       tree fn = *iter;
       if (!DECL_ARTIFICIAL (fn)
 	  || TREE_DEPRECATED (fn)
-	  || DECL_DELETED_FN (fn))
+	  || DECL_DELETED_FN (fn)
+	  || !module_type_member_permissible (inner, fn))
 	return true;
     }
   return false;

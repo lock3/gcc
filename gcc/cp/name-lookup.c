@@ -7192,10 +7192,6 @@ lookup_qualified_name (tree scope, tree name, int prefer_type, bool complain,
 	  if (TREE_CODE (t) == OVERLOAD && TREE_TYPE (t) != unknown_type_node)
 	    t = OVL_FUNCTION (t);
 	}
-
-      /* FIXME if this is done here, it's impossible to diagnose correctly?  */
-      if (modules_p () && t && !module_ns_member_permissible (scope, t))
-	t = error_mark_node;
     }
   else if (cxx_dialect != cxx98 && TREE_CODE (scope) == ENUMERAL_TYPE)
     t = lookup_enumerator (scope, name);

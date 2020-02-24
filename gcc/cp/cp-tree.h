@@ -7095,6 +7095,7 @@ extern hash_set<tree, true> *get_member_ids (tree);
 #define RXN_EXPORT 0
 extern hash_set<tree, true> *get_class_restriction_set (tree, int);
 extern tree make_qualid (tree);
+/* FIXME merge these into one public interface  */
 extern bool module_type_member_permissible (tree, tree);
 extern bool module_ns_member_permissible (tree, tree);
 extern void record_partial_specialization_instantiation (tree, tree);

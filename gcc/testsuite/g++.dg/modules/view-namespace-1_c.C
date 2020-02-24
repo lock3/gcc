@@ -2,7 +2,22 @@
 export module baz; // { dg-warning "not writing module" }
 import bar;
 
-foons::Foo dummy; // { dg-error "does not name a type" }
+foons::Foo dummy; // { dg-error "export protected" }
+
+void fn()
+{
+  foons::fn(); // { dg-error "export protected" }
+  auto foo = foons::make_foo(); // { dg-error "export protected" }
+  foo.x = 5; // { dg-error "export protected" }
+
+  // FIXME global restrictions
+  //globalfn();
+  //GlobalFoo gf{};
+
+  foons::TFoo<int> tfoo_int; // { dg-error "export protected" }
+
+  ns1::ns2::NFoo nfoo; // { dg-error "export protected" }
+}
 
 export protected foons permit Foo2; // { dg-error "may only .restrict." }
 

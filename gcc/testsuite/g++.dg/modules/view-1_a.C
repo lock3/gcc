@@ -17,6 +17,17 @@ export struct Foo
     int mod_x;
 };
 
+export struct FooAccess
+{
+  protected:
+    int prot_x;
+  private:
+    int priv_x;
+  restrict:
+    int mod_x;
+};
+
+export struct Foo1 { int x, y, z; };
 export struct Foo2 { int x, y, z; };
 export struct Foo3 { int x, y, z; };
 export struct Foo4 { int x, y, z; };

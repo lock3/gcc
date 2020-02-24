@@ -29130,7 +29130,6 @@ cp_parser_lookup_name (cp_parser *parser, tree name,
   if (DECL_P (decl))
     check_accessibility_of_qualified_id (decl, object_type, parser->scope,
 					 tf_warning_or_error);
-  /* FIXME add namespace view check to ^ ?  */
 
   maybe_record_typedef_use (decl);
 

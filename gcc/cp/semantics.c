@@ -2078,6 +2078,14 @@ check_accessibility_of_qualified_id (tree decl,
 
   /* Determine the SCOPE of DECL.  */
   tree scope = context_for_name_lookup (decl);
+  /* If the SCOPE is a namespace, there may be a restriction set attached to it
+     that needs checked.  */
+  if (modules_p () && (TREE_CODE (scope) == NAMESPACE_DECL
+	|| TREE_CODE (scope) == TRANSLATION_UNIT_DECL))
+    {
+      return perform_or_defer_access_check (scope, decl,
+				            decl, tf_warning_or_error);
+    }
   /* If the SCOPE is not a type, then DECL is not a member.  */
   if (!TYPE_P (scope)
       /* If SCOPE is dependent then we can't perform this access check now,

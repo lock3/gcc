@@ -19351,6 +19351,22 @@ module_type_member_permissible (tree type, tree decl)
 {
   if (!modules_p ()) return true;
 
+  /* If the type is restricted in its context, we cannot use it for member
+     lookup at all.  */
+  type = CLASS_TYPE_P (type) ? TYPE_NAME (type) : type;
+
+  tree context = CP_DECL_CONTEXT (type);
+  if (TREE_CODE (context) == NAMESPACE_DECL
+      || TREE_CODE (context) == TRANSLATION_UNIT_DECL)
+    {
+      if (!module_ns_member_permissible (context, type))
+	return false;
+    }
+  else if (!module_type_member_permissible (context, type))
+    return false;
+
+  /* FIXME this likely needs to be handled by the `export protected` code
+   * rather than here.  */
   /* Implicitly defaulted functions are always unrestricted.  */
   if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl)
       && DECL_DEFAULTED_FN (decl)
