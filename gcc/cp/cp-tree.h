@@ -7092,7 +7092,7 @@ extern bool handle_module_option (unsigned opt, const char *arg, int value);
 
 /* Class member restrictions.  */
 extern hash_set<tree, true> *get_member_ids (tree);
-#define RXN_EXPORT 0
+#define RXN_PARSE 0
 extern hash_set<tree, true> *get_class_restriction_set (tree, int);
 extern tree make_qualid (tree);
 /* FIXME merge these into one public interface  */

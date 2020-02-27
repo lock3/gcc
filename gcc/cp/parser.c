@@ -13921,7 +13921,7 @@ cp_parser_view_declaration (cp_parser *parser)
 
   /* If `restrict`, adds names to the restriction set
    * Otherwise, add all but the listed names to the restriction set.  */
-  hash_set<tree, true> *restrictions = get_class_restriction_set (decl, RXN_EXPORT);
+  hash_set<tree, true> *restrictions = get_class_restriction_set (decl, RXN_PARSE);
 
   unsigned int i;
   cp_expr e;

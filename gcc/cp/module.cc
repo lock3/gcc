@@ -3482,6 +3482,7 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
 			   do it again  */
   bool call_init_p : 1; /* This module's global initializer needs
 			   calling.  */
+  bool has_rxns : 1;   /* module contains a restriction set */
   /* Record extensions emitted or permitted.  */
   unsigned extensions : SE_BITS;
   /* 12 bits used, 4 bits remain  */
@@ -3662,8 +3663,8 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   static cpp_macro *deferred_macro (cpp_reader *, location_t, cpp_hashnode *);
 
 private:
-  void write_restriction_map(elf_out *to, unsigned *crc_ptr);
-  bool read_restriction_map();
+  unsigned write_restriction_map(elf_out *to, unsigned *crc_ptr);
+  bool read_restriction_map(unsigned);
 
  public:
   void write_location (bytes_out &, location_t);
@@ -3712,6 +3713,7 @@ module_state::module_state (tree name, module_state *parent, bool partition)
   exported_p = false;
 
   cmi_noted_p = false;
+  has_rxns = false;
   call_init_p = false;
 
   partition_p = partition;
@@ -13890,6 +13892,7 @@ enum module_state_counts
   MSC_bindings,
   MSC_macros,
   MSC_inits,
+  MSC_restrict,
   MSC_HWM
 };
 
@@ -14838,9 +14841,9 @@ module_state::read_pendings (unsigned count)
 	break;
 
       bool loaded = false;
-      dump () && dump ("%s keyed to %M[%u] entity:%u",
+      dump () && dump ("%s keyed to %s[%u] entity:%u",
 		       ns ? "Specialization" : "Member",
-		       from, key_index, ent_index);
+		       from->flatname, key_index, ent_index);
       unsigned key_ident = from->entity_lwm + key_index;
       if (pending_table->add (ns ? key_ident : ~key_ident,
 			      ent_index + entity_lwm))
@@ -16552,7 +16555,8 @@ module_state::write_counts (elf_out *to, unsigned counts[MSC_HWM],
       dump ("Entities %u", counts[MSC_entities]);
       dump ("Namespaces %u", counts[MSC_namespaces]);
       dump ("Macros %u", counts[MSC_macros]);
-      dump ("Initializers %u", counts[MSC_inits]);
+      dump ("Initializers %u", counts[MSC_inits]);      
+      dump ("Restrictions %u", counts[MSC_restrict]);
     }
 
   cfg.end (to, to->name (MOD_SNAME_PFX ".cnt"), crc_ptr);
@@ -16579,6 +16583,7 @@ module_state::read_counts (unsigned counts[MSC_HWM])
       dump ("Namespaces %u", counts[MSC_namespaces]);
       dump ("Macros %u", counts[MSC_macros]);
       dump ("Initializers %u", counts[MSC_inits]);
+      dump ("Restrictions %u", counts[MSC_restrict]);
     }
 
   return cfg.end (from ());
@@ -17067,8 +17072,8 @@ module_state::write (elf_out *to, cpp_reader *reader)
       counts[MSC_inits] = write_inits (to, table, &crc);
     }
 
-  /* Write the restrictions.  FIXME - not if there's no restrictions */
-  write_restriction_map(to, &crc);
+  /* Write the restrictions */
+  counts[MSC_restrict] = write_restriction_map(to, &crc);
 
   unsigned clusters = counts[MSC_sec_hwm] - counts[MSC_sec_lwm];
   dump () && dump ("Wrote %u clusters, average %u bytes/cluster",
@@ -17317,8 +17322,17 @@ module_state::read_language (bool outermost)
   if (ok && counts[MSC_inits] && !read_inits (counts[MSC_inits]))
     ok = false;
 
-  // Read the restrictions.  FIXME - this may be in the wrong place?
-  read_restriction_map();
+  // Read the restrictions.  
+  // Restriction sets get flattened for transitive imports; 
+  // that is The directly imported view will contain the 
+  // union of all transitive restrictions.
+  // Thus, we can skip the table. 
+  if (counts[MSC_restrict] && directness != MD_NONE)
+  {
+    if (!read_restriction_map(counts[MSC_restrict]))
+      ok = false;
+    has_rxns = true;
+  }
 
   function_depth--;
   
@@ -19326,6 +19340,28 @@ record_partial_specialization_instantiation (tree spec, tree inst)
       TYPE_NAME (inst), TYPE_NAME (spec));
 }
 
+/* Return true IFF DECL was not imported OR 
+   DECL was directly imported from a module with 
+   no restriction map  - this is equivalent to importing
+   an empty restriction set. */
+
+static bool
+generally_permissible(tree decl)
+{
+  if (CLASS_TYPE_P (decl))
+    decl = TYPE_NAME (decl);
+  if (DECL_LANG_SPECIFIC(decl) && DECL_MODULE_IMPORT_P(decl))
+  {
+      unsigned index = import_entity_index(decl, false);
+      module_state *mod = import_entity_module(index);
+      return mod->directness != MD_NONE && !mod->has_rxns;
+  }
+
+  // Not imported. probably could move this check further up 
+  // the call stack.
+  return true;
+}
+
 /* Return true IFF decls corresponding to NAME in CONTEXT are allowed to be
    used by the current TU.
 
@@ -19350,6 +19386,8 @@ bool
 module_type_member_permissible (tree type, tree decl)
 {
   if (!modules_p ()) return true;
+
+  if (generally_permissible(type)) return true;
 
   /* If the type is restricted in its context, we cannot use it for member
      lookup at all.  */
@@ -19412,6 +19450,7 @@ module_type_member_permissible (tree type, tree decl)
 bool module_ns_member_permissible (tree ns, tree decl)
 {
   if (!modules_p ()) return true;
+  if (generally_permissible(OVL_FIRST(decl))) return true;
   if (TREE_CODE (ns) == TRANSLATION_UNIT_DECL)
     ns = global_namespace;
   tree name = OVL_NAME (decl);
@@ -19419,15 +19458,16 @@ bool module_ns_member_permissible (tree ns, tree decl)
   return member_permissible (ns, name);
 }
 
-void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
+unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
 {
+  unsigned count = exported_decl_perms.elements();
+  if (!count) return 0; 
+
   dump() && dump("Writing restriction map");
   dump.indent();
 
   bytes_out sec(to);
   sec.begin();
-
-  sec.u(exported_decl_perms.elements());
 
   for (auto i = exported_decl_perms.begin(); i != exported_decl_perms.end(); ++i)
   {
@@ -19473,6 +19513,8 @@ void module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
 
   sec.end(to, to->name(MOD_SNAME_PFX ".rxn"), crc_ptr);
   dump.outdent();
+
+  return count;
 }
 
 // Reads a cpp node whose name was serialized into
@@ -19540,14 +19582,8 @@ static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> 
 }
 #endif
 
-bool module_state::read_restriction_map()
+bool module_state::read_restriction_map(unsigned num_rxn)
 {
-  // TODO: Uncomment the following line.
-  // For transitive imports, we don't need 
-  // to actually read the table. 
-  // if (!directness != MD_NONE)
-  //   return true;
-
   bytes_in sec;
 
   if (!sec.begin(loc, from(), MOD_SNAME_PFX ".rxn"))  
@@ -19555,9 +19591,7 @@ bool module_state::read_restriction_map()
   dump() && dump("Reading restriction map");
   dump.indent();
 
-  unsigned num_maps = sec.u();
-
-  for (unsigned i = 0; i != num_maps && !sec.get_overrun(); i++)
+  for (unsigned i = 0; i != num_rxn && !sec.get_overrun(); i++)
   {
     tree decl = read_cpp_node(from(), &sec);
     hash_set<tree, true> *restrictions = get_class_restriction_set(decl, RXN_IMPORT);
@@ -19565,7 +19599,7 @@ bool module_state::read_restriction_map()
     unsigned num_members = sec.u();
     if (num_members)
     {
-      hash_set<tree, true> *new_restrictions  = new hash_set<tree, true>();
+      hash_set<tree, true> *new_restrictions = new hash_set<tree, true>();
       for (unsigned j = 0; j != num_members && !sec.get_overrun(); j++)
       {
         tree member = read_cpp_node(from(), &sec);
