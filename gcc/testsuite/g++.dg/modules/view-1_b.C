@@ -4,7 +4,7 @@ import foo;
 
 export protected; // { dg-error "expected unqualified-id" }
 export protected Foo; // { dg-error "expected .permit. or .restrict." }
-export protected Foo permit; // { dg-error "expected unqualified-id" }
+export protected Foo1 permit; // { dg-bogus "expected unqualified-id" }
 export protected Foo restrict; // { dg-error "expected unqualified-id" }
 export protected Foo permit bad; // { dg-error "not a member" }
 export protected Foo permit bad, ; // { dg-error "expected unqualified-id" }

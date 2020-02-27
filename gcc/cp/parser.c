@@ -13854,7 +13854,8 @@ cp_parser_view_declaration (cp_parser *parser)
   hash_set<tree, true> id_set;
 
   bool first_p = true;
-  while (first_p || cp_lexer_next_token_is_not (parser->lexer, CPP_SEMICOLON))
+  while ((first_p && !permit_p)
+      || cp_lexer_next_token_is_not (parser->lexer, CPP_SEMICOLON))
     {
       if (!first_p && !cp_parser_require (parser, CPP_COMMA, RT_COMMA))
 	return;
@@ -13879,7 +13880,7 @@ cp_parser_view_declaration (cp_parser *parser)
   hash_set<tree, true> *members = get_member_ids (scope);
 
   cp_parser_filter_view_decls (parser, scope, initial_idents, members, idents);
-  if (idents.is_empty ())
+  if (idents.is_empty () && !(permit_p && initial_idents.is_empty ()))
     {
       delete members;
       return;
