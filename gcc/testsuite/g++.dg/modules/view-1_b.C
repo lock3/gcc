@@ -48,3 +48,15 @@ export protected Foo5 restrict operator int; // { dg-error "not a member" }
 
 export protected Foo6 restrict operator int; // { dg-bogus "not a member" }
 
+namespace barns {
+  export protected ::ns1::NFoo1 restrict x; // { dg-error "current namespace" }
+}
+namespace ns1 {
+  export protected NFoo1 restrict x;
+  export protected ::ns1::ns2::NFoo2 restrict x;
+  namespace ns2 {
+    export protected ::ns1::ns2b::NFooB restrict x; // { dg-error "namespace.*prefix" }
+  }
+  export protected NFoo2 restrict x; // { dg-error "has not been declared" }
+}
+

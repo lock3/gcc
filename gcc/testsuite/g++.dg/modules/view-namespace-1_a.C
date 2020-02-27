@@ -29,6 +29,7 @@ export namespace foons
 namespace ns1 {
   namespace ns2 {
     export struct NFoo { int x; };
+    export struct NFoo2 { int x; int y; };
   }
 }
 

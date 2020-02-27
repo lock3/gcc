@@ -13727,12 +13727,6 @@ cp_parser_view_identifier (cp_parser *parser)
       /* We just processed one more parameter list.  */
       ++parser->num_template_parameter_lists;
 
-      /* Get the deferred access checks from the parameter list.  These
-	 will be checked once we know what is being declared, as for a
-	 member template the checks must be performed in the scope of the
-	 class containing the member.  */
-      vec<deferred_access_check, va_gc> *checks = get_deferred_access_checks ();
-
       tree_pair ident = cp_parser_view_identifier (parser);
 
       /* We are done with the current parameter list.  */
@@ -13764,7 +13758,11 @@ cp_parser_view_identifier (cp_parser *parser)
 				  /*ambiguous_decls=*/NULL,
 				  /*name_location=*/id.get_location ());
   if (decl == error_mark_node)
-    return std::make_pair (error_mark_node, NULL_TREE);
+    {
+      cp_parser_name_lookup_error (parser, id, decl, NLE_CXX98,
+				   id.get_location ());
+      return std::make_pair (error_mark_node, NULL_TREE);
+    }
 
   /* FIXME need to use strip_typedefs instead? */
   if (TREE_CODE (decl) == TYPE_DECL)
@@ -13818,6 +13816,23 @@ cp_parser_view_identifier (cp_parser *parser)
  *    ~ type-name
  */
 
+static bool
+current_namespace_is_prefix_p (tree scope)
+{
+  for (tree s = CLASS_TYPE_P (scope) ? TYPE_NAME (scope) : scope;
+      s;
+      s = CP_DECL_CONTEXT (s),
+      s = CLASS_TYPE_P (s) ? TYPE_NAME (s) : s)
+    {
+      if (s == current_namespace)
+	return true;
+      if (TREE_CODE (s) == TRANSLATION_UNIT_DECL
+	  || s == global_namespace)
+	break;
+    }
+  return false;
+}
+
 static void
 cp_parser_view_declaration (cp_parser *parser)
 {
@@ -13829,6 +13844,12 @@ cp_parser_view_declaration (cp_parser *parser)
   tree scope = info.second;
   if (decl == error_mark_node)
     return;
+
+  if (!current_namespace_is_prefix_p (scope))
+    {
+      error ("current namespace must be a prefix of qualified name");
+      return;
+    }
 
   /* Determine whether we're trying to permit or restrict members; for a
    * namespace we only support restrictions since namespaces are open.  */

@@ -53,3 +53,13 @@ export struct Foo6
   operator T() { return T{}; }
 };
 
+namespace ns1 {
+  export struct NFoo1 { int x; };
+  namespace ns2 {
+    export struct NFoo2 { int x; };
+  }
+  namespace ns2b {
+    export struct NFooB { int x; };
+  }
+}
+

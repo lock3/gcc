@@ -17,6 +17,13 @@ void fn()
   foons::TFoo<int> tfoo_int; // { dg-error "export protected" }
 
   ns1::ns2::NFoo nfoo; // { dg-error "export protected" }
+
+  ns1::ns2::NFoo2 nfoo2;
+  nfoo2.x = 5; //{ dg-error "export protected" }
+  nfoo2.y = 5; //{ dg-error "export protected" }
+
+  //ns1::Bar bar;
+  //bar.x = 10;
 }
 
 export protected foons permit Foo2; // { dg-error "may only .restrict." }
