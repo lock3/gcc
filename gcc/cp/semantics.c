@@ -266,6 +266,19 @@ static bool
 enforce_access (tree basetype_path, tree decl, tree diag_decl,
 		tsubst_flags_t complain, access_failure_info *afi = NULL)
 {
+  /* In a modules world, we may have to enforce access on namespace scope
+     types and functions.  */
+  if (TREE_CODE (basetype_path) == NAMESPACE_DECL
+      || TREE_CODE (basetype_path) == TRANSLATION_UNIT_DECL)
+    {
+      if (!module_ns_member_permissible (basetype_path, decl))
+	{
+	  complain_about_access (decl, diag_decl, true);
+	  return false;
+	}
+      return true;
+    }
+
   gcc_assert (TREE_CODE (basetype_path) == TREE_BINFO);
 
   if (flag_new_inheriting_ctors
@@ -393,7 +406,13 @@ perform_or_defer_access_check (tree binfo, tree decl, tree diag_decl,
   if (deferred_access_no_check)
     return true;
 
-  gcc_assert (TREE_CODE (binfo) == TREE_BINFO);
+  /* In a modules world, we may have to enforce access on namespace scope
+     types and functions, so we allow them to be deferred only if modules is
+     currently enabled.  */
+  gcc_assert (TREE_CODE (binfo) == TREE_BINFO
+      || (modules_p ()
+	&& (TREE_CODE (binfo) == NAMESPACE_DECL
+	  || TREE_CODE (binfo) == TRANSLATION_UNIT_DECL)));
 
   ptr = &deferred_access_stack->last ();
 

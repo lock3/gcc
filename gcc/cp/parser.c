@@ -13673,11 +13673,23 @@ cp_parser_filter_view_decls (cp_parser *parser, tree scope,
  *   using-declarator
  *   template<> template-id
  *   template-head template-id
+ *   (::)
  *  */
 
 static tree_pair
 cp_parser_view_identifier (cp_parser *parser)
 {
+  /* We may be restricting the global namespace.  */
+  if (cp_lexer_peek_token (parser->lexer)->type == CPP_OPEN_PAREN
+      && cp_lexer_peek_nth_token (parser->lexer, 2)->type == CPP_SCOPE
+      && cp_lexer_peek_nth_token (parser->lexer, 3)->type == CPP_CLOSE_PAREN)
+  {
+    cp_lexer_consume_token (parser->lexer);
+    cp_lexer_consume_token (parser->lexer);
+    cp_lexer_consume_token (parser->lexer);
+    return std::make_pair (global_namespace, global_namespace);
+  }
+
   /* FIXME extract/unify with decl parsing? Is there anywhere else we parse
      the template-head & template-id in isolation?  */
   /* If we're seeing the template keyword, then we must be trying to introduce

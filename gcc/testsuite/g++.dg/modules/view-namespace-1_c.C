@@ -10,9 +10,8 @@ void fn()
   auto foo = foons::make_foo(); // { dg-error "export protected" }
   foo.x = 5; // { dg-error "export protected" }
 
-  // FIXME global restrictions
-  //globalfn();
-  //GlobalFoo gf{};
+  globalfn(); // { dg-error "export protected" }
+  GlobalFoo gf{}; // { dg-error "export protected" }
 
   foons::TFoo<int> tfoo_int; // { dg-error "export protected" }
 

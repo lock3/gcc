@@ -19412,6 +19412,8 @@ module_type_member_permissible (tree type, tree decl)
 bool module_ns_member_permissible (tree ns, tree decl)
 {
   if (!modules_p ()) return true;
+  if (TREE_CODE (ns) == TRANSLATION_UNIT_DECL)
+    ns = global_namespace;
   tree name = OVL_NAME (decl);
 
   return member_permissible (ns, name);
