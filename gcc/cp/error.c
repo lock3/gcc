@@ -200,7 +200,10 @@ dump_module_suffix (cxx_pretty_printer *pp, tree decl)
 	return;
     }
 
-  if (unsigned m = get_originating_module (decl))
+  // FIXME: originally this would not print the suffix
+  // for decls originating from module 0 but that breaks
+  // the qualid encoding for "inline" restrictions. 
+  unsigned m = get_originating_module (decl);
     if (const char *n = module_name (m, false))
       {
 	pp_character (pp, '@');

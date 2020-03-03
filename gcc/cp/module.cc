@@ -19255,6 +19255,27 @@ hash_set<tree, true> *get_member_ids (tree scope)
   return member_ids;
 }
 
+#if 0
+static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> *rxn)
+{
+  printf("rxn's @%s for %s", mod, IDENTIFIER_POINTER(decl));
+  if (rxn && rxn->elements())
+  {
+    printf(": { ");
+    int n = 0;
+    for (hash_set<tree, true>::iterator i = rxn->begin(); i != rxn->end(); ++i, ++n) 
+    {
+      printf("%s%s", n ? "," : "",  IDENTIFIER_POINTER(*i));
+    }
+    printf(" }\n");
+  }
+  else 
+  {
+    printf(" empty\n");
+  }
+}
+#endif
+
 /* Return an IDENTIFIER_NODE with a fully qualified name for DECL. This
    includes both a nested namespace specifier and template head if required.
 
@@ -19476,7 +19497,7 @@ unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
       continue;
     
     tree decl = pair.first;
-    sec.u (to->name (make_qualid (pair.first)));
+    sec.u (to->name(make_qualid (pair.first)));
 
     hash_set<tree, true> *exp_ids = pair.second;
     hash_set<tree, true> *imp_ids = get_class_restriction_set(decl, RXN_LOOKUP);
@@ -19506,6 +19527,8 @@ unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
     {
       sec.u(to->name(*j));
     }
+
+    //print_restrictions(this->flatname, id, ids);
 
     if (ids != exp_ids)
       delete ids;
@@ -19560,27 +19583,6 @@ static hash_set<tree, true> *update_restrictions(module_state *mod,
     return a;
   }
 }
-
-#if 0
-static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> *rxn)
-{
-  printf("rxn's @%s for %s", mod, IDENTIFIER_POINTER(decl));
-  if (rxn && rxn->elements())
-  {
-    printf(": { ");
-    int n = 0;
-    for (hash_set<tree, true>::iterator i = rxn->begin(); i != rxn->end(); ++i, ++n) 
-    {
-      printf("%s%s", n ? "," : "",  IDENTIFIER_POINTER(*i));
-    }
-    printf(" }\n");
-  }
-  else 
-  {
-    printf(" empty\n");
-  }
-}
-#endif
 
 bool module_state::read_restriction_map(unsigned num_rxn)
 {
