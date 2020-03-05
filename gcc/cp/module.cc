@@ -302,10 +302,13 @@ struct nodel_ptr_hash : pointer_hash<T>, typed_noop_remove <T *> {
 typedef simple_hashmap_traits<nodel_ptr_hash<void>, int> ptr_int_traits;
 typedef hash_map<void *,signed,ptr_int_traits> ptr_int_hash_map;
 
-/* Restriction maps to be exported - keyed with *_DECL */ 
-static hash_map<tree_decl_hash, hash_set<tree, true> *> exported_decl_perms; 
+/* Map from DECL to set of IDENTIFIER_NODEs representing restriction sets.  */
+typedef hash_map<tree_hash, hash_set<tree, true> *> restriction_set_map;
+
+/* Restriction maps to be exported - keyed with *_DECL */
+static restriction_set_map exported_decl_perms;
 /* Imported restriction maps, used for lookup, keyed with a "qualified id" */
-static hash_map<tree_hash, hash_set<tree, true> *> imported_decl_perms;
+static restriction_set_map imported_decl_perms;
 /* Maps decls to "qualified id" */
 static hash_map<tree_decl_hash, tree> decl_qualified_ids;
 /* Maps instantiations of partial specializations back to the partial
@@ -19328,7 +19331,7 @@ hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
     if (mode == RXN_LOOKUP)
     {
       // find the qualid
-      auto tree = decl_qualified_ids.get(decl_or_id);
+      tree *tree = decl_qualified_ids.get(decl_or_id);
       if (tree)
       {
         id = *tree;
@@ -19490,9 +19493,11 @@ unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
   bytes_out sec(to);
   sec.begin();
 
-  for (auto i = exported_decl_perms.begin(); i != exported_decl_perms.end(); ++i)
+  for (restriction_set_map::iterator i = exported_decl_perms.begin();
+      i != exported_decl_perms.end();
+      ++i)
   {
-    auto pair = *i;
+    restriction_set_map::iterator::reference_pair pair = *i;
     if (!pair.second)
       continue;
     
