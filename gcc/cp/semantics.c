@@ -271,7 +271,7 @@ enforce_access (tree basetype_path, tree decl, tree diag_decl,
   if (TREE_CODE (basetype_path) == NAMESPACE_DECL
       || TREE_CODE (basetype_path) == TRANSLATION_UNIT_DECL)
     {
-      if (!module_ns_member_permissible (basetype_path, decl))
+      if (view_member_restricted (basetype_path, decl))
 	{
 	  complain_about_access (decl, diag_decl, true);
 	  return false;

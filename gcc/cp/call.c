@@ -7077,30 +7077,20 @@ complain_about_access (tree decl, tree diag_decl, bool issue_error)
   /* FIXME any complaint about a member that later had its access restricted
      more (eg a protected member of a privately inherited base class) uses its
      original access level in the complaint, not its effective access level.  */
-  if (modules_p () && TREE_CODE (CP_DECL_CONTEXT (decl)) == NAMESPACE_DECL
-      && !module_ns_member_permissible (CP_DECL_CONTEXT (decl), decl))
+  if (modules_p ()
+      && view_member_restricted (CP_DECL_CONTEXT (decl), decl))
     {
       if (issue_error)
-	error ("%q#D is restricted by an %<export protected%> declaration", diag_decl);
+	error ("%q#D is restricted by an %<export protected%> declaration",
+	       diag_decl);
       inform (DECL_SOURCE_LOCATION (diag_decl),
-	      "%<%s%> missing from namespace perm map", IDENTIFIER_POINTER (DECL_NAME (decl)));
+	      "%<%s%> missing from namespace perm map",
+	      IDENTIFIER_POINTER (DECL_NAME (decl)));
       /* FIXME get where it was restricted at?  */
       inform (DECL_SOURCE_LOCATION (diag_decl),
 	      "declared here");
     }
-  else if (modules_p () && TREE_CODE (CP_DECL_CONTEXT (decl)) != NAMESPACE_DECL
-      && !module_type_member_permissible (TYPE_NAME (CP_DECL_CONTEXT (decl)),
-					  decl))
-    {
-      if (issue_error)
-	error ("%q#D is restricted by an %<export protected%> declaration", diag_decl);
-      inform (DECL_SOURCE_LOCATION (diag_decl),
-	      "%<%s%> missing from perm map", IDENTIFIER_POINTER (DECL_NAME (decl)));
-      /* FIXME get where it was restricted at?  */
-      inform (DECL_SOURCE_LOCATION (diag_decl),
-	      "declared here");
-    }
-  else if (modules_p() && DECL_MODULE_ACCESS (decl))
+  else if (modules_p () && DECL_MODULE_ACCESS (decl))
     {
       /* FIXME: module access members that are made private/protected through
 	 inheritance also report "restricted to the global module" -- is there

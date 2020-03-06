@@ -5685,7 +5685,7 @@ type_build_dtor_call (tree t)
       if (!DECL_ARTIFICIAL (fn)
 	  || TREE_DEPRECATED (fn)
 	  || DECL_DELETED_FN (fn)
-	  || !module_type_member_permissible (inner, fn))
+	  || view_member_restricted (inner, fn))
 	return true;
     }
   return false;

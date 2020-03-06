@@ -19370,12 +19370,13 @@ record_partial_specialization_instantiation (tree spec, tree inst)
    an empty restriction set. */
 
 static bool
-generally_permissible(tree decl)
+generally_unrestricted (tree decl)
 {
   if (CLASS_TYPE_P (decl))
     decl = TYPE_NAME (decl);
   if (DECL_LANG_SPECIFIC(decl) && DECL_MODULE_IMPORT_P(decl))
   {
+      decl = get_originating_module_decl (decl);
       unsigned index = import_entity_index(decl, false);
       module_state *mod = import_entity_module(index);
       return mod->directness != MD_NONE && !mod->has_rxns;
@@ -19393,7 +19394,7 @@ generally_permissible(tree decl)
    further down. */
 
 static bool
-member_permissible (tree context, tree name)
+member_unrestricted (tree context, tree name)
 {
   if (!modules_p ()) return true;
   hash_set<tree, true> *restrictions =
@@ -19401,31 +19402,25 @@ member_permissible (tree context, tree name)
   return (!restrictions) || !restrictions->contains (name);
 }
 
-/* Return true IFF DECL has no applicable export protected declarations
-   restricting its use within TYPE.
+/* Return false IFF DECL has no applicable export protected declarations
+   restricting its use within VIEW (a namespace or type).
 
-   Implicitly defined member functions are always permissible.  */
+   Implicitly defined member functions are never restricted.  */
 
 bool
-module_type_member_permissible (tree type, tree decl)
+view_member_restricted (tree view, tree decl)
 {
-  if (!modules_p ()) return true;
+  if (!modules_p ()) return false;
 
-  if (generally_permissible(type)) return true;
+  if (TREE_CODE (view) == TRANSLATION_UNIT_DECL)
+    view = global_namespace;
+  view = OVERLOAD_TYPE_P (view) ? TYPE_NAME (view) : view;
 
-  /* If the type is restricted in its context, we cannot use it for member
+  /* If the view is restricted in its context, we cannot use it for member
      lookup at all.  */
-  type = CLASS_TYPE_P (type) ? TYPE_NAME (type) : type;
-
-  tree context = CP_DECL_CONTEXT (type);
-  if (TREE_CODE (context) == NAMESPACE_DECL
-      || TREE_CODE (context) == TRANSLATION_UNIT_DECL)
-    {
-      if (!module_ns_member_permissible (context, type))
-	return false;
-    }
-  else if (!module_type_member_permissible (context, type))
-    return false;
+  if (TREE_CODE (view) != NAMESPACE_DECL
+      && view_member_restricted (CP_DECL_CONTEXT (view), view))
+    return true;
 
   /* FIXME this likely needs to be handled by the `export protected` code
    * rather than here.  */
@@ -19433,23 +19428,27 @@ module_type_member_permissible (tree type, tree decl)
   if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl)
       && DECL_DEFAULTED_FN (decl)
       && (DECL_ARTIFICIAL (decl) || !DECL_INITIALIZED_IN_CLASS_P (decl)))
-    return true;
+    return false;
 
   /* Class template specializations use the restrictions from the general
      TEMPLATE_DECL or the most specialized template they're an instantiaton
      of.  */
-  if (TREE_CODE (type) == TYPE_DECL
-      && TREE_CODE (TREE_TYPE (type)) == RECORD_TYPE
-      && CLASSTYPE_TEMPLATE_INSTANTIATION (TREE_TYPE (type)))
+  if (TREE_CODE (view) == TYPE_DECL
+      && TREE_CODE (TREE_TYPE (view)) == RECORD_TYPE
+      && CLASSTYPE_TEMPLATE_INSTANTIATION (TREE_TYPE (view)))
     {
-      tree *spec = partial_specialization_instantiations.get (type);
+      tree *spec = partial_specialization_instantiations.get (view);
       if (spec)
-	type = *spec;
+	view = *spec;
       else
-	type = CLASSTYPE_TI_TEMPLATE (TREE_TYPE (type));
+	view = CLASSTYPE_TI_TEMPLATE (TREE_TYPE (view));
     }
 
-  tree name = DECL_NAME (decl);
+  if (TREE_CODE (view) != NAMESPACE_DECL
+      && generally_unrestricted (OVL_FIRST (view)))
+    return false;
+
+  tree name = OVL_NAME (decl);
   /* FIXME are there any other weird mappings we need to be aware of? ctor and
      dtors have some other related constants. Is there an existing function
      for this?  */
@@ -19465,21 +19464,7 @@ module_type_member_permissible (tree type, tree decl)
   else if (IDENTIFIER_CONV_OP_P (name))
     name = make_qualid (decl);
 
-  return member_permissible (type, name);
-}
-
-/* Return true IFF DECL has no applicable export protected declarations
-   restricting its use within the NAMESPACE_DECL NS.  */
-
-bool module_ns_member_permissible (tree ns, tree decl)
-{
-  if (!modules_p ()) return true;
-  if (generally_permissible(OVL_FIRST(decl))) return true;
-  if (TREE_CODE (ns) == TRANSLATION_UNIT_DECL)
-    ns = global_namespace;
-  tree name = OVL_NAME (decl);
-
-  return member_permissible (ns, name);
+  return !member_unrestricted (view, name);
 }
 
 unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
