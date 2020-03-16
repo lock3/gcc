@@ -9733,6 +9733,24 @@ trees_out::fn_parms_init (tree fn)
 		   base_tag - ix, ix, parm, fn);
       tree_node_vals (parm);
     }
+
+  if (!streaming_p ())
+    {
+      /* We must walk contract attrs so the dependency graph is complete. */
+      for (tree contract = DECL_CONTRACTS (fn);
+	  contract;
+	  contract = CONTRACT_CHAIN (contract))
+	tree_node (contract);
+    }
+
+  /* We're only able to write anonymous var decls, but the name and
+     context aren't needed here anyway.  */
+  if (DECL_UNCHECKED_RESULT (fn))
+    {
+      DECL_NAME (DECL_UNCHECKED_RESULT (fn)) = NULL_TREE;
+      DECL_CONTEXT (DECL_UNCHECKED_RESULT (fn)) = NULL_TREE;
+    }
+  tree_node (DECL_UNCHECKED_RESULT (fn));
 }
 
 /* Build skeleton parm nodes, read their flags, type & parm indices.  */
@@ -9766,6 +9784,8 @@ trees_in::fn_parms_init (tree fn)
       if (!tree_node_vals (parm))
 	return 0;
     }
+
+  set_unchecked_result (fn, tree_node ());
 
   return base_tag;
 }
