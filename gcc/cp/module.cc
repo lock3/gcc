@@ -302,9 +302,6 @@ struct nodel_ptr_hash : pointer_hash<T>, typed_noop_remove <T *> {
 typedef simple_hashmap_traits<nodel_ptr_hash<void>, int> ptr_int_traits;
 typedef hash_map<void *,signed,ptr_int_traits> ptr_int_hash_map;
 
-/* Map from DECL to set of IDENTIFIER_NODEs representing restriction sets.  */
-typedef hash_map<tree_hash, hash_set<tree, true> *> restriction_set_map;
-
 /* Restriction maps to be exported - keyed with *_DECL */
 static restriction_set_map exported_decl_perms;
 /* Imported restriction maps, used for lookup, keyed with a "qualified id" */
@@ -315,6 +312,7 @@ static hash_map<tree_decl_hash, tree> decl_qualified_ids;
    specialization they're an instantion of.  */
 static hash_map<tree_decl_hash, tree> partial_specialization_instantiations;
 
+/* FIXME we inconsistently use new restriction_set; and new restriction_set(); */
 
 /********************************************************************/
 /* Basic streaming & ELF.  Serialization is usually via mmap.  For
@@ -19339,7 +19337,7 @@ make_qualid (tree decl)
 
 /* Gets the restriction set for a DECL_OR_ID. 
    MODE is one RXN_* */
-hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
+restriction_set *get_class_restriction_set(tree decl_or_id, int mode)
 {
   if (!modules_p())
     return NULL;
@@ -19348,7 +19346,7 @@ hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
   if (mode == RXN_PARSE  && !named_module_p()) // TODO: error
     return NULL;
 
-  hash_set<tree, true> *ids = NULL;
+  restriction_set *ids = NULL;
   if (mode == RXN_PARSE) 
   {
     bool existed;
@@ -19357,7 +19355,7 @@ hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
     {
       // If we're parsing, make an empty restriction map so the
       // parser can add members to it.
-      ids = new hash_set<tree, true>;
+      ids = new restriction_set;
       exported_decl_perms.put(decl_or_id, ids);
     }
   }
@@ -19431,13 +19429,14 @@ generally_unrestricted (tree decl)
    This is run after special decl to name mappings are applied by the methods
    further down. */
 
-static bool
-member_unrestricted (tree context, tree name)
+static location_t *
+member_restriction (tree context, tree name)
 {
-  if (!modules_p ()) return true;
-  hash_set<tree, true> *restrictions =
+  if (!modules_p ()) return NULL;
+  restriction_set *restrictions =
     get_class_restriction_set (context, RXN_LOOKUP);
-  return (!restrictions) || !restrictions->contains (name);
+  if (!restrictions) return NULL;
+  return restrictions->get (name);
 }
 
 /* Return false IFF DECL has no applicable export protected declarations
@@ -19448,7 +19447,16 @@ member_unrestricted (tree context, tree name)
 bool
 view_member_restricted (tree view, tree decl)
 {
-  if (!modules_p ()) return false;
+  return view_member_restriction (view, decl) != NULL;
+}
+
+/* Returns the location of the export protected declaration restricting the
+   use of DECL within VIEW, or NULL if no such restriction exists.  */
+
+location_t *
+view_member_restriction (tree view, tree decl)
+{
+  if (!modules_p ()) return NULL;
 
   if (TREE_CODE (view) == TRANSLATION_UNIT_DECL)
     view = global_namespace;
@@ -19456,9 +19464,13 @@ view_member_restricted (tree view, tree decl)
 
   /* If the view is restricted in its context, we cannot use it for member
      lookup at all.  */
-  if (TREE_CODE (view) != NAMESPACE_DECL
-      && view_member_restricted (CP_DECL_CONTEXT (view), view))
-    return true;
+  if (TREE_CODE (view) != NAMESPACE_DECL)
+    {
+      location_t *parent_restriction =
+	view_member_restriction (CP_DECL_CONTEXT (view), view);
+      if (parent_restriction)
+	return parent_restriction;
+    }
 
   /* FIXME this likely needs to be handled by the `export protected` code
    * rather than here.  */
@@ -19466,7 +19478,7 @@ view_member_restricted (tree view, tree decl)
   if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl)
       && DECL_DEFAULTED_FN (decl)
       && (DECL_ARTIFICIAL (decl) || !DECL_INITIALIZED_IN_CLASS_P (decl)))
-    return false;
+    return NULL;
 
   /* Class template specializations use the restrictions from the general
      TEMPLATE_DECL or the most specialized template they're an instantiaton
@@ -19484,7 +19496,7 @@ view_member_restricted (tree view, tree decl)
 
   if (TREE_CODE (view) != NAMESPACE_DECL
       && generally_unrestricted (OVL_FIRST (view)))
-    return false;
+    return NULL;
 
   tree name = OVL_NAME (decl);
   /* FIXME are there any other weird mappings we need to be aware of? ctor and
@@ -19502,7 +19514,7 @@ view_member_restricted (tree view, tree decl)
   else if (IDENTIFIER_CONV_OP_P (name))
     name = make_qualid (decl);
 
-  return !member_unrestricted (view, name);
+  return member_restriction (view, name);
 }
 
 unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
@@ -19528,23 +19540,23 @@ unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
     tree id = make_qualid (pair.first);
     sec.u (to->name(id));
 
-    hash_set<tree, true> *exp_ids = pair.second;
-    hash_set<tree, true> *imp_ids = get_class_restriction_set(decl, RXN_LOOKUP);
-    hash_set<tree, true> *ids;
+    restriction_set *exp_ids = pair.second;
+    restriction_set *imp_ids = get_class_restriction_set(decl, RXN_LOOKUP);
+    restriction_set *ids;
     if (imp_ids)
     {
       // union into a new, flat set.
       // TODO: should use links here, but requires maintaining
       // source info in the map.
-      ids = new hash_set<tree, true>();
-      for (hash_set<tree, true>::iterator j = imp_ids->begin(); j != imp_ids->end(); ++j)
-      {
-        ids->add(*j);
-      }
-      for (hash_set<tree, true>::iterator j = exp_ids->begin(); j != exp_ids->end(); ++j)
-      {
-        ids->add(*j);
-      }
+      ids = new restriction_set();
+      for (restriction_set::iterator j = imp_ids->begin(); j != imp_ids->end(); ++j)
+	ids->put((*j).first, (*j).second);
+      for (restriction_set::iterator j = exp_ids->begin(); j != exp_ids->end(); ++j)
+	{
+	  if (ids->get((*j).first))
+	    continue;
+	  ids->put((*j).first, (*j).second);
+	}
     }
     else
     {
@@ -19552,9 +19564,10 @@ unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
     }
 
     sec.u(ids->elements());
-    for (hash_set<tree, true>::iterator j = ids->begin(); j != ids->end(); ++j)
+    for (restriction_set::iterator j = ids->begin(); j != ids->end(); ++j)
     {
-      sec.u(to->name(*j));
+      sec.u(to->name((*j).first));
+      write_location (sec, (*j).second);
     }
 
     //print_restrictions(this->flatname, id, ids);
@@ -19578,9 +19591,8 @@ static tree read_cpp_node(elf_in *from, bytes_in *sec)
   return get_identifier(name);
 }
 
-static hash_set<tree, true> *update_restrictions(module_state *mod,
-                                                 hash_set<tree, true> *a,
-                                                 hash_set<tree, true> *b)
+static restriction_set *
+update_restrictions(module_state *mod, restriction_set *a, restriction_set *b)
 {
   if (mod->directness != MD_NONE)
   {
@@ -19593,15 +19605,13 @@ static hash_set<tree, true> *update_restrictions(module_state *mod,
     // so we want the intersection.
     vec<tree> x;
     x.create(a->elements());
-    for (hash_set<tree, true>::iterator ai = a->begin(); ai != a->end(); ++ai)
-    {
-      if (!b->contains(*ai))
-        x.quick_push(*ai);
-    }
+    for (restriction_set::iterator ai = a->begin(); ai != a->end(); ++ai)
+      {
+	if (!b->get((*ai).first))
+	  x.quick_push((*ai).first);
+      }
     for (tree *xi = x.begin(); xi != x.end(); ++xi)
-    {
       a->remove(*xi);
-    }
     x.release();
 
     return a;
@@ -19613,11 +19623,12 @@ static hash_set<tree, true> *update_restrictions(module_state *mod,
   }
 }
 
-bool module_state::read_restriction_map(unsigned num_rxn)
+bool
+module_state::read_restriction_map (unsigned num_rxn)
 {
   bytes_in sec;
 
-  if (!sec.begin(loc, from(), MOD_SNAME_PFX ".rxn"))  
+  if (!sec.begin(loc, from(), MOD_SNAME_PFX ".rxn"))
     return false;
   dump() && dump("Reading restriction map");
   dump.indent();
@@ -19625,17 +19636,18 @@ bool module_state::read_restriction_map(unsigned num_rxn)
   for (unsigned i = 0; i != num_rxn && !sec.get_overrun(); i++)
   {
     tree decl = read_cpp_node(from(), &sec);
-    hash_set<tree, true> *restrictions = get_class_restriction_set(decl, RXN_IMPORT);
+    restriction_set *restrictions = get_class_restriction_set(decl, RXN_IMPORT);
 
     unsigned num_members = sec.u();
     if (num_members)
     {
-      hash_set<tree, true> *new_restrictions = new hash_set<tree, true>();
-      for (unsigned j = 0; j != num_members && !sec.get_overrun(); j++)
-      {
-        tree member = read_cpp_node(from(), &sec);
-        new_restrictions->add(member);
-      }
+      restriction_set *new_restrictions = new restriction_set();
+      for (unsigned j = 0; j != num_members && !sec.get_overrun (); j++)
+	{
+	  tree member = read_cpp_node (from (), &sec);
+	  location_t loc = read_location (sec);
+	  new_restrictions->put (member, loc);
+	}
 
       restrictions = update_restrictions(this, restrictions, new_restrictions);
       if (restrictions == new_restrictions)

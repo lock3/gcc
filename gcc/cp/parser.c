@@ -13921,18 +13921,18 @@ cp_parser_view_declaration (cp_parser *parser)
 
   /* If `restrict`, adds names to the restriction set
    * Otherwise, add all but the listed names to the restriction set.  */
-  hash_set<tree, true> *restrictions = get_class_restriction_set (decl, RXN_PARSE);
+  restriction_set *restrictions = get_class_restriction_set (decl, RXN_PARSE);
 
   unsigned int i;
   cp_expr e;
   FOR_EACH_VEC_ELT (idents, i, e)
     {
       /* FIXME should this be relaxed/removed?  */
-      if (restrictions->contains (e))
+      if (restrictions->get (e))
 	error ("%sing already restricted member",
 	       permit_p ? "permitt" : "restrict");
       else if (!permit_p)
-	restrictions->add (e);
+	restrictions->put (e, token->location);
       else if (permit_p)
 	members->remove (e);
     }
@@ -13942,7 +13942,7 @@ cp_parser_view_declaration (cp_parser *parser)
       for (hash_set<tree, true>::iterator it = members->begin();
 	  it != members->end();
 	  ++it)
-	restrictions->add (*it);
+	restrictions->put (*it, token->location);
     }
   delete members;
 }

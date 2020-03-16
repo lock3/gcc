@@ -7083,12 +7083,9 @@ complain_about_access (tree decl, tree diag_decl, bool issue_error)
       if (issue_error)
 	error ("%q#D is restricted by an %<export protected%> declaration",
 	       diag_decl);
-      inform (DECL_SOURCE_LOCATION (diag_decl),
-	      "%<%s%> missing from namespace perm map",
-	      IDENTIFIER_POINTER (DECL_NAME (decl)));
-      /* FIXME get where it was restricted at?  */
-      inform (DECL_SOURCE_LOCATION (diag_decl),
-	      "declared here");
+      location_t *where = view_member_restriction (CP_DECL_CONTEXT (decl), decl);
+      if (where)
+	inform (*where, "restricted here");
     }
   else if (modules_p () && DECL_MODULE_ACCESS (decl))
     {

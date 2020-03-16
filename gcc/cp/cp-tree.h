@@ -7093,12 +7093,17 @@ extern bool module_translate_include (cpp_reader *, line_maps *,
 				      location_t, const char *);
 extern bool handle_module_option (unsigned opt, const char *arg, int value);
 
+/* Map from DECL to set of IDENTIFIER_NODEs representing restriction sets.  */
+typedef hash_map<tree_hash, location_t> restriction_set;
+typedef hash_map<tree_hash, restriction_set *> restriction_set_map;
+
 /* Class member restrictions.  */
 extern hash_set<tree, true> *get_member_ids (tree);
 #define RXN_PARSE 0
-extern hash_set<tree, true> *get_class_restriction_set (tree, int);
+extern restriction_set *get_class_restriction_set (tree, int);
 extern tree make_qualid (tree);
 extern bool view_member_restricted (tree, tree);
+extern location_t *view_member_restriction (tree, tree);
 extern void record_partial_specialization_instantiation (tree, tree);
 
 /* In optimize.c */

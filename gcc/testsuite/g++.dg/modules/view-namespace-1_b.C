@@ -18,6 +18,5 @@ namespace ns1 {
 }
 export protected ns1::ns2::NFoo2 restrict y;
 
-// FIXME global restrictions
 export protected (::) restrict globalfn, GlobalFoo;
 
