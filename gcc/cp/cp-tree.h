@@ -1326,7 +1326,8 @@ set_contract_semantic (tree t, contract_semantic semantic)
    it is a TREE_LIST whose TREE_VALUE is the level and whose TREE_PURPOSE
    is the role.  */
 #define CONTRACT_LITERAL_MODE_P(NODE) \
-  (TREE_CONSTANT (NODE))
+  (CONTRACT_MODE (NODE) != NULL_TREE \
+   && TREE_CODE (CONTRACT_MODE (NODE)) == IDENTIFIER_NODE)
 
 /* The identifier denoting the literal semantic of the contract.  */
 #define CONTRACT_LITERAL_SEMANTIC(NODE) \
@@ -7257,8 +7258,7 @@ extern tree build_checked_function_definition	(tree);
 extern tree start_postcondition_statement	();
 extern void finish_postcondition_statement	(tree);
 extern tree build_postcondition_variable	(tree, tree);
-extern tree start_contract			(location_t, tree, tree,
-						 contract_mode, tree);
+extern tree start_contract			(location_t, tree, tree, tree);
 extern tree finish_contract			(tree, tree, tree);
 extern tree build_contract_check		(tree);
 extern void build_unchecked_result		(tree);

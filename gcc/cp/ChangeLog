@@ -78,6 +78,20 @@
 	* decl.c (grokfndecl): Restore old diagnostics about deduction
 	guide declared in different scope if in_namespace is NULL_TREE.
 
+2020-03-17  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cp-tree.h (CONTRACT_LITERAL_MODE_P): Examine shape of contract
+	configuration instead of TREE_CONSTANT flag.
+	* parser.c (cp_parser_contract_role): Just parse a role; don't build
+	the contract_mode along with it.
+	(cp_parser_contract_mode_opt): Ditto.
+	(cp_parser_contract_attribute_spec): Let start_contract build the
+	contract_mode.
+	* semantics.c (contract_config_to_mode): New.
+	(compute_contract_concrete_semantic): New; extracted from
+	start_contract.
+	(start_contract): Use the above.
+
 2020-03-17  Jakub Jelinek  <jakub@redhat.com>
 
 	PR c++/90995

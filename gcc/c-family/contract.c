@@ -136,3 +136,31 @@ cpp_setup_default_contract_role (bool update)
   }
 }
 
+contract_semantic
+map_contract_semantic (const char *ident)
+{
+  if (strcmp (ident, "ignore") == 0)
+    return CCS_IGNORE;
+  else if (strcmp (ident, "assume") == 0)
+    return CCS_ASSUME;
+  else if (strcmp (ident, "check_never_continue") == 0)
+    return CCS_NEVER;
+  else if (strcmp (ident, "check_maybe_continue") == 0)
+    return CCS_MAYBE;
+  else if (strcmp (ident, "check_always_continue") == 0)
+    return CCS_ALWAYS;
+  return CCS_INVALID;
+}
+
+contract_level
+map_contract_level (const char *ident)
+{
+  if (strcmp (ident, "default") == 0)
+    return CONTRACT_DEFAULT;
+  else if (strcmp (ident, "audit") == 0)
+    return CONTRACT_AUDIT;
+  else if (strcmp (ident, "axiom") == 0)
+    return CONTRACT_AXIOM;
+  return CONTRACT_INVALID;
+}
+

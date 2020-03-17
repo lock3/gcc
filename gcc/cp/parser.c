@@ -27323,26 +27323,17 @@ cp_parser_std_attribute_list (cp_parser *parser, tree attr_ns)
    token.  */
 
 static tree
-cp_parser_contract_role (cp_parser *parser,
-			 contract_level level,
-			 contract_mode &mode)
+cp_parser_contract_role (cp_parser *parser)
 {
   gcc_assert (cp_lexer_next_token_is (parser->lexer, CPP_MOD));
   cp_lexer_consume_token (parser->lexer);
 
-  cpp_contract_role *role = NULL;
   cp_token *token = cp_lexer_peek_token (parser->lexer);
   tree role_id = NULL_TREE;
   if (token->type == CPP_NAME)
-    {
-      role = cpp_get_contract_role (IDENTIFIER_POINTER (token->u.value));
-      role_id = token->u.value;
-    }
+    role_id = token->u.value;
   else if (token->type == CPP_KEYWORD && token->keyword == RID_DEFAULT)
-    {
-      role = get_default_contract_role ();
-      role_id = get_identifier ("default");
-    }
+    role_id = get_identifier ("default");
   else
     {
       error_at (token->location, "expected contract-role");
@@ -27351,10 +27342,6 @@ cp_parser_contract_role (cp_parser *parser,
   cp_lexer_consume_token (parser->lexer);
 
   /* FIXME: Warn about invalid/unknown roles?  */
-  if (!role)
-    role = get_default_contract_role ();
-
-  mode.set (level, role);
   return role_id;
 }
 
@@ -27389,21 +27376,17 @@ cp_parser_contract_role (cp_parser *parser,
 
 static tree
 cp_parser_contract_mode_opt (cp_parser *parser,
-			     bool postcondition_p,
-			     contract_mode &mode)
+			     bool postcondition_p)
 {
   /* The mode is empty; the level and role are default.  */
   if (cp_lexer_next_token_is (parser->lexer, CPP_COLON))
-    {
-      mode.set (CONTRACT_DEFAULT, get_default_contract_role ());
-      return NULL_TREE;
-    }
+    return NULL_TREE;
 
   /* There is only a role; the level is default.  */
   if (cp_lexer_next_token_is (parser->lexer, CPP_MOD))
     {
-      tree role_id = cp_parser_contract_role (parser, CONTRACT_DEFAULT, mode);
-      return build_tree_list (role_id, NULL_TREE);
+      tree role_id = cp_parser_contract_role (parser);
+      return build_tree_list (role_id, get_identifier ("default"));
     }
 
   /* Otherwise, match semantic or level.  */
@@ -27416,28 +27399,15 @@ cp_parser_contract_mode_opt (cp_parser *parser,
       config_id = token->u.value;
 
       /* Either a named level, a concrete semantic, or an identifier
-         for a postcondition.  */
+	 for a postcondition.  */
       const char *ident = IDENTIFIER_POINTER (token->u.value);
-      if (strcmp (ident, "audit") == 0)
-	level = CONTRACT_AUDIT;
-      else if (strcmp (ident, "axiom") == 0)
-	level = CONTRACT_AXIOM;
-      else if (strcmp (ident, "ignore") == 0)
-	semantic = CCS_IGNORE;
-      else if (strcmp (ident, "assume") == 0)
-	semantic = CCS_ASSUME;
-      else if (strcmp (ident, "check_never_continue") == 0)
-	semantic = CCS_NEVER;
-      else if (strcmp (ident, "check_maybe_continue") == 0)
-	semantic = CCS_MAYBE;
-      else if (strcmp (ident, "check_always_continue") == 0)
-	semantic = CCS_ALWAYS;
-      else if (postcondition_p)
-        {
-          /* The identifier is the return value for a postcondition.  */
-	  mode.set (CONTRACT_DEFAULT, get_default_contract_role ());
-	  return NULL_TREE;
-	}
+      level = map_contract_level (ident);
+      semantic = map_contract_semantic (ident);
+
+      /* The identifier is the return value for a postcondition.  */
+      if (level == CONTRACT_INVALID && semantic == CCS_INVALID
+	  && postcondition_p)
+	return NULL_TREE;
     }
   else if (token->type == CPP_KEYWORD && token->keyword == RID_DEFAULT)
     {
@@ -27471,18 +27441,16 @@ cp_parser_contract_mode_opt (cp_parser *parser,
 	  cp_lexer_consume_token (parser->lexer);
 	  cp_lexer_consume_token (parser->lexer);
 	}
-      mode.set (semantic);
       return config_id;
     }
 
   /* We matched a level, there may be a role; otherwise this is default.  */
   if (cp_lexer_next_token_is (parser->lexer, CPP_MOD))
     {
-      tree role_id = cp_parser_contract_role (parser, level, mode);
+      tree role_id = cp_parser_contract_role (parser);
       return build_tree_list (role_id, config_id);
     }
 
-  mode.set (level, cpp_get_contract_role ("default"));
   return build_tree_list (NULL_TREE, config_id);
 }
 
@@ -27503,8 +27471,7 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
   bool postcondition_p = is_attribute_p ("post", attr);
 
   /* Parse the optional mode.  */
-  contract_mode mode;
-  tree config = cp_parser_contract_mode_opt (parser, postcondition_p, mode);
+  tree config = cp_parser_contract_mode_opt (parser, postcondition_p);
 
   /* For postconditions, parse the optional identifier.  */
   tree identifier = NULL_TREE;
@@ -27532,7 +27499,7 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
      NOTE: You can't declare a deduced return type function with
      postconditions and not define it.  */
 
-  tree contract = start_contract (loc, attr, config, mode, identifier);
+  tree contract = start_contract (loc, attr, config, identifier);
   if (TREE_CODE (contract) != ASSERTION_STMT)
     {
       tree contract_condition = cp_parser_cache_contract_condition (parser);

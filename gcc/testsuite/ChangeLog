@@ -4483,6 +4483,10 @@
 	PR c++/91759
 	* g++.dg/cpp1z/class-deduction72.C: New test.
 
+2020-03-17  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-config1.C: New test.
+
 2020-03-17  Uroš Bizjak  <ubizjak@gmail.com>
 
 	* g++.dg/debug/dwarf2/const2b.C (dg-do): Fix target selector.

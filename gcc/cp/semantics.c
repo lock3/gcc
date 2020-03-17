@@ -849,6 +849,66 @@ build_unchecked_call (tree fn, vec<tree, va_gc> *args, tree checked)
   return NULL_TREE;
 }
 
+/* Convert a contract CONFIG into a contract_mode.  */
+
+static contract_mode
+contract_config_to_mode (tree config)
+{
+  if (config == NULL_TREE)
+    return contract_mode (CONTRACT_DEFAULT, get_default_contract_role ());
+
+  /* TREE_LIST has TREE_VALUE is a level and TREE_PURPOSE is role.  */
+  if (TREE_CODE (config) == TREE_LIST)
+    {
+      contract_role *role = NULL;
+      if (TREE_PURPOSE (config))
+	role = get_contract_role (IDENTIFIER_POINTER (TREE_PURPOSE (config)));
+      if (!role)
+	role = get_default_contract_role ();
+
+      contract_level level =
+	map_contract_level (IDENTIFIER_POINTER (TREE_VALUE (config)));
+      return contract_mode (level, role);
+    }
+
+  /* Literal semantic.  */
+  gcc_assert (TREE_CODE (config) == IDENTIFIER_NODE);
+  contract_semantic semantic =
+    map_contract_semantic (IDENTIFIER_POINTER (config));
+  return contract_mode (semantic);
+}
+
+/* Convert a contract's config into a concrete semantic using the current
+   contract semantic mapping.  */
+
+static contract_semantic
+compute_contract_concrete_semantic (tree contract)
+{
+  contract_mode mode = contract_config_to_mode (CONTRACT_MODE (contract));
+  /* Compute the concrete semantic for the contract.  */
+  if (!flag_contract_mode)
+    /* If contracts are off, treat all contracts as ignore.  */
+    return CCS_IGNORE;
+  else if (mode.kind == contract_mode::cm_invalid)
+    return CCS_INVALID;
+  else if (mode.kind == contract_mode::cm_explicit)
+    return mode.get_semantic ();
+  else
+    {
+      gcc_assert (mode.get_role ());
+      gcc_assert (mode.get_level () != CONTRACT_INVALID);
+      contract_level level = mode.get_level ();
+      contract_role *role = mode.get_role ();
+      if (level == CONTRACT_DEFAULT)
+	return role->default_semantic;
+      else if (level == CONTRACT_AUDIT)
+	return role->audit_semantic;
+      else if (level == CONTRACT_AXIOM)
+	return role->axiom_semantic;
+    }
+  gcc_assert (false);
+}
+
 /* Builds the checked function definition, which calls out to the unchecked
    version of the function.  Returns then unchecked function declaration.  */
 
@@ -1181,7 +1241,6 @@ tree
 start_contract (location_t loc,
 		tree attr,
 		tree config,
-		contract_mode mode,
 		tree id)
 {
   tree_code code;
@@ -1201,34 +1260,7 @@ start_contract (location_t loc,
   else
     contract = build4_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE, id);
 
-  /* Compute the concrete semantic for the contract.  */
-  if (!flag_contract_mode)
-    /* If contracts are off, treat all contracts as ignore.  */
-    set_contract_semantic (contract, CCS_IGNORE);
-  else if (mode.kind == contract_mode::cm_invalid)
-    set_contract_semantic (contract, CCS_INVALID);
-  else if (mode.kind == contract_mode::cm_explicit)
-    {
-      CONTRACT_LITERAL_MODE_P (contract) = true;
-      set_contract_semantic (contract, mode.get_semantic());
-    }
-  else
-    {
-      gcc_assert (mode.get_role());
-      gcc_assert (mode.get_level() != CONTRACT_INVALID);
-      CONTRACT_LITERAL_MODE_P (contract) = false;
-      contract_level level = mode.get_level ();
-      contract_role *role = mode.get_role ();
-      if (level == CONTRACT_DEFAULT)
-	set_contract_semantic (contract, role->default_semantic);
-      else if (level == CONTRACT_AUDIT)
-	set_contract_semantic (contract, role->audit_semantic);
-      else if (level == CONTRACT_AXIOM)
-	set_contract_semantic (contract, role->axiom_semantic);
-      else
-	gcc_assert (false);
-    }
-
+  set_contract_semantic (contract, compute_contract_concrete_semantic (contract));
   return contract;
 }
 

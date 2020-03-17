@@ -96,25 +96,15 @@ struct contract_configuration
 struct contract_mode
 {
   contract_mode () : kind(cm_invalid) {}
-
-  void set (contract_level level, contract_role *role = NULL)
+  contract_mode (contract_level level, contract_role *role = NULL) : kind(cm_dynamic)
   {
-    kind = cm_dynamic;
     contract_configuration cc;
     cc.level = level;
     cc.role = role;
     u.config = cc;
   }
-
-  void set_role (contract_role *role)
+  contract_mode (contract_semantic semantic) : kind(cm_explicit)
   {
-    gcc_assert (kind == cm_dynamic);
-    u.config.role = role;
-  }
-
-  void set (contract_semantic semantic)
-  {
-    kind = cm_explicit;
     u.semantic = semantic;
   }
 
@@ -154,6 +144,10 @@ extern cpp_contract_role *cpp_add_contract_role	(const char *,
 extern void cpp_validate_role			(cpp_contract_role *);
 extern enum contract_semantic cpp_lookup_concrete_semantic (char *);
 extern void cpp_setup_default_contract_role	(bool = true);
+
+/* Map a source level semantic or level name to its value, or invalid.  */
+extern contract_semantic map_contract_semantic	(const char *);
+extern contract_level map_contract_level	(const char *);
 
 /* Returns the default role.  */
 
