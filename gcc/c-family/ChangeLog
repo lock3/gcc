@@ -13,6 +13,10 @@
 
 2020-03-17  Jeff Chapman II  <jchapman@lock3software.com>
 
+	* contract.h: Remove cpp_ prefixes.
+	* contract.c: Ditto.
+	* c-opts.c: Ditto.
+
 	* contract.h (contract_mode): Rewrite in terms of constructors instead
 	of setters.
 	(map_contract_semantic): New.

@@ -6,7 +6,7 @@
 #include "contract.h"
 
 const int max_custom_roles = 32;
-static cpp_contract_role contract_build_roles[max_custom_roles] = {
+static contract_role contract_build_roles[max_custom_roles] = {
 };
 
 bool valid_configs[CCS_ALWAYS + 1][CCS_ALWAYS + 1] = {
@@ -19,7 +19,7 @@ bool valid_configs[CCS_ALWAYS + 1][CCS_ALWAYS + 1] = {
 };
 
 void
-cpp_validate_role (cpp_contract_role *role)
+validate_contract_role (contract_role *role)
 {
   gcc_assert (role);
   if (!unchecked_contract_p(role->axiom_semantic))
@@ -31,7 +31,7 @@ cpp_validate_role (cpp_contract_role *role)
 }
 
 contract_semantic
-cpp_lookup_concrete_semantic (char *name)
+lookup_concrete_semantic (char *name)
 {
   if (strcmp (name, "ignore") == 0)
     return CCS_IGNORE;
@@ -52,30 +52,30 @@ cpp_lookup_concrete_semantic (char *name)
   return CCS_INVALID;
 }
 
-cpp_contract_role *
-cpp_get_contract_role (const char *name)
+contract_role *
+get_contract_role (const char *name)
 {
   for (int i = 0; i < max_custom_roles; ++i)
   {
-    cpp_contract_role potential = contract_build_roles[i];
+    contract_role potential = contract_build_roles[i];
     if (potential.name == NULL) continue;
     if (strcmp (potential.name, name) != 0) continue;
     return contract_build_roles + i;
   }
   if (strcmp (name, "default") == 0 || strcmp (name, "review") == 0)
     {
-      cpp_setup_default_contract_role (false);
-      return cpp_get_contract_role (name);
+      setup_default_contract_role (false);
+      return get_contract_role (name);
     }
   return NULL;
 }
 
-cpp_contract_role *
-cpp_add_contract_role (const char *name,
-		       enum contract_semantic des,
-		       enum contract_semantic aus,
-		       enum contract_semantic axs,
-		       bool update)
+contract_role *
+add_contract_role (const char *name,
+		   contract_semantic des,
+		   contract_semantic aus,
+		   contract_semantic axs,
+		   bool update)
 {
   for (int i = 0; i < max_custom_roles; ++i)
     {
@@ -83,7 +83,7 @@ cpp_add_contract_role (const char *name,
 	  && strcmp (contract_build_roles[i].name, name) != 0)
 	continue;
       if (contract_build_roles[i].name != NULL && !update)
-        return contract_build_roles + i;
+	return contract_build_roles + i;
       contract_build_roles[i].name = name;
       contract_build_roles[i].default_semantic = des;
       contract_build_roles[i].audit_semantic = aus;
@@ -111,27 +111,27 @@ get_concrete_axiom_semantic ()
 }
 
 void
-cpp_setup_default_contract_role (bool update)
+setup_default_contract_role (bool update)
 {
   contract_semantic check = get_concrete_check ();
   contract_semantic axiom = get_concrete_axiom_semantic ();
   switch (flag_contract_build_level)
   {
     case OFF:
-      cpp_add_contract_role ("default", CCS_IGNORE, CCS_IGNORE, axiom, update);
-      cpp_add_contract_role ("review", CCS_IGNORE, CCS_IGNORE, CCS_IGNORE, update);
+      add_contract_role ("default", CCS_IGNORE, CCS_IGNORE, axiom, update);
+      add_contract_role ("review", CCS_IGNORE, CCS_IGNORE, CCS_IGNORE, update);
       break;
     case DEFAULT:
-      cpp_add_contract_role ("default", check, CCS_IGNORE, axiom, update);
-      cpp_add_contract_role ("review",
-			     flag_contract_continuation_mode
-			       ? CCS_ALWAYS
-			       : CCS_NEVER,
-			     CCS_IGNORE, CCS_IGNORE, update);
+      add_contract_role ("default", check, CCS_IGNORE, axiom, update);
+      add_contract_role ("review",
+			 flag_contract_continuation_mode
+			   ? CCS_ALWAYS
+			   : CCS_NEVER,
+			 CCS_IGNORE, CCS_IGNORE, update);
       break;
     case AUDIT:
-      cpp_add_contract_role ("default", check, check, axiom, update);
-      cpp_add_contract_role ("review", check, check, CCS_IGNORE, update);
+      add_contract_role ("default", check, check, axiom, update);
+      add_contract_role ("review", check, check, CCS_IGNORE, update);
       break;
   }
 }

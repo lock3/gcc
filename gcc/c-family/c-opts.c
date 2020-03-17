@@ -1813,7 +1813,7 @@ handle_OPT_fcontract_build_level_ (const char *arg)
   else
     error ("-fcontract-build-level= must be off|default|audit");
 
-  cpp_setup_default_contract_role ();
+  setup_default_contract_role ();
 }
 
 static void
@@ -1834,7 +1834,7 @@ handle_OPT_fcontract_assumption_mode_ (const char *arg)
   else
     error ("-fcontract-assumption-mode= must be %<on%> or %<off%>");
 
-  cpp_setup_default_contract_role ();
+  setup_default_contract_role ();
 }
 
 static void
@@ -1855,7 +1855,7 @@ handle_OPT_fcontract_continuation_mode_ (const char *arg)
   else
     error ("-fcontract-continuation-mode= must be %<on%> or %<off%>");
 
-  cpp_setup_default_contract_role ();
+  setup_default_contract_role ();
 }
 
 static void
@@ -1893,9 +1893,9 @@ handle_OPT_fcontract_role_ (const char *arg)
   *axs = '\0'; // null terminate aus
   axs = axs + 1; // move past null
 
-  contract_semantic dess = cpp_lookup_concrete_semantic (des);
-  contract_semantic auss = cpp_lookup_concrete_semantic (aus);
-  contract_semantic axss = cpp_lookup_concrete_semantic (axs);
+  contract_semantic dess = lookup_concrete_semantic (des);
+  contract_semantic auss = lookup_concrete_semantic (aus);
+  contract_semantic axss = lookup_concrete_semantic (axs);
   if (dess == CCS_INVALID || auss == CCS_INVALID || axss == CCS_INVALID)
     return;
 
@@ -1913,7 +1913,7 @@ handle_OPT_fcontract_role_ (const char *arg)
       contracts_p1332_review |= is_review_role;
     }
 
-  cpp_contract_role *role = cpp_add_contract_role (name, dess, auss, axss);
+  contract_role *role = add_contract_role (name, dess, auss, axss);
 
   if (role == NULL)
     {
@@ -1922,7 +1922,7 @@ handle_OPT_fcontract_role_ (const char *arg)
       return;
     }
   else
-    cpp_validate_role (role);
+    validate_contract_role (role);
 }
 
 static void
@@ -1942,7 +1942,7 @@ handle_OPT_fcontract_semantic_ (const char *arg)
   char *semantic = NULL;
   semantic = vals + 1;
 
-  contract_semantic sem = cpp_lookup_concrete_semantic (semantic);
+  contract_semantic sem = lookup_concrete_semantic (semantic);
   if (sem == CCS_INVALID)
     return;
 
@@ -1954,7 +1954,7 @@ handle_OPT_fcontract_semantic_ (const char *arg)
   else
     contracts_p1429 = true;
 
-  cpp_contract_role *role = cpp_get_contract_role ("default");
+  contract_role *role = get_contract_role ("default");
 
   if (role == NULL)
     {
@@ -1972,6 +1972,6 @@ handle_OPT_fcontract_semantic_ (const char *arg)
     {
       error ("-fcontract-semantic= level must be default, audit, or axiom");
     }
-  cpp_validate_role (role);
+  validate_contract_role (role);
 }
 

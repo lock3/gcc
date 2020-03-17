@@ -66,19 +66,14 @@ enum contract_continuation
   ALWAYS_CONTINUE
 };
 
-/* Assertion role info.
-
-   FIXME: Why is this prefixed cpp?  */
-struct cpp_contract_role
+/* Assertion role info.  */
+struct contract_role
 {
   const char *name;
-  enum contract_semantic default_semantic;
-  enum contract_semantic audit_semantic;
-  enum contract_semantic axiom_semantic;
+  contract_semantic default_semantic;
+  contract_semantic audit_semantic;
+  contract_semantic axiom_semantic;
 };
-
-typedef cpp_contract_role contract_role;
-
 
 /* Information for configured contract semantics.  */
 
@@ -135,15 +130,15 @@ struct contract_mode
   } u;
 };
 
-extern cpp_contract_role *cpp_get_contract_role	(const char *);
-extern cpp_contract_role *cpp_add_contract_role	(const char *,
-						 enum contract_semantic,
-						 enum contract_semantic,
-						 enum contract_semantic,
-						 bool = true);
-extern void cpp_validate_role			(cpp_contract_role *);
-extern enum contract_semantic cpp_lookup_concrete_semantic (char *);
-extern void cpp_setup_default_contract_role	(bool = true);
+extern contract_role *get_contract_role	(const char *);
+extern contract_role *add_contract_role	(const char *,
+					 contract_semantic,
+					 contract_semantic,
+					 contract_semantic,
+					 bool = true);
+extern void validate_contract_role	(contract_role *);
+extern void setup_default_contract_role	(bool = true);
+extern contract_semantic lookup_concrete_semantic (char *);
 
 /* Map a source level semantic or level name to its value, or invalid.  */
 extern contract_semantic map_contract_semantic	(const char *);
@@ -154,7 +149,7 @@ extern contract_level map_contract_level	(const char *);
 inline contract_role *
 get_default_contract_role ()
 {
-  return cpp_get_contract_role ("default");
+  return get_contract_role ("default");
 }
 
 #endif /* ! GCC_CP_CONTRACT_H */
