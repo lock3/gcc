@@ -509,6 +509,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       CONSTRUCTOR_PLACEHOLDER_BOUNDARY (in CONSTRUCTOR)
       OVL_EXPORT_P (in OVL_USING_P OVERLOAD)
       DECL_MODULE_ACCESS (in FIELD_DECL)
+      contract_versioned (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    6: TYPE_MARKED_P (in _TYPE)
       DECL_NONTRIVIALLY_INITIALIZED_P (in VAR_DECL)
       RANGE_FOR_IVDEP (in RANGE_FOR_STMT)
@@ -1406,6 +1407,14 @@ get_contract_semantic (const_tree t)
       | (TREE_LANG_FLAG_0 ((t)) << 2));
 }
 
+/* Returns whether this contract is allowed to be versioned in importers.  */
+
+inline bool
+get_contract_versioned (const_tree t)
+{
+  return (bool) TREE_LANG_FLAG_5 (t);
+}
+
 /* Sets the computed semantic of the node.  */
 
 inline void
@@ -1414,6 +1423,7 @@ set_contract_semantic (tree t, contract_semantic semantic)
   TREE_LANG_FLAG_4 (CONTRACT_CHECK (t)) = semantic & 0x01;
   TREE_LANG_FLAG_2 (t) = (semantic & 0x02) >> 1;
   TREE_LANG_FLAG_0 (t) = (semantic & 0x04) >> 2;
+  TREE_LANG_FLAG_5 (t) = flag_contract_versioning;
 }
 
 /* True if the contract semantic was specified literally. If true, the
@@ -3676,6 +3686,12 @@ find_contract (tree attrs)
 /* The original source location of a list of contracts.  */
 #define CONTRACT_SOURCE_LOCATION(NODE) \
   (EXPR_LOCATION (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
+
+/* For a FUNCTION_DECL of a guarded function, true IFF an importer is free to
+ * version the function based on contract configuration.  */
+#define DECL_VERSION_CONTRACTS_P(NODE) \
+  (DECL_CONTRACTS (NODE) \
+   && get_contract_versioned (TREE_VALUE (DECL_CONTRACTS (NODE))))
 
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */

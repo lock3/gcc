@@ -17489,8 +17489,12 @@ finish_function (bool inline_p)
     }
 
   gcc_checking_assert (!pending_guarded_decls.get (fndecl));
+  /* FIXME we can split selectively if it was configured with no active
+     contracts, or it allowed versioning and the current contract
+     configuration results in no active contracts.  */
   bool finishing_guarded_p = !processing_template_decl
-    && contract_any_active_p (DECL_CONTRACTS (fndecl))
+    && DECL_CONTRACTS (fndecl) != NULL_TREE
+    //&& contract_any_active_p (DECL_CONTRACTS (fndecl))
     && !DECL_CONSTRUCTOR_P (fndecl)
     && !DECL_DESTRUCTOR_P (fndecl);
   tree unchecked = NULL_TREE;

@@ -1053,9 +1053,37 @@ build_checked_function_definition (tree checked)
   /* Build the unchecked function declaration.  */
   tree unchecked = build_unchecked_function_declaration (checked);
 
-  /* Update various checked declaration properties.  */
-  DECL_DECLARED_INLINE_P (checked) = true;
-  DECL_DISREGARD_INLINE_LIMITS (checked) = true;
+  bool version_contracts_p = false;
+  if (modules_p () && DECL_VERSION_CONTRACTS_P (checked)
+      && DECL_TEMPLATE_INFO (checked))
+    for (tree contract_attr = DECL_CONTRACTS (checked);
+	contract_attr;
+	contract_attr = TREE_CHAIN (contract_attr))
+      {
+	tree contract = TREE_VALUE (contract_attr);
+	contract_semantic stored = get_contract_semantic (contract);
+	contract_semantic computed =
+	  compute_contract_concrete_semantic (contract);
+	if (stored != computed)
+	  version_contracts_p = true;
+	/* If we're reinterpreting this functions contracts, use the newly
+	 * computed semantic regardless of what the owner set.  */
+	set_contract_semantic (contract, computed);
+      }
+
+  // FIXME don't do this on virtuals; only do it on template instantiations
+  /* If we need to emit an internal linkage version of the checked wrapper
+     then fixup linkage of our wrapper.  */
+  if (version_contracts_p)
+    {
+      TREE_PUBLIC (checked) = false;
+      DECL_MODULE_EXPORT_P (checked) = false;
+      DECL_EXTERNAL (checked) = false;
+      DECL_INTERFACE_KNOWN (checked) = true;
+
+      if (DECL_MODULE_EXPORT_P (unchecked))
+	TREE_PUBLIC (unchecked) = true;
+    }
 
   /* FIXME We swap the DECL_RESULTs so that the later call to
      remap_unchecked_body does not need to handle it directly. Can we avoid

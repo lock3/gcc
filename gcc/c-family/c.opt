@@ -1538,6 +1538,10 @@ fcontract-semantic=
 C++ Joined
 -fcontract-semantic=<level>:<semantic>	Specify the concrete semantics for level
 
+fcontract-versioning
+C++ ObjC++ Var(flag_contract_versioning) Init(0)
+Enable guarded template functions to be versioned in importers based on contract configuration.
+
 fcoroutines
 C++ LTO Var(flag_coroutines)
 Enable C++ coroutines (experimental).
