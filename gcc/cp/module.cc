@@ -17470,24 +17470,65 @@ module_state::check_read (bool outermost, bool ok)
   return ok;
 }
 
-/* Return the IDENTIFIER_NODE naming module IX.  This is the name
-   including dots.  */
-
-char const *
-module_name (unsigned ix, bool header_ok)
+static char const *
+module_name_impl(unsigned ix, bool header_ok, bool primary)
 {
   if (modules)
     {
       module_state *imp = (*modules)[ix];
 
       if (ix && !imp->name)
-	imp = imp->parent;
+	      imp = imp->parent;
 
       if (header_ok || !imp->is_header ())
-	return imp->get_flatname ();
+      {
+        // TODO: cache the primary name in the module state
+        // in set_flatname?
+        char const *name = imp->get_flatname();
+        if (primary && !imp->is_header())
+        {
+          char const *px = strrchr(name, ':');
+          if (px)
+          {
+            tree pname = get_identifier_with_length(name, (size_t)(px - name));
+            name = IDENTIFIER_POINTER(pname);
+          }
+        }
+        return name;           
+      }
     }
 
   return NULL;
+}
+
+/* Return the IDENTIFIER_NODE naming module IX.  This is the name
+   including dots.  */
+
+char const *
+module_name (unsigned ix, bool header_ok)
+{
+  return module_name_impl(ix, header_ok, false);
+  // if (modules)
+  //   {
+  //     module_state *imp = (*modules)[ix];
+
+  //     if (ix && !imp->name)
+	// imp = imp->parent;
+
+  //     if (header_ok || !imp->is_header ())
+	// return imp->get_flatname ();
+  //   }
+
+  // return NULL;
+}
+
+/* Return the IDENTIFIER_NODE naming module IX less the partition name.  This is the name
+   including dots.  TODO: what about header modules? */
+
+char const *
+primary_module_name(unsigned ix)
+{
+  return module_name_impl(ix, true, true);
 }
 
 /* Return the bitmap describing what modules are imported.  Remember,
@@ -19288,9 +19329,7 @@ static void print_restrictions(const char *mod, tree decl, hash_set<tree, true> 
 tree
 make_qualid (tree decl)
 {
-  // TODO: use gcc's make_qualified_name or something?
-  // or reconcile this with elf_out's qualified id?
-  return get_identifier (decl_as_string (decl, TFF_TEMPLATE_HEADER));
+  return get_identifier (decl_as_string (decl, TFF_TEMPLATE_HEADER | TFF_MODULE_RESTRICTION));
 }
 
 /* FIXME turn into a public enum  */
@@ -19338,7 +19377,6 @@ hash_set<tree, true> *get_class_restriction_set(tree decl_or_id, int mode)
       }
       else
       {
-        // TODO: make & store a qualified name.
         id = make_qualid(decl_or_id);
         decl_qualified_ids.put(decl_or_id, id);
       }
@@ -19487,7 +19525,8 @@ unsigned module_state::write_restriction_map(elf_out *to, unsigned *crc_ptr)
       continue;
     
     tree decl = pair.first;
-    sec.u (to->name(make_qualid (pair.first)));
+    tree id = make_qualid (pair.first);
+    sec.u (to->name(id));
 
     hash_set<tree, true> *exp_ids = pair.second;
     hash_set<tree, true> *imp_ids = get_class_restriction_set(decl, RXN_LOOKUP);

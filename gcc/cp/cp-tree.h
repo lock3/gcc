@@ -5937,7 +5937,8 @@ enum auto_deduction_context
        identical to their defaults.
    TFF_NO_TEMPLATE_BINDINGS: do not print information about the template
        arguments for a function template specialization.
-   TFF_POINTER: we are printing a pointer type.  */
+   TFF_POINTER: we are printing a pointer type.
+   TFF_MODULE_RESTRICTION: format the module suffix for restriction lookup. */
 
 #define TFF_PLAIN_IDENTIFIER			(0)
 #define TFF_SCOPE				(1)
@@ -5955,6 +5956,7 @@ enum auto_deduction_context
 #define TFF_NO_OMIT_DEFAULT_TEMPLATE_ARGUMENTS	(1 << 12)
 #define TFF_NO_TEMPLATE_BINDINGS		(1 << 13)
 #define TFF_POINTER		                (1 << 14)
+#define TFF_MODULE_RESTRICTION    (1 << 15)  
 
 /* These constants can be used as bit flags to control strip_typedefs.
 
@@ -7082,6 +7084,7 @@ extern void init_modules (cpp_reader *);
 extern void fini_modules ();
 extern void finish_module_processing (cpp_reader *);
 extern char const *module_name (unsigned, bool header_ok);
+extern char const *primary_module_name(unsigned);
 extern bitmap get_import_bitmap ();
 extern bitmap module_visible_instantiation_path (bitmap *);
 extern void module_begin_main_file (cpp_reader *, line_maps *,

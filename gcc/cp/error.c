@@ -180,7 +180,7 @@ cxx_initialize_diagnostics (diagnostic_context *context)
 }
 
 static void
-dump_module_suffix (cxx_pretty_printer *pp, tree decl)
+dump_module_suffix (cxx_pretty_printer *pp, tree decl, int flags)
 {
   if (!modules_p ())
     return;
@@ -204,12 +204,21 @@ dump_module_suffix (cxx_pretty_printer *pp, tree decl)
   // for decls originating from module 0 but that breaks
   // the qualid encoding for "inline" restrictions. 
   unsigned m = get_originating_module (decl);
-    if (const char *n = module_name (m, false))
+  if (m || (flags & TFF_MODULE_RESTRICTION)) 
+    {
+      const char *n;
+      if (flags & TFF_MODULE_RESTRICTION) 
+        n = primary_module_name(m);
+      else
+        n = module_name(m, false);
+
+    if (n)
       {
-	pp_character (pp, '@');
-	pp->padding = pp_none;
-	pp_string (pp, n);
+	  pp_character (pp, '@');
+	  pp->padding = pp_none;
+	  pp_string (pp, n);
       }
+    }
 }
 
 /* Dump a scope, if deemed necessary.  */
@@ -803,7 +812,7 @@ dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
   else
     pp_cxx_tree_identifier (pp, DECL_NAME (decl));
 
-  dump_module_suffix (pp, decl);
+  dump_module_suffix (pp, decl, flags);
 
 
   if (tmplate)
@@ -1108,7 +1117,7 @@ dump_simple_decl (cxx_pretty_printer *pp, tree t, tree type, int flags)
   else
     pp_string (pp, M_("<anonymous>"));
 
-  dump_module_suffix (pp, t);
+  dump_module_suffix (pp, t, flags);
 
   if (flags & TFF_DECL_SPECIFIERS)
     dump_type_suffix (pp, type, flags);
@@ -1927,7 +1936,7 @@ dump_function_name (cxx_pretty_printer *pp, tree t, int flags)
   else
     dump_decl (pp, name, flags);
 
-  dump_module_suffix (pp, t);
+  dump_module_suffix (pp, t, flags);
 
   if (DECL_TEMPLATE_INFO (t)
       && !DECL_FRIEND_PSEUDO_TEMPLATE_INSTANTIATION (t)
