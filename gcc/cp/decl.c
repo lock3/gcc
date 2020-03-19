@@ -17489,20 +17489,21 @@ finish_function (bool inline_p)
     }
 
   gcc_checking_assert (!pending_guarded_decls.get (fndecl));
-  /* FIXME we can split selectively if it was configured with no active
-     contracts, or it allowed versioning and the current contract
-     configuration results in no active contracts.  */
   bool finishing_guarded_p = !processing_template_decl
-    && DECL_CONTRACTS (fndecl) != NULL_TREE
-    //&& contract_any_active_p (DECL_CONTRACTS (fndecl))
+    && contract_any_active_p (DECL_CONTRACTS (fndecl))
     && !DECL_CONSTRUCTOR_P (fndecl)
     && !DECL_DESTRUCTOR_P (fndecl);
+  bool version_contracts_p = version_contracts (fndecl);
+  /* We must split the function if it has any active contracts, or if its
+     being versioned.  */
+  finishing_guarded_p |= version_contracts_p;
   tree unchecked = NULL_TREE;
   if (finishing_guarded_p)
     {
       /* Prep the body that will be moved to unchecked.  */
       DECL_SAVED_TREE (fndecl) = pop_stmt_list (DECL_SAVED_TREE (fndecl));
-      unchecked = build_checked_function_definition (fndecl);
+      unchecked =
+	build_checked_function_definition (fndecl, version_contracts_p);
     }
 
   /* If we're saving up tree structure, tie off the function now.  */

@@ -1044,32 +1044,42 @@ compute_contract_concrete_semantic (tree contract)
   gcc_assert (false);
 }
 
+/* Returns true iff the guarded FUNCTION_DECL CHECKED should be versioned, and
+   if so, updates its contracts to use the current contract configuration's
+   semantic mappings.  */
+
+bool
+version_contracts (tree checked)
+{
+  if (!modules_p() || !DECL_VERSION_CONTRACTS_P (checked)
+      || !DECL_TEMPLATE_INFO (checked))
+    return false;
+  bool version_contracts_p = false;
+  for (tree contract_attr = DECL_CONTRACTS (checked);
+      contract_attr;
+      contract_attr = TREE_CHAIN (contract_attr))
+    {
+      tree contract = TREE_VALUE (contract_attr);
+      contract_semantic stored = get_contract_semantic (contract);
+      contract_semantic computed =
+	compute_contract_concrete_semantic (contract);
+      if (stored != computed)
+	version_contracts_p = true;
+      /* If we're versioning this function's contracts, use the newly
+	 computed semantic regardless of what the owner set.  */
+      set_contract_semantic (contract, computed);
+    }
+  return version_contracts_p;
+}
+
 /* Builds the checked function definition, which calls out to the unchecked
    version of the function.  Returns then unchecked function declaration.  */
 
 tree
-build_checked_function_definition (tree checked)
+build_checked_function_definition (tree checked, bool version_contracts_p)
 {
   /* Build the unchecked function declaration.  */
   tree unchecked = build_unchecked_function_declaration (checked);
-
-  bool version_contracts_p = false;
-  if (modules_p () && DECL_VERSION_CONTRACTS_P (checked)
-      && DECL_TEMPLATE_INFO (checked))
-    for (tree contract_attr = DECL_CONTRACTS (checked);
-	contract_attr;
-	contract_attr = TREE_CHAIN (contract_attr))
-      {
-	tree contract = TREE_VALUE (contract_attr);
-	contract_semantic stored = get_contract_semantic (contract);
-	contract_semantic computed =
-	  compute_contract_concrete_semantic (contract);
-	if (stored != computed)
-	  version_contracts_p = true;
-	/* If we're reinterpreting this functions contracts, use the newly
-	 * computed semantic regardless of what the owner set.  */
-	set_contract_semantic (contract, computed);
-      }
 
   // FIXME don't do this on virtuals; only do it on template instantiations
   /* If we need to emit an internal linkage version of the checked wrapper
