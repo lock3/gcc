@@ -1044,16 +1044,18 @@ compute_contract_concrete_semantic (tree contract)
   gcc_assert (false);
 }
 
-/* Returs true iff the guarded FUNCTION_DECL FNDECL is from a module compiled
-   with versioned contracts, or if it has the [[versioned]] attribute.
+/* Returns true iff the FUNCTION_DECL FNDECL is from a module compiled
+   with versioned functions, or if it has the [[versioned]] attribute.
 
    If it's from a context with a [[versioned]] attribute, groknfndecl
    should've propagated it.  */
 
-static bool
-guarded_function_versioned_p (tree fndecl)
+bool
+function_versioned_p (tree fndecl)
 {
-  if (!DECL_CONTRACTS (fndecl))
+  if (!modules_p ())
+    return false;
+  if (!DECL_TEMPLATE_INFO (fndecl))
     return false;
   if (DECL_VERSION_CONTRACTS_P (fndecl))
     return true;
@@ -1064,58 +1066,30 @@ guarded_function_versioned_p (tree fndecl)
    if so, updates its contracts to use the current contract configuration's
    semantic mappings.  */
 
-bool
+void
 version_contracts (tree checked)
 {
-  /* Never version contracts if modules isn't enabled or it doesn't have
-     contracts at all.  */
-  if (!modules_p () || !DECL_CONTRACTS (checked))
-    return false;
-  /* Don't version if the module wasn't compiled to enable contract
-     versioning and the function doesn't have the [[versioned]] attribute.  */
-  if (!guarded_function_versioned_p (checked))
-    return false;
-
-  bool version_contracts_p = false;
   for (tree contract_attr = DECL_CONTRACTS (checked);
       contract_attr;
       contract_attr = TREE_CHAIN (contract_attr))
     {
       tree contract = TREE_VALUE (contract_attr);
-      contract_semantic stored = get_contract_semantic (contract);
       contract_semantic computed =
 	compute_contract_concrete_semantic (contract);
-      if (stored != computed)
-	version_contracts_p = true;
       /* If we're versioning this function's contracts, use the newly
 	 computed semantic regardless of what the owner set.  */
       set_contract_semantic (contract, computed);
     }
-  return version_contracts_p;
 }
 
 /* Builds the checked function definition, which calls out to the unchecked
    version of the function.  Returns then unchecked function declaration.  */
 
 tree
-build_checked_function_definition (tree checked, bool version_contracts_p)
+build_checked_function_definition (tree checked)
 {
   /* Build the unchecked function declaration.  */
   tree unchecked = build_unchecked_function_declaration (checked);
-
-  // FIXME don't do this on virtuals; only do it on template instantiations
-  /* If we need to emit an internal linkage version of the checked wrapper
-     then fixup linkage of our wrapper.  */
-  if (version_contracts_p)
-    {
-      TREE_PUBLIC (checked) = false;
-      DECL_MODULE_EXPORT_P (checked) = false;
-      DECL_EXTERNAL (checked) = false;
-      DECL_INTERFACE_KNOWN (checked) = true;
-
-      if (DECL_MODULE_EXPORT_P (unchecked))
-	TREE_PUBLIC (unchecked) = true;
-    }
 
   /* FIXME We swap the DECL_RESULTs so that the later call to
      remap_unchecked_body does not need to handle it directly. Can we avoid
@@ -1242,19 +1216,30 @@ get_contract_role_name (tree contract)
    configuration. */
 
 bool
-contract_active_p (tree contract)
+contract_active_p (tree contract, bool versioned_p)
 {
-  return get_contract_semantic (TREE_VALUE (contract)) != CCS_IGNORE;
+  /* FIXME we can still cache this if we can update versioned contracts on
+     template ctors/dtors after reading them from the CMI. See FooT4 test in
+     modules/contracts-6.  */
+  return CCS_IGNORE != (versioned_p
+    ? compute_contract_concrete_semantic (contract)
+    : get_contract_semantic (contract));
 }
 
-/* Return true if any contract in the CONTRACT list is checked or assumed
-   under the current build configuration. */
+/* Return true if any contracts on the FUNCTION_DECL FNDECL is checked or
+   assumed under the preserved or current build configuration.  */
 
 bool
-contract_any_active_p (tree contract)
+contract_any_active_p (tree fndecl)
 {
-  for (; contract != NULL_TREE; contract = CONTRACT_CHAIN (contract))
-    if (contract_active_p (contract))
+  if (!flag_contracts || !DECL_DECLARES_FUNCTION_P (fndecl)
+      || !DECL_CONTRACTS (fndecl))
+    return false;
+  bool versioned_p = function_versioned_p (fndecl);
+  for (tree contract_attr = DECL_CONTRACTS (fndecl);
+      contract_attr != NULL_TREE;
+      contract_attr = TREE_CHAIN (contract_attr))
+    if (contract_active_p (TREE_VALUE (contract_attr), versioned_p))
       return true;
   return false;
 }
@@ -1277,6 +1262,8 @@ tree
 build_contract_check (tree contract)
 {
   contract_semantic semantic = get_contract_semantic (contract);
+  if (function_versioned_p (current_function_decl))
+    semantic = compute_contract_concrete_semantic (contract);
   if (semantic == CCS_INVALID)
     return NULL_TREE;
 

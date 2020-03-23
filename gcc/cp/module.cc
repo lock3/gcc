@@ -11917,8 +11917,11 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
       /* The template should have copied these from its result decl.  */
       tree res = DECL_TEMPLATE_RESULT (decl);
 
-      gcc_checking_assert (DECL_MODULE_EXPORT_P (decl)
-			   == DECL_MODULE_EXPORT_P (res));
+      /* A versioned template shouldn't be exported -- otherwise it should
+       * match the template.  */
+      if (!DECL_DECLARES_FUNCTION_P (decl) || !function_versioned_p (res))
+	gcc_checking_assert (DECL_MODULE_EXPORT_P (decl)
+			     == DECL_MODULE_EXPORT_P (res));
       if (DECL_LANG_SPECIFIC (res))
 	{
 	  gcc_checking_assert (DECL_MODULE_PURVIEW_P (decl)
@@ -12393,6 +12396,11 @@ specialization_add (bool decl_p, spec_entry *entry, void *data_)
        gcc_checking_assert (!check_mergeable_specialization (true, entry)
 			    == (decl_p || !DECL_ALIAS_TEMPLATE_P (entry->tmpl)));
     }
+
+  tree spec = entry->spec;
+  /* An importer should never inherit our version of a versioned template.  */
+  if (DECL_DECLARES_FUNCTION_P (spec) && function_versioned_p (spec))
+    return;
 
   data->safe_push (entry);
 }

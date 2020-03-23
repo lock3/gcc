@@ -17499,22 +17499,34 @@ finish_function (bool inline_p)
 			      current_eh_spec_block);
     }
 
+  bool versioned_p = !processing_template_decl && function_versioned_p (fndecl);
+  /* If the function is being versioned, it should have internal linkage to
+     avoid ODR issues.  */
+  if (versioned_p)
+    {
+      TREE_PUBLIC (fndecl) = false;
+      DECL_MODULE_EXPORT_P (fndecl) = false;
+      DECL_EXTERNAL (fndecl) = false;
+      DECL_INTERFACE_KNOWN (fndecl) = true;
+
+      version_contracts (fndecl);
+    }
+
   gcc_checking_assert (!pending_guarded_decls.get (fndecl));
+  /* We must split the function if it has any active contracts, or if its
+     being versioned and has any contracts.  */
   bool finishing_guarded_p = !processing_template_decl
-    && contract_any_active_p (DECL_CONTRACTS (fndecl))
+    && (contract_any_active_p (fndecl)
+	|| (DECL_CONTRACTS (fndecl) && versioned_p))
     && !DECL_CONSTRUCTOR_P (fndecl)
     && !DECL_DESTRUCTOR_P (fndecl);
-  bool version_contracts_p = version_contracts (fndecl);
-  /* We must split the function if it has any active contracts, or if its
-     being versioned.  */
-  finishing_guarded_p |= version_contracts_p;
   tree unchecked = NULL_TREE;
   if (finishing_guarded_p)
     {
       /* Prep the body that will be moved to unchecked.  */
       DECL_SAVED_TREE (fndecl) = pop_stmt_list (DECL_SAVED_TREE (fndecl));
       unchecked =
-	build_checked_function_definition (fndecl, version_contracts_p);
+	build_checked_function_definition (fndecl);
     }
 
   /* If we're saving up tree structure, tie off the function now.  */

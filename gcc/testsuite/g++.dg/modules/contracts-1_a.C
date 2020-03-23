@@ -48,6 +48,10 @@ export void foo_fn2()
 {
   fn2(-5);
 }
+export void foo_fn3()
+{
+  fn2(-5.3);
+}
 
 export [[versioned]] void fn3(int n)
   [[ pre: n > 0 ]]

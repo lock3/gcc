@@ -1,6 +1,6 @@
 // Test to ensure the [[versioned]] attribute is correctly applied to
 // functions directly and through various scopes.
-// { dg-additional-options "-fmodules-ts -fcontracts -fcontract-role=default:ignore,ignore,ignore" }
+// { dg-additional-options "-fmodules-ts -fcontracts -fcontract-role=default:maybe,maybe,ignore" }
 module;
 #include <cstdio>
 #include <contract>
@@ -14,13 +14,14 @@ export void handle_contract_violation(const std::contract_violation &violation)
   violation_count++;
   violation_line_sum += violation.line_number () * violation_count;
   printf("violation on line %d: %d %d\n", violation.line_number (),
-      violation_count, violation_line_sum);
+    violation_count, violation_line_sum);
 }
 
 export template<typename T>
 [[versioned]] void foo1(T t)
   [[ pre: t > 0 ]]
 {
+  [[ assert: false ]];
 }
 
 export template<typename T>
@@ -29,22 +30,26 @@ struct [[versioned]] FooT
   void foo2(T t)
     [[ pre: t > 0 ]]
   {
+    [[ assert: false ]];
   }
 
   void foo3(int t)
     [[ pre: t > 0 ]]
   {
+    [[ assert: false ]];
   }
 
   static void foo4(int t)
     [[ pre: t > 0 ]]
   {
+    [[ assert: false ]];
   }
 
   template<typename S>
   void foo5(S s)
     [[ pre: s > 0 ]]
   {
+    [[ assert: false ]];
   }
 
   template<typename S>
@@ -60,11 +65,13 @@ namespace [[versioned]] foons
   void foo7(T t)
     [[ pre: t > 0 ]]
   {
+    [[ assert: false ]];
   }
 
   export void foo8(int n)
     [[ pre: n > 0 ]]
   {
+    [[ assert: false ]];
   }
 }
 
@@ -73,6 +80,7 @@ namespace foons
   export void foo9(int n)
     [[ pre: n > 0 ]]
   {
+    [[ assert: false ]];
   }
 }
 
@@ -84,57 +92,20 @@ struct FooT2
     void foo10(int n)
       [[ pre: n > 0 ]]
     {
+      [[ assert: false ]];
     }
 
     void foo11(T n)
       [[ pre: n > 0 ]]
     {
+      [[ assert: false ]];
     }
 
     static void foo14(int n)
       [[ pre: n > 0 ]]
     {
+      [[ assert: false ]];
     }
   };
-};
-
-export template<typename T>
-struct [[versioned]] FooT3
-{
-  struct Inner
-  {
-    void foo12(int n)
-      [[ pre: n > 0 ]]
-    {
-    }
-
-    void foo13(T n)
-      [[ pre: n > 0 ]]
-    {
-    }
-  };
-};
-
-export template<typename T>
-void foo15(T t)
-  [[ pre: t > 0 ]]
-  [[versioned]] // { dg-warning "attribute ignored" }
-{
-}
-
-typedef int [[versioned]](*fp)(); // { dg-warning "attribute ignored" }
-
-export template<typename T>
-struct [[versioned]] FooT4
-{
-  T val{-10};
-  FooT4(T t)
-    [[ pre: t > 0 ]]
-    [[ post: val > 0 ]]
-  {
-    // test that a return is transformed into a goto to the postcondition
-    // block when the original semantics are all ignore
-    return;
-  }
 };
 

@@ -3189,7 +3189,7 @@ struct GTY(()) lang_decl {
   (DECL_DESTRUCTOR_P (NODE)                             \
    || (DECL_CONSTRUCTOR_P (NODE)       \
        && (targetm.cxx.cdtor_returns_this ()            \
-	   || contract_any_active_p (DECL_CONTRACTS (NODE)))))
+	   || contract_any_active_p (NODE))))
 
 /* Nonzero if NODE (a _DECL) is a cloned constructor or
    destructor.  */
@@ -7565,11 +7565,12 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 						 access_failure_info *afi = NULL);
 
 extern void remove_contract_attributes		(tree);
-extern bool contract_active_p			(tree);
+extern bool contract_active_p			(tree, bool);
 extern bool contract_any_active_p		(tree);
 extern bool contract_any_deferred_p		(tree);
-extern bool version_contracts			(tree);
-extern tree build_checked_function_definition	(tree, bool);
+extern bool function_versioned_p		(tree);
+extern void version_contracts			(tree);
+extern tree build_checked_function_definition	(tree);
 extern tree start_postcondition_statement	();
 extern void finish_postcondition_statement	(tree);
 extern tree build_postcondition_variable	(tree, tree);
