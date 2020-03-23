@@ -10240,6 +10240,17 @@ grokfndecl (tree ctype,
       *attrlist = NULL_TREE;
     }
 
+  /* If the context is versioned, we need to be versioned too. */
+  bool context_is_versioned_p =
+    lookup_attribute ("versioned",
+      TREE_CODE (CP_DECL_CONTEXT (decl)) == NAMESPACE_DECL
+	? DECL_ATTRIBUTES (CP_DECL_CONTEXT (decl))
+	: TYPE_ATTRIBUTES (CP_DECL_CONTEXT (decl))) != NULL_TREE;
+  if (context_is_versioned_p
+      && lookup_attribute ("versioned", DECL_ATTRIBUTES (decl)) == NULL_TREE)
+    DECL_ATTRIBUTES (decl) = tree_cons (get_identifier ("versioned"), NULL_TREE,
+					DECL_ATTRIBUTES (decl));
+
   /* Check main's type after attributes have been applied.  */
   if (ctype == NULL_TREE && DECL_MAIN_P (decl))
     {

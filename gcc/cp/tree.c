@@ -4719,6 +4719,34 @@ handle_no_unique_addr_attribute (tree* node,
   return NULL_TREE;
 }
 
+/* Handle a C++2b "versioned" attribute; arguments as in
+   struct attribute_spec.handler.  */
+static tree
+handle_versioned_attribute (tree* node,
+			    tree name,
+			    tree args,
+			    int /*flags*/,
+			    bool* no_add_attrs)
+{
+  *no_add_attrs = true;
+  if (!modules_p ())
+    warning (OPT_Wattributes, "%qE attribute requires %<-fmodules-ts%>", name);
+  else if (args)
+    warning (OPT_Wattributes, "%qE attribute takes no arguments", name);
+  else if (TREE_CODE (*node) == FUNCTION_TYPE)
+    warning (OPT_Wattributes,
+	     "%qE attribute ignored on function type", name);
+  else if (TREE_CODE (*node) != NAMESPACE_DECL
+      && !CLASS_TYPE_P (*node)
+      && !DECL_DECLARES_FUNCTION_P (*node))
+    warning (OPT_Wattributes,
+	     "%qE attribute ignored", name);
+  else
+    *no_add_attrs = false;
+
+  return NULL_TREE;
+}
+
 /* The C++20 [[likely]] and [[unlikely]] attributes on labels map to the GNU
    hot/cold attributes.  */
 
@@ -4768,6 +4796,8 @@ const struct attribute_spec std_attribute_table[] =
     handle_nodiscard_attribute, NULL },
   { "no_unique_address", 0, 0, true, false, false, false,
     handle_no_unique_addr_attribute, NULL },
+  { "versioned", 0, 0, false, false, false, false,
+    handle_versioned_attribute, NULL },
   { "likely", 0, 0, false, false, false, false,
     handle_likeliness_attribute, attr_cold_hot_exclusions },
   { "unlikely", 0, 0, false, false, false, false,

@@ -6108,6 +6108,8 @@ handle_namespace_attrs (tree ns, tree attributes)
 	    DECL_ATTRIBUTES (ns) = tree_cons (name, args,
 					      DECL_ATTRIBUTES (ns));
 	}
+      else if (is_attribute_p ("versioned", name))
+	DECL_ATTRIBUTES (ns) = tree_cons (name, args, DECL_ATTRIBUTES (ns));
       else
 	{
 	  warning (OPT_Wattributes, "%qD attribute directive ignored",

@@ -22,10 +22,12 @@ int main(int, char**)
 {
   fn(5);
   fn(-5);
+  fn2(5);
+  fn2(-5);
   void_fn(5);
   void_fn(-5);
   bar_fn(5);
   bar_fn(-5);
-  return violation_count == 3 ? 0 : -1;
+  return violation_count == 4 ? 0 : -1;
 }
 

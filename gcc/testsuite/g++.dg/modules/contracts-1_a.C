@@ -36,3 +36,21 @@ export void foo_fn()
   fn(5);
 }
 
+export template<typename T>
+[[versioned]]
+void fn2(T n)
+  [[ pre: n > 0 ]]
+{
+  printf("%s(%d)\n", __FUNCTION__, n);
+}
+
+export void foo_fn2()
+{
+  fn2(-5);
+}
+
+export [[versioned]] void fn3(int n)
+  [[ pre: n > 0 ]]
+{
+}
+

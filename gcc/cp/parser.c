@@ -20739,6 +20739,12 @@ cp_parser_namespace_definition (cp_parser* parser)
       braces.require_close (parser);
     }
 
+  /* The [[versioned]] attribute should only apply to things declared inside
+     the namespace decl where the attribute was written and not in subsequent
+     reopenings of the same namespace.  */
+  DECL_ATTRIBUTES (current_namespace) =
+    remove_attribute ("versioned", DECL_ATTRIBUTES (current_namespace));
+
   if (has_visibility)
     pop_visibility (1);
 

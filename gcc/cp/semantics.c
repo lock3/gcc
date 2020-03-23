@@ -1044,6 +1044,22 @@ compute_contract_concrete_semantic (tree contract)
   gcc_assert (false);
 }
 
+/* Returs true iff the guarded FUNCTION_DECL FNDECL is from a module compiled
+   with versioned contracts, or if it has the [[versioned]] attribute.
+
+   If it's from a context with a [[versioned]] attribute, groknfndecl
+   should've propagated it.  */
+
+static bool
+guarded_function_versioned_p (tree fndecl)
+{
+  if (!DECL_CONTRACTS (fndecl))
+    return false;
+  if (DECL_VERSION_CONTRACTS_P (fndecl))
+    return true;
+  return lookup_attribute ("versioned", DECL_ATTRIBUTES (fndecl)) != NULL_TREE;
+}
+
 /* Returns true iff the guarded FUNCTION_DECL CHECKED should be versioned, and
    if so, updates its contracts to use the current contract configuration's
    semantic mappings.  */
@@ -1051,9 +1067,15 @@ compute_contract_concrete_semantic (tree contract)
 bool
 version_contracts (tree checked)
 {
-  if (!modules_p() || !DECL_VERSION_CONTRACTS_P (checked)
-      || !DECL_TEMPLATE_INFO (checked))
+  /* Never version contracts if modules isn't enabled or it doesn't have
+     contracts at all.  */
+  if (!modules_p () || !DECL_CONTRACTS (checked))
     return false;
+  /* Don't version if the module wasn't compiled to enable contract
+     versioning and the function doesn't have the [[versioned]] attribute.  */
+  if (!guarded_function_versioned_p (checked))
+    return false;
+
   bool version_contracts_p = false;
   for (tree contract_attr = DECL_CONTRACTS (checked);
       contract_attr;
