@@ -1,5 +1,5 @@
 // { dg-module-do run }
-// { dg-additional-options "-fmodules-ts -fcontract-versioning" }
+// { dg-additional-options "-fmodules-ts -fcontracts -fcontract-versioning" }
 module;
 #include <cstdio>
 export module baz;

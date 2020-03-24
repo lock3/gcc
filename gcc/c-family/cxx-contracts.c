@@ -197,6 +197,49 @@ map_contract_level (const char *ident)
   return CONTRACT_INVALID;
 }
 
+int
+get_contract_role_count ()
+{
+  for (int i = 0; i < max_custom_roles; ++i)
+    if (contract_build_roles[i].name == NULL)
+      return i;
+  return max_custom_roles;
+}
+
+contract_role *
+get_contract_roles ()
+{
+  return contract_build_roles;
+}
+
+char
+contract_semantic_to_char (contract_semantic semantic)
+{
+  switch (semantic)
+    {
+      case CCS_INVALID: return 'x';
+      case CCS_IGNORE: return 'i';
+      case CCS_ASSUME: return 'a';
+      case CCS_NEVER: return 'n';
+      case CCS_MAYBE: return 'm';
+    }
+  return 'x';
+}
+
+contract_semantic
+contract_semantic_from_char (char c)
+{
+  switch (c)
+    {
+      case 'x': return CCS_INVALID;
+      case 'i': return CCS_IGNORE;
+      case 'a': return CCS_ASSUME;
+      case 'n': return CCS_NEVER;
+      case 'm': return CCS_MAYBE;
+    }
+  return CCS_INVALID;
+}
+
 
 void
 handle_OPT_fcontract_build_level_ (const char *arg)

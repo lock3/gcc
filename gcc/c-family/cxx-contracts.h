@@ -139,10 +139,16 @@ extern contract_role *add_contract_role	(const char *,
 extern void validate_contract_role	(contract_role *);
 extern void setup_default_contract_role	(bool = true);
 extern contract_semantic lookup_concrete_semantic (const char *);
+extern int get_contract_role_count	();
+extern contract_role *get_contract_roles();
 
 /* Map a source level semantic or level name to its value, or invalid.  */
 extern contract_semantic map_contract_semantic	(const char *);
 extern contract_level map_contract_level	(const char *);
+
+/* Map a semantic to or from a character abbreviation.  */
+extern char contract_semantic_to_char (contract_semantic);
+extern contract_semantic contract_semantic_from_char (char);
 
 /* FIXME */
 extern bool cxx23_contract_attribute_p (const_tree);

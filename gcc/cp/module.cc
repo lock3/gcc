@@ -13964,6 +13964,7 @@ module_state_config::get_dialect ()
 		      /* C++ 20 implies concepts.  */
 		      cxx_dialect < cxx20 && flag_concepts ? "/concepts" : "",
 		      flag_coroutines ? "/coroutines" : "",
+		      flag_contracts ? "/contracts" : "",
 		      NULL);
 
   return dialect;
@@ -16648,6 +16649,23 @@ module_state::write_config (elf_out *to, module_state_config &config,
   cfg.str (config.dialect_str);
   cfg.u (extensions);
 
+  {
+    int role_count = get_contract_role_count ();
+    cfg.u (role_count);
+
+    contract_role *roles = get_contract_roles ();
+    char buf[4];
+    for (int i = 0; i < role_count; ++i)
+      {
+	buf[0] = contract_semantic_to_char (roles[i].default_semantic);
+	buf[1] = contract_semantic_to_char (roles[i].audit_semantic);
+	buf[2] = contract_semantic_to_char (roles[i].axiom_semantic);
+	buf[3] = '\0';
+	cfg.str (roles[i].name);
+	cfg.str (buf);
+      }
+  }
+
   /* Global tree information.  We write the globals crc separately,
      rather than mix it directly into the overall crc, as it is used
      to ensure data match between instances of the compiler, not
@@ -16818,6 +16836,21 @@ module_state::read_config (module_state_config &config)
 	goto done;
       }
     extensions = ext;
+  }
+
+  /* Read original contract configuration.  This does not need to match the
+     current contract configuration.  */
+  {
+    unsigned role_count = cfg.u ();
+    const char *name = NULL;
+    const char *semantics = NULL;
+    for (unsigned i = 0; i < role_count; ++i)
+      {
+	name = cfg.str ();
+	semantics = cfg.str ();
+	dump () && dump ("Read contract role=%u, name=%s, semantics=%s",
+			 i, name, semantics);
+      }
   }
 
   /* Check global trees.  */
