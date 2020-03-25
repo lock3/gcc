@@ -20567,7 +20567,7 @@ static void
 tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
 			    tree in_decl)
 {
-  if (!DECL_CONTRACTS (t)) return;
+  if (!DECL_HAS_CONTRACTS_P (t)) return;
   tree contract_attrs = DECL_CONTRACTS (t);
   /* Rebuild unchecked result with concrete type.  */
   if (DECL_UNCHECKED_RESULT (t))
@@ -20579,7 +20579,7 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
     }
   contract_attrs = tsubst_contract_conditions_r (contract_attrs, args,
 						 complain, in_decl);
-  DECL_CONTRACTS (t) = contract_attrs;
+  set_decl_contracts (t, contract_attrs);
 }
 
 /* Instantiate the indicated variable, function, or alias template TMPL with
@@ -20735,9 +20735,9 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
   /* Specializations have completely independent contracts.  */
   if (processing_specialization
       && DECL_DECLARES_FUNCTION_P (fndecl)
-      && DECL_CONTRACTS (fndecl))
+      && DECL_HAS_CONTRACTS_P (fndecl))
     {
-      DECL_CONTRACTS (fndecl) = NULL_TREE;
+      remove_contract_attributes (fndecl);
       DECL_UNCHECKED_RESULT (fndecl) = NULL_TREE;
     }
 
@@ -25024,7 +25024,8 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	  && !DECL_DECLARED_INLINE_P (decl))
 	DECL_DECLARED_INLINE_P (decl) = 1;
 
-      DECL_CONTRACTS (decl) = DECL_CONTRACTS (code_pattern);
+      /* FIXME this is very suspect */
+      set_decl_contracts (decl, DECL_CONTRACTS (code_pattern));
 
       maybe_instantiate_noexcept (decl, tf_error);
     }

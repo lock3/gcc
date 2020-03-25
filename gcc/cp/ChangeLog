@@ -1,5 +1,19 @@
 2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
 
+	Store contracts in DECL_ATTRIBUTES.
+	* cp-tree.h (lang_decl_fn): Remove separate contracts member.
+	(find_contract): New.
+	(DECL_HAS_CONTRACTS_P): New.
+	(DECL_CONTRACTS): Use the above.
+	(CONTRACT_CHAIN): New. Find next contract attribute.
+	(remove_contract_attributes): New.
+	(set_decl_contracts): New.
+	* decl.c: Use above methods for interacting with contracts.
+	* pt.c: Ditto.
+	* semantics.c: Ditto.
+	(remove_contract_attributes): New. Deletes contract attributes from
+	regular attributes.
+
 	Stop using DECL_DEFERRED_CONTRACTS in favor of separate hash map for
 	guarded overrides.
 	* cp-tree.h (DECL_CONTRACTS): Look directly at contracts since

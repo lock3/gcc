@@ -567,6 +567,25 @@ build_arg_list (tree fn)
   return args;
 }
 
+void
+remove_contract_attributes (tree fndecl)
+{
+  tree list = DECL_ATTRIBUTES (fndecl);
+  tree *p;
+
+  for (p = &list; *p;)
+    {
+      tree l = *p;
+
+      if (cxx23_contract_attribute_p (l))
+	*p = TREE_CHAIN (l);
+      else
+	p = &TREE_CHAIN (l);
+    }
+
+  DECL_ATTRIBUTES (fndecl) = list;
+}
+
 /* Create, if it doesn't already exist, a VAR_DECL to hold the result of the
  * unchecked function call.  */
 
@@ -772,8 +791,8 @@ build_unchecked_function_declaration (tree checked)
   /* Create and rename unchecked function and give an internal name.  */
   tree unchecked = copy_fn_decl (checked);
   DECL_NAME (unchecked) = get_contracts_internal_ident (DECL_NAME (unchecked));
-  DECL_CONTRACTS (unchecked) = NULL_TREE;
   DECL_INITIAL (unchecked) = error_mark_node;
+  remove_contract_attributes (unchecked);
 
   /* FIXME it may make more sense to have the checked function be concrete
      with the unchecked be virtual since all checked function overrides must
@@ -1094,7 +1113,7 @@ contract_active_p (tree contract)
 bool
 contract_any_active_p (tree contract)
 {
-  for (; contract != NULL_TREE; contract = TREE_CHAIN (contract))
+  for (; contract != NULL_TREE; contract = CONTRACT_CHAIN (contract))
     if (contract_active_p (contract))
       return true;
   return false;
@@ -1105,7 +1124,7 @@ contract_any_active_p (tree contract)
 bool
 contract_any_deferred_p (tree contract_attr)
 {
-  for (; contract_attr; contract_attr = TREE_CHAIN (contract_attr))
+  for (; contract_attr; contract_attr = CONTRACT_CHAIN (contract_attr))
     if (CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (contract_attr)))
       return true;
   return false;
@@ -1189,7 +1208,7 @@ emit_contract_statement (tree attr)
       && CONTRACT_CONDITION (contract) != error_mark_node)
     add_stmt (contract);
 
-  return TREE_CHAIN (attr);
+  return CONTRACT_CHAIN (attr);
 }
 
 /* Add the statements of contract attributes ATTRS to the current block.  */
@@ -1206,7 +1225,7 @@ emit_contract_conditions (tree attrs, tree_code code)
       if (TREE_CODE (contract) == code)
 	attrs = emit_contract_statement (attrs);
       else
-	attrs = TREE_CHAIN (attrs);
+	attrs = CONTRACT_CHAIN (attrs);
     }
 }
 

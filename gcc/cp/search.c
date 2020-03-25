@@ -2046,8 +2046,7 @@ check_final_overrider (tree overrider, tree basefn)
       return 0;
     }
 
-  if (DECL_CONTRACTS (basefn) == NULL_TREE
-      && DECL_CONTRACTS (overrider) != NULL_TREE)
+  if (!DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {
       auto_diagnostic_group d;
       error ("guarded function %q+D overriding non-guarded function",
@@ -2056,13 +2055,14 @@ check_final_overrider (tree overrider, tree basefn)
 	      "overridden function is %qD", basefn);
       return 0; // FIXME?
     }
-  else if (DECL_CONTRACTS (basefn) != NULL_TREE
-      && DECL_CONTRACTS (overrider) == NULL_TREE)
+  else if (DECL_HAS_CONTRACTS_P (basefn) && !DECL_HAS_CONTRACTS_P (overrider))
     {
       /* We're inheriting basefn's contracts; create a copy of them but
 	 replace references to their parms to our parms.  */
       tree last = NULL_TREE, contract_attrs = NULL_TREE;
-      for (tree a = DECL_CONTRACTS (basefn); a != NULL_TREE; a = TREE_CHAIN (a))
+      for (tree a = DECL_CONTRACTS (basefn);
+	  a != NULL_TREE;
+	  a = CONTRACT_CHAIN (a))
 	{
 	  tree c = copy_node (a);
 	  TREE_VALUE (c) = copy_node (TREE_VALUE (c));
@@ -2075,10 +2075,9 @@ check_final_overrider (tree overrider, tree basefn)
 	  if (!contract_attrs)
 	    contract_attrs = c;
 	}
-      DECL_CONTRACTS (overrider) = contract_attrs;
+      set_decl_contracts (overrider, contract_attrs);
     }
-  else if (DECL_CONTRACTS (basefn) != NULL_TREE
-      && DECL_CONTRACTS (overrider) != NULL_TREE)
+  else if (DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {
       /* We're in the process of completing the overrider's class, which means
 	 our conditions definitely are not parsed so simply chain on the

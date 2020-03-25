@@ -25646,7 +25646,8 @@ cp_parser_member_declaration (cp_parser* parser)
 	      /* If we've declared a member function with contracts, ensure we
 		 do late parsing for the contracts even if we have no function
 		 body to parse at that time.  */
-	      if (DECL_DECLARES_FUNCTION_P (decl) && DECL_CONTRACTS (decl))
+	      if (DECL_DECLARES_FUNCTION_P (decl)
+		  && DECL_HAS_CONTRACTS_P (decl))
 		vec_safe_push (unparsed_funs_with_definitions, decl);
 
 	      if (parser->fully_implicit_function_template_p)
@@ -29536,7 +29537,7 @@ cp_parser_function_definition_after_declarator (cp_parser* parser,
     cp_parser_ctor_initializer_opt_and_function_body
       (parser, /*in_function_try_block=*/false);
 
-  if (DECL_CONTRACTS (current_function_decl))
+  if (DECL_HAS_CONTRACTS_P (current_function_decl))
     cp_parser_late_parsing_for_contracts (parser, current_function_decl,
 					  DECL_CONTRACTS (current_function_decl));
 
@@ -30512,12 +30513,12 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function, tree con
   begin_contract_scope (function);
 
   /* Ensure all contract conditions are actually parsed.  */
-  for (; contract_attrs; contract_attrs = TREE_CHAIN (contract_attrs))
+  for (; contract_attrs; contract_attrs = CONTRACT_CHAIN (contract_attrs))
     cp_parser_late_parsing_for_contract (parser, function,
 					 TREE_VALUE (contract_attrs));
 
   /* Ensure all pre-existing contracts on function are already parsed.  */
-  for (tree ca = DECL_CONTRACTS (function); ca; ca = TREE_CHAIN (ca))
+  for (tree ca = DECL_CONTRACTS (function); ca; ca = CONTRACT_CHAIN (ca))
     cp_parser_late_parsing_for_contract (parser, function, TREE_VALUE (ca));
 
   finish_scope ();

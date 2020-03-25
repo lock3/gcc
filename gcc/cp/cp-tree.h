@@ -2841,10 +2841,6 @@ struct GTY(()) lang_decl_fn {
   /* For the checked version of a guarded function, this points to the var
      caputring the result of the unchecked function.  */
   tree unchecked_result;
-  /* For a guarded function with contracts, this is a tree list where
-     the purpose is the location of the contracts and the value is the list of
-     contracts specified in original decl order.  */
-  tree contracts;
 };
 
 /* DECL_LANG_SPECIFIC for namespaces.  */
@@ -3509,10 +3505,23 @@ struct GTY(()) lang_decl {
 #define DECL_PENDING_INLINE_INFO(NODE) \
   (LANG_DECL_FN_CHECK (NODE)->u.pending_inline_info)
 
+inline tree find_contract (tree attrs)
+{
+  while (attrs && !cxx23_contract_attribute_p (attrs))
+    attrs = TREE_CHAIN (attrs);
+  return attrs;
+}
+
+#define DECL_HAS_CONTRACTS_P(NODE) \
+  (DECL_CONTRACTS (NODE) != NULL_TREE)
+
 /* For a FUNCTION_DECL of a guarded function, this points to a list of the pre
    and post contracts of the first decl of NODE in original order. */
 #define DECL_CONTRACTS(NODE) \
-  (LANG_DECL_FN_CHECK (NODE)->contracts)
+  (find_contract (DECL_ATTRIBUTES (NODE)))
+
+#define CONTRACT_CHAIN(NODE) \
+  (find_contract (TREE_CHAIN (NODE)))
 
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */
@@ -7246,6 +7255,7 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 						 tsubst_flags_t,
 						 access_failure_info *afi = NULL);
 
+extern void remove_contract_attributes		(tree);
 extern bool contract_active_p			(tree);
 extern bool contract_any_active_p		(tree);
 extern bool contract_any_deferred_p		(tree);
@@ -7261,6 +7271,20 @@ extern void build_unchecked_result		(tree);
 extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);
 extern void emit_postconditions			(tree);
+
+inline void set_decl_contracts (tree decl, tree contract_attrs)
+{
+  remove_contract_attributes (decl);
+  if (!DECL_ATTRIBUTES (decl))
+    {
+      DECL_ATTRIBUTES (decl) = contract_attrs;
+      return;
+    }
+  tree last_attr = DECL_ATTRIBUTES (decl);
+  while (TREE_CHAIN (last_attr))
+    last_attr = TREE_CHAIN (last_attr);
+  TREE_CHAIN (last_attr) = contract_attrs;
+}
 
 /* in decl.c */
 extern void defer_guarded_contract_match	(tree, tree);

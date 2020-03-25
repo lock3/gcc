@@ -972,7 +972,7 @@ diagnose_contracts_after_definition (tree olddecl, location_t newloc)
      function.  */
   if (DECL_INITIAL (olddecl)
       && DECL_INITIAL (olddecl) != error_mark_node
-      && !DECL_CONTRACTS (olddecl))
+      && !DECL_HAS_CONTRACTS_P (olddecl))
     {
       auto_diagnostic_group d;
       error_at (newloc, "cannot add contracts after definition");
@@ -999,8 +999,8 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
     {
       if (diagnose_mismatched_contracts (old_attrs, new_attrs, ctx))
 	return true;
-      old_attrs = TREE_CHAIN (old_attrs);
-      new_attrs = TREE_CHAIN (new_attrs);
+      old_attrs = CONTRACT_CHAIN (old_attrs);
+      new_attrs = CONTRACT_CHAIN (new_attrs);
     }
 
   /* If we didn't compare all attributes, the contracts don't match.  */
@@ -1072,7 +1072,7 @@ merge_contracts (tree decl, const cp_declarator *fn)
   /* If we already have contracts from a more general template but we're a
      specialization, delete the existing contracts in favor of whatever we're
      about to merge in -- including an empty list.  */
-  if (DECL_CONTRACTS (decl)
+  if (DECL_HAS_CONTRACTS_P (decl)
       && DECL_P (TREE_TYPE (TREE_VALUE (DECL_CONTRACTS (decl)))))
     {
       tree orig = TREE_TYPE (TREE_VALUE (DECL_CONTRACTS (decl)));
@@ -1080,7 +1080,7 @@ merge_contracts (tree decl, const cp_declarator *fn)
 	orig = DECL_TEMPLATE_RESULT (orig);
       if (DECL_TEMPLATE_INFO (decl)
 	  && DECL_USE_TEMPLATE (decl) && !DECL_USE_TEMPLATE (orig))
-	DECL_CONTRACTS (decl) = NULL_TREE;
+	remove_contract_attributes (decl);
     }
 
   if (!fn->contracts)
@@ -1136,10 +1136,8 @@ merge_contracts (tree decl, const cp_declarator *fn)
 
   /* If there are not yet contracts or we need to defer checking, save the
      contracts.  */
-  if (!DECL_CONTRACTS (decl) || contract_any_deferred_p (fn->contracts))
-    {
-      DECL_CONTRACTS (decl) = fn->contracts;
-    }
+  if (!DECL_HAS_CONTRACTS_P (decl) || contract_any_deferred_p (fn->contracts))
+    set_decl_contracts (decl, fn->contracts);
 }
 
 static hash_map<tree_decl_hash, hash_set<tree, true> *> pending_guarded_overrides;
@@ -1645,7 +1643,7 @@ merge_attribute_bits (tree newdecl, tree olddecl)
 static void
 remap_decl_contracts (tree decl, tree from, tree to)
 {
-  for (tree c = DECL_CONTRACTS (decl); c; c = TREE_CHAIN (c))
+  for (tree c = DECL_CONTRACTS (decl); c; c = CONTRACT_CHAIN (c))
     if (!CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (c)))
       remap_contract (from, to, TREE_VALUE (c));
 }
@@ -2316,7 +2314,8 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 
       /* Ensure contracts, if any, are present on the newdecl so they're saved
 	 when olddecl is overwritten later.  */
-      DECL_CONTRACTS (newdecl) = DECL_CONTRACTS (olddecl);
+      /* FIXME this is very suspect */
+      set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
       DECL_UNCHECKED_RESULT (newdecl) = DECL_UNCHECKED_RESULT (olddecl);
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
