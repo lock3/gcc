@@ -33,6 +33,12 @@ struct G1
 int G1::f(int a) [[ pre: a > 0 ]]; // { dg-warning "adds contracts" }
 // { dg-warning "non-defining declaration" "" { target *-*-* } .-1 }
 
+int G1::f(int a);
+// { dg-warning "non-defining declaration" "" { target *-*-* } .-1 }
+
+int G1::f(int a) [[ pre: a > 0 ]];
+// { dg-warning "non-defining declaration" "" { target *-*-* } .-1 }
+
 int G1::f(int a)
 {
   return -a;

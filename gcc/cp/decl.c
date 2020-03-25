@@ -1072,15 +1072,15 @@ merge_contracts (tree decl, const cp_declarator *fn)
   /* If we already have contracts from a more general template but we're a
      specialization, delete the existing contracts in favor of whatever we're
      about to merge in -- including an empty list.  */
-  if (DECL_DEFERRED_CONTRACTS (decl)
-      && DECL_P (TREE_PURPOSE (DECL_DEFERRED_CONTRACTS (decl))))
+  if (DECL_CONTRACTS (decl)
+      && DECL_P (TREE_TYPE (TREE_VALUE (DECL_CONTRACTS (decl)))))
     {
-      tree orig = TREE_PURPOSE (DECL_DEFERRED_CONTRACTS (decl));
+      tree orig = TREE_TYPE (TREE_VALUE (DECL_CONTRACTS (decl)));
       if (TREE_CODE (orig) == TEMPLATE_DECL)
 	orig = DECL_TEMPLATE_RESULT (orig);
       if (DECL_TEMPLATE_INFO (decl)
 	  && DECL_USE_TEMPLATE (decl) && !DECL_USE_TEMPLATE (orig))
-	DECL_DEFERRED_CONTRACTS (decl) = NULL_TREE;
+	DECL_CONTRACTS (decl) = NULL_TREE;
     }
 
   if (!fn->contracts)
@@ -1117,19 +1117,40 @@ merge_contracts (tree decl, const cp_declarator *fn)
      have already emitted any optional warnings.  */
   DECL_SEEN_WITHOUT_CONTRACTS_P (decl) = false;
 
+  tree original_loc = build1_loc (DECL_SOURCE_LOCATION (decl),
+				  VIEW_CONVERT_EXPR, void_type_node,
+				  NULL_TREE);
+  EXPR_LOCATION_WRAPPER_P (original_loc) = 1;
+
+  /* Mark the owner of fn's contracts as decl.  */
+  for (tree contract_attr = fn->contracts;
+      contract_attr;
+      contract_attr = TREE_CHAIN (contract_attr))
+  {
+    if (TREE_PURPOSE (TREE_PURPOSE (contract_attr)) == NULL_TREE)
+      TREE_PURPOSE (TREE_PURPOSE (contract_attr)) = original_loc;
+    tree contract = TREE_VALUE (contract_attr);
+    if (VOID_TYPE_P (TREE_TYPE (contract)))
+      TREE_TYPE (contract) = decl;
+  }
+
   /* If there are not yet contracts or we need to defer checking, save the
      contracts.  */
   if (!DECL_CONTRACTS (decl) || contract_any_deferred_p (fn->contracts))
     {
-      tree original_loc = build1_loc (DECL_SOURCE_LOCATION (decl),
-				      VIEW_CONVERT_EXPR, void_type_node,
-				      NULL_TREE);
-      EXPR_LOCATION_WRAPPER_P (original_loc) = 1;
-
-      DECL_DEFERRED_CONTRACTS (decl) = chainon (
-	  DECL_DEFERRED_CONTRACTS (decl),
-	  build_tree_list (original_loc, fn->contracts));
+      DECL_CONTRACTS (decl) = fn->contracts;
     }
+}
+
+static hash_map<tree_decl_hash, hash_set<tree, true> *> pending_guarded_overrides;
+
+void
+defer_guarded_contract_match (tree fndecl, tree basefn)
+{
+  if (!pending_guarded_overrides.get (fndecl))
+    pending_guarded_overrides.put (fndecl, new hash_set<tree, true>());
+  hash_set<tree, true> *bases = *pending_guarded_overrides.get (fndecl);
+  bases->add (basefn);
 }
 
 /* If the FUNCTION_DECL DECL has any contracts that had their matching
@@ -1138,41 +1159,27 @@ merge_contracts (tree decl, const cp_declarator *fn)
 void
 match_deferred_contracts (tree decl)
 {
-  if (!DECL_DEFERRED_CONTRACTS (decl)
-      || !TREE_CHAIN (DECL_DEFERRED_CONTRACTS (decl)))
+  if (!pending_guarded_overrides.get (decl))
     return;
 
   /* If we're still deferring, defer even more.  */
   if (contract_any_deferred_p (DECL_CONTRACTS (decl)))
     return;
 
-  tree all_contracts = DECL_DEFERRED_CONTRACTS (decl);
-  tree contracts = TREE_VALUE (all_contracts);
-  location_t oldloc = 0;
-  if (TREE_CODE (TREE_PURPOSE (all_contracts)) == VIEW_CONVERT_EXPR)
-    oldloc = EXPR_LOCATION (TREE_PURPOSE (all_contracts));
-  else
-    oldloc = DECL_SOURCE_LOCATION (TREE_PURPOSE (all_contracts));
+  hash_set<tree, true> *bases = *pending_guarded_overrides.get (decl);
+
+  tree contract_attrs = DECL_CONTRACTS (decl);
+  location_t oldloc = EXPR_LOCATION (TREE_PURPOSE (TREE_PURPOSE (contract_attrs)));
 
   /* Do late contract matching.  */
-  for (tree n = TREE_CHAIN (all_contracts); n; n = TREE_CHAIN (n))
-    {
-      /* If the original context is a duplicate FUNCTION_DECL, we only keep
-	 the location alive as a VIEW_CONVERT_EXPR.  */
-      if (TREE_CODE (TREE_PURPOSE (n)) != VIEW_CONVERT_EXPR)
-	match_contract_conditions (
-	    DECL_SOURCE_LOCATION (TREE_PURPOSE (n)), TREE_VALUE (n),
-	    oldloc, contracts,
-	    cmc_override);
-      else
-	match_contract_conditions (
-	    oldloc, contracts,
-	    EXPR_LOCATION (TREE_PURPOSE (n)), TREE_VALUE (n),
-	    cmc_declaration);
-    }
+  for (hash_set<tree, true>::iterator it = bases->begin();
+      it != bases->end();
+      ++it)
+    match_contract_conditions (DECL_SOURCE_LOCATION (*it), DECL_CONTRACTS (*it),
+			       oldloc, contract_attrs, cmc_override);
 
   /* Clear out deferred match list so we don't check it twice.  */
-  TREE_CHAIN (DECL_DEFERRED_CONTRACTS (decl)) = NULL_TREE;
+  pending_guarded_overrides.remove (decl);
 }
 
 
@@ -2309,7 +2316,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 
       /* Ensure contracts, if any, are present on the newdecl so they're saved
 	 when olddecl is overwritten later.  */
-      DECL_DEFERRED_CONTRACTS (newdecl) = DECL_DEFERRED_CONTRACTS (olddecl);
+      DECL_CONTRACTS (newdecl) = DECL_CONTRACTS (olddecl);
       DECL_UNCHECKED_RESULT (newdecl) = DECL_UNCHECKED_RESULT (olddecl);
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);

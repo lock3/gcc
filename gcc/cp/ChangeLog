@@ -1,5 +1,29 @@
 2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
 
+	Stop using DECL_DEFERRED_CONTRACTS in favor of separate hash map for
+	guarded overrides.
+	* cp-tree.h (DECL_CONTRACTS): Look directly at contracts since
+	deferred contracts have been moved elsewhere.
+	(DECL_DEFERRED_CONTRACTS): Remove.
+	(defer_guarded_contract_match): New.
+	* decl.c: Use DECL_CONTRACTS instead of DECL_DEFERRED_CONTRACTS.
+	(merge_contracts): Save original decl and location in contracts.
+	(pending_guarded_overrides): New.
+	(defer_guarded_contract_match): New.
+	(match_deferred_contracts): Use the above instead of
+	DECL_DEFERRED_CONTRACTS.
+	* parser.c (cp_separate_contracts): Fix whitespace.
+	(cp_parser_late_parsing_for_contracts): Only worry about parsing
+	non-deferred contracts.
+	* pt.c (instantiate_class_template_1): We no longer need extra logic
+	to handle deferred contracts here.
+	(tsubst_contract_conditions_r): Handle DECL_CONTRACTS directly.
+	(instantiate_template_1): Ditto.
+	* search.c (check_final_overrider): Ditto.
+	Use defer_guarded_contract_match if needed.
+	* semantics.c (build_unchecked_function_declaration): Handle
+	DECL_CONTRACTS directly.
+
 	* cp-tree.h (DECL_SEEN_WITHOUT_CONTRACTS_P): New.
 	* decl.c (match_contracts): Use DECL_SEEN_WITHOUT_CONTRACTS_P instead
 	of looking for sentinel value.

@@ -1468,9 +1468,9 @@ cp_separate_contracts (tree &attributes, tree &contracts, bool (*pred)(tree))
       tree next = TREE_CHAIN (attr);
       TREE_CHAIN (attr) = NULL_TREE;
       if (pred (attr))
-        contracts = chainon (attr, contracts);
+	contracts = chainon (attr, contracts);
       else
-        attributes = chainon (attr, attributes);
+	attributes = chainon (attr, attributes);
       attr = next;
     }
   contracts = nreverse (contracts);
@@ -30517,9 +30517,8 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function, tree con
 					 TREE_VALUE (contract_attrs));
 
   /* Ensure all pre-existing contracts on function are already parsed.  */
-  for (tree d = DECL_DEFERRED_CONTRACTS (function); d; d = TREE_CHAIN (d))
-    for (tree ca = TREE_VALUE (d); ca; ca = TREE_CHAIN (ca))
-      cp_parser_late_parsing_for_contract (parser, function, TREE_VALUE (ca));
+  for (tree ca = DECL_CONTRACTS (function); ca; ca = TREE_CHAIN (ca))
+    cp_parser_late_parsing_for_contract (parser, function, TREE_VALUE (ca));
 
   finish_scope ();
   current_function_decl = NULL_TREE;

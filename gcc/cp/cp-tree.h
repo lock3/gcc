@@ -3512,22 +3512,12 @@ struct GTY(()) lang_decl {
 /* For a FUNCTION_DECL of a guarded function, this points to a list of the pre
    and post contracts of the first decl of NODE in original order. */
 #define DECL_CONTRACTS(NODE) \
-  (DECL_DEFERRED_CONTRACTS(NODE) == NULL_TREE ? NULL_TREE \
-   : TREE_VALUE(DECL_DEFERRED_CONTRACTS(NODE)))
+  (LANG_DECL_FN_CHECK (NODE)->contracts)
 
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */
 #define DECL_UNCHECKED_RESULT(NODE) \
   (LANG_DECL_FN_CHECK (NODE)->unchecked_result)
-
-/* For a FUNCTION_DECL of a guarded function, this is a tree list holding all
-   contracts appertaining to NODE.
-
-   It is a tree list, where DECL_SOURCE_LOCATION (TREE_PURPOSE ()) is the
-   location where the contracts originally appeared. The TREE_VALUE is the
-   list of contracts.  */
-#define DECL_DEFERRED_CONTRACTS(NODE) \
-  (LANG_DECL_FN_CHECK (NODE)->contracts)
 
 /* True the FUNCTION_DECL NODE was initially declared without contracts.  */
 #define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
@@ -7271,6 +7261,9 @@ extern void build_unchecked_result		(tree);
 extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);
 extern void emit_postconditions			(tree);
+
+/* in decl.c */
+extern void defer_guarded_contract_match	(tree, tree);
 
 /* RAII sentinel to ensures that deferred access checks are popped before
   a function returns.  */

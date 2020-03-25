@@ -772,7 +772,7 @@ build_unchecked_function_declaration (tree checked)
   /* Create and rename unchecked function and give an internal name.  */
   tree unchecked = copy_fn_decl (checked);
   DECL_NAME (unchecked) = get_contracts_internal_ident (DECL_NAME (unchecked));
-  DECL_DEFERRED_CONTRACTS (unchecked) = NULL_TREE;
+  DECL_CONTRACTS (unchecked) = NULL_TREE;
   DECL_INITIAL (unchecked) = error_mark_node;
 
   /* FIXME it may make more sense to have the checked function be concrete

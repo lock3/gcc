@@ -11700,13 +11700,6 @@ instantiate_class_template_1 (tree type)
 	      if (TREE_CODE (t) == TEMPLATE_DECL)
 		--processing_template_decl;
 
-	      /* If we have contracts, let merge_contracts know that they come
-		 from the original template so they can be overriden on a
-		 specialization.  */
-	      if (r && r != error_mark_node && DECL_DEFERRED_CONTRACTS (r))
-		DECL_DEFERRED_CONTRACTS (r) =
-		  build_tree_list (t, DECL_CONTRACTS (r));
-
 	      set_current_access_from_decl (r);
 	      finish_member_declaration (r);
 	      /* Instantiate members marked with attribute used.  */
@@ -20547,9 +20540,12 @@ tsubst_contract_conditions_r (tree t, tree args, tsubst_flags_t complain,
 {
   if (!t)
     return NULL_TREE;
+  /*
   tree id = tsubst (TREE_PURPOSE (t), args, complain, in_decl);
   if (id == error_mark_node)
     return error_mark_node;
+    */
+  tree id = TREE_PURPOSE (t);
   tree contract = tsubst_contract (TREE_VALUE (t), args, tf_warning_or_error,
 				   in_decl);
   if (contract == error_mark_node)
@@ -20583,7 +20579,7 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
     }
   contract_attrs = tsubst_contract_conditions_r (contract_attrs, args,
 						 complain, in_decl);
-  DECL_DEFERRED_CONTRACTS (t) = build_tree_list (t, contract_attrs);
+  DECL_CONTRACTS (t) = contract_attrs;
 }
 
 /* Instantiate the indicated variable, function, or alias template TMPL with
@@ -20739,9 +20735,9 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
   /* Specializations have completely independent contracts.  */
   if (processing_specialization
       && DECL_DECLARES_FUNCTION_P (fndecl)
-      && DECL_DEFERRED_CONTRACTS (fndecl))
+      && DECL_CONTRACTS (fndecl))
     {
-      DECL_DEFERRED_CONTRACTS (fndecl) = NULL_TREE;
+      DECL_CONTRACTS (fndecl) = NULL_TREE;
       DECL_UNCHECKED_RESULT (fndecl) = NULL_TREE;
     }
 
@@ -25028,7 +25024,7 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	  && !DECL_DECLARED_INLINE_P (decl))
 	DECL_DECLARED_INLINE_P (decl) = 1;
 
-      DECL_DEFERRED_CONTRACTS (decl) = DECL_DEFERRED_CONTRACTS (code_pattern);
+      DECL_CONTRACTS (decl) = DECL_CONTRACTS (code_pattern);
 
       maybe_instantiate_noexcept (decl, tf_error);
     }

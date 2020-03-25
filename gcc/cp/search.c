@@ -2075,8 +2075,7 @@ check_final_overrider (tree overrider, tree basefn)
 	  if (!contract_attrs)
 	    contract_attrs = c;
 	}
-      DECL_DEFERRED_CONTRACTS (overrider) =
-	build_tree_list (basefn, contract_attrs);
+      DECL_CONTRACTS (overrider) = contract_attrs;
     }
   else if (DECL_CONTRACTS (basefn) != NULL_TREE
       && DECL_CONTRACTS (overrider) != NULL_TREE)
@@ -2084,9 +2083,7 @@ check_final_overrider (tree overrider, tree basefn)
       /* We're in the process of completing the overrider's class, which means
 	 our conditions definitely are not parsed so simply chain on the
 	 basefn for later checking.  */
-      DECL_DEFERRED_CONTRACTS (overrider) = chainon (
-	  DECL_DEFERRED_CONTRACTS (overrider),
-	  build_tree_list (basefn, DECL_CONTRACTS (basefn)));
+      defer_guarded_contract_match (overrider, basefn);
     }
 
   if (DECL_FINAL_P (basefn))
