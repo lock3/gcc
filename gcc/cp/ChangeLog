@@ -1,3 +1,11 @@
+2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cp-tree.h (DECL_SEEN_WITHOUT_CONTRACTS_P): New.
+	* decl.c (match_contracts): Use DECL_SEEN_WITHOUT_CONTRACTS_P instead
+	of looking for sentinel value.
+	(merge_contracts): Ditto.
+	(duplicate_decls): Save DECL_SEEN_WITHOUT_CONTRACTS_P.
+
 2020-03-23  Patrick Palka  <ppalka@redhat.com>
 
 	PR c++/93805

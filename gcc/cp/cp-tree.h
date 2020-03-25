@@ -2802,8 +2802,9 @@ struct GTY(()) lang_decl_fn {
   unsigned immediate_fn_p : 1;
   unsigned maybe_deleted : 1;
   unsigned coroutine_p : 1;
+  unsigned seen_without_contracts_p : 1;
 
-  unsigned spare : 9;
+  unsigned spare : 8;
 
   /* 32-bits padding on 64-bit host.  */
 
@@ -3527,6 +3528,10 @@ struct GTY(()) lang_decl {
    list of contracts.  */
 #define DECL_DEFERRED_CONTRACTS(NODE) \
   (LANG_DECL_FN_CHECK (NODE)->contracts)
+
+/* True the FUNCTION_DECL NODE was initially declared without contracts.  */
+#define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
+  (LANG_DECL_FN_CHECK (DECL_COMMON_CHECK (NODE))->seen_without_contracts_p)
 
 /* Nonzero for TYPE_DECL means that it was written 'using name = type'.  */
 #define TYPE_DECL_ALIAS_P(NODE) \

@@ -1042,8 +1042,7 @@ match_contracts (tree olddecl, location_t newloc, tree new_attrs)
 	}
       /* Contracts can be added in redeclarations with an optional warning.  */
       if (flag_contract_strict_declarations
-	  && DECL_DEFERRED_CONTRACTS (olddecl)
-	  && TREE_PURPOSE (DECL_DEFERRED_CONTRACTS (olddecl)) == error_mark_node)
+	  && DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl))
 	warning_at (newloc,
 		    OPT_fcontract_strict_declarations_,
 		    "declaration adds contracts to %q#D",
@@ -1086,17 +1085,9 @@ merge_contracts (tree decl, const cp_declarator *fn)
 
   if (!fn->contracts)
     {
-      if (!flag_contract_strict_declarations)
-	return;
-      /* If we don't have contracts and haven't already set the deferred
-	 contracts to a "no initial contracts" sentinel, do so now to support
-	 flag_contract_strict_declarations.  */
-      if (!DECL_DEFERRED_CONTRACTS (decl))
-	DECL_DEFERRED_CONTRACTS (decl) =
-	  build_tree_list (error_mark_node, NULL_TREE);
-      /* FIXME we probably want a singleton for the marker instead of building
-	 one for every single function.  Can we store the original source loc
-	 of the decl and skip this marker logic entirely?  */
+      /* Mark the function as having been seen without contracts so we can
+	 emit an optional warning later if we see contracts.  */
+      DECL_SEEN_WITHOUT_CONTRACTS_P (decl) = true;
       return;
     }
 
@@ -1122,9 +1113,9 @@ merge_contracts (tree decl, const cp_declarator *fn)
       return;
     }
 
-  /* Clear out "no initial contracts" marker now that we have contracts.  */
-  if (!DECL_CONTRACTS (decl) && DECL_DEFERRED_CONTRACTS (decl))
-    DECL_DEFERRED_CONTRACTS (decl) = NULL_TREE;
+  /* Clear out "no initial contracts" marker now that we have contracts and
+     have already emitted any optional warnings.  */
+  DECL_SEEN_WITHOUT_CONTRACTS_P (decl) = false;
 
   /* If there are not yet contracts or we need to defer checking, save the
      contracts.  */
@@ -2320,6 +2311,8 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	 when olddecl is overwritten later.  */
       DECL_DEFERRED_CONTRACTS (newdecl) = DECL_DEFERRED_CONTRACTS (olddecl);
       DECL_UNCHECKED_RESULT (newdecl) = DECL_UNCHECKED_RESULT (olddecl);
+      DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
+	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
 
       /* Optionally warn about more than one declaration for the same
 	 name, but don't warn about a function declaration followed by a
