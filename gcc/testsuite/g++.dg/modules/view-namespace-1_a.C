@@ -35,4 +35,21 @@ namespace ns1 {
 
 export struct GlobalFoo { int x; };
 export void globalfn() { }
+export void globalfn2() { }
+
+export namespace foons2
+{
+  struct Foo { };
+  void fn();
+  void fn2();
+}
+
+export namespace foons3
+{
+  inline namespace inner
+  {
+    void fn();
+    void fn2();
+  }
+}
 

@@ -20,3 +20,7 @@ export protected ns1::ns2::NFoo2 restrict y;
 
 export protected (::) restrict globalfn, GlobalFoo;
 
+export protected foons2 permit fn2; // { dg-bogus "may only .restrict." }
+
+export protected foons3::inner restrict fn;
+

@@ -13875,12 +13875,14 @@ cp_parser_view_declaration (cp_parser *parser)
     }
 
   bool permit_p = id_equal (token->u.value, "permit");
-  if (TREE_CODE (decl) == NAMESPACE_DECL && permit_p)
+  cp_lexer_consume_token (parser->lexer);
+
+  if (TREE_CODE (decl) == NAMESPACE_DECL && decl == global_namespace
+      && permit_p)
     {
-      error ("namespace views may only %<restrict%>");
+      error ("global namespace views may only %<restrict%>");
       return;
     }
-  cp_lexer_consume_token (parser->lexer);
 
   /* Parse an initial set of identifiers.  */
   auto_vec<cp_expr, 4> initial_idents;

@@ -19284,13 +19284,26 @@ handle_module_option (unsigned code, const char *str, int)
 
 hash_set<tree, true> *get_member_ids (tree scope)
 {
-  if (TREE_CODE (scope) == NAMESPACE_DECL) return NULL;
+  hash_set<tree, true> *member_ids = new hash_set<tree, true>;
+
+  if (TREE_CODE (scope) == NAMESPACE_DECL)
+    {
+      hash_table<named_decl_hash> *bindings = DECL_NAMESPACE_BINDINGS (scope);
+      for (hash_table<named_decl_hash>::iterator it = bindings->begin ();
+	  it != bindings->end ();
+	  ++it)
+	{
+	  if (TREE_CODE (*it) == MODULE_VECTOR)
+	    member_ids->add (MODULE_VECTOR_NAME (*it));
+	  else
+	    member_ids->add (OVL_NAME (*it));
+	}
+    return member_ids;
+  }
   gcc_assert (COMPLETE_TYPE_P (scope));
 
   vec<tree, va_gc> *member_vec = get_classtype_member_vec (scope);
   gcc_assert (member_vec);
-
-  hash_set<tree, true> *member_ids = new hash_set<tree, true>;
 
   for (unsigned ix = member_vec->length (); ix--;)
     member_ids->add (OVL_NAME ((*member_vec)[ix]));
