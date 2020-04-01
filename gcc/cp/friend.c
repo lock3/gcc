@@ -173,7 +173,7 @@ add_friend (tree type, tree decl, bool complain)
   if (decl == error_mark_node)
     return;
 
-  if (modules_p () && warn_long_distance_friends
+  if (modules_p () && warn_long_distance_friends && complain
       && !module_friendship_compatible (TYPE_NAME (type), decl))
     {
       warning (OPT_Wlong_distance_friends,
@@ -259,8 +259,9 @@ add_friend (tree type, tree decl, bool complain)
 void
 make_friend_class (tree type, tree friend_type, bool complain)
 {
-  if (modules_p () && warn_long_distance_friends
-      && !module_friendship_compatible (TYPE_NAME (type), TYPE_NAME (friend_type)))
+  if (modules_p () && warn_long_distance_friends && complain
+      && !module_friendship_compatible (TYPE_NAME (type),
+					TYPE_NAME (friend_type)))
     {
       warning (OPT_Wlong_distance_friends,
 	       "%q#T is not visible to befriended declaration %q#T",
