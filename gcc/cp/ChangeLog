@@ -1,3 +1,23 @@
+2020-04-02  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Store DECL_UNCHECKED_RESULT in separate hash_map instead of bloating
+	lang_decl_fn.
+	* cp-tree.h (lang_decl_fn): Remove unchecked_result.
+	(set_unchecked_result): New.
+	(get_unchecked_result): Ditto.
+	(DECL_UNCHECKED_RESULT): Use above.
+	* decl.c (duplicate_decls): Remove contracts and unchecked_result from
+	to-be-reused FUNCTION_DECL nodes before freeing them.
+	* pt.c (tsubst_contract_conditions): Use set_unchecked_result instead
+	of DECL_UNCHECKED_RESULT.
+	(instantiate_template_1): Ditto.
+	(regenerate_decl_from_template): Ditto.
+	* semantics.c (decl_unchecked_results): New hash_map to track
+	unchecked results.
+	(build_unchecked_result): Use set_unchecked_result.
+	(get_unchecked_result): New.
+	(set_unchecked_result): Ditto.
+
 2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
 
 	Store contracts in DECL_ATTRIBUTES.

@@ -2837,10 +2837,6 @@ struct GTY(()) lang_decl_fn {
     struct cp_token_cache * GTY ((tag ("1"))) pending_inline_info;
     tree GTY ((tag ("0"))) saved_auto_return_type;
   } GTY ((desc ("%1.pending_inline_p"))) u;
-
-  /* For the checked version of a guarded function, this points to the var
-     caputring the result of the unchecked function.  */
-  tree unchecked_result;
 };
 
 /* DECL_LANG_SPECIFIC for namespaces.  */
@@ -3526,7 +3522,7 @@ inline tree find_contract (tree attrs)
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */
 #define DECL_UNCHECKED_RESULT(NODE) \
-  (LANG_DECL_FN_CHECK (NODE)->unchecked_result)
+  (get_unchecked_result (NODE))
 
 /* True the FUNCTION_DECL NODE was initially declared without contracts.  */
 #define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
@@ -7267,6 +7263,8 @@ extern tree start_contract			(location_t, tree, tree, tree);
 extern tree finish_contract			(tree, tree, tree);
 extern tree build_contract_check		(tree);
 extern void build_unchecked_result		(tree);
+extern tree get_unchecked_result		(tree);
+extern void set_unchecked_result		(tree, tree);
 
 extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);

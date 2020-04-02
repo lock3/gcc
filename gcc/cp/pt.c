@@ -20573,7 +20573,7 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
   if (DECL_UNCHECKED_RESULT (t))
     {
       tree orig_result = DECL_UNCHECKED_RESULT (t);
-      DECL_UNCHECKED_RESULT (t) = NULL_TREE;
+      set_unchecked_result (t, NULL_TREE);
       build_unchecked_result (t);
       register_local_specialization (DECL_UNCHECKED_RESULT (t), orig_result);
     }
@@ -20738,7 +20738,7 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
       && DECL_HAS_CONTRACTS_P (fndecl))
     {
       remove_contract_attributes (fndecl);
-      DECL_UNCHECKED_RESULT (fndecl) = NULL_TREE;
+      set_unchecked_result (fndecl, NULL_TREE);
     }
 
   /* If we've just instantiated the main entry point for a function,
@@ -25026,6 +25026,7 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 
       /* FIXME this is very suspect */
       set_decl_contracts (decl, DECL_CONTRACTS (code_pattern));
+      set_unchecked_result (decl, DECL_UNCHECKED_RESULT (code_pattern));
 
       maybe_instantiate_noexcept (decl, tf_error);
     }

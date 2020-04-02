@@ -567,6 +567,9 @@ build_arg_list (tree fn)
   return args;
 }
 
+/* Remove all c++23 style contract attributes from the DECL_ATTRIBUTEs of the
+   FUNCTION_DECL FNDECL.  */
+
 void
 remove_contract_attributes (tree fndecl)
 {
@@ -586,6 +589,11 @@ remove_contract_attributes (tree fndecl)
   DECL_ATTRIBUTES (fndecl) = list;
 }
 
+/* Map from FUNCTION_DECL to a VAR_DECL used to capture the result of the
+   unchecked function inside the checked function.  This is also used to parse
+   postcondition conditions that refer to the return value.  */
+static GTY(()) hash_map<tree, tree> *decl_unchecked_results;
+
 /* Create, if it doesn't already exist, a VAR_DECL to hold the result of the
  * unchecked function call.  */
 
@@ -604,8 +612,34 @@ build_unchecked_result (tree checked)
       tree name = get_identifier ("__r");
       tree var = build_lang_decl (VAR_DECL, name, type);
       DECL_ARTIFICIAL (var) = 1;
-      DECL_UNCHECKED_RESULT (checked) = var;
+      set_unchecked_result (checked, var);
     }
+}
+
+/* Lookup and return the unchecked result of the guarded FUNCTION_DECL FNDECL,
+   or NULL_TREE if it doesn't (yet) exist.  */
+
+tree
+get_unchecked_result (tree fndecl)
+{
+  if (!fndecl || fndecl == error_mark_node) return NULL_TREE;
+
+  hash_map_maybe_create<hm_ggc> (decl_unchecked_results);
+  tree *result = decl_unchecked_results->get (fndecl);
+  return result ? *result : NULL_TREE;
+}
+
+/* Save the unchecked result of the guarded FUNCTION_DECL FNDECL.  */
+
+void
+set_unchecked_result (tree fndecl, tree result)
+{
+  if (!fndecl || fndecl == error_mark_node)
+    return;
+
+  hash_map_maybe_create<hm_ggc> (decl_unchecked_results)->remove (fndecl);
+  if (result)
+    decl_unchecked_results->put (fndecl, result);
 }
 
 /* Create a variable decl that holds the result of the unchecked function

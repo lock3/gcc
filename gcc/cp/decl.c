@@ -2316,7 +2316,6 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	 when olddecl is overwritten later.  */
       /* FIXME this is very suspect */
       set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
-      DECL_UNCHECKED_RESULT (newdecl) = DECL_UNCHECKED_RESULT (olddecl);
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
 
@@ -3193,6 +3192,13 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
      reclaiming memory. */
   if (flag_concepts)
     remove_constraints (newdecl);
+
+  /* Remove the associated contracts and unchecked result, if any.  */
+  if (flag_contracts && TREE_CODE (newdecl) == FUNCTION_DECL)
+    {
+      set_decl_contracts (newdecl, NULL_TREE);
+      set_unchecked_result (newdecl, NULL_TREE);
+    }
 
   ggc_free (newdecl);
 
