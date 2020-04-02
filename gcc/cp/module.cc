@@ -12789,12 +12789,21 @@ depset::hash::finalize_dependencies ()
 	  ok = false;
 	  tree decl = dep->get_entity ();
 #if 1
-	  // FIXME: __thread_active_p is borked, so allow it.
-	  if (CP_DECL_CONTEXT (decl) == global_namespace
-	      && DECL_NAME (decl)
-	      && !strcmp (IDENTIFIER_POINTER (DECL_NAME (decl)),
-			  "__gthread_active_p"))
-	    ok = true;
+	  // // FIXME: __thread_active_p is borked, so allow it.
+	  // if (CP_DECL_CONTEXT (decl) == global_namespace
+	  //     && DECL_NAME (decl)
+	  //     && !strcmp (IDENTIFIER_POINTER (DECL_NAME (decl)),
+			//   "__gthread_active_p"))
+	  //   ok = true;
+
+	  // FIXME: All of gthread is borked, so allow it all.
+	  if (CP_DECL_CONTEXT (decl) == global_namespace && DECL_NAME (decl))
+	    {
+	      const char* id = IDENTIFIER_POINTER (DECL_NAME (decl));
+	      if (!strncmp (id, "__gthread_", 10)
+	      	  || !strncmp (id, "__gthrw_", 8))
+	      	ok = true;
+	    }
 #endif
 	  if (!ok)
 	    for (unsigned ix = dep->deps.length (); ix--;)
