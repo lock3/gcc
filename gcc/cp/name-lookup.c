@@ -4960,8 +4960,19 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
 	  if (exporting)
 	    {
 	      /* If the using decl is exported, the things it refers
-		 to must also be exported.  */
-	      if (!DECL_MODULE_EXPORT_P (new_fn))
+		 to must also be exported unless it was included into the
+		 global module fragment.  */
+	      if (!DECL_MODULE_PURVIEW_P (new_fn))
+	      	{
+	      	  if (DECL_STATIC_FUNCTION_P (new_fn))
+	      	    {
+		      error ("%q#D has internal linkage", new_fn);
+		      inform (DECL_SOURCE_LOCATION (new_fn),
+			      "%q#D declared here", new_fn);
+		      exporting = false;
+	      	    }
+	      	}
+	      else if (!DECL_MODULE_EXPORT_P (new_fn))
 		{
 		  error ("%q#D does not have external linkage", new_fn);
 		  inform (DECL_SOURCE_LOCATION (new_fn),
