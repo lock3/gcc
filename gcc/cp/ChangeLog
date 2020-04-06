@@ -1,3 +1,21 @@
+2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cp-tree.h (function_declarator_p): Newly public.
+	* decl.c (match_contract_conditions): Invert return value to match
+	name, update comments.
+	(match_contracts): Ditto, update usage of above.
+	(grokdeclarator): Use function_declarator_p, look for unseparated
+	contract attributes in std_attributes too.
+	* except.c (init_exception_processing): Remove TODO.
+	* parser.c (function_declarator_p): No longer static.
+	(stringify_tree): Remove.
+	(cp_parser_contract_condition): Use expr_to_string.
+	(begin_contract_scope): Use inject_parm_decls and
+	inject_this_parameter.
+	* semantics.c (build_arg_list): Use forward_parm.
+	(build_contract_check): Update comments; this is only called during
+	genericization and does not need to be done at gimplification time.
+
 2020-04-02  Jeff Chapman II  <jchapman@lock3software.com>
 
 	Store DECL_UNCHECKED_RESULT in separate hash_map instead of bloating

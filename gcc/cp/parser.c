@@ -48,7 +48,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "cp-name-hint.h"
 #include "memmodel.h"
 #include "c-family/name-hint.h"
-#include "c-family/contract.h"
+#include "c-family/cxx-contracts.h"
 #include "tree-inline.h"
 #include "cxx-pretty-print.h"
 
@@ -1812,11 +1812,11 @@ find_innermost_function_declarator (const cp_declarator *declarator)
     {
       if (declarator->kind == cdk_function
 	  && declarator->declarator->kind == cdk_id)
-        return declarator;
+	return declarator;
       if (declarator->kind == cdk_id
 	  || declarator->kind == cdk_decomp
 	  || declarator->kind == cdk_error)
-        return NULL;
+	return NULL;
       declarator = declarator->declarator;
     }
   return NULL;
@@ -1824,7 +1824,7 @@ find_innermost_function_declarator (const cp_declarator *declarator)
 
 /* Returns true iff DECLARATOR  is a declaration for a function.  */
 
-static bool
+bool
 function_declarator_p (const cp_declarator *declarator)
 {
   return find_innermost_function_declarator (declarator) != NULL;
@@ -15407,18 +15407,6 @@ get_source (location_t start, location_t end)
   return xstrdup (buf);
 }
 
-/* Pretty print an expression and return the result as a char*.  */
-
-static char*
-stringify_tree (tree expr)
-{
-  cxx_pretty_printer pp;
-  pp.buffer->flush_p = false;
-  pp.expression (expr);
-  /* FIXME: Is this going to leak?  */
-  return xstrdup (pp_formatted_text (&pp));
-}
-
 /* Parse a condition for the given contract.  */
 
 static tree
@@ -15443,7 +15431,8 @@ cp_parser_contract_condition (cp_parser *parser, tree contract,
        contracts10.C
        contracts11.C
      */
-    comment_str = stringify_tree (cond);
+    /* FIXME: Is this going to leak?  */
+    comment_str = xstrdup (expr_to_string (cond));
 
   tree comment = build_string_literal (strlen (comment_str) + 1, comment_str);
   finish_contract (contract, cond, comment);
@@ -30387,61 +30376,7 @@ cp_parser_enclosed_template_argument_list (cp_parser* parser)
 static void
 begin_contract_scope (tree fndecl)
 {
-  begin_scope (sk_function_parms, current_function_decl);
-
-  /* FIXME part of this is taken from store_parm_decls -- is there an existing
-     method that does only this subset of work?  */
-  tree current_function_parms = DECL_ARGUMENTS (fndecl);
-
-  /* This is a chain of any other decls that came in among the parm
-     declarations.  If a parm is declared with  enum {foo, bar} x;
-     then CONST_DECLs for foo and bar are put here.  */
-  tree nonparms = NULL_TREE;
-
-  if (current_function_parms)
-    {
-      /* This case is when the function was defined with an ANSI prototype.
-	 The parms already have decls, so we need not do anything here
-	 except record them as in effect
-	 and complain if any redundant old-style parm decls were written.  */
-
-      tree specparms = current_function_parms;
-
-      /* Must clear this because it might contain TYPE_DECLs declared
-	     at class level.  */
-      current_binding_level->names = NULL;
-
-      /* If we're doing semantic analysis, then we'll call pushdecl
-	     for each of these.  We must do them in reverse order so that
-	     they end in the correct forward order.  */
-      specparms = nreverse (specparms);
-
-      for (tree parm = specparms, next; parm; parm = next)
-	{
-	  next = DECL_CHAIN (parm);
-	  if (TREE_CODE (parm) == PARM_DECL)
-	    pushdecl (parm);
-	  else
-	    {
-	      /* If we find an enum constant or a type tag,
-		 put it aside for the moment.  */
-	      TREE_CHAIN (parm) = NULL_TREE;
-	      nonparms = chainon (nonparms, parm);
-	    }
-	}
-
-      /* Get the decls in their original chain order and record in the
-	 function.  This is all and only the PARM_DECLs that were
-	 pushed into scope by the loop above.  */
-      DECL_ARGUMENTS (fndecl) = get_local_decls ();
-    }
-
-  /* Now store the final chain of decls for the arguments
-     as the decl-chain of the current lexical scope.
-     Put the enumerators in as well, at the front so that
-     DECL_ARGUMENTS is not modified.  */
-  current_binding_level->names = chainon (nonparms, DECL_ARGUMENTS (fndecl));
-
+  inject_parm_decls (fndecl);
 
   /* If we're in a static member func, ensure we don't have any backdoors into
      non-static member vars via current_class_ptr and _ref.  */
@@ -30452,18 +30387,14 @@ begin_contract_scope (tree fndecl)
       return;
     }
 
+  if (!DECL_FUNCTION_MEMBER_P (fndecl))
+    return;
+
   /* If we're entering a class member; ensure current_class_ptr and
      current_class_ref point to the correct place.  */
-  if (DECL_FUNCTION_MEMBER_P (fndecl))
-    {
-      current_class_type = DECL_CONTEXT (fndecl);
-      tree this_parm = DECL_ARGUMENTS (fndecl);
-      /* Clear this first to avoid shortcut in cp_build_indirect_ref.  */
-      current_class_ptr = NULL_TREE;
-      current_class_ref
-	= cp_build_fold_indirect_ref (this_parm);
-      current_class_ptr = this_parm;
-    }
+  tree this_parm = DECL_ARGUMENTS (fndecl);
+  inject_this_parameter (DECL_CONTEXT (fndecl),
+			 cp_type_quals (TREE_TYPE (TREE_TYPE (this_parm))));
 }
 
 /* Parse any outstanding contract conditions on MEMBER_FUNCTION, if any.  */

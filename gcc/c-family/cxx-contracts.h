@@ -1,6 +1,6 @@
 /* Definitions for C++ contract levels
-   Copyright (C) 1987-2018 Free Software Foundation, Inc.
-   Contributed by Michael Tiemann (tiemann@cygnus.com)
+   Copyright (C) 2020 Free Software Foundation, Inc.
+   Contributed by Jeff Chapman II (jchapman@lock3software.com)
 
 This file is part of GCC.
 

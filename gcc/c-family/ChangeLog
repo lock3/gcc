@@ -1,3 +1,12 @@
+2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* c-common.c: Remove old debugging include.
+	* c-opts.c: Rename contract.h to cxx-contracts.h.
+	* contract.c: Rename to:
+	* cxx-contracts.c: Add copyright block; fix include.
+	* contract.h: Rename to:
+	* cxx-contracts.h: Fix copyright block.
+
 2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* contract.h (cxx23_contract_attribute_p): Make global extern.

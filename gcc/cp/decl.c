@@ -946,7 +946,9 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
 	&& CONTRACT_CONDITION_DEFERRED_P (new_contract))
     return false;
 
-  /* Compare the conditions of the contracts.  */
+  /* Compare the conditions of the contracts.  We fold immediately to avoid
+     issues comparing contracts on overrides that use parameters -- see
+     contracts-pre3.  */
   tree old_cond = cp_fully_fold_init (CONTRACT_CONDITION (old_contract));
   tree new_cond = cp_fully_fold_init (CONTRACT_CONDITION (new_contract));
   if (!cp_tree_equal (old_cond, new_cond))
@@ -982,8 +984,8 @@ diagnose_contracts_after_definition (tree olddecl, location_t newloc)
   return false;
 }
 
-/* Compare the contract attributes of OLDDECL and NEWDECL. Returns false 
-   if the contracts match, and true if they differ.  */
+/* Compare the contract attributes of OLDDECL and NEWDECL. Returns true
+   if the contracts match, and false if they differ.  */
 
 static bool
 match_contract_conditions (location_t oldloc, tree old_attrs,
@@ -992,13 +994,13 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
 {
   /* Contracts only match if they are both specified.  */
   if (!old_attrs || !new_attrs)
-    return false;
+    return true;
 
   /* Compare each contract in turn.  */
   while (old_attrs && new_attrs)
     {
       if (diagnose_mismatched_contracts (old_attrs, new_attrs, ctx))
-	return true;
+	return false;
       old_attrs = CONTRACT_CHAIN (old_attrs);
       new_attrs = CONTRACT_CHAIN (new_attrs);
     }
@@ -1012,14 +1014,14 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
 		ctx == cmc_declaration ? "declaration" : "override",
 		new_attrs ? "more" : "fewer");
       inform (oldloc, "original declaration here");
-      return true;
+      return false;
     }
 
-  return false;
+  return true;
 }
 
-/* Compare the contract attributes of OLDDECL and NEWDECL. Returns false
-   if the contracts match, and true if they differ.  */
+/* Compare the contract attributes of OLDDECL and NEWDECL. Returns true
+   if the contracts match, and false if they differ.  */
 
 static bool
 match_contracts (tree olddecl, location_t newloc, tree new_attrs)
@@ -1027,18 +1029,18 @@ match_contracts (tree olddecl, location_t newloc, tree new_attrs)
   tree old_attrs = DECL_CONTRACTS (olddecl);
 
   if (diagnose_contracts_after_definition (olddecl, newloc))
-    return true;
+    return false;
 
   if (!old_attrs && new_attrs)
     {
-      /* TODO is there any way to relax this requirement?  */
-      if (DECL_VIRTUAL_P (olddecl) && !TYPE_BEING_DEFINED (DECL_CONTEXT (olddecl)))
+      if (DECL_VIRTUAL_P (olddecl)
+	  && !TYPE_BEING_DEFINED (DECL_CONTEXT (olddecl)))
 	{
 	  error_at (newloc,
-		    "declaration conflicts with "
-		    "declaration %q#D (cannot add contracts to virtual members)",
+		    "declaration conflicts with declaration %q#D"
+		    " (cannot add contracts to virtual members)",
 		    olddecl);
-	  return true;
+	  return false;
 	}
       /* Contracts can be added in redeclarations with an optional warning.  */
       if (flag_contract_strict_declarations
@@ -1106,7 +1108,7 @@ merge_contracts (tree decl, const cp_declarator *fn)
     }
 
   /* If there are attributes to merge, make sure they can be merged.  */
-  if (match_contracts (decl, fn->id_loc, fn->contracts))
+  if (!match_contracts (decl, fn->id_loc, fn->contracts))
     {
       /* If the contracts do not match, we've already emitted an error.
 	 Throw away the conditions to prevent spurious errors later.  */
@@ -12259,10 +12261,11 @@ grokdeclarator (const cp_declarator *declarator,
 
       inner_declarator = declarator->declarator;
 
-      if (declarator->contracts != NULL_TREE
-	  && (declarator->kind != cdk_function
-	      || !inner_declarator || inner_declarator->kind != cdk_id))
-	error_at (EXPR_LOCATION (TREE_VALUE (declarator->contracts)),
+      tree contract_attr = declarator->contracts;
+      if (!contract_attr)
+	contract_attr = find_contract (declarator->std_attributes);
+      if (contract_attr != NULL_TREE && !function_declarator_p (declarator))
+	error_at (EXPR_LOCATION (TREE_VALUE (contract_attr)),
 		  "contracts are only allowed on functions");
 
       /* We don't want to warn in parameter context because we don't

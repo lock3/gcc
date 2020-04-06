@@ -46,7 +46,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "predict.h"
 #include "memmodel.h"
 #include "print-tree.h"
-#include "c-family/contract.h"
+#include "c-family/cxx-contracts.h"
 
 /* There routines provide a modular interface to perform many parsing
    operations.  They may therefore be used during actual parsing, or
@@ -554,15 +554,13 @@ build_arg_list (tree fn)
   vec<tree, va_gc> *args = make_tree_vector ();
   for (tree t = DECL_ARGUMENTS (fn); t != NULL_TREE; t = TREE_CHAIN (t))
     {
-      if (VOID_TYPE_P (t))
-	continue;
       if (TREE_CODE (TREE_TYPE (t)) == POINTER_TYPE
 	  && DECL_NAME (t) != NULL_TREE
 	  && IDENTIFIER_POINTER (DECL_NAME (t)) != NULL
 	  && strcmp (IDENTIFIER_POINTER (DECL_NAME (t)), "this") == 0)
 	continue; // skip already inserted `this` args
 
-      vec_safe_push (args, t);
+      vec_safe_push (args, forward_parm (t));
     }
   return args;
 }
@@ -1165,7 +1163,7 @@ contract_any_deferred_p (tree contract_attr)
 }
 
 /* Generate the code that checks or assumes a contract, but do not attach
-   it to the current context.  */
+   it to the current context.  This is called during genericization.  */
 
 tree
 build_contract_check (tree contract)
@@ -1188,7 +1186,6 @@ build_contract_check (tree contract)
   if (semantic == CCS_ASSUME && !cp_tree_defined_p (condition))
     return build1 (NOP_EXPR, void_type_node, integer_zero_node);
 
-  /* FIXME: This code gen will be moved to gimple.  */
   tree if_stmt = begin_if_stmt ();
   tree cond = build_x_unary_op (EXPR_LOCATION (contract),
 				TRUTH_NOT_EXPR,

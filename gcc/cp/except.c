@@ -71,7 +71,6 @@ init_exception_processing (void)
         const_string_type_node,
         integer_type_node,
         NULL_TREE);
-  // TODO: can this contextually be ECF_NOTHROW if inside a noexcept?
   on_contract_violation_fn =
     build_cp_library_fn_ptr ("__on_contract_violation", tmp, ECF_COLD);
   on_contract_violation_never_fn =

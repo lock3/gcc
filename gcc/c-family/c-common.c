@@ -50,7 +50,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "spellcheck.h"
 #include "c-spellcheck.h"
 #include "selftest.h"
-#include "print-tree.h"
 
 cpp_reader *parse_in;		/* Declared in c-pragma.h.  */
 

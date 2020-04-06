@@ -1,3 +1,8 @@
+2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* Makefile.in (C_COMMON_OBJS): Rename contract to cxx-contracts.
+	* gimplify.c (gimplify_expr): Remove old debugging code.
+
 2020-03-24  Jakub Jelinek  <jakub@redhat.com>
 
 	PR target/94286

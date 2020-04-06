@@ -24,7 +24,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm.h"
 #include "hard-reg-set.h"
 #include "function.h"
-#include "c-family/contract.h"
+#include "c-family/cxx-contracts.h"
 
 /* In order for the format checking to accept the C++ front end
    diagnostic framework extensions, you must include this file before
@@ -6982,6 +6982,7 @@ extern void inject_this_parameter (tree, cp_cv_quals);
 extern location_t defparse_location (tree);
 extern void maybe_show_extern_c_location (void);
 extern bool literal_integer_zerop (const_tree);
+extern bool function_declarator_p (const cp_declarator *);
 
 /* in pt.c */
 extern void push_access_scope			(tree);
