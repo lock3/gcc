@@ -6740,11 +6740,6 @@ remap_unchecked_body (tree checked, tree unchecked)
       p = &DECL_CHAIN (*p);
     }
 
-  if (DECL_RESULT (checked))
-    DECL_RESULT (unchecked) = remap_decl (DECL_RESULT (checked), &id);
-  else
-    DECL_RESULT (unchecked) = NULL_TREE;
-
   return copy_tree_body (&id);
 }
 

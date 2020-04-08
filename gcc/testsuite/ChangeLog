@@ -1,3 +1,7 @@
+2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-large-return.c: New test.
+
 2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* g++.dg/cpp2a/contracts-pre1.c: New cases.

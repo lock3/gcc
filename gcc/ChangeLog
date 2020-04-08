@@ -1,3 +1,7 @@
+2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* tree-inline.c (remap_unchecked_body): Leave DECL_RESULT alone.
+
 2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* Makefile.in (C_COMMON_OBJS): Rename contract to cxx-contracts.

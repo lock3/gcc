@@ -973,6 +973,18 @@ build_checked_function_definition (tree checked)
   DECL_DECLARED_INLINE_P (checked) = true;
   DECL_DISREGARD_INLINE_LIMITS (checked) = true;
 
+  /* FIXME We swap the DECL_RESULTs so that the later call to
+     remap_unchecked_body does not need to handle it directly. Can we avoid
+     remap_unchecked_body entirely? */
+  if (DECL_RESULT (checked))
+    {
+      tree tmp = DECL_RESULT (checked);
+      DECL_RESULT (checked) = DECL_RESULT (unchecked);
+      DECL_CONTEXT (DECL_RESULT (checked)) = checked;
+      DECL_RESULT (unchecked) = tmp;
+      DECL_CONTEXT (DECL_RESULT (unchecked)) = unchecked;
+    }
+
   DECL_SAVED_TREE (unchecked) = remap_unchecked_body (checked, unchecked);
   TREE_NO_WARNING (unchecked) = 1;
 

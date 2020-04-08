@@ -1,3 +1,10 @@
+2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* semantics.c (build_checked_function_definition): Swap checked and
+	unchecked DECL_RESULT so any references in the body of the unchecked
+	function still point to its DECL_RESULT. This fixes a different
+	transform for large return types.
+
 2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* cp-tree.h (function_declarator_p): Newly public.
