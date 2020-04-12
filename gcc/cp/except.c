@@ -75,12 +75,9 @@ init_exception_processing (void)
     build_cp_library_fn_ptr ("__on_contract_violation", tmp, ECF_COLD);
   on_contract_violation_never_fn =
     build_cp_library_fn_ptr ("__on_contract_violation", tmp, ECF_COLD | ECF_NORETURN);
-  on_contract_violation_always_fn =
-    build_cp_library_fn_ptr ("__on_contract_violation", tmp, ECF_COLD | ECF_PURE);
 
   DECL_DECLARED_CONSTEXPR_P (on_contract_violation_never_fn) = true;
   DECL_DECLARED_CONSTEXPR_P (on_contract_violation_fn) = true;
-  DECL_DECLARED_CONSTEXPR_P (on_contract_violation_always_fn) = true;
 
   /* void __cxa_call_unexpected(void *); */
   tmp = build_function_type_list (void_type_node, ptr_type_node, NULL_TREE);

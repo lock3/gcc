@@ -200,7 +200,6 @@ enum cp_tree_index
 
     CPTI_ON_CONTRACT_VIOLATION,
     CPTI_ON_CONTRACT_VIOLATION_NEVER,
-    CPTI_ON_CONTRACT_VIOLATION_ALWAYS,
 
     CPTI_NULLPTR,
     CPTI_NULLPTR_TYPE,
@@ -346,7 +345,6 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
 
 #define on_contract_violation_fn        cp_global_trees[CPTI_ON_CONTRACT_VIOLATION]
 #define on_contract_violation_never_fn  cp_global_trees[CPTI_ON_CONTRACT_VIOLATION_NEVER]
-#define on_contract_violation_always_fn cp_global_trees[CPTI_ON_CONTRACT_VIOLATION_ALWAYS]
 
 /* The type of the function-pointer argument to "__cxa_atexit" (or
    "std::atexit", if "__cxa_atexit" is not being used).  */

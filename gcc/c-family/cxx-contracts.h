@@ -39,8 +39,7 @@ enum contract_semantic
   CCS_IGNORE,
   CCS_ASSUME,
   CCS_NEVER,
-  CCS_MAYBE,
-  CCS_ALWAYS
+  CCS_MAYBE
 };
 
 /* True if the contract is unchecked.  */
@@ -62,8 +61,7 @@ checked_contract_p (contract_semantic cs)
 enum contract_continuation
 {
   NEVER_CONTINUE,
-  MAYBE_CONTINUE,
-  ALWAYS_CONTINUE
+  MAYBE_CONTINUE
 };
 
 /* Assertion role info.  */

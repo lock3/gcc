@@ -29,13 +29,12 @@ const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
 };
 
-bool valid_configs[CCS_ALWAYS + 1][CCS_ALWAYS + 1] = {
-  { 0, 0, 0, 0, 0, 0, },
-  { 0, 1, 0, 0, 0, 0, },
-  { 0, 1, 1, 1, 1, 1, },
-  { 0, 1, 1, 1, 1, 1, },
-  { 0, 1, 0, 0, 1, 0, },
-  { 0, 1, 0, 0, 0, 1, },
+bool valid_configs[CCS_MAYBE + 1][CCS_MAYBE + 1] = {
+  { 0, 0, 0, 0, 0, },
+  { 0, 1, 0, 0, 0, },
+  { 0, 1, 1, 1, 1, },
+  { 0, 1, 1, 1, 1, },
+  { 0, 1, 0, 0, 1, },
 };
 
 void
@@ -64,10 +63,6 @@ lookup_concrete_semantic (char *name)
   if (strcmp (name, "check_maybe_continue") == 0
       || strcmp (name, "maybe") == 0)
     return CCS_MAYBE;
-  if (strcmp (name, "check_always_continue") == 0
-      || strcmp (name, "always") == 0
-      || strcmp (name, "continue") == 0)
-    return CCS_ALWAYS;
   error ("'%s' is not a valid explicit concrete semantic", name);
   return CCS_INVALID;
 }
@@ -143,11 +138,7 @@ setup_default_contract_role (bool update)
       break;
     case DEFAULT:
       add_contract_role ("default", check, CCS_IGNORE, axiom, update);
-      add_contract_role ("review",
-			 flag_contract_continuation_mode
-			   ? CCS_ALWAYS
-			   : CCS_NEVER,
-			 CCS_IGNORE, CCS_IGNORE, update);
+      add_contract_role ("review", check, CCS_IGNORE, CCS_IGNORE, update);
       break;
     case AUDIT:
       add_contract_role ("default", check, check, axiom, update);
@@ -167,8 +158,6 @@ map_contract_semantic (const char *ident)
     return CCS_NEVER;
   else if (strcmp (ident, "check_maybe_continue") == 0)
     return CCS_MAYBE;
-  else if (strcmp (ident, "check_always_continue") == 0)
-    return CCS_ALWAYS;
   return CCS_INVALID;
 }
 

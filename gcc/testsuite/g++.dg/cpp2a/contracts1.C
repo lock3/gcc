@@ -32,13 +32,13 @@ int main()
   [[assert assume: x >= 0]];
   [[assert check_never_continue: x >= 0]];
   [[assert check_maybe_continue: x >= 0]];
-  [[assert check_always_continue: x >= 0]];
 
   [[assert %default: x >= 0]];
   [[assert default %default: x < 0]];
   [[assert audit %default: x == 0]];
   [[assert axiom %default: x == 1]];
 
+  [[assert check_always_continue: x >= 0]]; // { dg-error "expected contract level" }
   [[assert invalid: x == 0]]; // { dg-error "expected contract level" }
   [[assert: y == 0]]; // { dg-error ".y. was not declared in this scope" }
   [[assert default x == 0]]; // { dg-error "expected .:. before .x." }

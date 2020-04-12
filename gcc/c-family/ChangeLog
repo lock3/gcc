@@ -1,3 +1,13 @@
+2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cxx-contracts.h (contract_semantic): Remove CCS_ALWAYS.
+	(contract_continuation): Remove ALWAYS_CONTINUE.
+	* cxx-contracts.c (valid_configs): Remove CCS_ALWAYS values.
+	(lookup_concrete_semantic): Remove CCS_ALWAYS cases.
+	(setup_default_contract_role): Remove CCS_ALWAYS from default %review
+	role.
+	(map_contract_semantic): Remove CCS_ALWAYS case.
+
 2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* c-common.c: Remove old debugging include.

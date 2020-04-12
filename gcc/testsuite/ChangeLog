@@ -1,14 +1,20 @@
+2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Ensure check_always_continue emits a
+	diagnostic.
+	* g++.dg/cpp2a/contracts23.C: Remove.
+
 2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
 
-	* g++.dg/cpp2a/contracts-large-return.c: New test.
+	* g++.dg/cpp2a/contracts-large-return.C: New test.
 
 2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
 
-	* g++.dg/cpp2a/contracts-pre1.c: New cases.
+	* g++.dg/cpp2a/contracts-pre1.C: New cases.
 
 2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
 
-	* g++.dg/cpp2a/contracts-redecl5.c: New cases.
+	* g++.dg/cpp2a/contracts-redecl5.C: New cases.
 
 2020-03-24  Jakub Jelinek  <jakub@redhat.com>
 

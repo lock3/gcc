@@ -1,3 +1,13 @@
+2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cp-tree.h (cp_tree_index): Remove CPTI_ON_CONTRACT_VIOLATION_ALWAYS.
+	(on_contract_violation_always_fn): Remove.
+	* except.c (init_exception_processing): Remove always continue handler
+	logic.
+	* semantics.c (build_contract_handler_fn): Remove ALWAYS_CONTINUE
+	related logic, including hacky workarounds.
+	(build_contract_check): Remove CCS_ALWAYS case.
+
 2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* semantics.c (build_checked_function_definition): Swap checked and

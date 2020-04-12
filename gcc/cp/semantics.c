@@ -1084,9 +1084,7 @@ build_contract_handler_fn (const char *level,
   tree continuation = build_int_cst (integer_type_node, cmode);
 
   tree violation_fn;
-  if (cmode == ALWAYS_CONTINUE)
-    violation_fn = on_contract_violation_always_fn;
-  else if (cmode == MAYBE_CONTINUE)
+  if (cmode == MAYBE_CONTINUE)
     violation_fn = on_contract_violation_fn;
   else
     violation_fn = on_contract_violation_never_fn;
@@ -1095,29 +1093,7 @@ build_contract_handler_fn (const char *level,
 			       level_str, role_str,
 			       continuation);
 
-  /* When in check_always_continue mode we treat the violation
-     handler as pure which informs the optimizer that UB happening
-     after the contract check can be propagated back to before the
-     check, possibly eliding the contract check itself. The handler
-     is not really pure so this is very fragile. To even keep the
-     handler call in -O0 we need to have it return a dummy value that
-     we save to a local otherwise the entire call is always optimized
-     out.  */
-  if (cmode == ALWAYS_CONTINUE)
-    {
-      /* FIXME: this tree may not be correct; this mode is fragile.  */
-      tree decl =
-	build_lang_decl (VAR_DECL, get_identifier ("__x"), integer_type_node);
-      DECL_INITIAL (decl) = call;
-      DECL_ARTIFICIAL (decl) = 1;
-      pushdecl (decl);
-      add_decl_expr (decl);
-      finish_expr_stmt (decl);
-    }
-  else
-    {
-      finish_expr_stmt (call);
-    }
+  finish_expr_stmt (call);
 }
 
 static const char *
@@ -1223,7 +1199,6 @@ build_contract_check (tree contract)
 	{
 	  case CCS_NEVER: cmode = NEVER_CONTINUE; break;
 	  case CCS_MAYBE: cmode = MAYBE_CONTINUE; break;
-	  case CCS_ALWAYS: cmode = ALWAYS_CONTINUE; break;
 	  default: gcc_unreachable ();
 	}
 
