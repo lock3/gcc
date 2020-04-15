@@ -11408,6 +11408,7 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
     error_at (EXPR_LOCATION (TREE_VALUE (post)),
 	      "postconditions cannot be statements");
 
+  /* FIXME: move fallthrough up here so it applies to decls/etc?  */
   /* Check that assertions are null statements.  */
   if (attribute_contract_assert_p (contract_attrs))
     if (token->type != CPP_SEMICOLON)
@@ -27479,16 +27480,6 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
 
   cp_parser_require (parser, CPP_COLON, RT_COLON);
 
-  /* TODO: If this is a postcondition and the return type is deduced,
-     then we need to cache tokens and parse when the function is
-     defined.
-
-     Would it be okay to declare the result decl as having a deduced
-     return type also?
-
-     NOTE: You can't declare a deduced return type function with
-     postconditions and not define it.  */
-
   tree contract = start_contract (loc, attr, config, identifier);
   if (TREE_CODE (contract) != ASSERTION_STMT)
     {
@@ -32088,48 +32079,25 @@ cp_parser_pre_parsed_nested_name_specifier (cp_parser *parser)
 }
 
 /* Consume tokens up to, but not including the end of the current attribute.
-   Returns the last token if no end is found.
-
-   TODO: This maintains the same error messages when we run out of input
-   parsing the contract attr (before ] vs end of input).
-
-   FIXME: There are probably earlier exits than end of file. What
-   about a semicolon?  */
+   Returns the first unnested ] token if no end is found.  */
 
 static tree
 cp_parser_cache_contract_condition (cp_parser *parser)
 {
   cp_token *first_token = cp_lexer_peek_token (parser->lexer);
-  cp_token *token;
+  cp_parser_skip_to_closing_parenthesis_1 (parser,
+					   /*recovering=*/false,
+					   CPP_CLOSE_SQUARE,
+					   /*consume_paren=*/false);
 
-  int depth = 2;
-  while (true)
-    {
-      token = cp_lexer_peek_token (parser->lexer);
+  /* If we ran into an unnested ] that doesn't close the attribute, return an
+     error and let the attribute handling code emit an error for missing ]].  */
+  if (cp_lexer_peek_token (parser->lexer)->type != CPP_CLOSE_SQUARE
+      || cp_lexer_peek_nth_token (parser->lexer, 2)->type != CPP_CLOSE_SQUARE)
+    return error_mark_node;
 
-      if (depth == 2
-	  && token->type == CPP_CLOSE_SQUARE
-	  && cp_lexer_nth_token_is (parser->lexer, 2, CPP_CLOSE_SQUARE))
-        break;
+  cp_token *token = cp_lexer_peek_token (parser->lexer);
 
-      /* If we've reached the end of the file, stop.  Returns
-         the last token, so we at least have a valid range of
-         tokens.  */
-      if (token->type == CPP_EOF || token->type == CPP_PRAGMA_EOL)
-	{
-	  error ("reached end of input before %<]]%>");
-          return error_mark_node;
-	}
-
-      if (token->type == CPP_OPEN_SQUARE)
-	depth++;
-      else if (token->type == CPP_CLOSE_SQUARE)
-	depth--;
-
-      cp_lexer_consume_token (parser->lexer);
-    }
-
-  /* FIXME Do instantiations mean anything in the context of contracts?  */
   tree contract_condition = make_node (DEFERRED_PARSE);
   DEFPARSE_TOKENS (contract_condition)
     = cp_token_cache_new (first_token, token);

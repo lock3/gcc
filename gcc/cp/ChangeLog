@@ -1,3 +1,20 @@
+2020-04-15  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c: Cleanup outdated FIXMEs.
+	(cp_parser_cache_contract_condition): Use
+	cp_parser_skip_to_closing_parenthesis_1.
+	* search.c (check_final_overrider): Remove outdated FIXME.
+	* semantics.c: Cleanup outdated FIXMEs.
+	(start_checked_function_definition): Begin BCS_FN_BODY instead of
+	BCS_NORMAL.
+	(finish_checked_function_definition): Use finish_compound_stmt instead
+	of finish_function_body.
+	(start_postcondition_statement): push_stmt_list to capture the built
+	tree.
+	(finish_postcondition_statement): Replace inlined version of
+	finish_compound_stmt with finish_compound_stmt and pop_stmt_list,
+	using the new list created in start_postcondition_statement.
+
 2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* cp-tree.h (cp_tree_index): Remove CPTI_ON_CONTRACT_VIOLATION_ALWAYS.

@@ -21,7 +21,8 @@ typedef void (*fp3)(int x) [[ pre: x > 0 ]]; // { dg-error "only allowed on func
 typedef void (*fp4 [[ pre: x > 0 ]])(int x); // { dg-error "only allowed on functions" }
 fp3 fn5(int a) [[ pre: a > 0 ]]; // { dg-bogus "only allowed on functions" }
 
-int main()
-{
-  return 0;
-}
+void f6(int x) [[ pre: x > 0 ; // { dg-error "expected .]." }
+void f7(int x) [[ pre: x > 0 ]; // { dg-error "expected .]." }
+void f8(int x) [[ pre: x > 0 { }; // { dg-error "expected .]." }
+void f9(int x) [[ pre: x > 0 ] { }; // { dg-error "expected .]." }
+

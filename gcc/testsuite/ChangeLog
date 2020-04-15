@@ -1,3 +1,7 @@
+2020-04-15  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre1.C: Add more missing close parse tests.
+
 2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* g++.dg/cpp2a/contracts1.C: Ensure check_always_continue emits a

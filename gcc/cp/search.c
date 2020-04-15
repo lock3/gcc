@@ -2053,7 +2053,7 @@ check_final_overrider (tree overrider, tree basefn)
 	     overrider);
       inform (DECL_SOURCE_LOCATION (basefn),
 	      "overridden function is %qD", basefn);
-      return 0; // FIXME?
+      return 0;
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && !DECL_HAS_CONTRACTS_P (overrider))
     {

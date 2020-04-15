@@ -826,9 +826,6 @@ build_unchecked_function_declaration (tree checked)
   DECL_INITIAL (unchecked) = error_mark_node;
   remove_contract_attributes (unchecked);
 
-  /* FIXME it may make more sense to have the checked function be concrete
-     with the unchecked be virtual since all checked function overrides must
-     be equivalent due to the contract matching requirement.  */
   IDENTIFIER_VIRTUAL_P (DECL_NAME (unchecked)) = false;
   DECL_VIRTUAL_P (unchecked) = false;
 
@@ -851,9 +848,10 @@ build_unchecked_function_declaration (tree checked)
 static tree
 start_checked_function_definition ()
 {
-  /* FIXME: Why do we have two unrelated statement lists?  */
-  tree def = push_stmt_list();
-  tree body = begin_compound_stmt (BCS_NORMAL);
+  /* We need to capture the body we're about to build in a stmt_list since
+     that's what finish_function expects the DECL_SAVED_TREE to be.  */
+  tree def = push_stmt_list ();
+  tree body = begin_compound_stmt (BCS_FN_BODY);
   return build_tree_list (def, body);
 }
 
@@ -869,7 +867,7 @@ finish_checked_function_definition (tree def, tree result)
   if (result)
     finish_return_stmt (result);
 
-  finish_function_body (TREE_VALUE (def));
+  finish_compound_stmt (TREE_VALUE (def));
 }
 
 /* Build the call to the unchecked FN with ARGS, possibly with a
@@ -1006,7 +1004,9 @@ build_checked_function_definition (tree checked)
 tree
 start_postcondition_statement ()
 {
-  return begin_compound_stmt (BCS_NORMAL);
+  tree list = push_stmt_list ();
+  tree stmt = begin_compound_stmt (BCS_NORMAL);
+  return build_tree_list (list, stmt);
 }
 
 /* Finish the block containing the postcondition check.  */
@@ -1014,34 +1014,8 @@ start_postcondition_statement ()
 void
 finish_postcondition_statement (tree stmt)
 {
-  /* FIXME temporarily inlined from finish_compound_stmt except for actually
-     adding the compound statement to the current statement list. We need
-     several parts of this logic to handle normal and template parsing for
-     postconditions, but is there something better we can use instead?  */
-  if (TREE_CODE (stmt) == BIND_EXPR)
-    {
-      tree body = do_poplevel (BIND_EXPR_BODY (stmt));
-      /* If the STATEMENT_LIST is empty and this BIND_EXPR isn't special,
-	 discard the BIND_EXPR so it can be merged with the containing
-	 STATEMENT_LIST.  */
-      if (TREE_CODE (body) == STATEMENT_LIST
-	  && STATEMENT_LIST_HEAD (body) == NULL
-	  && !BIND_EXPR_BODY_BLOCK (stmt)
-	  && !BIND_EXPR_TRY_BLOCK (stmt))
-	stmt = body;
-      else
-	BIND_EXPR_BODY (stmt) = body;
-    }
-  else if (STATEMENT_LIST_NO_SCOPE (stmt))
-    stmt = pop_stmt_list (stmt);
-  else
-    {
-      /* Destroy any ObjC "super" receivers that may have been
-	 created.  */
-      objc_clear_super_receiver ();
-
-      stmt = do_poplevel (stmt);
-    }
+  finish_compound_stmt (TREE_VALUE (stmt));
+  pop_stmt_list (TREE_PURPOSE (stmt));
 }
 
 /* Declare a variable for the postcondition.  The variable is
