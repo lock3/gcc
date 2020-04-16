@@ -1,3 +1,9 @@
+2020-04-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cp-tree.h (get_contract_semantic): Use TREE_LANG_FLAG_0, 2, and 3
+	instead of spare1.
+	(set_contract_semantic): Ditto.
+
 2020-04-15  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* parser.c: Cleanup outdated FIXMEs.

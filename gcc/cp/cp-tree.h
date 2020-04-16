@@ -433,6 +433,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       REINTERPRET_CAST_P (in NOP_EXPR)
       ALIGNOF_EXPR_STD_P (in ALIGNOF_EXPR)
       OVL_DEDUP_P (in OVERLOAD)
+      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    1: IDENTIFIER_KIND_BIT_1 (in IDENTIFIER_NODE)
       TI_PENDING_TEMPLATE_FLAG.
       TEMPLATE_PARMS_FOR_INLINE.
@@ -468,6 +469,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       IMPLICIT_CONV_EXPR_BRACED_INIT (in IMPLICIT_CONV_EXPR)
       TINFO_VAR_DECLARED_CONSTINIT (in TEMPLATE_INFO)
       CALL_FROM_NEW_OR_DELETE_P (in CALL_EXPR)
+      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    3: (TREE_REFERENCE_EXPR) (in NON_LVALUE_EXPR) (commented-out).
       ICS_BAD_FLAG (in _CONV)
       FN_TRY_BLOCK_P (in TRY_BLOCK)
@@ -478,6 +480,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       OVL_NESTED_P (in OVERLOAD)
       LAMBDA_EXPR_INSTANTIATED (in LAMBDA_EXPR)
       Reserved for DECL_MODULE_EXPORT (in DECL_)
+      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    4: IDENTIFIER_MARKED (IDENTIFIER_NODEs)
       TREE_HAS_CONSTRUCTOR (in INDIRECT_REF, SAVE_EXPR, CONSTRUCTOR,
 	  CALL_EXPR, or FIELD_DECL).
@@ -1308,7 +1311,9 @@ struct GTY (()) tree_static_assert {
 inline contract_semantic
 get_contract_semantic (const_tree t)
 {
-  return (contract_semantic) CONTRACT_CHECK (t)->base.u.bits.spare1;
+  return (contract_semantic) (TREE_LANG_FLAG_3 (CONTRACT_CHECK (t))
+      | (TREE_LANG_FLAG_2 (t) << 1)
+      | (TREE_LANG_FLAG_0 ((t)) << 2));
 }
 
 /* Sets the computed semantic of the node.  */
@@ -1316,7 +1321,9 @@ get_contract_semantic (const_tree t)
 inline void
 set_contract_semantic (tree t, contract_semantic semantic)
 {
-  CONTRACT_CHECK (t)->base.u.bits.spare1 = semantic;
+  TREE_LANG_FLAG_3 (CONTRACT_CHECK (t)) = semantic & 0x01;
+  TREE_LANG_FLAG_2 (t) = (semantic & 0x02) >> 1;
+  TREE_LANG_FLAG_0 (t) = (semantic & 0x04) >> 2;
 }
 
 /* True if the contract semantic was specified literally. If true, the
