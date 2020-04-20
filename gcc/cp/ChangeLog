@@ -1,3 +1,12 @@
+2020-04-19  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (cp_parser_contract_condition): If needed, build a location
+	wrapper around the parsed condition for later diagnostics.
+	* pt.c (tsubst_contract): Use the original condition location as the
+	location of the substituted condition.
+	* semantics.c (start_contract): Remove FIXME about incorrect
+	diagnostic location.
+
 2020-04-16  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* cp-tree.h (get_contract_semantic): Use TREE_LANG_FLAG_0, 2, and 3

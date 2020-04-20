@@ -1281,10 +1281,7 @@ start_contract (location_t loc,
 tree
 finish_contract (tree contract, tree condition, tree comment)
 {
-  /* The condition is converted to bool.
-
-     FIXME: When we instantiate this, the input location is in entirely
-     the wrong place.  */
+  /* The condition is converted to bool.  */
   if (condition != error_mark_node && !type_dependent_expression_p (condition))
     condition = maybe_convert_cond (condition);
   CONTRACT_CONDITION (contract) = condition;

@@ -15423,6 +15423,17 @@ cp_parser_contract_condition (cp_parser *parser, tree contract,
       return contract;
     }
 
+  /* Ensure we have the condition location saved in case we later need to
+     emit a conversion error during template instantiation and wouldn't
+     otherwise have it.  */
+  tree condition = cond;
+  if (!CAN_HAVE_LOCATION_P (condition) || EXCEPTIONAL_CLASS_P (condition))
+    {
+      condition = build1_loc (cond.get_location (), VIEW_CONVERT_EXPR,
+			      TREE_TYPE (condition), condition);
+      EXPR_LOCATION_WRAPPER_P (condition) = 1;
+    }
+
   /* Try to get the actual source text for the condition; if that fails pretty
      print the resulting tree.  */
   char *comment_str = get_source (cond.get_start (), cond.get_finish ());
@@ -15436,7 +15447,7 @@ cp_parser_contract_condition (cp_parser *parser, tree contract,
     comment_str = xstrdup (expr_to_string (cond));
 
   tree comment = build_string_literal (strlen (comment_str) + 1, comment_str);
-  finish_contract (contract, cond, comment);
+  finish_contract (contract, condition, comment);
   free (comment_str);
 
   return contract;

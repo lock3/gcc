@@ -17679,6 +17679,7 @@ tsubst_contract (tree t, tree args, tsubst_flags_t complain, tree in_decl)
   ++cp_contract_operand;
   tree cond = tsubst_expr (CONTRACT_CONDITION (t), args, complain,
 			   in_decl, false);
+  SET_EXPR_LOCATION (cond, EXPR_LOCATION (CONTRACT_CONDITION (t)));
   --cp_contract_operand;
   finish_contract (r, cond, copy_node (CONTRACT_COMMENT (t)));
   pop_deferring_access_checks ();

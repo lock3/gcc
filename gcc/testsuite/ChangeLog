@@ -1,3 +1,7 @@
+2020-04-19  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-conversion1.C: New test.
+
 2020-04-15  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* g++.dg/cpp2a/contracts-pre1.C: Add more missing close parse tests.
