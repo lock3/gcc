@@ -1108,7 +1108,8 @@ merge_contracts (tree decl, const cp_declarator *fn)
     }
 
   /* If there are attributes to merge, make sure they can be merged.  */
-  if (!match_contracts (decl, fn->id_loc, fn->contracts))
+  if (!contract_any_deferred_p (fn->contracts)
+      && !match_contracts (decl, fn->id_loc, fn->contracts))
     {
       /* If the contracts do not match, we've already emitted an error.
 	 Throw away the conditions to prevent spurious errors later.  */
@@ -1129,8 +1130,8 @@ merge_contracts (tree decl, const cp_declarator *fn)
       contract_attr;
       contract_attr = TREE_CHAIN (contract_attr))
   {
-    if (TREE_PURPOSE (TREE_PURPOSE (contract_attr)) == NULL_TREE)
-      TREE_PURPOSE (TREE_PURPOSE (contract_attr)) = original_loc;
+    if (CONTRACT_SOURCE_LOCATION_WRAPPER (contract_attr) == NULL_TREE)
+      CONTRACT_SOURCE_LOCATION_WRAPPER (contract_attr) = original_loc;
     tree contract = TREE_VALUE (contract_attr);
     if (VOID_TYPE_P (TREE_TYPE (contract)))
       TREE_TYPE (contract) = decl;
@@ -1138,19 +1139,21 @@ merge_contracts (tree decl, const cp_declarator *fn)
 
   /* If there are not yet contracts or we need to defer checking, save the
      contracts.  */
-  if (!DECL_HAS_CONTRACTS_P (decl) || contract_any_deferred_p (fn->contracts))
+  if (!DECL_HAS_CONTRACTS_P (decl))
     set_decl_contracts (decl, fn->contracts);
+  else if (contract_any_deferred_p (fn->contracts))
+    defer_guarded_contract_match (decl, NULL_TREE, fn->contracts);
 }
 
-static hash_map<tree_decl_hash, hash_set<tree, true> *> pending_guarded_overrides;
+hash_map<tree_decl_hash, hash_set<tree, true> *> pending_guarded_decls;
 
 void
-defer_guarded_contract_match (tree fndecl, tree basefn)
+defer_guarded_contract_match (tree fndecl, tree fn, tree contracts)
 {
-  if (!pending_guarded_overrides.get (fndecl))
-    pending_guarded_overrides.put (fndecl, new hash_set<tree, true>());
-  hash_set<tree, true> *bases = *pending_guarded_overrides.get (fndecl);
-  bases->add (basefn);
+  if (!pending_guarded_decls.get (fndecl))
+    pending_guarded_decls.put (fndecl, new hash_set<tree, true>());
+  hash_set<tree, true> *bases = *pending_guarded_decls.get (fndecl);
+  bases->add (build_tree_list (fn, contracts));
 }
 
 /* If the FUNCTION_DECL DECL has any contracts that had their matching
@@ -1159,27 +1162,39 @@ defer_guarded_contract_match (tree fndecl, tree basefn)
 void
 match_deferred_contracts (tree decl)
 {
-  if (!pending_guarded_overrides.get (decl))
+  if (!pending_guarded_decls.get (decl))
     return;
 
   /* If we're still deferring, defer even more.  */
   if (contract_any_deferred_p (DECL_CONTRACTS (decl)))
     return;
 
-  hash_set<tree, true> *bases = *pending_guarded_overrides.get (decl);
+  hash_set<tree, true> *decls = *pending_guarded_decls.get (decl);
 
   tree contract_attrs = DECL_CONTRACTS (decl);
-  location_t oldloc = EXPR_LOCATION (TREE_PURPOSE (TREE_PURPOSE (contract_attrs)));
+  location_t oldloc = CONTRACT_SOURCE_LOCATION (contract_attrs);
 
   /* Do late contract matching.  */
-  for (hash_set<tree, true>::iterator it = bases->begin();
-      it != bases->end();
+  for (hash_set<tree, true>::iterator it = decls->begin();
+      it != decls->end();
       ++it)
-    match_contract_conditions (DECL_SOURCE_LOCATION (*it), DECL_CONTRACTS (*it),
-			       oldloc, contract_attrs, cmc_override);
+    {
+      tree base = TREE_PURPOSE (*it);
+      tree it_contracts = TREE_VALUE (*it);
+      if (base)
+	match_contract_conditions (CONTRACT_SOURCE_LOCATION (it_contracts),
+				   it_contracts,
+				   oldloc, contract_attrs,
+				   cmc_override);
+      else
+	match_contract_conditions (oldloc, contract_attrs,
+				   CONTRACT_SOURCE_LOCATION (it_contracts),
+				   it_contracts,
+				   cmc_declaration);
+    }
 
   /* Clear out deferred match list so we don't check it twice.  */
-  pending_guarded_overrides.remove (decl);
+  pending_guarded_decls.remove (decl);
 }
 
 
@@ -17258,6 +17273,7 @@ finish_function (bool inline_p)
 			      current_eh_spec_block);
     }
 
+  gcc_checking_assert (!pending_guarded_decls.get (fndecl));
   bool finishing_guarded_p = !processing_template_decl
     && contract_any_active_p (DECL_CONTRACTS (fndecl))
     && !DECL_CONSTRUCTOR_P (fndecl)

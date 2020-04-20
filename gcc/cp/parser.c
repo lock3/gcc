@@ -2559,7 +2559,7 @@ static tree cp_parser_nested_requirement
 
 /* Contracts Extensions */
 static void cp_parser_contracts
-  (cp_parser *, tree, const cp_declarator *);
+  (cp_parser *, tree, const cp_declarator *, bool);
 static tree cp_parser_contract_condition
   (cp_parser *, tree, tree);
 static tree cp_parser_cache_contract_condition
@@ -15249,9 +15249,6 @@ struct cp_contract_sentinel
     ++cp_contract_operand;
     push_deferring_access_checks (dk_no_check);
 
-    /* FIXME: should the contracts on a friend decl be a complete class
-       context for the type being currently defined? */
-
     /* pre construction and post destruction the object pointed to by `this`
        is invalid; clear out some global state so diagnostics can be issued
        appropriately.  */
@@ -15458,7 +15455,7 @@ cp_parser_contract_condition (cp_parser *parser, tree contract,
 
 static void
 cp_parser_contracts (cp_parser *parser, tree decl,
-		     const cp_declarator *declarator)
+		     const cp_declarator *declarator, bool defer = false)
 {
   if (!flag_contracts) return;
   if (!decl || decl == error_mark_node || !declarator) return;
@@ -15466,7 +15463,8 @@ cp_parser_contracts (cp_parser *parser, tree decl,
   if (!fn)
     return;
 
-  cp_parser_late_parsing_for_contracts (parser, decl, fn->contracts);
+  if (!defer)
+    cp_parser_late_parsing_for_contracts (parser, decl, fn->contracts);
   merge_contracts (decl, fn);
 }
 
@@ -25643,7 +25641,7 @@ cp_parser_member_declaration (cp_parser* parser)
 				initializer, /*init_const_expr_p=*/true,
 				asm_specification, attributes);
 
-	      cp_parser_contracts (parser, decl, declarator);
+	      cp_parser_contracts (parser, decl, declarator, friend_p);
 	      /* If we've declared a member function with contracts, ensure we
 		 do late parsing for the contracts even if we have no function
 		 body to parse at that time.  */
@@ -30168,7 +30166,7 @@ cp_parser_save_member_function_body (cp_parser* parser,
 
   /* Create the FUNCTION_DECL.  */
   fn = grokmethod (decl_specifiers, declarator, attributes);
-  cp_parser_contracts (parser, fn, declarator);
+  cp_parser_contracts (parser, fn, declarator, true);
   cp_finalize_omp_declare_simd (parser, fn);
   cp_finalize_oacc_routine (parser, fn, true);
   /* If something went badly wrong, bail out now.  */
@@ -30393,16 +30391,23 @@ begin_contract_scope (tree fndecl)
     return;
 
   /* If we're entering a class member; ensure current_class_ptr and
-     current_class_ref point to the correct place.  */
+     current_class_ref point to the correct place.
+
+     We do not use inject_this_parameter because there is already a PARM_DECL
+     built that we want to use so we don't have to do an extra rewrite.  */
   tree this_parm = DECL_ARGUMENTS (fndecl);
-  inject_this_parameter (DECL_CONTEXT (fndecl),
-			 cp_type_quals (TREE_TYPE (TREE_TYPE (this_parm))));
+  /* Clear this first to avoid shortcut in cp_build_indirect_ref.  */
+  current_class_ptr = NULL_TREE;
+  current_class_ref
+    = cp_build_fold_indirect_ref (this_parm);
+  current_class_ptr = this_parm;
 }
 
 /* Parse any outstanding contract conditions on MEMBER_FUNCTION, if any.  */
 
 static void
-cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function, tree contract_attrs)
+cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function,
+				      tree contract_attrs)
 {
   if (!contract_attrs)
     return;
@@ -30415,20 +30420,22 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function, tree con
   if (DECL_FUNCTION_TEMPLATE_P (function))
     function = DECL_TEMPLATE_RESULT (function);
 
+  /* We cannot parse member or static function contracts until the enclosing
+     type is complete.  */
   if (DECL_FUNCTION_MEMBER_P (function)
       && TYPE_BEING_DEFINED (DECL_CONTEXT (function)))
     return; /* Defer further.  */
 
-  /* FIXME Is this right for friends? Can a friend refer to a static member?
-     Can a friend's contracts refer to our privates? Turning them into
-     [[assert]]s inside the body of the friend itself certainly lets them do
-     so. */
+  /* Similar to member functions, we cannot parse the contracts friend
+     functions when we're inside the befriending type or otherwise
+     incomplete.  This is partially handled by our caller.  */
+  if (DECL_FRIEND_P (function) && current_class_type
+      && TYPE_BEING_DEFINED (current_class_type))
+    return;
 
   temp_override<tree> saved_cct(current_class_type);
   temp_override<tree> saved_ccp(current_class_ptr);
   temp_override<tree> saved_ccr(current_class_ref);
-
-  /* FIXME contracts can be parsed inside of a class when the decl is a friend? */
 
   /* Make sure that any template parameters are in scope.  */
   maybe_begin_member_template_processing (function);
@@ -30453,6 +30460,22 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function, tree con
   /* Ensure all pre-existing contracts on function are already parsed.  */
   for (tree ca = DECL_CONTRACTS (function); ca; ca = CONTRACT_CHAIN (ca))
     cp_parser_late_parsing_for_contract (parser, function, TREE_VALUE (ca));
+
+  /* Ensure all contracts on pending matches are also parsed.  */
+  hash_set<tree, true> **decls_ptr = pending_guarded_decls.get (function);
+  if (decls_ptr && *decls_ptr)
+    {
+      hash_set<tree, true> *decls = *decls_ptr;
+      for (hash_set<tree, true>::iterator it = decls->begin();
+	  it != decls->end();
+	  ++it)
+	{
+	  tree contracts = TREE_VALUE (*it);
+	  for (tree ca = contracts; ca; ca = CONTRACT_CHAIN (ca))
+	    cp_parser_late_parsing_for_contract (parser, function,
+						 TREE_VALUE (ca));
+	}
+    }
 
   finish_scope ();
   current_function_decl = NULL_TREE;

@@ -1,3 +1,39 @@
+2020-04-20  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Correctly treat contract attributes on friend and static member
+	function decls as a complete class context.
+	* cp-tree.h (CONTRACT_SOURCE_LOCATION_WRAPPER): New helper.
+	(CONTRACT_SOURCE_LOCATION): Ditto.
+	(pending_guarded_decls): Newly extern.
+	(defer_guarded_contract_match): Now accepts both a source function and
+	list of contract attributes to distinguish between overrides and
+	redeclarations.
+	* decl.c (merge_contracts): Defer contract matching when the new or
+	existing contracts are not fully parsed. Use new contract location
+	helpers.
+	(pending_guarded_overrides): Renamed to:
+	(pending_guarded_decls): and made extern.
+	(defer_guarded_contract_match): Accepts and stores both a function and
+	list of contracts.
+	(match_deferred_contracts): Uses the contract location helpers.
+	Determines arguments to match_contract_conditions based on the
+	information saved by defer_guarded_contract_match.
+	(finish_function): New checking assertion that there are no
+	outstanding pending contract matching required.
+	* parser.c (cp_parser_contracts): Now accepts a defer bool if the
+	caller knows the contracts cannot be parsed yet.
+	(cp_parser_member_declaration): Defer parsing of contracts when
+	calling cp_parser_contracts on friend decls.
+	(cp_parser_save_member_function_body): Always defer parsing of
+	contracts since we in an incomplete type.
+	(begin_contract_scope): Instead of calling inject_this_parameter,
+	directly inject the this parameter that's already been added to the
+	function's parameter list.
+	(cp_parser_late_parsing_for_contracts): Defer if this is a friend
+	decl. If we are parsing now, parse any deferred matches as well.
+	* search.c (check_final_overrider): Pass the basefn to
+	defer_guarded_contract_match.
+
 2020-04-19  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* parser.c (cp_parser_contract_condition): If needed, build a location

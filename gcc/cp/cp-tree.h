@@ -3521,8 +3521,17 @@ inline tree find_contract (tree attrs)
 #define DECL_CONTRACTS(NODE) \
   (find_contract (DECL_ATTRIBUTES (NODE)))
 
+/* The next contract (if any) after this one in an attribute list.  */
 #define CONTRACT_CHAIN(NODE) \
   (find_contract (TREE_CHAIN (NODE)))
+
+/* The wrapper of the original source location of a list of contracts.  */
+#define CONTRACT_SOURCE_LOCATION_WRAPPER(NODE) \
+  (TREE_PURPOSE (TREE_PURPOSE (NODE)))
+
+/* The original source location of a list of contracts.  */
+#define CONTRACT_SOURCE_LOCATION(NODE) \
+  (EXPR_LOCATION (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
 
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */
@@ -7291,7 +7300,8 @@ inline void set_decl_contracts (tree decl, tree contract_attrs)
 }
 
 /* in decl.c */
-extern void defer_guarded_contract_match	(tree, tree);
+extern hash_map<tree_decl_hash, hash_set<tree, true> *> pending_guarded_decls;
+extern void defer_guarded_contract_match	(tree, tree, tree);
 
 /* RAII sentinel to ensures that deferred access checks are popped before
   a function returns.  */

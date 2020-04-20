@@ -126,7 +126,7 @@ struct F4
 
   int F3::test0() [[ pre: true ]]; // { dg-error "cannot declare member function" }
   friend int F3::test1();
-  friend int F3::test2() [[ pre: true ]]; /* FIXME contract matching */
+  friend int F3::test2() [[ pre: true ]];
 };
 
 void dummy0()

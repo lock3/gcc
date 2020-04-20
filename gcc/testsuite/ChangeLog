@@ -1,3 +1,11 @@
+2020-04-20  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl2.C: Remove outdated comment.
+	* g++.dg/cpp2a/contracts-redecl7.C: Additional cases around friends.
+	* g++.dg/cpp2a/contracts-redecl8.C: New test for failures in contract
+	matching on friend decls.
+	* g++.dg/cpp2a/contracts-friend1.C: New test.
+
 2020-04-19  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* g++.dg/cpp2a/contracts-conversion1.C: New test.

@@ -2082,7 +2082,7 @@ check_final_overrider (tree overrider, tree basefn)
       /* We're in the process of completing the overrider's class, which means
 	 our conditions definitely are not parsed so simply chain on the
 	 basefn for later checking.  */
-      defer_guarded_contract_match (overrider, basefn);
+      defer_guarded_contract_match (overrider, basefn, DECL_CONTRACTS (basefn));
     }
 
   if (DECL_FINAL_P (basefn))
