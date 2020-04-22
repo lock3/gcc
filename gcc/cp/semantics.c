@@ -45,7 +45,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "gomp-constants.h"
 #include "predict.h"
 #include "memmodel.h"
-#include "print-tree.h"
 #include "c-family/cxx-contracts.h"
 
 /* There routines provide a modular interface to perform many parsing
@@ -557,7 +556,7 @@ build_arg_list (tree fn)
       if (TREE_CODE (TREE_TYPE (t)) == POINTER_TYPE
 	  && DECL_NAME (t) != NULL_TREE
 	  && IDENTIFIER_POINTER (DECL_NAME (t)) != NULL
-	  && strcmp (IDENTIFIER_POINTER (DECL_NAME (t)), "this") == 0)
+	  && id_equal (DECL_NAME (t), "this"))
 	continue; // skip already inserted `this` args
 
       vec_safe_push (args, forward_parm (t));
@@ -674,10 +673,10 @@ copy_fn_decl (tree idecl)
   for (tree p = TREE_CHAIN (DECL_ARGUMENTS (idecl)); p; p = TREE_CHAIN (p))
     {
       if (VOID_TYPE_P (p))
-        {
-          TREE_CHAIN (last) = void_list_node;
-          break;
-        }
+	{
+	  TREE_CHAIN (last) = void_list_node;
+	  break;
+	}
       last = TREE_CHAIN (last) = copy_decl (p);
       DECL_CONTEXT (last) = decl;
     }
@@ -893,7 +892,7 @@ build_unchecked_call (tree fn, vec<tree, va_gc> *args, tree checked)
     return build_unchecked_result_decl (call, checked);
 
   /* Just add the call expression.  */
-  finish_expr_stmt(call);
+  finish_expr_stmt (call);
 
   return NULL_TREE;
 }

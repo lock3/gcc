@@ -48,7 +48,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "intl.h"
 #include "c-family/c-ada-spec.h"
 #include "asan.h"
-#include "tree-inline.h"
 
 /* Id for dumping the raw trees.  */
 int raw_dump_id;

@@ -1,3 +1,7 @@
+2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl5.C: New test case.
+
 2020-04-20  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* g++.dg/cpp2a/contracts-redecl2.C: Remove outdated comment.

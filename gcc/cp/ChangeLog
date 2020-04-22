@@ -1,3 +1,12 @@
+2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix style and comments in several places.
+	* parser.c (get_source): Move to input.c.
+	* pt.c (tsubst_expr): Remove outdated TODO and unneeded
+	PRECONDITION_STMT and POSTCONDITION_STMT cases.
+	* search.c (check_final_overrider): Reword guarded override
+	diagnostic.
+
 2020-04-20  Jeff Chapman II  <jchapman@lock3software.com>
 
 	Correctly treat contract attributes on friend and static member

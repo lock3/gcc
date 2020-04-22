@@ -2049,7 +2049,7 @@ check_final_overrider (tree overrider, tree basefn)
   if (!DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {
       auto_diagnostic_group d;
-      error ("guarded function %q+D overriding non-guarded function",
+      error ("function with contracts %q+D overriding contractless function",
 	     overrider);
       inform (DECL_SOURCE_LOCATION (basefn),
 	      "overridden function is %qD", basefn);

@@ -47,10 +47,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-iterator.h"
 #include "cp-name-hint.h"
 #include "memmodel.h"
-#include "c-family/name-hint.h"
 #include "c-family/cxx-contracts.h"
-#include "tree-inline.h"
-#include "cxx-pretty-print.h"
 
 
 /* The lexer.  */
@@ -2792,7 +2789,7 @@ static bool cp_parser_array_designator_p
 static bool cp_parser_init_statement_p
   (cp_parser *);
 static bool cp_parser_skip_to_closing_square_bracket
-  (cp_parser *, bool);
+  (cp_parser *);
 static size_t cp_parser_skip_balanced_tokens (cp_parser *, size_t);
 
 // -------------------------------------------------------------------------- //
@@ -11598,11 +11595,11 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 
       /* Handle [[assert: ...]];  */
       if (attribute_contract_assert_p (contract_attrs))
-        {
-          /* Add the assertion as a statement in the current block.  */
-          gcc_assert (!statement || statement == error_mark_node);
-          emit_assertion (contract_attrs);
-        }
+	{
+	  /* Add the assertion as a statement in the current block.  */
+	  gcc_assert (!statement || statement == error_mark_node);
+	  emit_assertion (contract_attrs);
+	}
     }
 
   /* Set the line number for the statement.  */
@@ -15322,89 +15319,6 @@ cp_parser_conditional_expression (cp_parser *parser)
   return expression;
 }
 
-/* Return the source text between two locations.  */
-
-static char *
-get_source (location_t start, location_t end)
-{
-  expanded_location expstart =
-    expand_location_to_spelling_point (start, LOCATION_ASPECT_START);
-  expanded_location expend =
-    expand_location_to_spelling_point (end, LOCATION_ASPECT_FINISH);
-
-  /* If the locations are in different files or the end comes before the
-     start, abort and return nothing.  */
-  if (!expstart.file || !expend.file)
-    return NULL;
-  if (strcmp (expstart.file, expend.file) != 0)
-    return NULL;
-  if (expstart.line > expend.line)
-    return NULL;
-  if (expstart.line == expend.line
-      && expstart.column > expend.column)
-    return NULL;
-
-  /* For a single line we need to trim both edges.  */
-  if (expstart.line == expend.line)
-    {
-      char_span line = location_get_source_line (expstart.file, expstart.line);
-      if (line.length () < 1)
-	return NULL;
-      int s = expstart.column - 1;
-      int l = expend.column - expstart.column + 1;
-      if (line.length () < (size_t)s + l)
-	return NULL;
-      return line.subspan (s, l).xstrdup ();
-    }
-
-  /* FIXME how should we handle newlines and runs of spaces?  */
-  char buf[1024 + 4]{};
-  char *res = buf;
-  size_t len = 1024;
-
-  /* Loop through all lines in the range and append each to buf; may trim
-     parts of the start and end lines off depending on column values.  */
-  for (int l = expstart.line; len > 0 && l <= expend.line; ++l)
-    {
-      char_span line = location_get_source_line (expstart.file, l);
-      if (line.length () < 1 && (l != expstart.line && l != expend.line))
-	continue;
-
-      /* for the first line in the range, only start at expstart.column */
-      if (l == expstart.line)
-	{
-	  if (expstart.column == 0)
-	    return NULL;
-	  if (line.length () < (size_t)expstart.column - 1)
-	    return NULL;
-	  line = line.subspan (expstart.column - 1,
-			       line.length() - expstart.column + 1);
-	}
-      /* for the last line, don't go past expstart.column */
-      else if (l == expend.line)
-	{
-	  if (line.length () < (size_t)expend.column)
-	    return NULL;
-	  line = line.subspan (0, expend.column);
-	}
-
-      /* if we've run out of buffer, truncate the line */
-      if (line.length() >= len)
-	line = line.subspan (0, len);
-
-      gcc_assert (line.length () <= len);
-      strncat (res, line.get_buffer (), line.length ());
-      res += line.length ();
-      len -= line.length ();
-    }
-
-  /* If we ran out of space, add a '...' abbreviation marker. */
-  if (len <= 0)
-    buf[1024] = buf[1025] = buf[1026] = '.';
-
-  return xstrdup (buf);
-}
-
 /* Parse a condition for the given contract.  */
 
 static tree
@@ -15455,7 +15369,7 @@ cp_parser_contract_condition (cp_parser *parser, tree contract,
 
 static void
 cp_parser_contracts (cp_parser *parser, tree decl,
-		     const cp_declarator *declarator, bool defer = false)
+		     const cp_declarator *declarator, bool defer_p = false)
 {
   if (!flag_contracts) return;
   if (!decl || decl == error_mark_node || !declarator) return;
@@ -15463,7 +15377,7 @@ cp_parser_contracts (cp_parser *parser, tree decl,
   if (!fn)
     return;
 
-  if (!defer)
+  if (!defer_p)
     cp_parser_late_parsing_for_contracts (parser, decl, fn->contracts);
   merge_contracts (decl, fn);
 }
@@ -23583,11 +23497,11 @@ cp_parser_braced_list (cp_parser* parser, bool* non_constant_p)
   return result;
 }
 
-/* Consume tokens up to the next non-nested closing `]'.
+/* Consume tokens up to, and including, the next non-nested closing `]'.
    Returns true iff we found a closing `]'.  */
 
 static bool
-cp_parser_skip_to_closing_square_bracket (cp_parser *parser, bool inclusive)
+cp_parser_skip_to_closing_square_bracket (cp_parser *parser)
 {
   unsigned square_depth = 0;
 
@@ -23612,8 +23526,7 @@ cp_parser_skip_to_closing_square_bracket (cp_parser *parser, bool inclusive)
         case CPP_CLOSE_SQUARE:
 	  if (!square_depth--)
 	    {
-              if (inclusive)
-	        cp_lexer_consume_token (parser->lexer);
+	      cp_lexer_consume_token (parser->lexer);
 	      return true;
 	    }
 	  break;
@@ -23641,7 +23554,7 @@ cp_parser_array_designator_p (cp_parser *parser)
      If we find the closing `]', and the next token is a `=', then
      we are looking at an array designator.  */
   bool array_designator_p
-    = (cp_parser_skip_to_closing_square_bracket (parser, true)
+    = (cp_parser_skip_to_closing_square_bracket (parser)
        && cp_lexer_next_token_is (parser->lexer, CPP_EQ));
 
   /* Roll back the tokens we skipped.  */
@@ -25641,7 +25554,8 @@ cp_parser_member_declaration (cp_parser* parser)
 				initializer, /*init_const_expr_p=*/true,
 				asm_specification, attributes);
 
-	      cp_parser_contracts (parser, decl, declarator, friend_p);
+	      cp_parser_contracts (parser, decl, declarator,
+				   /*defer_p=*/friend_p);
 	      /* If we've declared a member function with contracts, ensure we
 		 do late parsing for the contracts even if we have no function
 		 body to parse at that time.  */
@@ -29360,7 +29274,8 @@ cp_parser_constructor_declarator_p (cp_parser *parser, cp_parser_flags flags,
 /* If CONTRACT's condition is deferred, parse it now.  */
 
 static void
-cp_parser_late_parsing_for_contract (cp_parser *parser, tree checked, tree contract)
+cp_parser_late_parsing_for_contract (cp_parser *parser, tree checked,
+				     tree contract)
 {
   if (!CONTRACT_CONDITION_DEFERRED_P (contract))
     return;
@@ -30166,7 +30081,7 @@ cp_parser_save_member_function_body (cp_parser* parser,
 
   /* Create the FUNCTION_DECL.  */
   fn = grokmethod (decl_specifiers, declarator, attributes);
-  cp_parser_contracts (parser, fn, declarator, true);
+  cp_parser_contracts (parser, fn, declarator, /*defer_p=*/true);
   cp_finalize_omp_declare_simd (parser, fn);
   cp_finalize_oacc_routine (parser, fn, true);
   /* If something went badly wrong, bail out now.  */

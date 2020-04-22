@@ -3040,7 +3040,7 @@ struct GTY(()) lang_decl {
   (DECL_DESTRUCTOR_P (NODE)                             \
    || (DECL_CONSTRUCTOR_P (NODE)       \
        && (targetm.cxx.cdtor_returns_this ()            \
-           || contract_any_active_p (DECL_CONTRACTS (NODE)))))
+	   || contract_any_active_p (DECL_CONTRACTS (NODE)))))
 
 /* Nonzero if NODE (a _DECL) is a cloned constructor or
    destructor.  */
@@ -3506,13 +3506,17 @@ struct GTY(()) lang_decl {
 #define DECL_PENDING_INLINE_INFO(NODE) \
   (LANG_DECL_FN_CHECK (NODE)->u.pending_inline_info)
 
-inline tree find_contract (tree attrs)
+/* Return the first contract in ATTRS, or NULL_TREE if there are none.  */
+
+inline tree
+find_contract (tree attrs)
 {
   while (attrs && !cxx23_contract_attribute_p (attrs))
     attrs = TREE_CHAIN (attrs);
   return attrs;
 }
 
+/* True iff the FUNCTION_DECL NODE currently has any contracts.  */
 #define DECL_HAS_CONTRACTS_P(NODE) \
   (DECL_CONTRACTS (NODE) != NULL_TREE)
 
@@ -7285,7 +7289,8 @@ extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);
 extern void emit_postconditions			(tree);
 
-inline void set_decl_contracts (tree decl, tree contract_attrs)
+inline void
+set_decl_contracts (tree decl, tree contract_attrs)
 {
   remove_contract_attributes (decl);
   if (!DECL_ATTRIBUTES (decl))

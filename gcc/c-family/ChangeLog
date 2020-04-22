@@ -1,3 +1,7 @@
+2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cxx-contracts.c (get_contract_role): Fix style.
+
 2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* cxx-contracts.h (contract_semantic): Remove CCS_ALWAYS.

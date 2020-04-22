@@ -13044,16 +13044,22 @@ unshare_template (tree decl)
   /* Unshare the template parms.  */
   tree parms = DECL_TEMPLATE_PARMS (new_ti);
   tree parms_val = TREE_VALUE (parms);
-  parms = build_tree_list (TREE_PURPOSE (parms), copy_template_args (parms_val));
+  parms =
+    build_tree_list (TREE_PURPOSE (parms), copy_template_args (parms_val));
   tree last = parms;
-  for (tree ps = TREE_CHAIN (DECL_TEMPLATE_PARMS (new_ti)); ps; ps = TREE_CHAIN (ps))
+  for (tree ps = TREE_CHAIN (DECL_TEMPLATE_PARMS (new_ti));
+      ps;
+      ps = TREE_CHAIN (ps))
     {
-      TREE_CHAIN (last) = build_tree_list (TREE_PURPOSE (ps), copy_template_args (TREE_VALUE (ps)));
+      TREE_CHAIN (last) =
+	build_tree_list (TREE_PURPOSE (ps),
+			 copy_template_args (TREE_VALUE (ps)));
       last = TREE_CHAIN (last);
     }
   DECL_TEMPLATE_PARMS (new_ti) = parms;
 
-  DECL_TEMPLATE_INFO (decl) = build_template_info (new_ti, (copy_template_args (TI_ARGS (tinfo))));
+  DECL_TEMPLATE_INFO (decl) =
+    build_template_info (new_ti, (copy_template_args (TI_ARGS (tinfo))));
   DECL_TI_TEMPLATE (decl) = new_ti;
 
   /* FIXME: only do this if PRIMARY_TEMPLATE_P (original_decl) ?  */
@@ -17759,11 +17765,7 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
       break;
 
     case ASSERTION_STMT:
-    case PRECONDITION_STMT:
-    case POSTCONDITION_STMT:
       {
-	/* TODO: Do we ever see preconditions and postconditions as
-	   statements? Certainly as attributes.  */
 	r = tsubst_contract (t, args, complain, in_decl);
 	if (r != error_mark_node)
 	  add_stmt (r);
@@ -20541,11 +20543,6 @@ tsubst_contract_conditions_r (tree t, tree args, tsubst_flags_t complain,
 {
   if (!t)
     return NULL_TREE;
-  /*
-  tree id = tsubst (TREE_PURPOSE (t), args, complain, in_decl);
-  if (id == error_mark_node)
-    return error_mark_node;
-    */
   tree id = TREE_PURPOSE (t);
   tree contract = tsubst_contract (TREE_VALUE (t), args, tf_warning_or_error,
 				   in_decl);
@@ -25025,7 +25022,6 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	  && !DECL_DECLARED_INLINE_P (decl))
 	DECL_DECLARED_INLINE_P (decl) = 1;
 
-      /* FIXME this is very suspect */
       set_decl_contracts (decl, DECL_CONTRACTS (code_pattern));
       set_unchecked_result (decl, DECL_UNCHECKED_RESULT (code_pattern));
 

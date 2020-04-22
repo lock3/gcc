@@ -943,7 +943,7 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
 
   /* Two deferred contracts tentatively match.  */
   if (CONTRACT_CONDITION_DEFERRED_P  (old_contract)
-	&& CONTRACT_CONDITION_DEFERRED_P (new_contract))
+      && CONTRACT_CONDITION_DEFERRED_P (new_contract))
     return false;
 
   /* Compare the conditions of the contracts.  We fold immediately to avoid
@@ -1068,7 +1068,7 @@ void
 merge_contracts (tree decl, const cp_declarator *fn)
 {
   if (decl == error_mark_node || !DECL_LANG_SPECIFIC (decl)
-     || TREE_CODE (decl) != FUNCTION_DECL)
+      || TREE_CODE (decl) != FUNCTION_DECL)
     return;
 
   /* If we already have contracts from a more general template but we're a
@@ -1116,10 +1116,6 @@ merge_contracts (tree decl, const cp_declarator *fn)
       return;
     }
 
-  /* Clear out "no initial contracts" marker now that we have contracts and
-     have already emitted any optional warnings.  */
-  DECL_SEEN_WITHOUT_CONTRACTS_P (decl) = false;
-
   tree original_loc = build1_loc (DECL_SOURCE_LOCATION (decl),
 				  VIEW_CONVERT_EXPR, void_type_node,
 				  NULL_TREE);
@@ -1145,6 +1141,10 @@ merge_contracts (tree decl, const cp_declarator *fn)
     defer_guarded_contract_match (decl, NULL_TREE, fn->contracts);
 }
 
+/* Map from FUNCTION_DECL to a set of tree lists of contracts that have not
+   been matched or diagnosed yet.  The TREE_PURPOSE is the basefn we're
+   overriding or NULL_TREE if this is a redecl, and the TREE_VALUE is the list
+   of contract attrs.  */
 hash_map<tree_decl_hash, hash_set<tree, true> *> pending_guarded_decls;
 
 void
@@ -1171,8 +1171,8 @@ match_deferred_contracts (tree decl)
 
   hash_set<tree, true> *decls = *pending_guarded_decls.get (decl);
 
-  tree contract_attrs = DECL_CONTRACTS (decl);
-  location_t oldloc = CONTRACT_SOURCE_LOCATION (contract_attrs);
+  tree old_contracts = DECL_CONTRACTS (decl);
+  location_t oldloc = CONTRACT_SOURCE_LOCATION (old_contracts);
 
   /* Do late contract matching.  */
   for (hash_set<tree, true>::iterator it = decls->begin();
@@ -1180,16 +1180,16 @@ match_deferred_contracts (tree decl)
       ++it)
     {
       tree base = TREE_PURPOSE (*it);
-      tree it_contracts = TREE_VALUE (*it);
+      tree contracts = TREE_VALUE (*it);
       if (base)
-	match_contract_conditions (CONTRACT_SOURCE_LOCATION (it_contracts),
-				   it_contracts,
-				   oldloc, contract_attrs,
+	match_contract_conditions (CONTRACT_SOURCE_LOCATION (contracts),
+				   contracts,
+				   oldloc, old_contracts,
 				   cmc_override);
       else
-	match_contract_conditions (oldloc, contract_attrs,
-				   CONTRACT_SOURCE_LOCATION (it_contracts),
-				   it_contracts,
+	match_contract_conditions (oldloc, old_contracts,
+				   CONTRACT_SOURCE_LOCATION (contracts),
+				   contracts,
 				   cmc_declaration);
     }
 
@@ -1648,7 +1648,6 @@ merge_attribute_bits (tree newdecl, tree olddecl)
   DECL_UNINLINABLE (newdecl) |= DECL_UNINLINABLE (olddecl);
   DECL_UNINLINABLE (olddecl) |= DECL_UNINLINABLE (newdecl);
 }
-
 
 #define GNU_INLINE_P(fn) (DECL_DECLARED_INLINE_P (fn)			\
 			  && lookup_attribute ("gnu_inline",		\
@@ -2331,7 +2330,6 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 
       /* Ensure contracts, if any, are present on the newdecl so they're saved
 	 when olddecl is overwritten later.  */
-      /* FIXME this is very suspect */
       set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);

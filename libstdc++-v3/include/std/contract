@@ -42,7 +42,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   enum class contract_violation_continuation_mode {
-    NEVER_CONTINUE, MAYBE_CONTINUE, ALWAYS_CONTINUE
+    NEVER_CONTINUE, MAYBE_CONTINUE
   };
 
   class contract_violation {

@@ -6264,8 +6264,8 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 	  break;
 
 	tree c = CONTRACT_CONDITION (t);
-        if (semantic == CCS_ASSUME && !cp_tree_defined_p (c))
-          break;
+	if (semantic == CCS_ASSUME && !cp_tree_defined_p (c))
+	  break;
 
 	/* Evaluate the generated check.  */
 	r = cxx_eval_constant_expression (ctx, c, false, non_constant_p,

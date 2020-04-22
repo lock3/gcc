@@ -13,6 +13,7 @@ int g1(int a);
 // allowed to add from none if generalized redecl is on (by default)
 int g2(int a);
 int g2(int a) [[ pre: a > 0 ]]; // { dg-warning "adds contracts" }
+int g2(int a) [[ pre: a > 0 ]]; // { dg-bogus "adds contracts" }
 
 // can add to non-virtual methods
 struct G0

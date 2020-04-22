@@ -1,4 +1,5 @@
-/* Definitions for C++ contract levels
+/* Definitions for C++ contract levels.  Implements functionality described in
+   the working draft version of contracts, P1290, P1332, and P1429.
    Copyright (C) 2020 Free Software Foundation, Inc.
    Contributed by Jeff Chapman II (jchapman@lock3software.com)
 
@@ -89,7 +90,8 @@ struct contract_configuration
 struct contract_mode
 {
   contract_mode () : kind(cm_invalid) {}
-  contract_mode (contract_level level, contract_role *role = NULL) : kind(cm_dynamic)
+  contract_mode (contract_level level, contract_role *role = NULL)
+    : kind(cm_dynamic)
   {
     contract_configuration cc;
     cc.level = level;

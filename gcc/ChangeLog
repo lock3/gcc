@@ -1,3 +1,8 @@
+2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* input.c (get_source): Moved from cp/parser.c.
+	* input.h (get_source): Same.
+
 2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* tree-inline.c (remap_unchecked_body): Leave DECL_RESULT alone.

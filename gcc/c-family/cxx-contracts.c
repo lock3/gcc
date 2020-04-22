@@ -71,12 +71,12 @@ contract_role *
 get_contract_role (const char *name)
 {
   for (int i = 0; i < max_custom_roles; ++i)
-  {
-    contract_role potential = contract_build_roles[i];
-    if (potential.name == NULL) continue;
-    if (strcmp (potential.name, name) != 0) continue;
-    return contract_build_roles + i;
-  }
+    {
+      contract_role potential = contract_build_roles[i];
+      if (potential.name == NULL) continue;
+      if (strcmp (potential.name, name) != 0) continue;
+      return contract_build_roles + i;
+    }
   if (strcmp (name, "default") == 0 || strcmp (name, "review") == 0)
     {
       setup_default_contract_role (false);
