@@ -138,7 +138,7 @@ extern contract_role *add_contract_role	(const char *,
 					 bool = true);
 extern void validate_contract_role	(contract_role *);
 extern void setup_default_contract_role	(bool = true);
-extern contract_semantic lookup_concrete_semantic (char *);
+extern contract_semantic lookup_concrete_semantic (const char *);
 
 /* Map a source level semantic or level name to its value, or invalid.  */
 extern contract_semantic map_contract_semantic	(const char *);
@@ -154,5 +154,12 @@ get_default_contract_role ()
 {
   return get_contract_role ("default");
 }
+
+/* Handle various command line arguments related to semantic mapping.  */
+extern void handle_OPT_fcontract_build_level_ (const char *);
+extern void handle_OPT_fcontract_assumption_mode_ (const char *);
+extern void handle_OPT_fcontract_continuation_mode_ (const char *);
+extern void handle_OPT_fcontract_role_ (const char *);
+extern void handle_OPT_fcontract_semantic_ (const char *);
 
 #endif /* ! GCC_CP_CONTRACT_H */

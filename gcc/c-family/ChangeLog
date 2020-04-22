@@ -1,3 +1,14 @@
+2020-04-22  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Move contract related option handling code from c-opts to
+	cxx-contracts. Fix style.
+	* cxx-contracts.c (role_name_equal): New helpers for comparing
+	possibly colon terminated names so we don't require mutated copies of
+	argv values.
+	(handle_OPT_fcontract_role_): Now copies less and cleans up after
+	itself.
+	(handle_OPT_fcontract_semantic_): No longer allocates at all.
+
 2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* cxx-contracts.c (get_contract_role): Fix style.
