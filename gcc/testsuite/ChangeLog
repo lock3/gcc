@@ -1,3 +1,9 @@
+2020-05-05  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre1.C: New test cases for misapplied
+	contracts.
+	* g++.dg/cpp2a/contracts-override.C: New test.
+
 2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* g++.dg/cpp2a/contracts-redecl5.C: New test case.

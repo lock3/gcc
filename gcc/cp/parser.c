@@ -18,8 +18,6 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
-// TODO FIXME override stops parsing of attrs silently?
-
 #include "config.h"
 #define INCLUDE_UNIQUE_PTR
 #include "system.h"
@@ -1458,7 +1456,7 @@ static void
 cp_separate_contracts (tree &attributes, tree &contracts, bool (*pred)(tree))
 {
   tree attr = attributes;
-  contracts = NULL_TREE;
+  contracts = (contracts == NULL_TREE ? NULL_TREE : nreverse (contracts));
   attributes = NULL_TREE;
   while (attr)
     {
@@ -11390,7 +11388,7 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
     }
 
   /* Extract contracts from the attributes.  */
-  tree contract_attrs;
+  tree contract_attrs = NULL_TREE;
   cp_separate_contracts (std_attrs, contract_attrs, cp_contract_assertion_p);
 
   /* Peek at the next token.  */
@@ -14226,7 +14224,12 @@ cp_parser_decl_specifier_seq (cp_parser* parser,
 		   declared.  */;
 	      else
 		{
-		  if (decl_specs->type && CLASS_TYPE_P (decl_specs->type))
+		  if (find_contract (attrs))
+		    {
+		      diagnose_misapplied_contracts (attrs);
+		      attrs = NULL_TREE;
+		    }
+		  else if (decl_specs->type && CLASS_TYPE_P (decl_specs->type))
 		    {
 		      /*  This is an attribute following a
 			  class-specifier.  */
@@ -24467,6 +24470,8 @@ cp_parser_class_head (cp_parser* parser,
 
   /* Parse the attributes.  */
   attributes = cp_parser_attributes_opt (parser);
+  if (find_contract (attributes))
+    diagnose_misapplied_contracts (attributes);
 
   /* If the next token is `::', that is invalid -- but sometimes
      people do try to write:
@@ -25412,6 +25417,11 @@ cp_parser_member_declaration (cp_parser* parser)
 	      asm_specification = cp_parser_asm_specification_opt (parser);
 	      /* Look for attributes that apply to the declaration.  */
 	      attributes = cp_parser_attributes_opt (parser);
+	      /* Move additional contracts post virt-specifier into the
+		 declarator's contract list.  */
+	      cp_separate_contracts (attributes,
+				     declarator->contracts,
+				     cp_contract_condition_p);
 	      /* Remember which attributes are prefix attributes and
 		 which are not.  */
 	      first_attribute = attributes;

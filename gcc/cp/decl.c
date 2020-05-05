@@ -1197,6 +1197,24 @@ match_deferred_contracts (tree decl)
   pending_guarded_decls.remove (decl);
 }
 
+/* Called on attribute lists that must not contain contracts.  If any
+   contracts are present, issue an error diagnostic and return true.  */
+
+bool
+diagnose_misapplied_contracts (tree attributes)
+{
+  if (attributes == NULL_TREE)
+    return false;
+
+  tree contract_attr = find_contract (attributes);
+  if (!contract_attr)
+    return false;
+
+  error_at (EXPR_LOCATION (TREE_VALUE (contract_attr)),
+	    "contracts must appertain to a function type");
+  return true;
+}
+
 
 
 /* Returns true if functions FN1 and FN2 have equivalent trailing
@@ -5394,6 +5412,12 @@ check_tag_decl (cp_decl_specifier_seq *declspecs,
       else
 	warn_misplaced_attr_for_class_type (loc, declared_type);
     }
+
+  /* Diagnose invalid application of contracts, if any.  */
+  if (find_contract (declspecs->attributes))
+    diagnose_misapplied_contracts (declspecs->attributes);
+  else
+    diagnose_misapplied_contracts (declspecs->std_attributes);
 
   return declared_type;
 }
@@ -12237,13 +12261,17 @@ grokdeclarator (const cp_declarator *declarator,
 	}
     }
 
-  if (declspecs->std_attributes)
+  if (declspecs->std_attributes
+      && !diagnose_misapplied_contracts (declspecs->std_attributes))
     {
       location_t attr_loc = declspecs->locations[ds_std_attribute];
       if (warning_at (attr_loc, OPT_Wattributes, "attribute ignored"))
 	inform (attr_loc, "an attribute that appertains to a type-specifier "
 		"is ignored");
     }
+
+  if (attrlist)
+    diagnose_misapplied_contracts (*attrlist);
 
   /* Determine the type of the entity declared by recurring on the
      declarator.  */
@@ -12277,9 +12305,8 @@ grokdeclarator (const cp_declarator *declarator,
       tree contract_attr = declarator->contracts;
       if (!contract_attr)
 	contract_attr = find_contract (declarator->std_attributes);
-      if (contract_attr != NULL_TREE && !function_declarator_p (declarator))
-	error_at (EXPR_LOCATION (TREE_VALUE (contract_attr)),
-		  "contracts are only allowed on functions");
+      if (contract_attr && !function_declarator_p (declarator))
+	diagnose_misapplied_contracts (contract_attr);
 
       /* We don't want to warn in parameter context because we don't
 	 yet know if the parse will succeed, and this might turn out

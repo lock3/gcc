@@ -1,3 +1,22 @@
+2020-05-05  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Diagnose misapplied contracts. Allow contracts after virt specifier.
+	* cp-tree.h (diagnose_misapplied_contracts): New.
+	* decl.c (diagnose_misapplied_contracts): Same.
+	(check_tag_decl): Use above to diagnose contracts on tag decls.
+	(grokdeclarator): Diagnose contracts in declspecs and declaration
+	attrlist if any. Extract diagnostic into
+	diagnose_misapplied_contracts.
+	* parser.c (cp_separate_contracts): Now works when passed in contracts
+	list is not already empty.
+	(cp_parser_statement): Initialize contract_attrs before call to
+	cp_separate_contracts.
+	(cp_parser_decl_specifier_seq): Diagnose invalid application of
+	contracts.
+	(cp_parser_class_head): Ditto.
+	(cp_parser_member_declaration): Handle contracts appearing after a
+	function's virt-specifier.
+
 2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
 
 	Fix style and comments in several places.

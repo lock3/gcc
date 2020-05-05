@@ -6665,6 +6665,7 @@ extern tree push_void_library_fn		(tree, tree, int);
 extern tree push_throw_library_fn		(tree, tree);
 extern void warn_misplaced_attr_for_class_type  (location_t location,
 						 tree class_type);
+extern bool diagnose_misapplied_contracts	(tree);
 extern tree check_tag_decl			(cp_decl_specifier_seq *, bool);
 extern tree shadow_tag				(cp_decl_specifier_seq *);
 extern tree groktypename			(cp_decl_specifier_seq *, const cp_declarator *, bool);
