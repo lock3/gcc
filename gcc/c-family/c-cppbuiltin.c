@@ -1003,9 +1003,6 @@ c_cpp_builtins (cpp_reader *pfile)
 	  cpp_define (pfile, "__cpp_constexpr_dynamic_alloc=201907L");
 	  cpp_define (pfile, "__cpp_impl_three_way_comparison=201907L");
 	  cpp_define (pfile, "__cpp_aggregate_paren_init=201902L");
-	  cpp_define (pfile, "__cpp_contracts=201906L");
-	  cpp_define (pfile, "__cpp_contracts_literal_semantics=201906L");
-	  cpp_define (pfile, "__cpp_contracts_roles=201906L");
 	}
       if (flag_concepts)
         {
@@ -1014,6 +1011,12 @@ c_cpp_builtins (cpp_reader *pfile)
           else
             cpp_define (pfile, "__cpp_concepts=201507L");
         }
+      if (flag_contracts)
+	{
+	  cpp_define (pfile, "__cpp_contracts=201906L");
+	  cpp_define (pfile, "__cpp_contracts_literal_semantics=201906L");
+	  cpp_define (pfile, "__cpp_contracts_roles=201906L");
+	}
       if (flag_coroutines)
 	cpp_define (pfile, "__cpp_impl_coroutine=201902L"); /* n4861, DIS */
       if (flag_tm)
