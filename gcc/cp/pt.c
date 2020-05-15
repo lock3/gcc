@@ -11831,6 +11831,12 @@ instantiate_class_template_1 (tree type)
 	      if (TREE_CODE (r) == FUNCTION_DECL
 		  && DECL_OMP_DECLARE_REDUCTION_P (r))
 		cp_check_omp_declare_reduction (r);
+
+	      /* FIXME when we instatiate a template class with guarded
+	       * members, particularly guarded template members, the resulting
+	       * pre/post functions end up being inaccessible because their
+	       * template info's context is the original uninstantiated class.
+	       * */
 	    }
 	  else if ((DECL_CLASS_TEMPLATE_P (t) || DECL_IMPLICIT_TYPEDEF_P (t))
 		   && LAMBDA_TYPE_P (TREE_TYPE (t)))
@@ -14008,6 +14014,14 @@ tsubst_function_decl (tree t, tree args, tsubst_flags_t complain,
 				      DECL_ATTRIBUTES (r)))
       omp_declare_variant_finalize (r, attr);
 
+  if (DECL_PRE_FN (t))
+    {
+      tree r_pre = tsubst_decl (DECL_PRE_FN (t), args,
+				tf_warning_or_error);
+      tree r_post = tsubst_decl (DECL_POST_FN (t), args,
+				 tf_warning_or_error);
+      set_contract_functions (r, r_pre, r_post);
+    }
   return r;
 }
 
@@ -16522,7 +16536,7 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 			  = do_auto_deduction (TREE_TYPE (r), init, auto_node,
 					       complain, adc_variable_type);
 		    }
-		  gcc_assert (cp_unevaluated_operand || TREE_STATIC (r)
+		  gcc_assert (cp_unevaluated_operand || cp_contract_operand || TREE_STATIC (r)
 			      || decl_constant_var_p (r)
 			      || seen_error ());
 		  if (!processing_template_decl
@@ -17974,6 +17988,8 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
       finish_using_directive (USING_STMT_NAMESPACE (t), /*attribs=*/NULL_TREE);
       break;
 
+    case PRECONDITION_STMT:
+    case POSTCONDITION_STMT:
     case ASSERTION_STMT:
       {
 	r = tsubst_contract (t, args, complain, in_decl);
@@ -20741,15 +20757,17 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
   /* Manipulate a copy of the contracts rather than the general template's
      (important when we have non-contract attributes).  */
   DECL_ATTRIBUTES (t) = copy_list (DECL_ATTRIBUTES (t));
-  tree contract_attrs = DECL_CONTRACTS (t);
-  /* Rebuild unchecked result with concrete type.  */
-  if (DECL_UNCHECKED_RESULT (t))
+  local_specialization_stack lss (lss_copy);
+  /* If we're not a cdtor then the contracts are actually parsed in terms of
+     the pre and post function arguments, not our own.  */
+  if (!DECL_CONSTRUCTOR_P (t) && !DECL_DESTRUCTOR_P (t))
     {
-      tree orig_result = DECL_UNCHECKED_RESULT (t);
-      set_unchecked_result (t, NULL_TREE);
-      build_unchecked_result (t);
-      register_local_specialization (DECL_UNCHECKED_RESULT (t), orig_result);
+      register_parameter_specializations (DECL_PRE_FN (in_decl),
+					  DECL_PRE_FN (t));
+      register_parameter_specializations (DECL_POST_FN (in_decl),
+					  DECL_POST_FN (t));
     }
+  tree contract_attrs = DECL_CONTRACTS (t);
   contract_attrs = tsubst_contract_conditions_r (contract_attrs, args,
 						 complain, in_decl);
   set_decl_contracts (t, contract_attrs);
@@ -20905,15 +20923,6 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
       pop_access_scope (fndecl);
     }
   pop_deferring_access_checks ();
-
-  /* Specializations have completely independent contracts.  */
-  if (processing_specialization
-      && DECL_DECLARES_FUNCTION_P (fndecl)
-      && DECL_HAS_CONTRACTS_P (fndecl))
-    {
-      remove_contract_attributes (fndecl);
-      set_unchecked_result (fndecl, NULL_TREE);
-    }
 
   /* If we've just instantiated the main entry point for a function,
      instantiate all the alternate entry points as well.  We do this
@@ -25207,7 +25216,10 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	DECL_DECLARED_INLINE_P (decl) = 1;
 
       set_decl_contracts (decl, DECL_CONTRACTS (code_pattern));
-      set_unchecked_result (decl, DECL_UNCHECKED_RESULT (code_pattern));
+      /* If a specialiaztion removed contracts, ensure we're not generating
+       * calls to pre/post functions that will never be generated.  */
+      if (!DECL_PRE_FN (code_pattern))
+	set_contract_functions (decl, NULL_TREE, NULL_TREE);
 
       maybe_instantiate_noexcept (decl, tf_error);
     }
@@ -25828,16 +25840,13 @@ instantiate_decl (tree d, bool defer_ok, bool expl_inst_class_mem_p)
       /* Create substitution entries for the parameters.  */
       register_parameter_specializations (code_pattern, d);
 
-      if (DECL_UNCHECKED_RESULT (d))
-	DECL_CONTEXT (DECL_UNCHECKED_RESULT (d)) = code_pattern;
-
       /* Instantiate pending dependent contract conditions.  For constructors
 	 that will have the conditions inserted while substituting the
 	 initializer list, this must be done before substituting the body.
 	 For templates with deduced return types this must be done *after*
 	 substituting the body so we have the deduced return type. */
       if (DECL_CONSTRUCTOR_P (d))
-	tsubst_contract_conditions (d, args, tf_warning_or_error, tmpl);
+	tsubst_contract_conditions (d, args, tf_warning_or_error, code_pattern);
 
       /* Substitute into the body of the function.  */
       if (DECL_OMP_DECLARE_REDUCTION_P (code_pattern))
@@ -25861,7 +25870,7 @@ instantiate_decl (tree d, bool defer_ok, bool expl_inst_class_mem_p)
 
       /* Instantiate pending dependent contract conditions if we didn't already.  */
       if (!DECL_CONSTRUCTOR_P (d))
-	tsubst_contract_conditions (d, args, tf_warning_or_error, tmpl);
+	tsubst_contract_conditions (d, args, tf_warning_or_error, code_pattern);
 
       /* Finish the function.  */
       if (DECL_OMP_DECLARE_REDUCTION_P (code_pattern)

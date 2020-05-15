@@ -3532,6 +3532,21 @@ find_contract (tree attrs)
 #define DECL_UNCHECKED_RESULT(NODE) \
   (get_unchecked_result (NODE))
 
+/* For a FUNCTION_DECL of a guarded function, this holds the function decl
+   where pre contract checks are emitted.  */
+#define DECL_PRE_FN(NODE) \
+  (get_pre_fn ((NODE)))
+
+/* For a FUNCTION_DECL of a guarded function, this holds the function decl
+   where post contract checks are emitted.  */
+#define DECL_POST_FN(NODE) \
+  (get_post_fn ((NODE)))
+
+/* For a FUNCTION_DECL of a pre/post function, this points back to the
+   original guarded function.  */
+#define DECL_ORIGINAL_FN(NODE) \
+  (get_contracts_original_fn (NODE))
+
 /* True the FUNCTION_DECL NODE was initially declared without contracts.  */
 #define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
   (LANG_DECL_FN_CHECK (DECL_COMMON_CHECK (NODE))->seen_without_contracts_p)
@@ -6644,7 +6659,6 @@ extern void note_iteration_stmt_body_end	(bool);
 extern void determine_local_discriminator	(tree);
 extern int decls_match				(tree, tree, bool = true);
 extern bool maybe_version_functions		(tree, tree, bool);
-extern bool merge_contracts			(tree, tree);
 extern tree duplicate_decls			(tree, tree, bool);
 extern tree declare_local_label			(tree);
 extern tree define_label			(location_t, tree);
@@ -6701,6 +6715,7 @@ extern tree begin_function_body			(void);
 extern void finish_function_body		(tree);
 extern tree outer_curly_brace_block		(tree);
 extern tree finish_function			(bool);
+extern void finish_function_contracts		(tree, bool = false);
 extern tree grokmethod				(cp_decl_specifier_seq *, const cp_declarator *, tree);
 extern void maybe_register_incomplete_var	(tree);
 extern void maybe_commonize_var			(tree);
@@ -6996,6 +7011,7 @@ extern location_t defparse_location (tree);
 extern void maybe_show_extern_c_location (void);
 extern bool literal_integer_zerop (const_tree);
 extern bool function_declarator_p (const cp_declarator *);
+extern const cp_declarator *find_innermost_function_declarator (const cp_declarator *);
 
 /* in pt.c */
 extern void push_access_scope			(tree);
@@ -7258,16 +7274,19 @@ extern void remove_contract_attributes		(tree);
 extern bool contract_active_p			(tree);
 extern bool contract_any_active_p		(tree);
 extern bool contract_any_deferred_p		(tree);
-extern tree build_checked_function_definition	(tree);
+extern void build_contract_function_decls	(tree);
+extern void set_contract_functions		(tree, tree, tree);
+extern void set_contracts_original_fn		(tree, tree);
 extern tree start_postcondition_statement	();
 extern void finish_postcondition_statement	(tree);
-extern tree build_postcondition_variable	(tree, tree);
 extern tree start_contract			(location_t, tree, tree, tree);
 extern tree finish_contract			(tree, tree, tree);
 extern tree build_contract_check		(tree);
-extern void build_unchecked_result		(tree);
+extern vec<tree, va_gc> *build_arg_list		(tree);
 extern tree get_unchecked_result		(tree);
-extern void set_unchecked_result		(tree, tree);
+extern tree get_pre_fn				(tree);
+extern tree get_post_fn				(tree);
+extern tree get_contracts_original_fn		(tree);
 
 extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);
@@ -7289,7 +7308,7 @@ set_decl_contracts (tree decl, tree contract_attrs)
 }
 
 /* in decl.c */
-extern hash_map<tree_decl_hash, hash_set<tree, true> *> pending_guarded_decls;
+extern hash_map<tree_decl_hash, tree> pending_guarded_decls;
 extern void defer_guarded_contract_match	(tree, tree, tree);
 
 /* RAII sentinel to ensures that deferred access checks are popped before

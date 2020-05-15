@@ -2055,8 +2055,13 @@ check_final_overrider (tree overrider, tree basefn)
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && !DECL_HAS_CONTRACTS_P (overrider))
     {
+      /* FIXME this results in an almost exact duplicate of the final pre/post
+	 fns, with just the name of the caller changing. It may be beneficial
+	 to collapse these ourselves.  */
       /* We're inheriting basefn's contracts; create a copy of them but
 	 replace references to their parms to our parms.  */
+      if(!DECL_PRE_FN (overrider))
+	build_contract_function_decls (overrider);
       tree last = NULL_TREE, contract_attrs = NULL_TREE;
       for (tree a = DECL_CONTRACTS (basefn);
 	  a != NULL_TREE;
@@ -2064,7 +2069,14 @@ check_final_overrider (tree overrider, tree basefn)
 	{
 	  tree c = copy_node (a);
 	  TREE_VALUE (c) = copy_node (TREE_VALUE (c));
-	  remap_contract (basefn, overrider, TREE_VALUE (c));
+	  tree src = DECL_PRE_FN (basefn);
+	  tree dst = DECL_PRE_FN (overrider);
+	  if (TREE_CODE (TREE_VALUE (c)) == POSTCONDITION_STMT)
+	    {
+	      src = DECL_POST_FN (basefn);
+	      dst = DECL_POST_FN (overrider);
+	    }
+	  remap_contract (src, dst, TREE_VALUE (c));
 	  CONTRACT_COMMENT (TREE_VALUE (c)) =
 	    copy_node (CONTRACT_COMMENT (TREE_VALUE (c)));
 
