@@ -2057,6 +2057,10 @@ check_final_overrider (tree overrider, tree basefn)
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && !DECL_HAS_CONTRACTS_P (overrider))
     {
+      /* FIXME this works semantically but currently prints the base
+       * function's name in diagnostics.  Should we actually build a separate
+       * copy, or pass it in as a pointer to a static string maybe? */
+#if 0
       /* We're inheriting basefn's contracts; create a copy of them but
 	 replace references to their parms to our parms.  */
       tree last = NULL_TREE, contract_attrs = NULL_TREE;
@@ -2076,6 +2080,9 @@ check_final_overrider (tree overrider, tree basefn)
 	    contract_attrs = c;
 	}
       set_decl_contracts (overrider, contract_attrs);
+#endif
+      set_pre_fn (overrider, DECL_PRE_FN (basefn));
+      set_post_fn (overrider, DECL_POST_FN (basefn));
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {

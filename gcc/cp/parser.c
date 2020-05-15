@@ -1800,7 +1800,7 @@ make_parameter_declarator (cp_decl_specifier_seq *decl_specifiers,
 /* Returns a pointer to the function declarator iff DECLARATOR is a
    declaration for a function.  Returns NULL otherwise.  */
 
-static const cp_declarator *
+const cp_declarator *
 find_innermost_function_declarator (const cp_declarator *declarator)
 {
   while (declarator)
@@ -15328,22 +15328,13 @@ struct cp_contract_sentinel
 	  return;
 
 	stmt = start_postcondition_statement ();
-	cp_contract_return_value =
-	  build_postcondition_variable (result, contract);
+	cp_contract_return_value = result;
       }
   }
   ~cp_contract_sentinel()
   {
     if (stmt)
       finish_postcondition_statement (stmt);
-
-    /* We must rename this after finishing the stmt so it can be found to be
-       popped correctly.  */
-    if (cp_contract_return_value)
-      {
-	DECL_NAME (cp_contract_return_value) = get_identifier ("__r");
-	DECL_CONTEXT (cp_contract_return_value) = NULL_TREE;
-      }
 
     cp_contract_return_value = NULL_TREE;
 
@@ -29397,6 +29388,40 @@ cp_parser_constructor_declarator_p (cp_parser *parser, cp_parser_flags flags,
   return constructor_p;
 }
 
+/* Add the DECL_ARGUMENTs of FNDECL into a new scope for lookup for parsing
+   the contract conditions on FNDECL.  If FNDECL is a member, additionally
+   setup current_class_ptr and current_class_ref appropriately.  */
+
+static void
+begin_contract_scope (tree fndecl)
+{
+  inject_parm_decls (fndecl);
+
+  /* If we're in a static member func, ensure we don't have any backdoors into
+     non-static member vars via current_class_ptr and _ref.  */
+  if (DECL_STATIC_FUNCTION_P (fndecl))
+    {
+      current_class_ptr = NULL_TREE;
+      current_class_ref = NULL_TREE;
+      return;
+    }
+
+  if (!DECL_FUNCTION_MEMBER_P (fndecl))
+    return;
+
+  /* If we're entering a class member; ensure current_class_ptr and
+     current_class_ref point to the correct place.
+
+     We do not use inject_this_parameter because there is already a PARM_DECL
+     built that we want to use so we don't have to do an extra rewrite.  */
+  tree this_parm = DECL_ARGUMENTS (fndecl);
+  /* Clear this first to avoid shortcut in cp_build_indirect_ref.  */
+  current_class_ptr = NULL_TREE;
+  current_class_ref
+    = cp_build_fold_indirect_ref (this_parm);
+  current_class_ptr = this_parm;
+}
+
 /* If CONTRACT's condition is deferred, parse it now.  */
 
 static void
@@ -29412,10 +29437,35 @@ cp_parser_late_parsing_for_contract (cp_parser *parser, tree checked,
       && !DECL_TEMPLATE_INFO (checked))
     return;
 
+  bool pre = TREE_CODE (contract) == PRECONDITION_STMT ? true : false;
+  tree contract_fn = pre ? DECL_PRE_FN (checked) : DECL_POST_FN (checked);
+  if (DECL_CONSTRUCTOR_P (checked) || DECL_DESTRUCTOR_P (checked))
+    contract_fn = checked;
+  tree return_var = DECL_UNCHECKED_RESULT (checked);
+  if (!pre && DECL_UNCHECKED_RESULT (checked) && POSTCONDITION_IDENTIFIER (contract))
+  {
+    tree name = STRIP_ANY_LOCATION_WRAPPER (POSTCONDITION_IDENTIFIER (contract));
+    gcc_assert (name);
+    DECL_NAME (return_var) = name;
+  }
+
+  /* FIXME we can do this a lot more efficiently? Once per function for all of
+   * its pre contracts, and then once per post contract? Is there an
+   * appreciable difference? Or a way to simply rename the post ret val parm? */
+  begin_contract_scope (contract_fn);
+
   cp_token_cache *tokens = DEFPARSE_TOKENS (CONTRACT_CONDITION (contract));
   cp_parser_push_lexer_for_tokens (parser, tokens);
   cp_parser_contract_condition (parser, contract, checked);
   cp_parser_pop_lexer (parser);
+
+  pop_injected_parms ();
+
+  if (return_var)
+  {
+    DECL_NAME (return_var) = get_identifier ("__r");
+    DECL_CONTEXT (return_var) = DECL_POST_FN (checked);
+  }
 }
 
 /* Parse the definition of the function given by the DECL_SPECIFIERS,
@@ -29567,14 +29617,11 @@ cp_parser_function_definition_after_declarator (cp_parser* parser,
     cp_parser_ctor_initializer_opt_and_function_body
       (parser, /*in_function_try_block=*/false);
 
-  if (DECL_HAS_CONTRACTS_P (current_function_decl))
-    cp_parser_late_parsing_for_contracts (parser, current_function_decl,
-					  DECL_CONTRACTS (current_function_decl));
-
   /* Finish the function.  */
   fn = finish_function (inline_p);
   /* Generate code for it, if necessary.  */
   expand_or_defer_fn (fn);
+
   /* Restore the saved values.  */
   parser->in_unbraced_linkage_specification_p
     = saved_in_unbraced_linkage_specification_p;
@@ -29591,6 +29638,14 @@ cp_parser_function_definition_after_declarator (cp_parser* parser,
 
   if (parser->fully_implicit_function_template_p)
     finish_fully_implicit_template (parser, /*member_decl_opt=*/0);
+
+  /* FIXME we may have other places where we need to queue finishing the
+   * pre/post fns? */
+  if (DECL_HAS_CONTRACTS_P (fn))// && !inline_p)
+    {
+      cp_parser_late_parsing_for_contracts (parser, fn, DECL_CONTRACTS (fn));
+      finish_function_contracts (fn);
+    }
 
   return fn;
 }
@@ -30410,41 +30465,76 @@ cp_parser_enclosed_template_argument_list (cp_parser* parser)
   return arguments;
 }
 
-/* Add the DECL_ARGUMENTs of FNDECL into a new scope for lookup for parsing
-   the contract conditions on FNDECL.  If FNDECL is a member, additionally
-   setup current_class_ptr and current_class_ref appropriately.  */
+/* Parse any outstanding contract conditions on MEMBER_FUNCTION, if any.  */
 
 static void
-begin_contract_scope (tree fndecl)
+cp_parser_late_parsing_for_contracts_ (cp_parser *parser, tree function,
+				      tree contract_attrs, bool pre)
 {
-  inject_parm_decls (fndecl);
+  temp_override<tree> saved_cct(current_class_type);
+  temp_override<tree> saved_ccp(current_class_ptr);
+  temp_override<tree> saved_ccr(current_class_ref);
 
-  /* If we're in a static member func, ensure we don't have any backdoors into
-     non-static member vars via current_class_ptr and _ref.  */
-  if (DECL_STATIC_FUNCTION_P (fndecl))
-    {
-      current_class_ptr = NULL_TREE;
-      current_class_ref = NULL_TREE;
-      return;
-    }
+  tree contract_fn = pre ? DECL_PRE_FN (function) : DECL_POST_FN (function);
+  if (DECL_CONSTRUCTOR_P (function) || DECL_DESTRUCTOR_P (function))
+    contract_fn = function;
+  tree_code tcode = pre ? PRECONDITION_STMT : POSTCONDITION_STMT;
 
-  if (!DECL_FUNCTION_MEMBER_P (fndecl))
+  if (contract_fn == error_mark_node)
     return;
 
-  /* If we're entering a class member; ensure current_class_ptr and
-     current_class_ref point to the correct place.
+  /* Make sure that any template parameters are in scope.  */
+  maybe_begin_member_template_processing (contract_fn);
 
-     We do not use inject_this_parameter because there is already a PARM_DECL
-     built that we want to use so we don't have to do an extra rewrite.  */
-  tree this_parm = DECL_ARGUMENTS (fndecl);
-  /* Clear this first to avoid shortcut in cp_build_indirect_ref.  */
-  current_class_ptr = NULL_TREE;
-  current_class_ref
-    = cp_build_fold_indirect_ref (this_parm);
-  current_class_ptr = this_parm;
+  /* Don't do access checking if it is a templated function.  */
+  if (processing_template_decl)
+    push_deferring_access_checks (dk_no_check);
+
+  tree pushed_scope = NULL_TREE;
+  if (DECL_FUNCTION_MEMBER_P (function))
+    pushed_scope = push_scope (DECL_CONTEXT (contract_fn));
+
+  temp_override<tree> cfdo(current_function_decl, contract_fn);
+
+  /* Ensure all contract conditions are actually parsed.  */
+  for (; contract_attrs; contract_attrs = CONTRACT_CHAIN (contract_attrs))
+    if (TREE_CODE (TREE_VALUE (contract_attrs)) == tcode)
+    cp_parser_late_parsing_for_contract (parser, function,
+					 TREE_VALUE (contract_attrs));
+
+  /* Ensure all pre-existing contracts on function are already parsed.  */
+  for (tree ca = DECL_CONTRACTS (function); ca; ca = CONTRACT_CHAIN (ca))
+    if (TREE_CODE (TREE_VALUE (ca)) == tcode)
+    cp_parser_late_parsing_for_contract (parser, function, TREE_VALUE (ca));
+
+  /* Ensure all contracts on pending matches are also parsed.  */
+  hash_set<tree, true> **decls_ptr = pending_guarded_decls.get (function);
+  if (decls_ptr && *decls_ptr)
+    {
+      hash_set<tree, true> *decls = *decls_ptr;
+      for (hash_set<tree, true>::iterator it = decls->begin();
+	  it != decls->end();
+	  ++it)
+	{
+	  tree contracts = TREE_VALUE (*it);
+	  for (tree ca = contracts; ca; ca = CONTRACT_CHAIN (ca))
+            if (TREE_CODE (TREE_VALUE (ca)) == tcode)
+	    cp_parser_late_parsing_for_contract (parser, function,
+						 TREE_VALUE (ca));
+	}
+    }
+
+  current_function_decl = NULL_TREE;
+
+  if (pushed_scope)
+    pop_scope (pushed_scope);
+
+  if (processing_template_decl)
+    pop_deferring_access_checks ();
+
+  /* Remove any template parameters from the symbol table.  */
+  maybe_end_member_template_processing ();
 }
-
-/* Parse any outstanding contract conditions on MEMBER_FUNCTION, if any.  */
 
 static void
 cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function,
@@ -30454,8 +30544,6 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function,
     return;
   if (function == error_mark_node)
     return;
-
-  build_unchecked_result (function);
 
   /* If this member is a template, get the underlying FUNCTION_DECL.  */
   if (DECL_FUNCTION_TEMPLATE_P (function))
@@ -30474,61 +30562,21 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function,
       && TYPE_BEING_DEFINED (current_class_type))
     return;
 
-  temp_override<tree> saved_cct(current_class_type);
-  temp_override<tree> saved_ccp(current_class_ptr);
-  temp_override<tree> saved_ccr(current_class_ref);
-
-  /* Make sure that any template parameters are in scope.  */
-  maybe_begin_member_template_processing (function);
-
-  /* Don't do access checking if it is a templated function.  */
-  if (processing_template_decl)
-    push_deferring_access_checks (dk_no_check);
-
-  tree pushed_scope = NULL_TREE;
-  if (DECL_FUNCTION_MEMBER_P (function))
-    pushed_scope = push_scope (DECL_CONTEXT (function));
-
-  temp_override<tree> cfdo(current_function_decl, function);
-
-  begin_contract_scope (function);
-
-  /* Ensure all contract conditions are actually parsed.  */
-  for (; contract_attrs; contract_attrs = CONTRACT_CHAIN (contract_attrs))
-    cp_parser_late_parsing_for_contract (parser, function,
-					 TREE_VALUE (contract_attrs));
-
-  /* Ensure all pre-existing contracts on function are already parsed.  */
-  for (tree ca = DECL_CONTRACTS (function); ca; ca = CONTRACT_CHAIN (ca))
-    cp_parser_late_parsing_for_contract (parser, function, TREE_VALUE (ca));
-
-  /* Ensure all contracts on pending matches are also parsed.  */
-  hash_set<tree, true> **decls_ptr = pending_guarded_decls.get (function);
-  if (decls_ptr && *decls_ptr)
+  if (!DECL_CONSTRUCTOR_P (function) && !DECL_DESTRUCTOR_P (function))
     {
-      hash_set<tree, true> *decls = *decls_ptr;
-      for (hash_set<tree, true>::iterator it = decls->begin();
-	  it != decls->end();
-	  ++it)
-	{
-	  tree contracts = TREE_VALUE (*it);
-	  for (tree ca = contracts; ca; ca = CONTRACT_CHAIN (ca))
-	    cp_parser_late_parsing_for_contract (parser, function,
-						 TREE_VALUE (ca));
-	}
+      if (!DECL_PRE_FN (function))
+        build_pre_fn (function);
+      tree ret_type = NULL_TREE;
+      if (!undeduced_auto_decl (function) || DECL_TEMPLATE_INFO (function))
+        ret_type = TREE_TYPE (TREE_TYPE (function));
+      if (!DECL_POST_FN (function)) build_post_fn (function, ret_type);
     }
 
-  finish_scope ();
-  current_function_decl = NULL_TREE;
+  cp_parser_late_parsing_for_contracts_ (parser, function, contract_attrs, true);
 
-  if (pushed_scope)
-    pop_scope (pushed_scope);
-
-  if (processing_template_decl)
-    pop_deferring_access_checks ();
-
-  /* Remove any template parameters from the symbol table.  */
-  maybe_end_member_template_processing ();
+  /* Further defer parsing if we still have an undeduced return type.  */
+  if (DECL_POST_FN (function) || DECL_CONSTRUCTOR_P (function) || DECL_DESTRUCTOR_P (function))
+    cp_parser_late_parsing_for_contracts_ (parser, function, contract_attrs, false);
 
   /* Perform any required contract matching that was deferred earlier.  */
   match_deferred_contracts (function);

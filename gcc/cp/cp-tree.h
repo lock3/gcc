@@ -2845,6 +2845,8 @@ struct GTY(()) lang_decl_fn {
     struct cp_token_cache * GTY ((tag ("1"))) pending_inline_info;
     tree GTY ((tag ("0"))) saved_auto_return_type;
   } GTY ((desc ("%1.pending_inline_p"))) u;
+
+  tree contracts_original_fn; // FIXME move out of here
 };
 
 /* DECL_LANG_SPECIFIC for namespaces.  */
@@ -3207,6 +3209,9 @@ struct GTY(()) lang_decl {
 #define DECL_BEFRIENDING_CLASSES(NODE) \
   (LANG_DECL_FN_CHECK (NODE)->befriending_classes)
 
+#define DECL_ORIGINAL_FN(NODE) \
+  (LANG_DECL_FN_CHECK (NODE)->contracts_original_fn)
+
 /* Nonzero for FUNCTION_DECL means that this decl is a static
    member function.  */
 #define DECL_STATIC_FUNCTION_P(NODE) \
@@ -3544,6 +3549,12 @@ find_contract (tree attrs)
    capturing the result of the call to the unchecked function.  */
 #define DECL_UNCHECKED_RESULT(NODE) \
   (get_unchecked_result (NODE))
+
+#define DECL_PRE_FN(NODE) \
+  (get_pre_fn ((NODE)))
+
+#define DECL_POST_FN(NODE) \
+  (get_post_fn ((NODE)))
 
 /* True the FUNCTION_DECL NODE was initially declared without contracts.  */
 #define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
@@ -6652,7 +6663,6 @@ extern void note_iteration_stmt_body_end	(bool);
 extern void determine_local_discriminator	(tree);
 extern int decls_match				(tree, tree, bool = true);
 extern bool maybe_version_functions		(tree, tree, bool);
-extern bool merge_contracts			(tree, tree);
 extern tree duplicate_decls			(tree, tree, bool);
 extern tree declare_local_label			(tree);
 extern tree define_label			(location_t, tree);
@@ -6709,6 +6719,7 @@ extern tree begin_function_body			(void);
 extern void finish_function_body		(tree);
 extern tree outer_curly_brace_block		(tree);
 extern tree finish_function			(bool);
+extern void finish_function_contracts		(tree, bool = false);
 extern tree grokmethod				(cp_decl_specifier_seq *, const cp_declarator *, tree);
 extern void maybe_register_incomplete_var	(tree);
 extern void maybe_commonize_var			(tree);
@@ -7006,6 +7017,7 @@ extern location_t defparse_location (tree);
 extern void maybe_show_extern_c_location (void);
 extern bool literal_integer_zerop (const_tree);
 extern bool function_declarator_p (const cp_declarator *);
+extern const cp_declarator *find_innermost_function_declarator (const cp_declarator *);
 
 /* in pt.c */
 extern void push_access_scope			(tree);
@@ -7281,16 +7293,19 @@ extern void remove_contract_attributes		(tree);
 extern bool contract_active_p			(tree);
 extern bool contract_any_active_p		(tree);
 extern bool contract_any_deferred_p		(tree);
-extern tree build_checked_function_definition	(tree);
+extern tree build_pre_fn	(tree);
+extern tree build_post_fn	(tree, tree);
 extern tree start_postcondition_statement	();
 extern void finish_postcondition_statement	(tree);
-extern tree build_postcondition_variable	(tree, tree);
 extern tree start_contract			(location_t, tree, tree, tree);
 extern tree finish_contract			(tree, tree, tree);
 extern tree build_contract_check		(tree);
-extern void build_unchecked_result		(tree);
+extern vec<tree, va_gc> *build_arg_list (tree);
 extern tree get_unchecked_result		(tree);
-extern void set_unchecked_result		(tree, tree);
+extern tree get_pre_fn		(tree);
+extern tree get_post_fn		(tree);
+extern void set_pre_fn		(tree, tree);
+extern void set_post_fn		(tree, tree);
 
 extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);

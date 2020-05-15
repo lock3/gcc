@@ -546,7 +546,7 @@ end_maybe_infinite_loop (tree cond)
    FN's arguments to a function taking the same list of arguments -- namely
    the unchecked form of FN. */
 
-static vec<tree, va_gc> *
+vec<tree, va_gc> *
 build_arg_list (tree fn)
 {
   gcc_assert (TREE_CODE (fn) == FUNCTION_DECL);
@@ -590,29 +590,48 @@ remove_contract_attributes (tree fndecl)
 /* Map from FUNCTION_DECL to a VAR_DECL used to capture the result of the
    unchecked function inside the checked function.  This is also used to parse
    postcondition conditions that refer to the return value.  */
-static GTY(()) hash_map<tree, tree> *decl_unchecked_results;
+static GTY(()) hash_map<tree, tree> *decl_pre_fn;
+static GTY(()) hash_map<tree, tree> *decl_post_fn;
 
-/* Create, if it doesn't already exist, a VAR_DECL to hold the result of the
- * unchecked function call.  */
-
-void
-build_unchecked_result (tree checked)
+tree
+get_pre_fn (tree fndecl)
 {
-  /* Do not build until we have the deduced return type. */
-  if (undeduced_auto_decl (checked) && !DECL_TEMPLATE_INFO (checked))
+  if (!fndecl || fndecl == error_mark_node) return NULL_TREE;
+  hash_map_maybe_create<hm_ggc> (decl_pre_fn);
+  tree *result = decl_pre_fn->get (fndecl);
+  return result ? *result : NULL_TREE;
+}
+void
+set_pre_fn (tree fndecl, tree pre)
+{
+  if (!fndecl || fndecl == error_mark_node)
     return;
 
-  /* Build the named return value capturing the result of the unchecked call. */
-  tree type = TREE_TYPE (TREE_TYPE (checked));
-  if ((!VOID_TYPE_P (type) || is_auto (type))
-      && !DECL_UNCHECKED_RESULT (checked))
-    {
-      tree name = get_identifier ("__r");
-      tree var = build_lang_decl (VAR_DECL, name, type);
-      DECL_ARTIFICIAL (var) = 1;
-      set_unchecked_result (checked, var);
-    }
+  hash_map_maybe_create<hm_ggc> (decl_pre_fn)->remove (fndecl);
+  if (pre)
+    decl_pre_fn->put (fndecl, pre);
 }
+
+tree
+get_post_fn (tree fndecl)
+{
+  if (!fndecl || fndecl == error_mark_node) return NULL_TREE;
+  hash_map_maybe_create<hm_ggc> (decl_post_fn);
+  tree *result = decl_post_fn->get (fndecl);
+  return result ? *result : NULL_TREE;
+}
+void
+set_post_fn (tree fndecl, tree post)
+{
+  if (!fndecl || fndecl == error_mark_node)
+    return;
+
+  hash_map_maybe_create<hm_ggc> (decl_post_fn)->remove (fndecl);
+  if (post)
+    decl_post_fn->put (fndecl, post);
+}
+
+
 
 /* Lookup and return the unchecked result of the guarded FUNCTION_DECL FNDECL,
    or NULL_TREE if it doesn't (yet) exist.  */
@@ -621,36 +640,17 @@ tree
 get_unchecked_result (tree fndecl)
 {
   if (!fndecl || fndecl == error_mark_node) return NULL_TREE;
+  if (VOID_TYPE_P (TREE_TYPE (TREE_TYPE (fndecl))))
+    return NULL_TREE;
+  if (!DECL_POST_FN (fndecl) || DECL_POST_FN (fndecl) == error_mark_node)
+    return NULL_TREE;
+  for (tree arg = DECL_ARGUMENTS (DECL_POST_FN (fndecl));
+      arg;
+      arg = TREE_CHAIN (arg))
+    if (!TREE_CHAIN (arg))
+      return arg;
 
-  hash_map_maybe_create<hm_ggc> (decl_unchecked_results);
-  tree *result = decl_unchecked_results->get (fndecl);
-  return result ? *result : NULL_TREE;
-}
-
-/* Save the unchecked result of the guarded FUNCTION_DECL FNDECL.  */
-
-void
-set_unchecked_result (tree fndecl, tree result)
-{
-  if (!fndecl || fndecl == error_mark_node)
-    return;
-
-  hash_map_maybe_create<hm_ggc> (decl_unchecked_results)->remove (fndecl);
-  if (result)
-    decl_unchecked_results->put (fndecl, result);
-}
-
-/* Create a variable decl that holds the result of the unchecked function
-   call value.  */
-
-static tree
-build_unchecked_result_decl (tree call, tree checked)
-{
-  tree var = DECL_UNCHECKED_RESULT (checked);
-  DECL_INITIAL (var) = call;
-  pushdecl (var);
-  add_decl_expr (var);
-  return var;
+  return NULL_TREE;
 }
 
 /* Return a copy of the FUNCTION_DECL IDECL with its own unshared 
@@ -814,90 +814,6 @@ get_contracts_internal_ident (tree unqualified_name)
   return get_identifier (iident);
 }
 
-/* Returns a FUNCTION_DECL for the unchecked version of the guarded
-   function CHECKED_DECL.  */
-
-static tree
-build_unchecked_function_declaration (tree checked)
-{
-  /* Create and rename unchecked function and give an internal name.  */
-  tree unchecked = copy_fn_decl (checked);
-  DECL_NAME (unchecked) = get_contracts_internal_ident (DECL_NAME (unchecked));
-  DECL_INITIAL (unchecked) = error_mark_node;
-  remove_contract_attributes (unchecked);
-
-  IDENTIFIER_VIRTUAL_P (DECL_NAME (unchecked)) = false;
-  DECL_VIRTUAL_P (unchecked) = false;
-
-  if (!DECL_TEMPLATE_INFO (unchecked))
-    return unchecked;
-
-  /* Create new template decl for UNCHECKED and rename it properly.  */
-  // FIXME: Do we really want to do this? I would think the unchecked
-  // function is never a template.
-  unshare_template (unchecked);
-  tree tmpl = DECL_TI_TEMPLATE (unchecked);
-  DECL_NAME (tmpl) = get_contracts_internal_ident (DECL_NAME (tmpl));
-
-  return unchecked;
-}
-
-/* Start the body of a checked function definition.  Returns a pair
-   containing an outer statement list and the function body.  */
-
-static tree
-start_checked_function_definition ()
-{
-  /* We need to capture the body we're about to build in a stmt_list since
-     that's what finish_function expects the DECL_SAVED_TREE to be.  */
-  tree def = push_stmt_list ();
-  tree body = begin_compound_stmt (BCS_FN_BODY);
-  return build_tree_list (def, body);
-}
-
-/* Finish processing the body of a checked function definition.
-   DEF is a TREE_LIST who's value is the function body. RESULT is
-   either the "canonical" result value of the unchecked
-   call or NULL-tree (for void calls).  */
-
-static void
-finish_checked_function_definition (tree def, tree result)
-{
-  /* For non-void functions, return the canonical result value.  */
-  if (result)
-    finish_return_stmt (result);
-
-  finish_compound_stmt (TREE_VALUE (def));
-}
-
-/* Build the call to the unchecked FN with ARGS, possibly with a
-   variable to store the result. Return a variable declaration for
-   non-void functions, and NULL_TREE otherwise.  */
-
-static tree
-build_unchecked_call (tree fn, vec<tree, va_gc> *args, tree checked)
-{
-  /* Build call to the unchecked function.  */
-  /* FIXME we're marking the unchecked fn decl as not virtual, so why do we
-     need to disallow virtual when building the call? */
-  tree call = finish_call_expr (fn, &args,
-				/*disallow_virtual=*/true,
-				/*koenig_p=*/false,
-				/*complain=*/tf_warning_or_error);
-  if (call == error_mark_node)
-    return error_mark_node;
-
-  /* Return the variable capturing the function call.  */
-  tree type = TREE_TYPE (TREE_TYPE (fn));
-  if (!VOID_TYPE_P (type))
-    return build_unchecked_result_decl (call, checked);
-
-  /* Just add the call expression.  */
-  finish_expr_stmt (call);
-
-  return NULL_TREE;
-}
-
 /* Convert a contract CONFIG into a contract_mode.  */
 
 static contract_mode
@@ -958,46 +874,138 @@ compute_contract_concrete_semantic (tree contract)
   gcc_assert (false);
 }
 
-/* Builds the checked function definition, which calls out to the unchecked
-   version of the function.  Returns then unchecked function declaration.  */
-
-tree
-build_checked_function_definition (tree checked)
+static tree
+build_contract_functor_declaration (tree fndecl, bool pre, tree ret_type)
 {
-  /* Build the unchecked function declaration.  */
-  tree unchecked = build_unchecked_function_declaration (checked);
+  if (TREE_TYPE (fndecl) == error_mark_node)
+    return error_mark_node;
+  if (DECL_NONSTATIC_MEMBER_FUNCTION_P (fndecl)
+      && !TYPE_METHOD_BASETYPE (TREE_TYPE (fndecl)))
+    return error_mark_node;
 
-  /* Update various checked declaration properties.  */
-  DECL_DECLARED_INLINE_P (checked) = true;
-  DECL_DISREGARD_INLINE_LIMITS (checked) = true;
+  /* Create and rename unchecked function and give an internal name.  */
+  tree fn = copy_fn_decl (fndecl);
+  DECL_RESULT (fn) = NULL_TREE;
+  tree value_type = ret_type ? ret_type : TREE_TYPE (TREE_TYPE (fn));
 
-  /* FIXME We swap the DECL_RESULTs so that the later call to
-     remap_unchecked_body does not need to handle it directly. Can we avoid
-     remap_unchecked_body entirely? */
-  if (DECL_RESULT (checked))
+  // FIXME will this already have `this`?
+  tree arg_types = NULL_TREE;
+  tree *last = &arg_types;
+  /* FIXME will later optimizations delete unused args to prevent extra arg
+   * passing? */
+  tree class_type = NULL_TREE;
+  for (tree arg_type = TYPE_ARG_TYPES (TREE_TYPE (fn));
+      arg_type && arg_type != void_list_node;
+      arg_type = TREE_CHAIN (arg_type))
     {
-      tree tmp = DECL_RESULT (checked);
-      DECL_RESULT (checked) = DECL_RESULT (unchecked);
-      DECL_CONTEXT (DECL_RESULT (checked)) = checked;
-      DECL_RESULT (unchecked) = tmp;
-      DECL_CONTEXT (DECL_RESULT (unchecked)) = unchecked;
+      if (DECL_NONSTATIC_MEMBER_FUNCTION_P (fndecl)
+	  && TYPE_ARG_TYPES (TREE_TYPE (fn)) == arg_type)
+      {
+	class_type = TREE_TYPE (TREE_VALUE (arg_type));
+	continue;
+      }
+      *last = build_tree_list (TREE_PURPOSE (arg_type), TREE_VALUE (arg_type));
+      last = &TREE_CHAIN (*last);
     }
 
-  DECL_SAVED_TREE (unchecked) = remap_unchecked_body (checked, unchecked);
-  TREE_NO_WARNING (unchecked) = 1;
+  if (pre || VOID_TYPE_P (value_type))
+    *last = void_list_node;
+  else
+    {
+      /* FIXME do we need magic to perfectly forward this so we don't clobber
+	 RVO/NRVO etc?  */
+      tree name = get_identifier ("__r");
+      tree parm = build_lang_decl (PARM_DECL, name, value_type);
+      DECL_CONTEXT (parm) = fn;
+      chainon (DECL_ARGUMENTS (fn), parm);
 
-  /* Generate the definition.  */
-  tree def = start_checked_function_definition ();
-  emit_preconditions (DECL_CONTRACTS (checked));
-  vec<tree, va_gc> *args = build_arg_list (checked);
-  tree result = build_unchecked_call (unchecked, args, checked);
-  emit_postconditions (DECL_CONTRACTS (checked));
-  finish_checked_function_definition (def, result);
+      *last = build_tree_list (NULL_TREE, value_type);
+      TREE_CHAIN (*last) = void_list_node;
+    }
 
-  DECL_SAVED_TREE (checked) = TREE_PURPOSE (def);
+  if (pre) // make void
+    value_type = void_type_node;
+  TREE_TYPE (fn) = build_function_type (value_type, arg_types);
 
-  return unchecked;
+  if (DECL_NONSTATIC_MEMBER_FUNCTION_P (fndecl))
+    TREE_TYPE (fn) = build_method_type (class_type, TREE_TYPE (fn));
+
+  DECL_NAME (fn) = get_contracts_internal_ident (DECL_NAME (fn));
+  {
+    char buf[256] = {};
+    strcpy(buf, pre ? "__pre" : "__post");
+    strcat(buf, IDENTIFIER_POINTER (DECL_NAME (fn)) + 1);
+    DECL_NAME (fn) = get_identifier (buf);
+  }
+  DECL_INITIAL (fn) = error_mark_node;
+  remove_contract_attributes (fn);
+
+  IDENTIFIER_VIRTUAL_P (DECL_NAME (fn)) = false;
+  DECL_VIRTUAL_P (fn) = false;
+
+  if (!DECL_TEMPLATE_INFO (fn))
+    return fn;
+
+  /* Create new template decl for UNCHECKED and rename it properly.  */
+  // FIXME: Do we really want to do this? I would think the unchecked
+  // function is never a template.
+  unshare_template (fn);
+  tree tmpl = DECL_TI_TEMPLATE (fn);
+  DECL_NAME (tmpl) = DECL_NAME (fn);
+
+  return fn;
 }
+
+tree
+build_pre_fn (tree fndecl)
+{
+  if (DECL_PRE_FN (fndecl)) gcc_assert (false);
+  /* Build the unchecked function declaration.  */
+  tree pre = build_contract_functor_declaration (fndecl, true, void_type_node);
+  if (pre == error_mark_node) return pre;
+
+  /* Update various pre declaration properties.  */
+  DECL_DECLARED_INLINE_P (pre) = true;
+  DECL_DISREGARD_INLINE_LIMITS (pre) = true;
+  TREE_NO_WARNING (pre) = 1;
+
+  /* We parse contracts using this new function's args, so we don't need to
+     remap them later.
+
+     We build the actual definition after finishing the guarded function.  */
+
+  set_pre_fn (fndecl, pre);
+  return pre;
+}
+
+/* FIXME this can largely be merged with build_pre_fn */
+tree
+build_post_fn (tree fndecl, tree ret_type)
+{
+  /* Do not build until we have the deduced return type. */
+  if (undeduced_auto_decl (fndecl) && !DECL_TEMPLATE_INFO (fndecl)
+      && ret_type == NULL_TREE)
+    return NULL_TREE;
+
+  /* Build the unchecked function declaration.  */
+  tree post = build_contract_functor_declaration (fndecl, false,
+      ret_type ? ret_type : TREE_TYPE (TREE_TYPE (fndecl)));
+  if (post == error_mark_node) return post;
+
+  /* Update various post declaration properties.  */
+  DECL_DECLARED_INLINE_P (post) = true;
+  DECL_DISREGARD_INLINE_LIMITS (post) = true;
+  TREE_NO_WARNING (post) = 1;
+
+  /* We parse contracts using this new function's args, so we don't need to
+     remap them later.
+
+     We build the actual definition after finishing the guarded function.  */
+
+  set_post_fn (fndecl, post);
+  return post;
+}
+
 
 /* Begin a new scope for the postcondition.  */
 
@@ -1016,58 +1024,6 @@ finish_postcondition_statement (tree stmt)
 {
   finish_compound_stmt (TREE_VALUE (stmt));
   pop_stmt_list (TREE_PURPOSE (stmt));
-}
-
-/* Declare a variable for the postcondition.  The variable is
-   initialized to the result of the unchecked call.  */
-
-tree
-build_postcondition_variable (tree result, tree contract)
-{
-  if (!POSTCONDITION_IDENTIFIER (contract))
-    return NULL_TREE;
-  tree name = STRIP_ANY_LOCATION_WRAPPER (POSTCONDITION_IDENTIFIER (contract));
-  if (!name)
-    return NULL_TREE;
-  DECL_NAME (result) = name;
-  pushdecl (result);
-  return result;
-}
-
-static void
-build_contract_handler_fn (const char *level,
-			   const char *role,
-			   tree comment,
-			   contract_continuation cmode,
-			   location_t location)
-{
-  expanded_location loc = expand_location (location);
-
-  /* FIXME: It looks  like we have two bits of information for
-     continuing.  Is this right?  */
-  tree continue_mode = build_int_cst (boolean_type_node, cmode != NEVER_CONTINUE);
-  tree line_number = build_int_cst (integer_type_node, loc.line);
-  tree file_name = build_string_literal (strlen (loc.file) + 1, loc.file);
-  const char *function_name_str = current_function_name();
-  tree function_name = build_string_literal (strlen (function_name_str) + 1,
-					     function_name_str);
-  tree level_str = build_string_literal (strlen (level) + 1, level);
-  tree role_str = build_string_literal (strlen (role) + 1, role);
-
-  /* FIXME: Do we want a string for this?.  */
-  tree continuation = build_int_cst (integer_type_node, cmode);
-
-  tree violation_fn;
-  if (cmode == MAYBE_CONTINUE)
-    violation_fn = on_contract_violation_fn;
-  else
-    violation_fn = on_contract_violation_never_fn;
-  tree call = build_call_expr (violation_fn, 8, continue_mode, line_number,
-			       file_name, function_name, comment,
-			       level_str, role_str,
-			       continuation);
-
-  finish_expr_stmt (call);
 }
 
 static const char *
@@ -1090,6 +1046,48 @@ get_contract_role_name (tree contract)
     if (tree role = TREE_PURPOSE (mode))
       return IDENTIFIER_POINTER (role);
   return "default";
+}
+
+static void
+build_contract_handler_fn (tree contract,
+			   contract_continuation cmode)
+{
+  const char *level = get_contract_level_name (contract);
+  const char *role = get_contract_role_name (contract);
+  tree comment = CONTRACT_COMMENT (contract);
+
+  expanded_location loc = expand_location (EXPR_LOCATION (contract));
+
+  /* FIXME: It looks  like we have two bits of information for
+     continuing.  Is this right?  */
+  tree continue_mode = build_int_cst (boolean_type_node, cmode != NEVER_CONTINUE);
+  tree line_number = build_int_cst (integer_type_node, loc.line);
+  tree file_name = build_string_literal (strlen (loc.file) + 1, loc.file);
+  const char *function_name_str =
+    TREE_CODE (contract) == ASSERTION_STMT
+      || DECL_CONSTRUCTOR_P (current_function_decl)
+      || DECL_DESTRUCTOR_P (current_function_decl)
+    ? current_function_name ()
+    : fndecl_name (DECL_ORIGINAL_FN (current_function_decl));
+  tree function_name = build_string_literal (strlen (function_name_str) + 1,
+					     function_name_str);
+  tree level_str = build_string_literal (strlen (level) + 1, level);
+  tree role_str = build_string_literal (strlen (role) + 1, role);
+
+  /* FIXME: Do we want a string for this?.  */
+  tree continuation = build_int_cst (integer_type_node, cmode);
+
+  tree violation_fn;
+  if (cmode == MAYBE_CONTINUE)
+    violation_fn = on_contract_violation_fn;
+  else
+    violation_fn = on_contract_violation_never_fn;
+  tree call = build_call_expr (violation_fn, 8, continue_mode, line_number,
+			       file_name, function_name, comment,
+			       level_str, role_str,
+			       continuation);
+
+  finish_expr_stmt (call);
 }
 
 /* Return true if CONTRACT is checked or assumed under the current build
@@ -1163,10 +1161,6 @@ build_contract_check (tree contract)
     }
   else
     {
-      const char *level_name = get_contract_level_name (contract);
-      const char *role_name = get_contract_role_name (contract);
-      tree comment = CONTRACT_COMMENT (contract);
-
       /* Get the continuation mode.  */
       contract_continuation cmode;
       switch (semantic)
@@ -1176,8 +1170,7 @@ build_contract_check (tree contract)
 	  default: gcc_unreachable ();
 	}
 
-      build_contract_handler_fn (level_name, role_name, comment, cmode,
-				 EXPR_LOCATION (contract));
+      build_contract_handler_fn (contract, cmode);
     }
 
   finish_then_clause (if_stmt);
@@ -1702,6 +1695,30 @@ finish_return_stmt (tree expr)
 {
   tree r;
   bool no_warning;
+
+  /* If we're in a function that needs a call to its contract's post function,
+     ensure the post function exists and replace the returned expression with
+     said call.  */
+  bool needs_post = !processing_template_decl
+      && !DECL_CONSTRUCTOR_P (current_function_decl)
+      && !DECL_DESTRUCTOR_P (current_function_decl)
+      && contract_any_active_p (DECL_CONTRACTS (current_function_decl));
+  if (needs_post && !DECL_POST_FN (current_function_decl))
+    build_post_fn (current_function_decl, TREE_TYPE (expr));
+  if (needs_post && DECL_POST_FN (current_function_decl) != error_mark_node)
+    {
+      vec<tree, va_gc> *args = build_arg_list (current_function_decl);
+      vec_safe_push (args, expr); // FIXME do we need forward_parm or similar?
+
+      tree call = finish_call_expr (DECL_POST_FN (current_function_decl), &args,
+				    /*disallow_virtual=*/true,
+				    /*koenig_p=*/false,
+				    /*complain=*/tf_warning_or_error);
+      gcc_assert (call != error_mark_node);
+
+      /* Replace returned expression with call to post function.  */
+      expr = call;
+    }
 
   expr = check_return_expr (expr, &no_warning);
 

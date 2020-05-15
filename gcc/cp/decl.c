@@ -1067,6 +1067,7 @@ match_contracts (tree olddecl, location_t newloc, tree new_attrs)
 void
 merge_contracts (tree decl, const cp_declarator *fn)
 {
+  if (!fn) return;
   if (decl == error_mark_node || !DECL_LANG_SPECIFIC (decl)
       || TREE_CODE (decl) != FUNCTION_DECL)
     return;
@@ -1082,7 +1083,11 @@ merge_contracts (tree decl, const cp_declarator *fn)
 	orig = DECL_TEMPLATE_RESULT (orig);
       if (DECL_TEMPLATE_INFO (decl)
 	  && DECL_USE_TEMPLATE (decl) && !DECL_USE_TEMPLATE (orig))
+      {
 	remove_contract_attributes (decl);
+	set_pre_fn (decl, NULL_TREE);
+	set_post_fn (decl, NULL_TREE);
+      }
     }
 
   if (!fn->contracts)
@@ -1092,6 +1097,9 @@ merge_contracts (tree decl, const cp_declarator *fn)
       DECL_SEEN_WITHOUT_CONTRACTS_P (decl) = true;
       return;
     }
+
+  if (fn->contracts == DECL_CONTRACTS (decl))
+    return; //gcc_assert (false); //return;
 
   bool any_uses_return = false;
   for (tree ca = fn->contracts; ca; ca = TREE_CHAIN (ca))
@@ -1108,7 +1116,7 @@ merge_contracts (tree decl, const cp_declarator *fn)
     }
 
   /* If there are attributes to merge, make sure they can be merged.  */
-  if (!contract_any_deferred_p (fn->contracts)
+  if ((!contract_any_deferred_p (fn->contracts) || !DECL_CONTRACTS (decl))
       && !match_contracts (decl, fn->id_loc, fn->contracts))
     {
       /* If the contracts do not match, we've already emitted an error.
@@ -1181,6 +1189,8 @@ match_deferred_contracts (tree decl)
     {
       tree base = TREE_PURPOSE (*it);
       tree contracts = TREE_VALUE (*it);
+      if (contracts == old_contracts)
+        continue; // FIXME we shouldn't queue these to begin with
       if (base)
 	match_contract_conditions (CONTRACT_SOURCE_LOCATION (contracts),
 				   contracts,
@@ -1670,17 +1680,6 @@ merge_attribute_bits (tree newdecl, tree olddecl)
 #define GNU_INLINE_P(fn) (DECL_DECLARED_INLINE_P (fn)			\
 			  && lookup_attribute ("gnu_inline",		\
 					       DECL_ATTRIBUTES (fn)))
-
-/* Replace references to FROM's PARM_DECLs with their equivalent parm in TO's
-   PARM_DECLs inside all already parsed contracts of DECL.  */
-
-static void
-remap_decl_contracts (tree decl, tree from, tree to)
-{
-  for (tree c = DECL_CONTRACTS (decl); c; c = CONTRACT_CHAIN (c))
-    if (!CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (c)))
-      remap_contract (from, to, TREE_VALUE (c));
-}
 
 /* A subroutine of duplicate_decls. Emits a diagnostic when newdecl
    ambiguates olddecl.  Returns true if an error occurs.  */
@@ -2349,9 +2348,12 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 
       /* Ensure contracts, if any, are present on the newdecl so they're saved
 	 when olddecl is overwritten later.  */
-      set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
+      if (DECL_CONTRACTS (olddecl))
+	set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
+      set_pre_fn (newdecl, DECL_PRE_FN (olddecl));
+      set_post_fn (newdecl, DECL_POST_FN (olddecl));
 
       /* Optionally warn about more than one declaration for the same
 	 name, but don't warn about a function declaration followed by a
@@ -2435,6 +2437,10 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	 specializations.  */
       gcc_assert (!DECL_TEMPLATE_SPECIALIZATIONS (newdecl));
 
+      //tree new_contracts = DECL_CONTRACTS (new_result);
+      /* Remove contracts from new_result so they aren't appended to
+         old_result by the merge function.  */
+      remove_contract_attributes (new_result);
       DECL_ATTRIBUTES (old_result)
 	= (*targetm.merge_decl_attributes) (old_result, new_result);
 
@@ -2497,8 +2503,6 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	  DECL_INITIAL (old_result) = DECL_INITIAL (new_result);
 	  if (DECL_FUNCTION_TEMPLATE_P (newdecl))
 	    {
-	      remap_decl_contracts (old_result, old_result, new_result);
-
 	      tree parm;
 	      DECL_ARGUMENTS (old_result)
 		= DECL_ARGUMENTS (new_result);
@@ -2906,9 +2910,6 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
       /* Preserve abstractness on cloned [cd]tors.  */
       DECL_ABSTRACT_P (newdecl) = DECL_ABSTRACT_P (olddecl);
 
-      if (! types_match || new_defines_function)
-	remap_decl_contracts (olddecl, olddecl, newdecl);
-
       /* Update newdecl's parms to point at olddecl.  */
       for (parm = DECL_ARGUMENTS (newdecl); parm;
 	   parm = DECL_CHAIN (parm))
@@ -3232,8 +3233,9 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
   /* Remove the associated contracts and unchecked result, if any.  */
   if (flag_contracts && TREE_CODE (newdecl) == FUNCTION_DECL)
     {
-      set_decl_contracts (newdecl, NULL_TREE);
-      set_unchecked_result (newdecl, NULL_TREE);
+      remove_contract_attributes (newdecl);
+      set_pre_fn (newdecl, NULL_TREE);
+      set_post_fn (newdecl, NULL_TREE);
     }
 
   ggc_free (newdecl);
@@ -16799,6 +16801,30 @@ start_preparsed_function (tree decl1, tree attrs, int flags)
 
   push_operator_bindings ();
 
+  bool starting_guarded_p = !processing_template_decl
+      && contract_any_active_p (DECL_CONTRACTS (decl1))
+      && !DECL_CONSTRUCTOR_P (decl1)
+      && !DECL_DESTRUCTOR_P (decl1);
+  if (starting_guarded_p && !DECL_PRE_FN (decl1))
+    build_pre_fn (decl1);
+
+  /* If we're starting a guarded function with valid contracts, we need to
+     insert a call to the pre function.  */
+  if (!processing_template_decl && DECL_PRE_FN (decl1)
+      && DECL_PRE_FN (decl1) != error_mark_node)
+    {
+      vec<tree, va_gc> *args = build_arg_list (decl1);
+
+      tree call = finish_call_expr (DECL_PRE_FN (decl1), &args,
+				    /*disallow_virtual=*/true,
+				    /*koenig_p=*/false,
+				    /*complain=*/tf_warning_or_error);
+      gcc_assert (call != error_mark_node);
+
+      /* Just add the call expression.  */
+      finish_expr_stmt (call);
+    }
+
   if (!processing_template_decl
       && (flag_lifetime_dse > 1)
       && DECL_CONSTRUCTOR_P (decl1)
@@ -16849,6 +16875,13 @@ start_function (cp_decl_specifier_seq *declspecs,
        (and issued a diagnostic) if the user got it wrong.  */
     gcc_assert (same_type_p (TREE_TYPE (TREE_TYPE (decl1)),
 			     integer_type_node));
+
+  if (flag_contracts)
+    {
+      const cp_declarator *fndecl
+	= find_innermost_function_declarator (declarator);
+      merge_contracts (decl1, fndecl);
+    }
 
   return start_preparsed_function (decl1, attrs, /*flags=*/SF_DEFAULT);
 }
@@ -17304,17 +17337,18 @@ finish_function (bool inline_p)
 			      current_eh_spec_block);
     }
 
-  gcc_checking_assert (!pending_guarded_decls.get (fndecl));
+  //gcc_checking_assert (!pending_guarded_decls.get (fndecl));
   bool finishing_guarded_p = !processing_template_decl
     && contract_any_active_p (DECL_CONTRACTS (fndecl))
     && !DECL_CONSTRUCTOR_P (fndecl)
     && !DECL_DESTRUCTOR_P (fndecl);
-  tree unchecked = NULL_TREE;
   if (finishing_guarded_p)
     {
-      /* Prep the body that will be moved to unchecked.  */
-      DECL_SAVED_TREE (fndecl) = pop_stmt_list (DECL_SAVED_TREE (fndecl));
-      unchecked = build_checked_function_definition (fndecl);
+      /* Save our function name for diagnostics generated by our contracts.  */
+      if (DECL_PRE_FN (fndecl) && DECL_PRE_FN (fndecl) != error_mark_node)
+	DECL_ORIGINAL_FN (DECL_PRE_FN (fndecl)) = fndecl;
+      if (DECL_POST_FN (fndecl) && DECL_POST_FN (fndecl) != error_mark_node)
+	DECL_ORIGINAL_FN (DECL_POST_FN (fndecl)) = fndecl;
     }
 
   /* If we're saving up tree structure, tie off the function now.  */
@@ -17577,19 +17611,58 @@ finish_function (bool inline_p)
 
   invoke_plugin_callbacks (PLUGIN_FINISH_PARSE_FUNCTION, fndecl);
 
-  /* Finish unchecked version if we're finishing a guarded function.  */
-  if (finishing_guarded_p && unchecked)
-    {
-      tree saved_body = DECL_SAVED_TREE (unchecked);
-      start_preparsed_function (unchecked, DECL_ATTRIBUTES (unchecked),
-				SF_DEFAULT | SF_PRE_PARSED);
-      add_stmt (saved_body);
-      unchecked = finish_function (false);
-      expand_or_defer_fn (unchecked);
-    }
+  // FIXME finish_function_contracts here?
 
   return fndecl;
 }
+
+void
+finish_function_contracts (tree fndecl, bool is_inline)
+{
+  //gcc_checking_assert (!pending_guarded_decls.get (fndecl));
+  bool finishing_guarded_p = true//!processing_template_decl
+    && contract_any_active_p (DECL_CONTRACTS (fndecl))
+    && !DECL_CONSTRUCTOR_P (fndecl)
+    && !DECL_DESTRUCTOR_P (fndecl);
+  if (!finishing_guarded_p)
+    return;
+  for (tree ca = DECL_CONTRACTS (fndecl); ca; ca = CONTRACT_CHAIN (ca))
+    if (!CONTRACT_CONDITION (TREE_VALUE (ca))
+	|| CONTRACT_CONDITION (TREE_VALUE (ca)) == error_mark_node)
+      return;
+
+  int flags = SF_DEFAULT | SF_PRE_PARSED;
+  if (is_inline)
+    flags = SF_PRE_PARSED | SF_INCLASS_INLINE;
+
+  if (DECL_PRE_FN (fndecl) && DECL_INITIAL (fndecl) != error_mark_node
+      && DECL_PRE_FN (fndecl) != error_mark_node)
+    {
+      DECL_PENDING_INLINE_P (DECL_PRE_FN (fndecl)) = false;
+      start_preparsed_function (DECL_PRE_FN (fndecl),
+				DECL_ATTRIBUTES (DECL_PRE_FN (fndecl)),
+				flags);
+      emit_preconditions (DECL_CONTRACTS (fndecl));
+      set_pre_fn (fndecl, finish_function (false));
+      expand_or_defer_fn (DECL_PRE_FN (fndecl));
+    }
+  if (DECL_POST_FN (fndecl) && DECL_INITIAL (fndecl) != error_mark_node
+      && DECL_POST_FN (fndecl) != error_mark_node)
+    {
+      DECL_PENDING_INLINE_P (DECL_POST_FN (fndecl)) = false;
+      start_preparsed_function (DECL_POST_FN (fndecl),
+				DECL_ATTRIBUTES (DECL_POST_FN (fndecl)),
+				flags);
+      emit_postconditions (DECL_CONTRACTS (fndecl));
+
+      tree res = DECL_UNCHECKED_RESULT (fndecl);
+      if (res)
+	finish_return_stmt (res);
+      set_post_fn (fndecl, finish_function (false));
+      expand_or_defer_fn (DECL_POST_FN (fndecl));
+    }
+}
+
 
 /* Create the FUNCTION_DECL for a function definition.
    DECLSPECS and DECLARATOR are the parts of the declaration;
