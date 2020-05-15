@@ -8809,6 +8809,8 @@ push_namespace (tree name, bool make_inline)
 	{
 	  /* finish up making the namespace.  */
 	  add_decl_to_level (NAMESPACE_LEVEL (current_namespace), ns);
+	  /* pushdecl may invalidate slot, find name again.  */
+	  slot = find_namespace_slot (current_namespace, name, true);
 	  make_namespace_finish (ns, slot);
 
 	  /* Add the anon using-directive here, we don't do it in
