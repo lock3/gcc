@@ -15280,7 +15280,12 @@ cp_parser_conversion_declarator_opt (cp_parser* parser)
   return NULL;
 }
 
+/* Nonzero if parsing the operand of a contract.  */
+
 int cp_contract_operand = 0;
+
+/* The stored return value of a postcondition.  */
+
 tree cp_contract_return_value = NULL_TREE;
 
 /* Manage translation semantics around the parsing of the condition of
@@ -30575,7 +30580,9 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function,
   cp_parser_late_parsing_for_contracts_ (parser, function, contract_attrs, true);
 
   /* Further defer parsing if we still have an undeduced return type.  */
-  if (DECL_POST_FN (function) || DECL_CONSTRUCTOR_P (function) || DECL_DESTRUCTOR_P (function))
+  if (DECL_POST_FN (function)
+      || DECL_CONSTRUCTOR_P (function)
+      || DECL_DESTRUCTOR_P (function))
     cp_parser_late_parsing_for_contracts_ (parser, function, contract_attrs, false);
 
   /* Perform any required contract matching that was deferred earlier.  */

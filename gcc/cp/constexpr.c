@@ -35,6 +35,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "timevar.h"
 #include "fold-const-call.h"
 #include "stor-layout.h"
+#include "print-tree.h"
 
 static bool verify_constant (tree, bool, bool *, bool *);
 #define VERIFY_CONSTANT(X)						\
@@ -8378,6 +8379,210 @@ is_nondependent_static_init_expression (tree t)
 	  && is_static_init_expression (t)
 	  && !instantiation_dependent_expression_p (t));
 }
+
+/* Check if the contract is always true or always false. This is used for
+   assertions and preconditions on nullary functions (i.e., the precondition
+   can only refer to non-local state).
+
+   For preconditions FN is the function to which the contract belongs.  */
+
+static void
+checK_constant_contract (tree contract, tree fn)
+{
+  tree condition = CONTRACT_CONDITION (contract);
+  if (type_dependent_expression_p (condition))
+    return;
+
+  /* Evaluate the condition.  */
+  tree value = maybe_constant_value (condition);
+
+  /* The contract cannot be evaluated at compile-time.  */
+  if (!TREE_CONSTANT (value))
+    return;
+
+  const char* kind = fn ? "precondition" : "assertion";
+  location_t loc = cp_expr_loc_or_input_loc (condition);
+
+  /* The contract is always false.  */
+  if (value == boolean_false_node)
+    {
+      /* FIXME: Control diagnostics with -Wcontract-always-false. */
+      warning_at (loc, 0, "%s is always %<false%>", kind);
+
+      /* Check for the special case of '[[asert: false]]' and issue a fixit
+	 suggesting the something else for unreachable code.  */
+      tree stripped = tree_strip_any_location_wrapper (condition);
+      if (!fn && cp_tree_equal (stripped, boolean_false_node))
+	inform (loc, "use %<[[unreachable]]%> to indicate unreachable code");
+
+      /* FIXME: Mark the contract for immediate termination?  */
+      return;
+    }
+  else if (value == boolean_true_node)
+    {
+      /* FIXME: Control diagnotics with -Wcontract-always-true. */
+      warning_at (loc, 0, "%s is always %<true%>", kind);
+
+      /* FIXME: Mark the contract for ellision.  */
+      return;
+    }
+}
+
+void
+check_constant_assertion (tree contract)
+{
+  return checK_constant_contract (contract, NULL_TREE);
+}
+
+static tree substitute_values (tree, tree, int);
+
+static tree
+substitute_expression (tree t, tree args, int depth)
+{
+  /* TODO: This probably needs to be specialized for different expressions.  */
+  const int size = TREE_OPERAND_LENGTH (t);
+  tree operands = make_tree_vec (size);
+  for (int i = 0; i < size; ++i)
+    {
+      tree subst = substitute_values (TREE_OPERAND (t, i), args, depth);
+      if (subst == error_mark_node)
+	return error_mark_node;
+      TREE_VEC_ELT (operands, i) = subst;
+
+      /* If the substition differs, then we're going to need to clone the
+	 node. Otherwise, we just return the original expression.  */
+      if (subst != TREE_OPERAND (t, i))
+	TREE_SIDE_EFFECTS (operands) = true;
+    }
+
+  /* If we didn't modify any subexpressions, don't rewrite the expression.  */
+  if (!TREE_SIDE_EFFECTS (operands))
+    return t;
+
+  /* Rebuild the expression.  */
+  tree result = copy_node (t);
+  for (int i = 0; i < size; ++i)
+    TREE_OPERAND (result, i) = TREE_VEC_ELT (operands, i);
+  return result;
+}
+
+static tree
+substitute_values (tree t, tree args, int depth)
+{
+  /* Propagate errors.  */
+  if (!t)
+    return NULL_TREE;
+  if (t == error_mark_node)
+    return error_mark_node;
+
+  /* Replace references to parameters with their corresponding values. */
+  if (TREE_CODE (t) == PARM_DECL)
+    {
+      if (DECL_PARM_LEVEL (t) == depth)
+        return TREE_VEC_ELT (args, DECL_PARM_INDEX (t) - 1);
+    }
+
+  /* Don't rewrite references to other declarations.  */
+  if (DECL_P (t))
+    return t;
+
+  /* Don't substitute constants.  */
+  if (CONSTANT_CLASS_P (t))
+    return t;
+
+  /* Rewrite expressions.  */
+  if (EXPR_P (t))
+    return substitute_expression (t, args, depth);
+
+  /* If we don't have substitutin rules, return an error indicating that we
+     won't evaluate the result.  */
+  return error_mark_node;
+}
+
+static void
+check_constant_precondition (tree fn, tree contract, tree call)
+{
+  gcc_assert (list_length (DECL_ARGUMENTS (fn)) == call_expr_nargs (call));
+
+  const int nargs = call_expr_nargs (call);
+
+  /* Contracts on nullary functions are checked against non-local state.  */
+  if (nargs == 0)
+    return checK_constant_contract (contract, fn);
+
+  /* Try evaluating the arguments of each call.  If the argument is not
+     constant, save the value as ERROR_MARK_NODE indicating that the
+     argument cannot be used to evaluate a precondition as a constant
+     expression.  */
+  tree args = make_tree_vec (nargs);
+  for (int i = 0; i < nargs; ++i)
+    {
+      tree arg = CALL_EXPR_ARG (call, i);
+      if (type_dependent_expression_p (arg))
+        return;
+      tree value = maybe_constant_value (arg);
+      if (!TREE_CONSTANT (value))
+      	value = error_mark_node;
+      TREE_VEC_ELT (args, i) = value;
+    }
+
+  int depth = DECL_PARM_LEVEL (DECL_ARGUMENTS (fn));
+
+  /* Rewrite the condition, substituting computed arguments. */
+  tree condition = CONTRACT_CONDITION(contract);
+  tree result = substitute_values (condition, args, depth);
+  if (result == error_mark_node)
+    return;
+
+  /* Try computing a constant value.  */
+  tree value = maybe_constant_value (result);
+
+  /* The contract cannot be computed at compile time.  */
+  if (!TREE_CONSTANT (value))
+    return;
+
+  location_t loc = cp_expr_loc_or_input_loc (call);
+
+  if (value == boolean_false_node)
+    {
+      /* FIXME: Option flags.  */
+      /* TODO: If we multiple contract violations, it might be useful to
+         aggregate those and diagnose them in one shot rather than emit
+         multiple diagnostics.  */
+      warning_at (loc, 0, 
+		  "precondition %qE is never satisfied here", condition);
+      /* TODO: Mark CALL for immediate termination?  */
+    }
+  else if (value == boolean_true_node)
+    {
+      /* Diagnosing always-true preconditions is not useful. These tend to
+         arise pretty commonly for any non-trivial constant initialization.
+         It would be unfortunate to diagnose valid uses of functions with
+         constant value just because the preconditions happen to always be
+         satisfied.  */
+      /* TODO: Mark the CALL for ellision.  */
+    }
+}
+
+void
+check_constant_preconditions (tree call)
+{
+  /* Dig out the function being called. Note that this folds the expression
+     so we can see through trivially indirect calls.  */
+  tree fn = cp_get_callee_fndecl (call);
+  if (!fn)
+    return;
+
+  if (tree attribute = DECL_CONTRACTS (fn))
+    {
+      do
+	{
+	  check_constant_precondition (fn, TREE_VALUE (attribute), call);
+	  attribute = CONTRACT_CHAIN (attribute);
+	} while (attribute);
+    }
+}
+
 
 /* Finalize constexpr processing after parsing.  */
 

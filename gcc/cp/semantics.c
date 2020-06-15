@@ -45,6 +45,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gomp-constants.h"
 #include "predict.h"
 #include "memmodel.h"
+#include "print-tree.h"
 #include "c-family/cxx-contracts.h"
 
 /* There routines provide a modular interface to perform many parsing
@@ -970,7 +971,7 @@ build_pre_fn (tree fndecl)
   TREE_NO_WARNING (pre) = 1;
 
   /* We parse contracts using this new function's args, so we don't need to
-     remap them later.
+     remap them if the function is re-declared later on.
 
      We build the actual definition after finishing the guarded function.  */
 
@@ -1260,11 +1261,14 @@ start_contract (location_t loc,
   /* Build the contract. The condition is added later.  */
   tree contract;
   if (code != POSTCONDITION_STMT)
-    contract = build3_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE);
+    contract =
+      build3_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE);
   else
-    contract = build4_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE, id);
+    contract =
+      build4_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE, id);
 
-  set_contract_semantic (contract, compute_contract_concrete_semantic (contract));
+  set_contract_semantic (contract,
+			 compute_contract_concrete_semantic (contract));
   return contract;
 }
 
@@ -1281,6 +1285,11 @@ finish_contract (tree contract, tree condition, tree comment)
 
   if (comment)
     CONTRACT_COMMENT (contract) = comment;
+
+  /* Eagerly evaluate contracts at compile-time, if possible.  */
+  if (TREE_CODE (contract) == ASSERTION_STMT)
+    check_constant_assertion (contract);
+
   return contract;
 }
 
@@ -3481,6 +3490,9 @@ finish_call_expr (tree fn, vec<tree, va_gc> **args, bool disallow_virtual,
       release_tree_vector (orig_args);
       result = convert_from_reference (result);
     }
+
+  /* Try checking preconditios of of the function at compile-time.  */
+  check_constant_preconditions (result);
 
   return result;
 }
