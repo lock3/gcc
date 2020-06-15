@@ -15361,7 +15361,12 @@ cp_parser_conversion_declarator_opt (cp_parser* parser)
   return NULL;
 }
 
+/* Nonzero if parsing the operand of a contract.  */
+
 int cp_contract_operand = 0;
+
+/* The stored return value of a postcondition.  */
+
 tree cp_contract_return_value = NULL_TREE;
 
 /* Manage translation semantics around the parsing of the condition of

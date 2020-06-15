@@ -8161,6 +8161,8 @@ extern vec<tree> cx_error_context               (void);
 extern tree fold_sizeof_expr			(tree);
 extern void clear_cv_and_fold_caches		(bool = true);
 extern tree unshare_constructor			(tree CXX_MEM_STAT_INFO);
+extern void check_constant_preconditions	(tree);
+extern void check_constant_assertion		(tree);
 
 /* An RAII sentinel used to restrict constexpr evaluation so that it
    doesn't do anything that causes extra DECL_UID generation.  */
