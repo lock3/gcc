@@ -31,6 +31,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "ssa.h"
 #include "cgraph.h"
 #include "tree-pretty-print.h"
+#include "cp/cp-tree.h"
 #include "diagnostic-core.h"
 #include "gimple-predict.h"
 #include "fold-const.h"
@@ -6588,3 +6589,118 @@ copy_fn (tree fn, tree& parms, tree& result)
 
   return copy_tree_body (&id);
 }
+
+/* Replace any references in CONTRACT's CONDITION to SRC's parameters with
+   references to DST's parameters.
+
+   This is useful when the DECL_PARMs used to parse a contract aren't the
+   final parms used for the function definition.  For example when an initial
+   declaration has contracts listed but the definition does not.
+
+   This is also used to reuse a parent type's contracts on virtual methods.  */
+
+void
+remap_contract (tree src, tree dst, tree contract)
+{
+  copy_body_data id;
+  hash_map<tree, tree> decl_map;
+
+  memset (&id, 0, sizeof (id));
+  id.src_fn = src;
+  id.dst_fn = dst;
+  id.src_cfun = DECL_STRUCT_FUNCTION (src);
+  id.decl_map = &decl_map;
+
+  id.copy_decl = copy_decl_no_change;
+  id.transform_call_graph_edges = CB_CGE_DUPLICATE;
+  id.transform_new_cfg = false;
+  id.transform_return_to_modify = false;
+  id.transform_parameter = true;
+  id.transform_lang_insert_block = NULL;
+
+  /* Make sure not to unshare trees behind the front-end's back
+     since front-end specific mechanisms may rely on sharing.  */
+  id.regimplify = false;
+  id.do_not_unshare = true;
+  id.do_not_fold = true;
+
+  /* We're not inside any EH region.  */
+  id.eh_lp_nr = 0;
+
+  bool do_remap = false;
+
+  /* Insert paramater remappings.  */
+  if (TREE_CODE (src) == FUNCTION_DECL) src = DECL_ARGUMENTS (src);
+  if (TREE_CODE (dst) == FUNCTION_DECL) dst = DECL_ARGUMENTS (dst);
+
+  for (tree sp = src, dp = dst; sp || dp;
+      sp = DECL_CHAIN (sp), dp = DECL_CHAIN (dp))
+    {
+      gcc_assert (sp && dp);
+
+      if (sp == dp) continue;
+      insert_decl_map (&id, sp, dp);
+      do_remap = true;
+    }
+  if (!do_remap)
+    return;
+
+  walk_tree (&CONTRACT_CONDITION (contract), copy_tree_body_r, &id, NULL);
+}
+
+/* Like copy_fn; rebuild UNCHECKED's DECL_SAVED_TREE to have its own locals
+   and point to its own DECL_ARGUMENTS and DECL_RESULT instead of pointing at
+   CHECKED's.
+
+   Unlike copy_fn, UNCHECKED (the target) does not need to be
+   current_function_decl.  */
+
+tree
+remap_unchecked_body (tree checked, tree unchecked)
+{
+  copy_body_data id;
+  tree param;
+  hash_map<tree, tree> decl_map;
+
+  tree *p = &DECL_ARGUMENTS (unchecked);
+  *p = NULL_TREE;
+
+  memset (&id, 0, sizeof (id));
+  id.src_fn = checked;
+  id.dst_fn = unchecked;
+  id.src_cfun = DECL_STRUCT_FUNCTION (checked);
+  id.decl_map = &decl_map;
+
+  id.copy_decl = copy_decl_no_change;
+  id.transform_call_graph_edges = CB_CGE_DUPLICATE;
+  id.transform_new_cfg = false;
+  id.transform_return_to_modify = false;
+  id.transform_parameter = true;
+  id.transform_lang_insert_block = NULL;
+
+  /* Make sure not to unshare trees behind the front-end's back
+     since front-end specific mechanisms may rely on sharing.  */
+  id.regimplify = false;
+  id.do_not_unshare = true;
+  id.do_not_fold = true;
+
+  /* We're not inside any EH region.  */
+  id.eh_lp_nr = 0;
+
+  /* Remap the parameters and result and return them to the caller.  */
+  for (param = DECL_ARGUMENTS (checked);
+       param;
+       param = DECL_CHAIN (param))
+    {
+      *p = remap_decl (param, &id);
+      p = &DECL_CHAIN (*p);
+    }
+
+  if (DECL_RESULT (checked))
+    DECL_RESULT (unchecked) = remap_decl (DECL_RESULT (checked), &id);
+  else
+    DECL_RESULT (unchecked) = NULL_TREE;
+
+  return copy_tree_body (&id);
+}
+

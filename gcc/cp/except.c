@@ -61,6 +61,28 @@ init_exception_processing (void)
 		       && TREE_NOTHROW (terminate_fn));
   pop_nested_namespace (std_node);
 
+  tmp = build_function_type_list (integer_type_node,
+        boolean_type_node,
+        integer_type_node,
+        const_string_type_node,
+        const_string_type_node,
+        const_string_type_node,
+        const_string_type_node,
+        const_string_type_node,
+        integer_type_node,
+        NULL_TREE);
+  // TODO: can this contextually be ECF_NOTHROW if inside a noexcept?
+  on_contract_violation_fn =
+    build_cp_library_fn_ptr ("__on_contract_violation", tmp, ECF_COLD);
+  on_contract_violation_never_fn =
+    build_cp_library_fn_ptr ("__on_contract_violation", tmp, ECF_COLD | ECF_NORETURN);
+  on_contract_violation_always_fn =
+    build_cp_library_fn_ptr ("__on_contract_violation", tmp, ECF_COLD | ECF_PURE);
+
+  DECL_DECLARED_CONSTEXPR_P (on_contract_violation_never_fn) = true;
+  DECL_DECLARED_CONSTEXPR_P (on_contract_violation_fn) = true;
+  DECL_DECLARED_CONSTEXPR_P (on_contract_violation_always_fn) = true;
+
   /* void __cxa_call_unexpected(void *); */
   tmp = build_function_type_list (void_type_node, ptr_type_node, NULL_TREE);
   call_unexpected_fn

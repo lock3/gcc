@@ -563,7 +563,11 @@ decl_attributes (tree *node, tree attributes, int flags,
 	{
 	  if (!(flags & (int) ATTR_FLAG_BUILT_IN))
 	    {
-	      if (ns == NULL_TREE || !cxx11_attr_p)
+	      if (cxx23_contract_attribute_p (attr))
+		{
+		  ; /* Do not warn about contract "attributes".  */
+		}
+	      else if (ns == NULL_TREE || !cxx11_attr_p)
 		warning (OPT_Wattributes, "%qE attribute directive ignored",
 			 name);
 	      else
@@ -824,6 +828,26 @@ cxx11_attribute_p (const_tree attr)
     return false;
 
   return (TREE_CODE (TREE_PURPOSE (attr)) == TREE_LIST);
+}
+
+/* Return TRUE iff ATTR has been parsed by the fornt-end as a c++2a contract
+   attribute. */
+
+bool
+cxx23_contract_attribute_p (const_tree attr)
+{
+  if (attr == NULL_TREE
+      || TREE_CODE (attr) != TREE_LIST)
+    return false;
+
+  if (!TREE_PURPOSE (attr) || TREE_CODE (TREE_PURPOSE (attr)) != TREE_LIST)
+    return false;
+  if (!TREE_VALUE (attr))
+    return false;
+
+  return (TREE_CODE (TREE_VALUE (attr)) == PRECONDITION_STMT
+      || TREE_CODE (TREE_VALUE (attr)) == POSTCONDITION_STMT
+      || TREE_CODE (TREE_VALUE (attr)) == ASSERTION_STMT);
 }
 
 /* Return the name of the attribute ATTR.  This accessor works on GNU

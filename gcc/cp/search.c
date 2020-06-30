@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "spellcheck-tree.h"
 #include "stringpool.h"
 #include "attribs.h"
+#include "tree-inline.h"
 
 static int is_subobject_of_p (tree, tree);
 static tree dfs_lookup_base (tree, void *);
@@ -2044,6 +2045,50 @@ check_final_overrider (tree overrider, tree basefn)
 	}
       return 0;
     }
+
+  if (DECL_CONTRACTS (basefn) == NULL_TREE
+      && DECL_CONTRACTS (overrider) != NULL_TREE)
+    {
+      auto_diagnostic_group d;
+      error ("guarded function %q+D overriding non-guarded function",
+	     overrider);
+      inform (DECL_SOURCE_LOCATION (basefn),
+	      "overridden function is %qD", basefn);
+      return 0; // FIXME?
+    }
+  else if (DECL_CONTRACTS (basefn) != NULL_TREE
+      && DECL_CONTRACTS (overrider) == NULL_TREE)
+    {
+      /* We're inheriting basefn's contracts; create a copy of them but
+	 replace references to their parms to our parms.  */
+      tree last = NULL_TREE, contract_attrs = NULL_TREE;
+      for (tree a = DECL_CONTRACTS (basefn); a != NULL_TREE; a = TREE_CHAIN (a))
+	{
+	  tree c = copy_node (a);
+	  TREE_VALUE (c) = copy_node (TREE_VALUE (c));
+	  remap_contract (basefn, overrider, TREE_VALUE (c));
+	  CONTRACT_COMMENT (TREE_VALUE (c)) =
+	    copy_node (CONTRACT_COMMENT (TREE_VALUE (c)));
+
+	  chainon (last, c);
+	  last = c;
+	  if (!contract_attrs)
+	    contract_attrs = c;
+	}
+      DECL_DEFERRED_CONTRACTS (overrider) =
+	build_tree_list (basefn, contract_attrs);
+    }
+  else if (DECL_CONTRACTS (basefn) != NULL_TREE
+      && DECL_CONTRACTS (overrider) != NULL_TREE)
+    {
+      /* We're in the process of completing the overrider's class, which means
+	 our conditions definitely are not parsed so simply chain on the
+	 basefn for later checking.  */
+      DECL_DEFERRED_CONTRACTS (overrider) = chainon (
+	  DECL_DEFERRED_CONTRACTS (overrider),
+	  build_tree_list (basefn, DECL_CONTRACTS (basefn)));
+    }
+
   if (DECL_FINAL_P (basefn))
     {
       auto_diagnostic_group d;

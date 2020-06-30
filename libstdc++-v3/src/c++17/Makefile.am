@@ -50,6 +50,7 @@ inst_sources =
 endif
 
 sources = \
+	contract.cc \
 	fs_dir.cc \
 	fs_ops.cc \
 	fs_path.cc \

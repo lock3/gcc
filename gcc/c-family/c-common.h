@@ -839,6 +839,7 @@ extern bool check_builtin_function_arguments (location_t, vec<location_t>,
 extern void check_function_format (const_tree, tree, int, tree *,
 				   vec<location_t> *);
 extern bool attribute_fallthrough_p (tree);
+extern bool attribute_contract_assert_p (tree);
 extern tree handle_format_attribute (tree *, tree, tree, int, bool *);
 extern tree handle_format_arg_attribute (tree *, tree, tree, int, bool *);
 extern bool c_common_handle_option (size_t, const char *, HOST_WIDE_INT, int,

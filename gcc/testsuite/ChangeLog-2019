@@ -2967,6 +2967,70 @@
 	gcc.dg/plugin/diagnostic-test-string-literals-2.c: Update expected
 	diagnostics.
 
+2019-11-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Add -fconcepts.
+	* g++.dg/cpp2a/contracts2.C: Ditto.
+	* g++.dg/cpp2a/contracts3.C: Ditto.
+	* g++.dg/cpp2a/contracts4.C: Ditto.
+	* g++.dg/cpp2a/contracts5.C: Ditto.
+	* g++.dg/cpp2a/contracts6.C: Ditto.
+	* g++.dg/cpp2a/contracts7.C: Ditto.
+	* g++.dg/cpp2a/contracts8.C: Ditto.
+	* g++.dg/cpp2a/contracts9.C: Ditto.
+	* g++.dg/cpp2a/contracts10.C: Ditto.
+	* g++.dg/cpp2a/contracts11.C: Ditto.
+	* g++.dg/cpp2a/contracts12.C: Ditto.
+	* g++.dg/cpp2a/contracts13.C: Ditto.
+	* g++.dg/cpp2a/contracts14.C: Ditto.
+	* g++.dg/cpp2a/contracts15.C: Ditto.
+	* g++.dg/cpp2a/contracts16.C: Ditto.
+	* g++.dg/cpp2a/contracts17.C: Ditto.
+	* g++.dg/cpp2a/contracts18.C: Ditto.
+	* g++.dg/cpp2a/contracts19.C: Ditto.
+	* g++.dg/cpp2a/contracts20.C: Ditto.
+	* g++.dg/cpp2a/contracts22.C: Ditto.
+	* g++.dg/cpp2a/contracts23.C: Ditto.
+	* g++.dg/cpp2a/contracts24.C: Ditto.
+	* g++.dg/cpp2a/contracts25.C: Ditto.
+	* g++.dg/cpp2a/contracts35.C: Ditto.
+	* g++.dg/cpp2a/contracts-access1.C: Ditto.
+	* g++.dg/cpp2a/contracts-assume1.C: Ditto.
+	* g++.dg/cpp2a/contracts-assume2.C: Ditto.
+	* g++.dg/cpp2a/contracts-assume3.C: Ditto.
+	* g++.dg/cpp2a/contracts-assume4.C: Ditto.
+	* g++.dg/cpp2a/contracts-assume5.C: Ditto.
+	* g++.dg/cpp2a/contracts-ctor-dtor1.C: Ditto.
+	* g++.dg/cpp2a/contracts-ctor-dtor2.C: Ditto.
+	* g++.dg/cpp2a/contracts-cv1.C: Ditto.
+	* g++.dg/cpp2a/contracts-deduced1.C: Ditto.
+	* g++.dg/cpp2a/contracts-ignore1.C: Ditto.
+	* g++.dg/cpp2a/contracts-ignore2.C: Ditto.
+	* g++.dg/cpp2a/contracts-post1.C: Ditto.
+	* g++.dg/cpp2a/contracts-post2.C: Ditto.
+	* g++.dg/cpp2a/contracts-post3.C: Ditto.
+	* g++.dg/cpp2a/contracts-post4.C: Ditto.
+	* g++.dg/cpp2a/contracts-post5.C: Ditto.
+	* g++.dg/cpp2a/contracts-post6.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre1.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre2.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre3.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre4.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre5.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre6.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre7.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre9.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre10.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl1.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl2.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl3.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl4.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl5.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl6.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl7.C: Ditto.
+	* g++.dg/cpp2a/contracts-tmpl-spec1.C: Ditto.
+	* g++.dg/cpp2a/contracts-tmpl-spec2.C: Ditto.
+
 2019-11-06  Iain Sandoe  <iain@sandoe.co.uk>
 
 	* gcc.dg/framework-1.c: Adjust test header path.
@@ -6238,6 +6302,11 @@
 
 	* gcc.dg/fold-binary-math-casts.c: New test.
 
+2019-09-10  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-cv1.C: New.
+	* g++.dg/cpp2a/contracts-contracts-tmpl-spec2.C: New.
+
 2019-09-10  Marek Polacek  <polacek@redhat.com>
 
 	PR c++/91673 - ICE with noexcept in alias-declaration.
@@ -6856,6 +6925,15 @@
 	PR middle-end/91577
 	* gfortran.dg/pr91577.f90: New test, taken from temporary_1.f90.
 
+2019-09-04  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-ctor-dtor1.C: Update global referenc in ctor
+	pre & dtor post to use the qualified name.
+	* g++.dg/cpp2a/contracts-ctor-dtor2.C: Update expected errors.
+	* g++.dg/cpp2a/contracts-deduced1.C: Ditto.
+	* g++.dg/cpp2a/contracts-post1.C: Ditto.
+	* g++.dg/cpp2a/contracts-post4.C: Ditto.
+
 2019-09-04  Steven G. Kargl  <kargl@gcvc.gnu.org>
 
 	PR fortran/91650
@@ -6871,6 +6949,14 @@
 
 	PR c/78736
 	* gcc.dg/Wenum-conversion.c: New test-case.
+
+2019-09-03  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-deduced1.C: Add test case.
+	* g++.dg/cpp2a/contracts-redecl2.C: Update expected error.
+	* g++.dg/cpp2a/contracts-redecl5.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre11.C: Renamed to contracts-tmpl-spec1.C to
+	reflect what it's testing for.
 
 2019-09-03  Jozef Lawrynowicz  <jozef.l@mittosystems.com>
 
@@ -7083,6 +7169,15 @@
 	* gcc.target/i386/20020616-1.c: Preserve full register across
 	main.
 
+2019-09-02  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl7.C: Add test that this in friend
+	contracts points to the owner's this not ours.
+	* g++.dg/cpp2a/contracts-ctor-dtor1.C: New.
+	* g++.dg/cpp2a/contracts-ctor-dtor2.C: New.
+
+	* g++.dg/cpp2a/contracts-deduced1.C: New.
+
 2019-09-02  Paul Thomas  <pault@gcc.gnu.org>
 
 	PR fortran/91589
@@ -7112,6 +7207,14 @@
 	PR c++/91155
 	* g++.dg/torture/pr91155.C: New test.
 
+2019-09-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre7.C: Update line numbers.
+	* g++.dg/cpp2a/contracts-pre9.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre8.C: Delete.
+	* g++.dg/cpp2a/contracts-redecl1.C: Add test for redecl with post
+	conditions.
+
 2019-09-01  Marek Polacek  <polacek@redhat.com>
 
 	PR c++/91129 - wrong error with binary op in template argument.
@@ -7140,6 +7243,13 @@
 
 	PR lto/91572
 	* g++.dg/lto/pr91572_0.C: New test.
+
+2019-08-30  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Add tests for ternary op and assignment
+	in contract condition.
+	* g++.dg/cpp2a/contracts11.C: Add tests for conditions that can be
+	contextually converted to bool with explicit conversion operators.
 
 2019-08-30  Steven G. Kargl  <kargl@gcc.gnu.org>
 
@@ -7189,6 +7299,18 @@
 
 	PR tree-optimization/91568
 	* gfortran.dg/pr91568.f: New testcase.
+
+2019-08-28  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-access1.C: Explicitly restating contracts on
+	overrides does not currently work.
+	* g++.dg/cpp2a/contracts-pre3.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre2.C: Update line numbers.
+	* g++.dg/cpp2a/contracts-redecl7.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl1.C: Update expected errors. Fix
+	duplicate names.
+	* g++.dg/cpp2a/contracts20.C: Add expected warning about ignored
+	attributes in c++17 mode.
 
 2019-08-28  Marek Polacek  <polacek@redhat.com>
 
@@ -8245,6 +8367,24 @@
 	* gcc.target/aarch64/sve/single_3.c: Likewise.
 	* gcc.target/aarch64/sve/single_4.c: Likewise.
 
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl1.C: Update expected errors.
+	* g++.dg/cpp2a/contracts-redecl2.C: Update expected errors.
+	* g++.dg/cpp2a/contracts38.C: Remove.
+
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl7.C: Update expected output.
+
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts20.C: Update error message.
+
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl1.C: Fix error message.
+
 2019-08-13  Steven G. Kargl  <kargl@gcc.gnu.org>
 
 	PR fortran/87991
@@ -8543,6 +8683,10 @@
 	PR target/91408
 	* gcc.target/i386/pr91408.c: New test.
 
+2019-08-09  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl7.C: Fix invalid contracts.
+
 2019-08-09  Segher Boessenkool  <segher@kernel.crashing.org>
 
 	* gcc.target/powerpc/vec_rotate-1.c: Rename to ...
@@ -8675,6 +8819,23 @@
 
 	* g++.dg/cpp2a/inline-asm3.C: New test.
 
+2019-08-07  Andrew Sutton  <asutton@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl1.C: Comment and error message updates.
+
+2019-08-07  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-assume1.C: Assumed contracts should
+	instantiate templates.
+	* g++.dg/cpp2a/contracts-ignore.C: Ignored contracts should
+	instantiate templates.
+
+2019-08-07  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-assume4.C: Add warning.
+	* g++.dg/cpp2a/contracts13.C: Fix constexpr violation error line
+	number.
+
 2019-08-07  Steven G. Kargl  <kargl@gcc.gnu.org>
 
 	PR fortran/91359
@@ -8787,6 +8948,46 @@
 	* gcc.target/i386/sse4_1-roundss-4.c: Likewise.
 	* gcc.target/i386/sse4_1-trunc-vec.c: Likewise.
 	* gcc.target/i386/sse4_1-truncf-vec.c: Likewise.
+
+2019-08-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-assume5.C: Update expected constexpr error
+	messages.
+	* g++.dg/cpp2a/contracts13C: Ditto.
+
+2019-08-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	All dg-output checks looking for standard contract violation
+	invocations now search for less context and only match the file
+	extension, line number, and function name.
+	* g++.dg/cpp2a/contracts-access1.C: See above.
+	* g++.dg/cpp2a/contracts-pre10.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre11.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre2.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre3.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre4.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre5.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre7.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre8.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre9.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl3.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl4.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl6.C: Ditto.
+	* g++.dg/cpp2a/contracts-redecl7.C: Ditto.
+	* g++.dg/cpp2a/contracts10.C: Ditto.
+	* g++.dg/cpp2a/contracts19.C: Ditto.
+	* g++.dg/cpp2a/contracts23.C: Ditto.
+	* g++.dg/cpp2a/contracts25.C: Ditto.
+	* g++.dg/cpp2a/contracts35.C: Ditto.
+	* g++.dg/cpp2a/contracts9.C: Ditto.
+
+2019-08-06  Andrew Sutton  <asutton@lock3software.com>
+
+	* g++.dg/cpp2a/contracts11.C: Update error messages.
+	* g++.dg/cpp2a/contracts13.C: Ditto.
+	* g++.dg/cpp2a/contracts8.C: Ditto.
+	* g++.dg/cpp2a/contracts9.C: Remove unused fun2. Update expected
+	output.
 
 2019-08-06  Steven G. Kargl  <kargl@gcc.gnu.org>
 
@@ -9428,6 +9629,19 @@
 	* gcc.target/arc/tls-2.c: New test.
 	* gcc.target/arc/tls-3.c: Likewise.
 
+2019-07-21  Andrew Sutton  <asutton@lock3software.com>
+
+	Update diagnostics and add more tests.
+	* g++.dg/cpp2a/contracts-post1.C: Update diagnostics.
+	* g++.dg/cpp2a/contracts-post4.C: New unit test.
+	* g++.dg/cpp2a/contracts-post5.C: Likewise.
+	* g++.dg/cpp2a/contracts-post6.C: Likewise.
+
+2019-07-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl7.C: New test for guarded friends and
+	adding contracts in a friend decl.
+
 2019-07-21  Marek Polacek  <polacek@redhat.com>
 
 	PR c++/67853
@@ -9542,6 +9756,11 @@
 
 	* c-c++-common/pr53633-2.c: New test.
 
+2019-07-17  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts16.C: Exceptions thrown in non-noexcept
+	functions with contract violations should be catchable.
+
 2019-07-17  Alexandre Oliva  <oliva@adacore.com>
 
 	PR middle-end/81824
@@ -9614,6 +9833,10 @@
 2019-07-16  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
 
 	* gcc.dg/autopar/pr91162.c: Require int128 support.
+
+2019-07-15  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts20.C: New test for contracts pre c++20.
 
 2019-07-15  Richard Biener  <rguenther@suse.de>
 
@@ -9833,6 +10056,15 @@
 
 	PR middle-end/91131
 	* gcc.target/i386/pr91131.c: New testcase.
+
+2019-07-10  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre3.C: Remove calls directly to unchecked
+	function; they're no longer available for normal lookup. Update line
+	numbers.
+	* g++.dg/cpp2a/contracts-pre10.C: Ditto.
+	* g++.dg/cpp2a/contracts-pre7.C: Update line numbers.
+	* g++.dg/cpp2a/contracts-pre8.C: Ditto.
 
 2019-07-10  Martin Sebor  <msebor@redhat.com>
 
@@ -10573,6 +10805,24 @@
 	PR target/62147
 	* gcc.target/powerpc/pr62147.c: New test.
 
+2019-06-26  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts17.C: Update contract failure error message.
+
+	* g++.dg/cpp2a/contracts8.C: Update parse error message.
+	* g++.dg/cpp2a/contracts-ignore1.C: New.
+	* g++.dg/cpp2a/contracts20.C: Renamed to:
+	* g++.dg/cpp2a/contracts-ignore2.C: Update comments.
+	* g++.dg/cpp2a/contracts21.C: Renamed to:
+	* g++.dg/cpp2a/contracts-assume2.C: Update comments.
+	* g++.dg/cpp2a/contracts-assume3.C: New.
+	* g++.dg/cpp2a/contracts-assume4.C: Ditto.
+	* g++.dg/cpp2a/contracts-assume5.C: Ditto.
+
+2019-06-26  Andrew Sutton  <asutton@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: New tests for feature test macros.
+
 2019-06-26  Jeff Law  <law@redhat.com>
 
 	PR tree-optimization/90883
@@ -10645,6 +10895,13 @@
 	* g++.dg/other/i386-2.C: Likewise.
 	* g++.dg/other/i386-3.C: Likewise.
 
+2019-06-25  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl2.C: Update test to reflect the change
+	that contracts are not required for generalized member redecl. Add
+	tests for trying to redeclare things besides member functions.
+	* g++.dg/cpp2a/contracts-redecl5.C: Ditto.
+
 2019-06-25  Jakub Jelinek  <jakub@redhat.com>
 
 	PR c++/90969
@@ -10673,6 +10930,18 @@
 
 	PR sanitizer/90954
 	* c-c++-common/gomp/pr90954.c: New test.
+
+2019-06-24  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre8.C: New tests to ensure we can insert
+	required template decls into a closed namespace.
+	* g++.dg/cpp2a/contracts-pre9.C: New tests for guarded members of
+	template classes.
+	* g++.dg/cpp2a/contracts-pre10.C: New tests for member templates
+	defined inside out outside the type definition, as well as member
+	templates of class templates defined in and outside.
+	* g++.dg/cpp2a/contracts-pre11.C: New tests for guarded free template
+	specializations.
 
 2019-06-24  Iain Sandoe  <iain@sandoe.co.uk>
 
@@ -10784,6 +11053,11 @@
 	* g++.dg/cpp1z/register2.C: Likewise.
 	* g++.dg/cpp1z/register3.C: Likewise.
 	* g++.dg/other/error34.C: Likewise.
+
+2019-06-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl6.C: New tests for cv qualified and
+	static member functions with contracts.
 
 2019-06-21  Paolo Carlini  <paolo.carlini@oracle.com>
 
@@ -11088,6 +11362,11 @@
 
 	* gcc.target/aarch64/pr88834.c: Move from here...
 	* gcc.target/aarch64/sve/pr88834.c: ...to here.
+
+2019-06-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl5.C: New test for
+	-fcontract-strict-declarations warnings.
 
 2019-06-18  Cherry Zhang  <cherryyz@google.com>
 
@@ -11731,6 +12010,11 @@
 
 	* gcc.dg/attr-copy-6.c: Require alias support.
 
+2019-06-09  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-access1.C: Contracts on member functions
+	should be able to access private members of base classes.
+
 2019-06-09  Marek Polacek  <polacek@redhat.com>
 
 	PR c++/65175
@@ -11873,6 +12157,25 @@
 	* gcc.target/arc/tmac-1.c: Reoreder dg-directives.
 	* gcc.target/arc/tmac-2.c: Likewise.
 
+2019-06-05  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Condense and rename tests.
+	* g++.dg/cpp2a/contracts27.C: Removed.
+	* g++.dg/cpp2a/contracts28.C: Removed.
+	* g++.dg/cpp2a/contracts29.C: Removed.
+	* g++.dg/cpp2a/contracts-pre2.C: Combination of the above.
+	* g++.dg/cpp2a/contracts30.C: Removed.
+	* g++.dg/cpp2a/contracts31.C: Removed.
+	* g++.dg/cpp2a/contracts32.C: Removed.
+	* g++.dg/cpp2a/contracts34.C: Removed.
+	* g++.dg/cpp2a/contracts-pre3.C: Combination of the above.
+	* g++.dg/cpp2a/contracts33.C: Renamed to:
+	* g++.dg/cpp2a/contracts-access1.C: Renamed.
+	* g++.dg/cpp2a/contracts36.C: Removed.
+	* g++.dg/cpp2a/contracts37.C: Removed.
+	* g++.dg/cpp2a/contracts-pre4.C: Combination of the above.
+	* g++.dg/cpp2a/contracts-pre5.C: New.
+
 2019-06-05  Martin Sebor  <msebor@redhat.com>
 
 	PR c/90737
@@ -12013,6 +12316,25 @@
 
 	* c-c++-common/goacc/acc-icf.c: Change scanned pattern.
 	* gfortran.dg/goacc/pr78027.f90: Likewise.
+
+2019-06-03  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Initial work on postconditions.
+	* g++.dg/cpp2a/contracts-post1.C: New.
+	* g++.dg/cpp2a/contracts-post2.C: New.
+	* g++.dg/cpp2a/contracts-post3.C: New.
+
+2019-06-03  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts27.C: Fix redecl issues.
+	* g++.dg/cpp2a/contracts28.C: Ditto.
+	* g++.dg/cpp2a/contracts29.C: Ditto.
+	* g++.dg/cpp2a/contracts35.C: New.
+	* g++.dg/cpp2a/contracts36.C: New.
+	* g++.dg/cpp2a/contracts37.C: New.
+	* g++.dg/cpp2a/contracts38.C: New.
+	* g++.dg/cpp2a/contracts-pre6.C: New.
+	* g++.dg/cpp2a/contracts-pre7.C: New.
 
 2019-06-03  Segher Boessenkool  <segher@kernel.crashing.org>
 
@@ -12290,6 +12612,20 @@
 
 	PR testsuite/90657
 	* gcc.dg/ipa/pr90555.c: Remove duplicite dg-compile.
+
+2019-05-28  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Updating diagnostics for contract messages.
+	* g++.dg/cpp2a/contracts9.C: Update output messages.
+	* g++.dg/cpp2a/contracts10.C: Update output messages.
+	* g++.dg/cpp2a/contracts19.C: Update output messages.
+	* g++.dg/cpp2a/contracts25.C: Update output messages.
+	* g++.dg/cpp2a/contracts27.C: Update output messages.
+	* g++.dg/cpp2a/contracts28.C: Update output messages.
+	* g++.dg/cpp2a/contracts29.C: Update output messages.
+	* g++.dg/cpp2a/contracts30.C: Update output messages.
+	* g++.dg/cpp2a/contracts31.C: Update output messages.
+	* g++.dg/cpp2a/contracts33.C: Update output messages.
 
 2019-05-28  Bill Schmidt  <wschmidt@linux.ibm.com>
 
@@ -12921,6 +13257,15 @@
 	PR testsuite/89433
 	* c-c++-common/goacc/classify-routine.c: Update.
 	* gfortran.dg/goacc/classify-routine.f95: Likewise.
+
+2019-05-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add tests for generalized redecl for contracts.
+	* g++.dg/cpp2a/contracts38.C: Disable generalized redecl.
+	* g++.dg/cpp2a/contracts-redecl1.C: New.
+	* g++.dg/cpp2a/contracts-redecl2.C: New.
+	* g++.dg/cpp2a/contracts-redecl3.C: New.
+	* g++.dg/cpp2a/contracts-redecl4.C: New.
 
 2019-05-16  Martin Sebor  <msebor@redhat.com>
 
@@ -14367,6 +14712,21 @@
 	* gcc.target/riscv/interrupt-conflict-mode.c (foo): Adjust expected
 	diagnostics.
 
+2019-04-08  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts9.C: Fix line numbers in contract violations.
+	* g++.dg/cpp2a/contracts23.C: Ditto.
+	* g++.dg/cpp2a/contracts25.C: Ditto.
+	* g++.dg/cpp2a/contracts26.C: New.
+	* g++.dg/cpp2a/contracts27.C: New.
+	* g++.dg/cpp2a/contracts28.C: New.
+	* g++.dg/cpp2a/contracts29.C: New.
+	* g++.dg/cpp2a/contracts30.C: New.
+	* g++.dg/cpp2a/contracts31.C: New.
+	* g++.dg/cpp2a/contracts32.C: New.
+	* g++.dg/cpp2a/contracts33.C: New.
+	* g++.dg/cpp2a/contracts34.C: New.
+
 2019-04-08  Richard Biener  <rguenther@suse.de>
 
 	PR tree-optimization/90006
@@ -15542,6 +15902,10 @@
 	PR d/88957
 	* gdc.dg/pr88957.d: New test.
 	* gdc.dg/simd.d: Add new vector tests.
+
+2019-03-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts25.C: New.
 
 2019-03-12  Uroš Bizjak  <ubizjak@gmail.com>
 
@@ -16783,6 +17147,12 @@
 	PR other/89342
 	* gcc.dg/pr89342.c: New test.
 
+2019-02-14  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts13.C: Update expected diagnostics for
+	constexpr contract ailure. Test explicit concrete semantics in
+	constexpr contracts.
+
 2019-02-14  Jakub Jelinek  <jakub@redhat.com>
 
 	PR rtl-optimization/89354
@@ -16938,6 +17308,15 @@
 	* gcc.target/powerpc/crypto-builtin-1.c
 	(crypto1_be, crypto2_be, crypto3_be, crypto4_be, crypto5_be):
 	New testcases.
+
+2019-01-22  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts22.C: New.
+
+2019-02-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Remove error check for invalid role (now
+	treated as the default role).
 
 2019-02-12  H.J. Lu  <hongjiu.lu@intel.com>
 
@@ -17282,6 +17661,23 @@
 	PR c++/87770
 	* g++.dg/pr87770.C: New.
 
+2019-02-04  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* contracts/backtrace_handler/handle_contract_violation.cpp: Move on
+	contract violation function from std to global namespace and rename it.
+	* contracts/except_preload_handler/handle_contract_violation.cpp:
+	Ditto.
+	* contracts/noexcept_preload_handler/handle_contract_violation.cpp:
+	Ditto.
+	* contracts/preload_handler/handle_contract_violation.cpp: Ditto.
+	* contracts/preload_nocontinue_handler/handle_contract_violation.cpp:
+	Ditto.
+	* contracts/preload_nocontinue_handler/nocontinue.cpp: Ditto.
+	* g++.dg/cpp2a/contracts14.C: Ditto.
+	* g++.dg/cpp2a/contracts15.C: Ditto.
+	* g++.dg/cpp2a/contracts16.C: Ditto.
+	* g++.dg/cpp2a/contracts17.C: Ditto.
+
 2019-02-04  Harald Anlauf  <anlauf@gmx.de>
 
 	PR fortran/89077
@@ -17339,6 +17735,17 @@
 	PR middle-end/87887
 	* gcc.dg/gomp/pr87887-1.c: New test.
 	* gcc.dg/gomp/pr87887-2.c: New test.
+
+2019-02-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts22.C: Update flag name.
+	* g++.dg/cpp2a/contracts24.C: New.
+
+2019-02-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* contracts/except_preload_handler/README: Fix contract continuation
+	mode switch name.
+	* contracts/noexcept_preload_handler/README: Ditto.
 
 2019-02-01  Jakub Jelinek  <jakub@redhat.com>
 
@@ -17899,6 +18306,13 @@
 	* gcc.target/powerpc/altivec_vld_vst_addr-1.c: New test.
 	* gcc.target/powerpc/altivec_vld_vst_addr-2.c: Ditto.
 
+2019-01-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts18.C: Update to new config scheme; use a
+	custom role.
+	* g++.dg/cpp2a/contracts19.C: Ditto.
+	* g++.dg/cpp2a/contracts21.C: Ditto.
+
 2019-01-18  Dominique d'Humieres  <dominiq@gcc.gnu.org>
 
 	PR fortran/37835
@@ -18265,6 +18679,38 @@
 	PR target/87306
 	* gcc.dg/vect/bb-slp-pow-1.c: Modify to reflect that the loop is not
 	vectorized on POWER unless hardware misaligned loads are available.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add example of nocontinue contract violation hook.
+	* preload_nocontinue_handler/Makefile: New.
+	* preload_nocontinue_handler/README: New.
+	* preload_nocontinue_handler/assert_fail.cpp: New.
+	* preload_nocontinue_handler/handle_contract_violation.cpp: New.
+	* preload_nocontinue_handler/nocontinue.cpp: New.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* contracts/preload_handler/handle_contract_violation.cpp: Print
+	contract role and continuation mode in preloaded handler.
+	* g++.dg/cpp2a/contracts9.C: Update test ouptut to include role.
+	* g++.dg/cpp2a/contracts10.C: Ditto.
+	* g++.dg/cpp2a/contracts19.C: Ditto.
+	* g++.dg/cpp2a/contracts14.C: Pass dummy role and continuation mode to
+	direct calls to violation handler.
+	* g++.dg/cpp2a/contracts15.C: Ditto.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Add corretly formed contract statements
+	that specify a role. Add error tests for invalid roles and missing
+	colons after rolse.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Add correctly formed contract statements
+	for each of the five concrete semantics.
+	* g++.dg/cpp2a/contracts23.C: New.
 
 2019-01-16  David Malcolm  <dmalcolm@redhat.com>
 

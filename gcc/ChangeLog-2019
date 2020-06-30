@@ -15850,6 +15850,14 @@
 	(circuit): Handle also negative edges as they can happen
 	in some situations.
 
+2019-09-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* tree-inline.h (remap_contract): Remove extra return post return
+	value params.
+	(remap_unchecked_body): New.
+	* tree-inline.c (remap_contract): Remove logic to remap above.
+	(remap_unchecked_body): New.
+
 2019-09-01  Eric Botcazou  <ebotcazou@adacore.com>
 
 	PR target/91472
@@ -15990,6 +15998,12 @@
 	(vect_build_slp_tree): Record max_nunits into the subtree
 	and merge it upwards.
 	(vect_print_slp_tree): Print max_nunits.
+
+2019-08-28  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* tree-inline.h (remap_contract): Take an optional mapping from post
+	return value to unchecked call value.
+	* tree-inline.c (remap_contract): Do said remap.
 
 2019-08-28  Marek Polacek  <polacek@redhat.com>
 
@@ -16386,6 +16400,11 @@
 	(gimple_gen_time_profiler): Likewise.
 	(gimple_gen_average_profiler): Likewise.
 	(gimple_gen_ior_profiler): Likewise.
+
+2019-08-22  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* attribs.c (cxx23_contract_attribute_p): Handle missing TREE_VALUE
+	and TREE_PURPOSE.
 
 2019-08-22  Martin Sebor  <msebor@redhat.com>
 
@@ -18743,6 +18762,13 @@
 	* config/aarch64/aarch64.c (aarch64_gen_adjusted_ldpstp): Use copy_rtx
 	to preserve the contents of the original insns.
 
+2019-08-09  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* tree-inline.h (remap_contract): New.
+	* tree-inline.c (remap_contract): New. Replace references to
+	PARM_DECLs in a CONTRACT_CONDITION from old to new for use in
+	duplicate_decls.
+
 2019-08-09  Richard Earnshaw  <rearnsha@arm.com>
 
 	* config/arm/arm.md (addsi3_compare_op1): Add 16-bit thumb-2 variants.
@@ -19063,6 +19089,18 @@
 	* config/riscv/multilib-generator: (canonical_order): Add 'g'.
 	(arch_canonicalize): Support rv32g and rv64g and fix error
 	handling.
+
+2019-08-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* attribs.h (cxx23_contract_attribute_p): New.
+	* attribs.c (decl_attributes): Prevent incorrect warnings about ignored
+	contract attributes (they are not ignored).
+
+2019-08-06  Andrew Sutton  <asutton@lock3software.com>
+
+	Major rewrite of contracts.
+	* tree-inline.c (copy_tree_body_r): Contracts are no longer special
+	cased.
 
 2019-08-06  Martin Liska  <mliska@suse.cz>
 
@@ -27196,6 +27234,11 @@
 	and firstprivate if the decl has one too from combined parallel to
 	the worksharing construct.
 
+2019-05-28  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Updating contracts implementation.
+	* tree-inline.c (copy_tree_body_r): Use new contract macros.
+
 2019-05-28  Bill Schmidt  <wschmidt@linux.ibm.com>
 	    Michael Meissner  <meissner@linux.ibm.com>
 
@@ -32073,6 +32116,12 @@
 	(*avx512f_scattersi<mode>): Prepend "%M0" to opcode.
 	(*avx512f_scatterdi<mode>): Likewise.
 
+2019-03-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* tree-inline.c (copy_tree_body_r): Add case for ASSERT_CONTRACT to
+	rewrite the condition and generated check.
+	(copy_tree_r): Add case for ASSERT_CONTRACT.
+
 2019-03-13  Vladimir Makarov  <vmakarov@redhat.com>
 
 	PR target/85860
@@ -35141,6 +35190,10 @@
 	(loop_versioning::analyze_arbitrary_term): New function.
 	(loop_versioning::analyze_address_fragment): Use
 	analyze_arbitrary_term if all else fails.
+
+2019-01-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* Makefile.in (C_COMMON_OBJS): Add c-family/contract.o.
 
 2019-01-18  Segher Boessenkool  <segher@kernel.crashing.org>
 

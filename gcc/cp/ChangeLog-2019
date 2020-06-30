@@ -1001,6 +1001,17 @@
 	* typeck.c (cp_build_binary_op): Move SPACESHIP_EXPR to be with the
 	relational operators, exclude other types no longer supported.
 
+2019-11-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* pt.c (instantiate_template_1): Only clear DECL_DEFERRED_CONTRACTS on
+	specializations of functions.
+
+	* decl.c (start_decl): Error on nondefining declarations of members
+	outside a class when flag_contracts is false.
+	* parser.c (cp_parser_contracts): Check flag_contracts instead of
+	cxx_dialect.
+	(cp_parser_contract_attribute_spec): Ditto.
+
 2019-11-06  Jason Merrill  <jason@redhat.com>
 
 	Implement D1907R1 "structural type".
@@ -2442,6 +2453,40 @@
 	* typeck2.c (build_m_component_ref): Check error_operand_p after
 	calling mark_[lr]value_use.
 
+2019-09-23  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Improve contract comment by attempting to save original source string.
+	* cp-tree.def: Add a new arg to ASSERTION_STMT, PRECONDITION_STMT, and
+	POSTCONDITION_STMT to hold the comment string literal.
+	* cp-tree.h (CONTRACT_COMMENT): New.
+	(POSTCONDITION_IDENTIFIER): Update operand index.
+	(finish_contract): Now takes the contract comment.
+	* parser.c (cp_parser_statement): Fix spurious assert when emitting a
+	contract on an error_mark_node statement.
+	(get_source): New.
+	(stringify_tree): Moved and renamed from
+	semantics/get_contract_comment.
+	(cp_parser_contract_condition): Attempts to build the contract comment
+	for the condition immediately if parsing the condition succeeded.
+	Attempts to grab actual source, but falls back to pretty printing in
+	some cases. Calls finish_contract directly.
+	(cp_parser_contract_attribute_spec): finish_contract call has been
+	folded into cp_parser_contract_condition.
+	(cp_parser_late_parsing_for_contract): Ditto.
+	* pt.c (tsubst_contract): Copy the contract comment into the
+	substituted contract.
+	* search.c (check_final_overrider): When copying an overridee's
+	contracts, create a copy of the contract comments.
+	* semantics.c (build_contract_handler_fn): Now accepts a pre-built
+	string literal for the contract.
+	(get_contract_comment): Remove.
+	(build_contract_check): Uses CONTRACT_COMMENT instead of computing the
+	comment with the current CONTRACT_CONDITION.
+	(start_contract): Set CONTRACT_COMMENT to NULL_TREE during initial
+	build.
+	(finish_contract): Now takes a comment tree and saves it into
+	CONTRACT_COMMENT if non-null.
+
 2019-09-23  Paolo Carlini  <paolo.carlini@oracle.com>
 
 	* pt.c (check_explicit_specialization): Use cp_expr_loc_or_input_loc.
@@ -2527,6 +2572,18 @@
 	* c-objcp-common.c (cp-objcp-common.c): Alphababetize and
 	correctly mark all C++ nodes.
 	* decl.c (cp_tree_node_structure): Alphabetize.
+
+2019-09-10  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Make explicit template specializations have independent contracts.
+	* decl.c (merge_contracts): If merging into a decl that has contracts
+	from an unspecialized template, throw the old contracts away.
+	* pt.c (instantiate_class_template_1): Rewrite member contracts to
+	include a reference to the original template they came from.
+	(instantiate_template_1): When explicitly specializing, delete any
+	existing contracts.
+	(regenerate_decl_from_template): Copy any updated (specialized)
+	contracts from redecls when regenerating.
 
 2019-09-10  Marek Polacek  <polacek@redhat.com>
 
@@ -2616,10 +2673,229 @@
 
 	* cp-tree.h (DECL_VTABLE_OR_VTT_P): Forward to DECL_VIRTUAL_P.
 
+2019-09-04  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix static member references in static member contracts; improve erorr
+	reporting.
+	* cp-tree.h (POSTCONDITION_IDENTIFIER): Update comment to note that
+	this is a wrapper around an IDENTIFIER_NODE.
+	* parser.c (cp_contract_sentinel): Now gets the error location from
+	the POSTCONDITION_IDENTIFIER. Never overwrites current_class_type.
+	Allows lookup to find members in ctor pre and dtor post for error
+	reporting later.
+	(cp_parser_contract_condition): Update usage of cp_contract_sentinel.
+	(cp_parser_contracts): Bail early if the c++ dialect is too low.
+	(cp_parser_contract_attribute_spec): Save the postcondition identifier
+	location and wrap POSTCONDITION_IDENTIFIER in it.
+	(begin_contract_scope): Streamline static function handling.
+	(cp_parser_late_parsing_for_contracts): Defer parsing static member
+	contracts until the class is complete. Push class scope for static
+	member functions.
+	* semantics.c (build_postcondition_variable): Strip wrapper to get
+	actual identifier from POSTCONDITION_IDENTIFIER.
+	(finish_non_static_data_member): Report errors when using nonstatic
+	members in ctor pre and dtor post.
+	(finish_this_expr): Report errors when using `this` in ctor pre and
+	dtor post.
+
 2019-09-04  Marek Polacek  <polacek@redhat.com>
 
 	* call.c (build_over_call): Remove -fdeduce-init-list implementation.
 	* pt.c (unify): Likewise.
+
+2019-09-03  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Cleanup style, extern vs static, and dead code.
+	* constexpr.c (explain_constexpr_contract_violation): Remove.
+	(cxx_eval_call_expression): Remove dead call to above.
+	* cp-tree.h (find_last_decl): Static again.
+	(generate_assert_check): Remove.
+	(build_arg_list): Static to semantics.
+	(set_contract_comment): Remove.
+	(set_contract_condition): Remove.
+	* decl.c (diagnose_contracts_after_definition): Update error message.
+	* decl2.c (find_last_decl): Static.
+	* semantics.c (get_contracts_internal_ident): Cleanup dead code; we're
+	now called late enough that we only ever see IDENTIFIER_NODEs.
+
+2019-09-02  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Merge contracts and deferred_contracts; fix
+	flag_contract_strict_declarations.
+	* cp-tree.h (lang_decl_fn): Merge contracts and deferred_contracts.
+	(DECL_CONTRACTS): Now a read only view of the primary contracts.
+	(DECL_DEFERRED_CONTRACTS): Now always present when there are contracts
+	present.
+	* decl.c (match_contract_conditions): Now static, only needs the old
+	location_t.
+	(match_contracts): Now static. Look for "no initial contracts" marker
+	when flag_contract_strict_declarations is on.
+	(merge_contracts): Build a "no initial contracts" marker if needed.
+	Clear it out before we save any real contracts.
+	(match_deferred_contracts): Update usage of DECL_CONTRACTS and
+	DECL_DEFERRED_CONTRACTS.
+	(remap_decl_contracts): Ditto.
+	(duplicate_decls): Remove DECL_CONTRACTS assignment.
+	* parser.c (cp_parser_contracts): Always call merge_contracts even if
+	the new declarator doesn't have any.
+	* pt.c (tsubst_contract_conditions): Bail early if we don't have
+	contracts. Otherwise rebuild DECL_DEFERRED_CONTRACTS entirely.
+	* search.c (check_final_overrider): When inheriting contracts from a
+	basefn, store basefn as the source of the contracts.
+	* semastics.c (build_unchecked_function_declaration): Clear
+	DECL_DEFERRED_CONTRACTS instead of DECL_CONTRACTS.
+
+	Fix guarded ctors & dtors.
+	* cp-tree.h (DECL_CDTOR_NEEDS_LABLED_EXIT_P): New.
+	* decl.c (start_preparsed_function): Use the above.
+	(finish_constructor_body): Emit postconditions immediately after the
+	cdtor label.
+	(finish_destructor_body): Ditto.
+	(begin_destructor_body): Emit preconditions at the start of the dtor.
+	(cp_contract_sentinel): Clobber this usage in certain contexts. Now
+	takes the FUNCTION_DECL the pre/post appertains to.
+	(cp_parser_contract_condition): Now takes the FUNCTION_DECL the
+	pre/post contract appertains to.
+	(cp_parser_function_body): Remove unneeded logic around dtors.
+	(cp_parser_late_parsing_for_contract): Update usage of
+	cp_parser_contract_condition.
+	* semantics.c (emit_contract_conditions): Return early if there is
+	nothing to emit.
+	(finish_return_stmt): Use DECL_CDTOR_NEEDS_LABLED_EXIT_P.
+	(finish_mem_initializers): Fix style.
+	(finish_this_expr): Add special case error when trying to use this
+	pointer in ctor pre and dtor post.
+
+	* decl.c (match_contracts): Style fixes. Remove
+	contract_matching_context param as this is only called for redecls.
+	(merge_contracts): Only emit an error when applying contracts to
+	deduced return functions if any of our postconditions name the return,
+	the function isn't defined, and it's not a template.
+	(match_deferred_contracts): Do nothing if there are still deferred
+	contracts.
+	* parser.c (cp_parser_late_parsing_for_contract): Further defer
+	postconditions using the return value on non-template undeduced auto
+	functions.
+	(cp_parser_late_parsing_for_contracts): Move the call to
+	build_unchecked_result up to before we switch from the template to
+	function decl in the case of a template function.  Attempt to parse
+	any earlier deferred contracts here as well.
+	(cp_parser_late_parsing_for_member): Move the call to
+	cp_parser_late_parsing_for_contracts to before we get the function
+	decl from a template function.
+	* pt.c (tsubst_contract_conditions_r): Renamed from
+	tsubst_contract_conditions.
+	(tsubst_contract_conditions): Now calls tsubst_contract_conditions_r
+	after rebuilding the DECL_UNCHECKED_RESULT and setting up a
+	local specialization for it.
+	(instantiate_decl): Call tsubst_contract_conditions either before or
+	after substituting the function body depending on whether we will emit
+	contracts while substituting the body (ctors) or whether we will need
+	the deduced return type (non ctors).
+	* semantics.c (build_unchecked_result): Do not build a result for
+	non-template undeduced auto functions. Do build a result for template
+	undeduced functions despite looking like void at the time.
+	(build_unchecked_function_declaration): As we no longer split during
+	template instantiation, we do not need to clear vars from a transient
+	state.
+
+2019-09-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* decl.c (finish_function): When processing a guarded function that
+	needs split, split it here. Fork before genericization and then finish
+	the unchecked decl just before returning.
+	* cp-tree.h (DECL_CHECKED_DECL): Remove.
+	* friend.c (is_friend): Remove DECL_CHECKED_DECL logic.
+	* parser.c (cp_parser_maybe_guarded_function_definition): Remove.
+	(cp_parser_function_definition_from_specifiers_and_declarator): Update
+	to call cp_parser_function_definition_after_declarator directly.
+	(cp_parser_late_parsing_for_member): Ditto.
+	(cp_parser_function_definition_after_declarator): Ensure contracts are
+	fully parsed before calling finish_function.
+	* pt.c (instantiate_decl): Remove logic to split guarded functions.
+	Simply instantiate the contracts and then let finish_function handle
+	it.
+	* semantics.c (build_checked_function_definition): Rebuild locals and
+	parm references in the unchecked function's body to point at the
+	unchecked function.
+	(build_unchecked_function_declaration): Remove DECL_CHECKED_DECL
+	handling.
+
+2019-09-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Delay parsing and attaching contracts to FUNCTION_DECLs until after we
+	initially grok the declarator. This simplifies the duplicate_decls and
+	friend checking logic and provides a common place match deferred
+	contracts.
+	* cp-tree.h (match_contracts): Remove.
+	(match_conract_conditions): Ditto.
+	(merge_contracts): New.
+	(match_deferred_contracts): New.
+	(build_unchecked_result): New.
+	* decl.c (diagnose_mismatched_contracts): Style fix.
+	(diagnose_mismatched_contracts): Use location of original contract
+	condition, not the fully folded form used to compare them.
+	(diagnose_contracts_after_definition): Now accepts the old decl and
+	only the location from the new one as we don't always have the new
+	one.
+	(match_contract_conditions): Ditto.
+	(match_contracts): Ditto.
+	(merge_contracts): New.
+	(match_deferred_contracts): New.
+	(remap_decl_contracts): Return early if there are no contracts.
+	(duplicate_decls): Remove almost all special handling of contract
+	related fields. Simply keep the ones already present, remapping to the
+	new parm values if necessary. When redeclaring without a definition,
+	save the updated parm names for use in parsing the contracts.
+	(grokfndecl): Remove contract handling code.
+	(grokdeclarator): Ditto.
+	* decl2.c (check_classfn): Remove contract checking for friend decls.
+	* parser.c (find_innermost_function_declarator): New.
+	(function_declarator_p): Use the above.
+	(cp_parser_std_attribute_spec): Remove declarator param.
+	(cp_parser_std_attribute_spec_seq): Ditto.
+	(cp_parser_contracts): New.
+	(cp_parser_late_parsing_for_post_contracts): Remove.
+	(cp_contract_sentinel): Style fixes. Rename result var back to __r and
+	clear its context in the dtor.
+	(cp_parsing_friend): Remove.
+	(cp_friend_sentinel): Ditto.
+	(cp_parser_init_declarator): Add call to cp_parser_contracts after
+	groking the declarator.
+	(cp_parser_member_declaration): Ditto.
+	(cp_parser_function_definition_from_specifiers_and_declarator): Ditto.
+	(cp_parser_save_member_function_body): Ditto.
+	(cp_parser_direct_declarator): Remove usage of cp_friend_sentinel,
+	don't thread the declarator further down.
+	(cp_parser_std_attribute_spec): Ditto.
+	(cp_parser_std_attribute_spec_seq): Ditto.
+	(cp_parser_contract_attribute_spec): Always delay parsing of pre and
+	post contracts when building the declarator.
+	(decl_active_contracts_p): Remove.
+	(remap_postcondition_identifier): Remove.
+	(remap_postconditions): Remove.
+	(cp_parser_late_parsing_for_post_contract): Renamed to:
+	(cp_parser_late_parsing_for_contract): Handle late parsing for any
+	deferred contract condition.
+	(cp_parser_late_parsing_for_contracts): Properly reset global state.
+	Use cp_parser_late_parsing_for_contract. Call match_deferred_contracts
+	to compare any now-fully parsed contracts.
+	(cp_parser_maybe_guarded_function_definition): Use updated contract
+	parsing functions.
+	(cp_parser_late_parsing_for_member): Ditto.
+	* pt.c (instantiate_decl): Use build_unchecked_result to build
+	concretely typed unchecked result when instantiating guarded function.
+	* semantics.c (build_unchecked_result): New.
+	(build_unchecked_result_decl): Split from the original
+	build_unchecked_result. Adds the unchecked result to the current
+	scope.
+	(get_contracts_internal_decl_name): Update unchecked function's name
+	prefix.
+	(build_unchecked_call): Use build_unchecked_result_decl.
+	(build_checked_function_definition): Don't clobber the original
+	DECL_UNCHECKED_RESULT.
+	(build_postcondition_variable): Simply rename the existing result
+	VAR_DECL instead of building a new one each time.
 
 2019-09-01  Marek Polacek  <polacek@redhat.com>
 
@@ -2627,6 +2903,19 @@
 	* typeck.c (warn_for_null_address): Use fold_for_warn instead of
 	fold_non_dependent_expr.
 	(cp_build_binary_op): Likewise.
+
+2019-08-30  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix contract condition parsing to allow the ternary operator and
+	insertion of explicit conversion operations.
+	* cp-tree.h (CONTRACT_CONDITION): Fix comment.
+	* parser.c (cp_parser_conditional_expression): Outlined from
+	cp_parser_constant_expression.
+	(cp_parser_constant_expression): Use above.
+	(cp_parser_contract_condition): Ditto.
+	* semantics.c (finish_contract): Use maybe_convert_cond to allow
+	inserting explicit conversion operators when converting condition to
+	bool.
 
 2019-08-30  Jason Merrill  <jason@redhat.com>
 
@@ -2644,6 +2933,82 @@
 	(grokdeclarator): Adjust call.
 	* pt.c (tsubst_decl): Likewise.
 	* cp-tree.h: Adjust declaration.
+
+2019-08-28  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* decl.c (grokfndecl): Sorry when trying to use contracts on deduced
+	return type functions.
+
+2019-08-28  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fully handle deferred parsing of contract conditions including delayed
+	matching for redecls.
+	* cp-tree.h (CONTRACT_CONDITION_DEFERRED_P): New.
+	(lang_decl_fn): New fields for the unchecked result and deferred
+	contracts, if any.
+	(DECL_UNCHECKED_RESULT): New.
+	(DECL_DEFERRED_CONTRACTS): New.
+	(cp_contract_return_value): New.
+	(contract_matching_context): Style fix.
+	(match_contract_conditions): New.
+	(contract_any_deferred_p): New.
+	* decl.c: Cleanup dead code.
+	(diagnose_mismatched_contracts): Two deferred contracts are
+	initially considered equal.
+	(match_contract_conditions): New. Extracted from match_contracts.
+	Compare two lists of contracts without requiring a FUNCTION_DECL --
+	used for deferred checking when duplicate decls have been lost.
+	(match_contracts): Call the above.
+	(remap_decl_contracts): New; update PARM_DECL references in a list of
+	contracts.
+	(duplicate_decls): Prefer contracts from the old decl if they exist.
+	Handle merging deferred contract lists. Use remap_decl_contracts.
+	(grokfndecl): Setup DECL_DEFERRED_CONTRACTS when a function has
+	deferred contracts.
+	* parser.c: Cleanup dead code.
+	(cp_parser_late_parsing_for_post_contracts): New. Parse any pending
+	post contracts and finish matching contracts.
+	(cp_contract_return_value): New, points to the current "return value"
+	decl when parsing a postcondition.
+	(cp_contract_sentinel): Now creates and sets cp_contract_return_value
+	when parsing a postcondition.
+	(cp_parser_contract_condition): Now takes the result decl that should
+	be used as the initial value of the cp_contract_return_value
+	temporary.
+	(cp_parser_ctor_initializer_opt): Cleanup dead code.
+	(cp_parser_mem_initializer_list): Ditto.
+	(cp_parser_contract_attribute_spec): Defer parsing post contracts.
+	(remap_postcondition_identifier): New.
+	(remap_postconditions): New.
+	(cp_parser_late_parsing_for_post_contract): New.
+	(cp_parser_late_parsing_for_post_contracts): New.
+	(cp_parser_maybe_guarded_function_definition): Call
+	cp_parser_late_parsing_for_post_contracts and remap_postconditions.
+	Finish the checked function here.
+	(cp_parser_late_parsing_for_contracts): Defer parsing of post
+	contracts until cp_parser_late_parsing_for_post_contracts is called.
+	(cp_parser_late_parsing_for_member): Call
+	cp_parser_late_parsing_for_post_contracts.
+	* pt.c (instantiate_template_1): Cleanup dead code.
+	(instantiate_decl): Build the final concrete DECL_UNCHECKED_RESULT and
+	remap all references to temporary postcondition identifiers to it when
+	substituting through contracts.
+	* search.c (check_final_overrider): Style fixes. Defer contract
+	matching when comparing against an overridee.
+	* semantics.c (build_unchecked_result): Use the VAR_DECL created ahead
+	of time. Simply add the actual declaration to the current tree.
+	(build_unchecked_call): Now takes the checked FUNCTION_DECL to pass to
+	the above.
+	(build_checked_function_definition): Save the result of the above in
+	DECL_UNCHECKED_RESULT.
+	(finish_postcondition_statement): Do not add the finish compound
+	statement to the current statement list.
+	(build_postcondition_variable): Do not add the decl to the current
+	statement list; instead save it back into POSTCONDITION_IDENTIFIER and
+	short circuit if we already have a var decl there.
+	(contract_any_deferred_p): New.
+	(process_outer_var_ref): Allow references to the post contract result
+	var.
 
 2019-08-28  Marek Polacek  <polacek@redhat.com>
 
@@ -2774,6 +3139,19 @@
 	PR c++/91304 - prefix attributes ignored in condition.
 	* parser.c (cp_parser_condition): Handle prefix attributes.
 
+2019-08-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* decl.c (duplicate_decls): Temporarily use new contracts when both
+	decls have them.
+	* parser.c (cp_contract_sentinel): Inject this parameter when parsing
+	pre & post on a member function.
+	(cp_parser_direct_declarator): Syntax fix.
+	(cp_parser_maybe_guarded_function_definition): Do not try to split
+	ctors and dtors.
+	* semantics.c (finish_non_static_data_member): Add a special case to
+	allow member references without a proper this param when parsing a
+	contract condition.
+
 2019-08-21  Richard Sandiford  <richard.sandiford@arm.com>
 
 	PR c++/91505
@@ -2848,6 +3226,38 @@
 	(start_function): Adjust.
 	(grokmethod): Likewise.
 
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* decl.c (match_contracts): Emit an error when trying to add contracts
+	to a virtual method. Warn when adding contracts and
+	-fcontract-strict-declarations is on.
+	(start_decl): Remove references to flag_contract_generalized_redecl.
+
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* decl2.c (check_classfn): Handle member friend decl contract maching
+	and merging.
+
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (cp_parser_maybe_guarded_function_definition): Finish and
+	expand_or_defer result of build_checked_function_definition.
+	* pt.c (instantiate_template_1): Do not substitute contracts here.
+	(instantiate_decl): Substitute contracts before building the checked
+	body. Save the unchecked body, substitute through it and build and
+	finish the unchecked function as well.
+	* semantics.c (build_unchecked_function_declaration): Unset some
+	template info that might be set on the checked function during
+	instantiate_decl.
+	(build_checked_function_definition): Do not finish the
+	built function.
+
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (cp_parser_contract_attribute_spec): Completely parse and
+	throw away contracts pre-c++20. Prevents junk being left in the token
+	stream. Update message to match related error messages.
+
 2019-08-13  Richard Sandiford  <richard.sandiford@arm.com>
 
 	PR middle-end/91421
@@ -2875,6 +3285,75 @@
 	diagnostics for declare target with clauses nested in clause-less
 	declare target declaration-definition-seq.
 	* semantics.c (finish_omp_clauses): Handle OMP_CLAUSE_DEVICE_TYPE.
+
+2019-08-09  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Rework guarded member and redecl contract handling.
+	* decl.c: Style fixes.
+	(diagnose_mismatched_contracts): Compare fully folded contract
+	conditions for mismatches.
+	(duplicate_decls): Throw away mismatching contracts to prevent
+	spurious errors. Remap contract PARM references as needed.
+	* parser.c (cp_parser_cache_contract_condition): New.
+	(cp_parser_late_parsing_for_contracts): New.
+	(cp_parsing_friend): New.
+	(cp_friend_sentinel): New.
+	(cp_parser_direct_declarator): Create cp_friend_sentinel if parsing a
+	friend.
+	(cp_parser_member_declaration): Queue members with contracts for late
+	contract parsing when finishing the type.
+	(cp_parser_contract_attribute_spec): Do not immediately parse
+	contracts on non-friend member decls.
+	(begin_contract_scope): New.
+	(cp_parser_late_parsing_for_member): Use
+	cp_parser_late_parsing_for_contracts to ensure late contract parsing
+	is done.
+	* pt.c: Style fixes.
+	(instantiate_decl): Do not hijack ctor template bodies.
+	* search.c (check_final_overrider): When overriding a guarded member
+	without restating contracts, copy the basefn's contracts.
+	Temporarily disable contract matching on guarded virtual members.
+
+2019-08-09  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* semantics.c (build_checked_function_definition): Emit postconditions
+	instead of emitting preconditions twice.
+
+2019-08-09  Andrew Sutton  <asutton@lock3software.com>
+
+	Don't fork template definitions.
+
+	Just instantiate the attributes of template definitions. When we
+	instantiate the function definition (i.e., generate a concrete
+	function), then we fork the guarded function into checked and
+	unchecked entry points.
+
+	Re-organize a bunch of code to simplify the hijacking of guarded
+	function definitions.
+	* cp-tree.h (start_checked_function_definition): No longer extern.
+	(finish_checked_function_definition): Ditto.
+	(build_unchecked_call): Ditto.
+	(build_checked_function_definition): Newly extern.
+	* parser.c (copy_fn_decl): Move to semantics.
+	(get_contracts_internal_decl_name): Ditto.
+	(get_contracts_internal_ident): Ditto.
+	(build_unchecked_decl): Ditto.
+	(is_start_of_assertion_p): Removed.
+	(is_start_of_contract_p): Removed.
+	(cp_parser_maybe_guarded_function_definition): Extract checked
+	function building logic into build_checked_function_definition. Do not
+	fork templates here.
+	* pt.c (tsubst_contract): New.
+	(tsubst_expr): Use tsubst_contract.
+	(tsubst_contract_conditions): New.
+	(instantiate_template_1): Substitute contract conditions for function
+	templates.
+	(instantiate_decl): Hijack guarded template bodies by replacing them
+	with the result of build_checked_function_definition. No need to
+	special case ctor template contract substitution.
+	* semantics.c (build_checked_function_definition): New.
+	(process_outer_var_ref): Allow using a PARM_DECL in contract
+	conditions.
 
 2019-08-09  Jakub Jelinek  <jakub@redhat.com>
 
@@ -2909,6 +3388,50 @@
 	OMP_CLAUSE_USE_DEVICE_* clauses use oacc_reduction_head bitmap
 	instead of generic_head to track duplicates.
 
+2019-08-07  Andrew Sutton  <asutton@lock3software.com>
+
+	Initial rework on preconditions, postconditions, and redeclaration.
+
+	Make sure that contract conditions are properly attached to
+	declarations, and compared during redeclaration. Comparison uses tree
+	equivalence rather than token equivalence.
+
+	Contracts are compared after making the decision whether they can
+	be merged. This greatly simplifies processing.
+
+	Add mode flags for comparing contracts during redeclaration and
+	override checks.
+
+	* cp-tree.h (contracts_match): Renamed to match_contracts; now takes a
+	contract_matching_context for emitting diagnostics.
+	(contract_matching_context): New.
+	* decl.c (diagnose_mismatched_contracts): New.
+	(diagnose_contracts_after_definition): New.
+	(match_contracts): Use the above to diagnose mismatching contracts.
+	(duplicate_decls): Move contract matching further down.
+	* decl2.c (check_classfn): Temporarily disable friend contract
+	matching/merging.
+	* parser.c (cp_contract_assertion_p): New.
+	(cp_contract_condition_p): New.
+	(make_call_declarator): Use cp_separate_contracts.
+	(cp_parser_statement): Update var naming. Use emit_assertion.
+	(cp_parser_maybe_guarded_function_definition): Ditto.
+	* pt.c: Style fixes.
+	* search.c (check_final_overrider): Enable override contract matching
+	when basefn and overrider both have contract specified.
+	* semantics.c: Style and naming fixes.
+	(contract_code_p): Removed.
+
+2019-08-07  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* constexpr.c (cxx_eval_constant_expression): Do not try to evaluate
+	ignored or unimplemented assume semantic contracts.
+	* semantics.c (contract_active_p): Don't handle flag_contract_mode.
+	(build_contract_check): Ditto.
+	(start_contract): Uniformly handle flag_contract_mode as setting the
+	computed semantic to ignore so we don't have to handle the flag
+	anywhere else.
+
 2019-08-07  Marek Polacek  <polacek@redhat.com>
 
 	PR c++/81429 - wrong parsing of constructor with C++11 attribute.
@@ -2940,6 +3463,110 @@
 	pointer or array or reference to pointer or array type. Handle
 	OMP_CLAUSE_USE_DEVICE_ADDR.
 	* pt.c (tsubst_omp_clauses): Handle OMP_CLAUSE_USE_DEVICE_ADDR.
+
+2019-08-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cp-gimplify.c (cp_genericize_r): Mark the current function as
+	potentially throwing when genericizing a contract statement.
+	* semantics.c (build_contract_handler_dummy_try_rethrow): Removed.
+	(build_contract_check): Do not build any dummy try/rethrow around
+	contract violation handler invocation.
+
+2019-08-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* constexpr.c (cxx_eval_constant_expression): Only report contract
+	violations when we're not being quiet.
+
+2019-08-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix bootstrap compile issues.
+	* decl.c (contracts_match): Use parms.
+	* parser.c: ifdef out temporarily unused (to be deleted?) decls and
+	definitions.
+	(cp_contract_sentinel): Remove name from unused parm.
+	(cp_parser_contract_attribute_spec): Ditto.
+	* semantics.c: ifdef out unused contract_code_p.
+
+2019-08-06  Andrew Sutton  <asutton@lock3software.com>
+
+	Major rewrite of contracts.
+
+	Redesign how contracts are represented, parsed, and generated. Still
+	working on fixing diagnostics and repairing damage in lots of different
+	places.
+	* constexpr.c: Update references from _CONTRACT to _STMT trees.
+	(cxx_eval_constant_expression): Directly evaluate the contract condition
+	instead of the generated check.
+	* cp-gimplify.c (cp_genericize_r): Update to _STMT contract trees.
+	Build the contract check during genericization instead of earlier.
+	* cp-objcp-common.c: Update to _STMT contract trees.
+	* cp-tree.def: Replace _CONTRACT exceptional nodes with tcc_stmt
+	nodes.
+	* cp-tree.h: Update to _STMT contract trees.
+	(get_contract_semantic): New.
+	(set_contract_semantic): New.
+	(CONTRACT_LITERAL_MODE_P): New.
+	(CONTRACT_LITERAL_SEMANTIC): New.
+	(CONTRACT_MODE): New.
+	(POSTCONDITION_IDENTIFIER): New.
+	(CONTRACT_GEN_CHECK): Removed.
+	(CONTRACT_LOCATION): Removed.
+	(tree_contract): Removed.
+	(cp_tree_node_structure_enum): Remove TS_CP_CONTRACT.
+	(cp_contract_operand): New.
+	(build_assertion): Removed.
+	(build_precondition): Removed.
+	(build_postcondition): Removed.
+	(emit_contract_statements): Now static to semantics.
+	(start_contract): New.
+	(finish_contract): New.
+	(emit_assertion): New.
+	(emit_precondition): New.
+	(emit_postcondition): New.
+	* decl.c (grokdeclarator): Replace usage of CONTRACT_LOCATION.
+	(cp_tree_node_structure): Remove _CONTRACT tree node cases.
+	* parser.c: Unify contract parsing.
+	(cp_parser_contract_conditions): Removed.
+	(is_contract_attribute_p): Renamed to contract_attribute_p.
+	(cp_separate_contracts): New.
+	(cp_parser_statement): Rework assertion on null statement logic. Add
+	the assertion to the current tree later.
+	(cp_contract_sentinel): New.
+	(cp_parser_contract_condition): Simplify parsing logic; use sentinel.
+	(cp_parser_contract_role): Return role identifier instead of role
+	pointer. Take contract_mode out parm.
+	(cp_parser_contract_mode_opt): Now returns a configuration tree.
+	(cp_parser_contract_attribute_spec): Now takes the cp_declarator the
+	contracts will be applied to. Immediately parse pre and post
+	contracts.
+	(cp_parser_std_attribute_spec): Now takes the cp_declarator the
+	attributes apply to; threads it into
+	cp_parser_contract_attribute_spec.
+	(cp_parser_std_attribute_spec_seq): Ditto.
+	(cp_parser_maybe_guarded_function_definition): Only emit the
+	contracts -- they should already be parsed.
+	* pt.c: Update to _STMT contract trees.
+	(tsubst_expr): Call finish_contract in lieu of setting comment,
+	condition, and building the generated check here.
+	(instantiate_decl): Cleanup tsubst'ing ctor template contracts.
+	* search.c (check_final_overrider): Temporarily don't handle guarded
+	virtual member contracts here.
+	* semantics.c (build_postcondition_variable): Use
+	POSTCONDITION_IDENTIFIER macro.
+	(get_contract_level_name): Inspect CONTRACT_LITERAL_MODE_P and
+	CONTRACT_MODE instead of CONTRACT_LEVEL.
+	(get_contract_role_name): Ditto.
+	(get_contract_comment): New. Stringify contract condition.
+	(contract_active_p): Handle new contract_attr layout.
+	(build_contract_check): Use new macros. Use get_contract_comment.
+	(contract_code_p): New.
+	(start_contract): Handle building initial values for contract
+	statements, determining configured semantic, etc.
+	(finish_contract): Handle logic required when assigning a final parsed
+	condition to a contract.
+	(finish_mem_initializers): Use emit_preconditions.
+	(finish_id_expression_1): Treat cp_contract_operands as
+	cp_unevaluated_operands for use of parameters outside function body.
 
 2019-08-06  Jason Merrill  <jason@redhat.com>
 
@@ -3117,6 +3744,27 @@
 	PR driver/80545
 	* decl.c (finish_function): Use lang_mask.
 
+2019-07-21  Andrew Sutton  <asutton@lock3software.com>
+
+	Update postcondition diagnostics.
+	* parser.c (cp_parser_postcondition): Give a better diagnostic.
+
+2019-07-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix guarded friends.
+	* cp-tree.h (lang_decl_fn): Add checked_decl pointing to checked
+	version of unchecked decl.
+	(DECL_CHECKED_DECL): New, macro for above.
+	(merge_contracts): Now extern.
+	* decl.c (merge_contracts): Now extern. Handle the case where neither
+	decl has contracts. Handle olddecl being a TEMPLATE_DECL.
+	* decl2.c (check_classfn): After matching the function to the decl
+	inside ctype, ensure contracts match.
+	* friend.c (is_friend): When inspecting the unchecked version of a
+	guarded function, check instead that the guarded decl is a friend.
+	* parser.c (cp_parser_maybe_guarded_function_definition): Record
+	DECL_CHECKED_DECL for is_friend.
+
 2019-07-20  Jason Merrill  <jason@redhat.com>
 
 	* cp-tree.h (ovl_iterator::using_p): A USING_DECL by itself was also
@@ -3173,6 +3821,11 @@
 	* parser.c (cp_parser_nested_name_specifier_opt): If the token is
 	already CPP_NESTED_NAME_SPECIFIER, leave it alone.
 
+2019-07-15  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (cp_parser_contract_attribute_spec): Error if the compiling
+	with a pre-c++20 dialect.
+
 2019-07-12  Jakub Jelinek  <jakub@redhat.com>
 
 	* parser.c (cp_parser_omp_clause_name): Handle order clause.
@@ -3182,6 +3835,45 @@
 	PRAGMA_OMP_CLAUSE_ORDER.
 	* semantics.c (finish_omp_clauses): Handle OMP_CLAUSE_ORDER.
 	* pt.c (tsubst_omp_clauses): Likewise.
+
+2019-07-10  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Split guarded functions as late as possible.
+	* cp-tree.h (build_arg_list): Remove cp_declarator variant.
+	(lang_decl_fn): Remove pending_contract_inner related data.
+	(DECL_CONTRACT_INNER_FN_DECLARED): Removed.
+	(DECL_PENDING_CONTRACT_INNER_FN): Removed.
+	(copy_contract_statement): Removed.
+	* decl.c (duplicate_decls): Remove references to
+	DECL_CONTRACT_INNER_FN_DECLARED.
+	* parser.c (copy_declarator): Removed.
+	(copy_fn_decl): Now handles DECL_RESULT as well.
+	(build_contracts_internal_declarator): Removed.
+	(cp_parser_contracts_internal_function): Removed.
+	(find_contracts_in_overridees): Removed.
+	(find_contracts): Removed.
+	(find_function_declarator): Removed.
+	(cp_parser_member_declaration): Remove contracts related handling.
+	(decl_active_contracts_p): New: returns true if function needs split.
+	(build_unchecked_decl): New: directly build the unchecked
+	FUNCTION_DECL from the checked one.
+	(cp_parser_maybe_guarded_function_definition): New: for an unguarded
+	function simply parse a function definition; for a guarded function
+	build the checked function and parse the unchecked definition.
+	(cp_parser_template_declaration_after_parameters): Remove contracts
+	handling logic.
+	(cp_parser_function_definition_from_specifiers_and_declarator): Remove
+	most contracts handling logic; now calls
+	cp_parser_maybe_guarded_function_definition instead of
+	cp_parser_function_definition_after_declarator.
+	(cp_parser_late_parsing_for_member): Ditto.
+	* pt.c (instantiate_decl): Do not perform access checks when
+	instantiating the checked form of a guarded function.
+	* semantics.c (build_arg_list): Remove cp_declarator variant.
+	(build_unchecked_result): Rename return var to __l3_r so it isn't
+	conflated with DECL_RESULT.
+	(build_unchecked_call): Never generate virtual calls to the unchecked
+	function.
 
 2019-07-10  Paolo Carlini  <paolo.carlini@oracle.com>
 
@@ -3284,6 +3976,35 @@
 	* rtti.c (build_headof): Likewise.
 	* typeck.c (convert_for_initialization): Likewise.
 
+2019-06-26  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* cp-tree.h (cp_tree_defined_p): New.
+	(build_assertion): Now takes a cp_token_cache instead of a preparsed
+	condition.
+	* decl2.c (cp_tree_defined_p_r): New helper.
+	(cp_tree_defined_p): New. Returns true if a tree only references
+	entities with definitions.
+	* parser.c (cp_parser_contract_condition): Parse ignored and assumed
+	contracts as unevaluated operands.
+	(cp_parser_contract_conditions): Don't choke on error_mark_node.
+	(cp_parser_contract_attribute_spec): Always save the contract
+	condition tokens -- even for asserts. Immediately parse asserts. This
+	unifies the parsing logic for contract conditions between assert, pre,
+	and post.
+	* semantics.c (build_contract_check): Turn assume semantic contracts
+	whose conditions reference undefined entities into NOPs.
+	(build_assertion): Now takes a cp_token_cache instead of a preparsed
+	condition.
+
+2019-06-25  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Allow generalized member redecl without contracts.
+	* decl.c (start_decl): Error when redeclaring a member outside the
+	class definition if generalized redecl is off or the member is
+	virtual.
+	* parser.c (cp_parser_member_declaration): Do not try to split a
+	guarded function if the checked decl encountered an error.
+
 2019-06-25  Jason Merrill  <jason@redhat.com>
 
 	PR c++/70462 - unnecessary base ctor variant with final.
@@ -3308,6 +4029,32 @@
 	C incompatibility if alternate "__intN__" form is used.
 	* parser.c (cp_parser_simple_type_specifier): Set
 	decl_specs->int_n_alt if "__intN__" form is used.
+
+2019-06-24  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Changes to support guarded members of class templates and guarded
+	member templates of class templates.
+	* cp-tree.h (unshare_template): New.
+	* parser.c (get_contracts_internal_ident): Now also takes the
+	qualifying scope to resolve template identifiers.
+	(build_contracts_internal_declarator): Update usage of the above.
+	(cp_parser_contracts_internal_function): Handle broken decls better.
+	Extract template unsharing logic -- call unshare_template instead.
+	(find_contracts): Handle finding contracts for template
+	specializations.
+	(cp_parser_function_definition_from_specifiers_and_declarator): Handle
+	failure to parse the unchecked function as though the function no
+	longer has contracts.
+	(copy_fn_decl): New. Copy a FUNCTION_DECL and fixup its PARM_DECLs.
+	(cp_parser_template_declaration_after_parameters): Handle splitting
+	guarded member template functions.
+	(cp_parser_late_parsing_for_member): Do not perform access checking
+	when building a checked member if we're actively processing a template
+	decl.
+	* pt.c (unshare_template): New. Create and link a new independent copy
+	of the TEMPLATE_DECL and TEMPLATE_INFO of a FUNCTION_DECL. This is
+	used to create the template related trees when we duplicate a guarded
+	function to create the unchecked function.
 
 2019-06-24  Jan Hubicka  <jh@suse.cz>
 
@@ -3419,6 +4166,11 @@
 	* decl.c (grokdeclarator): Use id_loc, typespec_loc, and
 	locations[ds_storage_class] in a few additional places.
 
+2019-06-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (find_contracts): Handle cv qualifiers and static on member
+	functions when inserting unchecked decl on a redeclaration.
+
 2019-06-21  Paolo Carlini  <paolo.carlini@oracle.com>
 
 	PR c++/90909
@@ -3469,6 +4221,12 @@
 
 	* cp-gimplify.c (cp_genericize_r): Handle OMP_CLAUSE_{IN,EX}CLUSIVE
 	like OMP_CLAUSE_SHARED.
+
+2019-06-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* decl.c (merge_contracts): Optionally warn about declarations that
+	require the generalized redecl switch.
+	(start_decl): Ditto.
 
 2019-06-18  Jason Merrill  <jason@redhat.com>
 
@@ -3611,6 +4369,12 @@
 	* pt.c (tsubst_omp_clauses): Handle OMP_CLAUSE_{IN,EX}CLUSIVE.
 	(tsubst_expr): Handle OMP_SCAN.
 
+2019-06-09  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (cp_parser_contract_condition): Do not perform access
+	checks in contract conditions.
+	* pt.c (tsubst_expr): Ditto.
+
 2019-06-07  Jason Merrill  <jason@redhat.com>
 
 	* constexpr.c (cxx_eval_constant_expression): Call
@@ -3654,6 +4418,12 @@
 	* typeck.c (cp_build_binary_op): Same.
 	(build_static_cast_1): Same.
 
+2019-06-04  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Make unchecked functions non-variadic.
+	* parser.c (build_contracts_internal_declarator): Don't copy the
+	void_list_node at the end of the parameter array.
+
 2019-06-04  Nina Dinka Ranns  <dinka.ranns@gmail.com>
 
 	PR c++/63149 - Wrong auto deduction from braced-init-list.
@@ -3689,6 +4459,102 @@
 	* cp-tree.h (CP_OMP_CLAUSE_INFO): Allow for any clauses up to _condvar_
 	instead of only up to linear.
 
+2019-06-03  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Initial work on postconditions.
+	* cp-tree.h (build_contracts_wrapper_function): Removed.
+	(start_checked_function_definition): New. Factored out of
+	build_contracts_wrapper_function.
+	(finish_postcondition_statement): Likewise.
+	(build_unchecked_call): Likewise.
+	(start_postcondition_statement): New.
+	(finish_postcondition_statement): New.
+	(build_postcondition_variable): New.
+	* parser.c (cp_parser_contract_condition): Take the contract, not
+	the tokens.
+	(cp_parser_contract_conditions): Take the current function in addition
+	to the contracts.
+	(cp_parser_preconditions): New.
+	(cp_parser_precondition): New.
+	(cp_parser_postconditions): New.
+	(cp_parser_postcondition): New.
+	(cp_parser_ctor_initializer_opt): Provide the function being parsed
+	to cp_parser_contract_conditions.
+	(cp_parser_mem_initializer_list): Likewise.
+	(cp_parser_function_body): Likewise.
+	(cp_parser_member_declaration): Formatting.
+	(cp_parser_member_declaration): Likewise.
+	(cp_parser_function_definition_from_specifiers_and_declarator):
+	Interleave parsing and semantic analysis to build the checked
+	function definition.
+	(cp_parser_late_parsing_for_member): Likewise.
+	* semantics.c (build_unchecked_result): New. Factored out of
+	build_contracts_wrapper_fn.
+	(start_checked_function_definition): Likewise.
+	(finish_checked_function_definition): Likewise.
+	(build_unchecked_call): Likewise.
+	(start_postcondition_statement): New.
+	(finish_postcondition_statement): New.
+	(build_postcondition_variable): New.
+	(emit_contract_statement): New. Factored out of
+	emit_contract_statements.
+	(emit_contract_statements): Split up function.
+
+2019-06-03  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (find_contracts): Handle adding decl of unchecked function
+	inside namespace after it's been closed.
+
+	Search through base classes and previous decls to find contracts.
+	* cp-tree.h (contracts_match): New.
+	(find_last_decl): Newly extern.
+	* decl.c (contracts_match): New.
+	(merge_contracts): New.
+	(duplicate_decls): Ensure contracts on redeclarations are compatible.
+	Merge them into the canonical decl.
+	* decl2.c (find_last_decl): Now extern.
+	* parser.c (find_contracts_in_overridees): New.
+	(find_contracts): New.
+	(cp_parser_contracts_conditions): Leave the pending token cache alone
+	for use in contracts_match.
+	(cp_parser_member_declaration): Search through base classes to find
+	inherited contracts.
+	(cp_parser_function_definition_from_specifiers_and_declarator): Use
+	find_contracts. Mark checked function inline.
+	* search.c (check_final_overrider): Emit diagnostics when contracts on
+	an overrider do not match their overridee. Copy contracts to the
+	overridee if required.
+
+2019-06-03  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix templates without dependent arguments and template ctors.
+	* parser.c (get_contracts_internal_ident): New.
+	(build_contracts_internal_declarator): Use the above.
+	(cp_parser_contracts_internal_function): Return error_mark_node if we
+	can't build the unchecked declarator. Return early if the unchecked
+	function fails to parse. Otherwise if it's a template, copy and
+	separate the DECL_TEMPLATE_INFO so the unchecked function isn't linked
+	to the checked function.
+	(cp_parser_function_definition_from_specifiers_and_declarator): Don't
+	generate the checked function if the unchecked function is broken.
+	* pt.c (instantiate_decl): Directly instatiate any contracts attached
+	to a template ctor.
+	* semantics.c (ensure_contract_generated): Allow the contract to still
+	have the tokens saved for the condition even if it's already parsed.
+	(finish_mem_initializers): Only emit pre contracts if any are active.
+
+2019-06-03  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Only split guarded functions if any contracts are active.
+	* cp-tree.h (contract_active_p): New.
+	(contract_any_active_p): New.
+	* parser.c (cp_parser_member_declaration): Only split functions
+	if any contracts are active.
+	(cp_parser_function_definition_from_specifiers_and_declarator): Ditto.
+	(get_contracts_internal_decl_name): New.
+	* semantics.c (contract_active_p): New.
+	(contract_any_active_p): New.
+
 2019-06-03  Paolo Carlini  <paolo.carlini@oracle.com>
 
 	* parser.c (cp_parser_unqualified_id): Use build_min_nt_loc in
@@ -3722,6 +4588,18 @@
 	* decl.c (grokdeclarator): Use declarator->id_loc in five
 	error_at calls.
 
+2019-05-30  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Look through entire declarator for contracts.
+	* decl.c (grokdeclarator): Look for contracts through the entire
+	declarator, but only at an actual function declarator.
+	* parser.c (copy_declarator): New.
+	(find_function_declarator): New.
+	(build_contracts_internal_declarator): Use the above. Include the void
+	node at the end of the parameter list in the unchecked declarator.
+	* semantics.c (build_arg_list): Look for the actual function
+	declarator to get the arg list for.
+
 2019-05-29  Jakub Jelinek  <jakub@redhat.com>
 
 	PR c++/90598
@@ -3745,6 +4623,67 @@
 	(grokdeclarator): Allow static, thread_local and __thread for C++2a
 	and use pedwarn instead of error for older standard revisions.
 	Make other structured binding diagnostic messages more i18n friendly.
+
+2019-05-28  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Fixing node initialization bug.
+	* cp-tree.h (tree_contract): Only store the contract role name.
+	Make the struct parsable by gengtype.
+	(cp_tree_node_structure_enum): Add TS_CP_CONTRACT.
+	* decl.c (cp_tree_node_structure): Handle contract cases.
+	* semantics.c (get_contract_role_name): Return the role name.
+	(set_contract_mode): Set only the role name.
+
+2019-05-28  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Update parsing and semantics.
+	* constexpr.c (cxx_eval_constant_expression): Use new macros; add
+	cases for pre/post.
+	* (potential_constant_expression_1): Likewise.
+	* cp-gimplify.c (cp_genericize_r): Likewise.
+	* cp-objcp-common.c (cp_tree_size): Likewise.
+	* cp-tree.h (CONTRACT_P): New.
+	(CONTRACT_CHECK): Check for pre- and post-conditions.
+	(ASSERT_CONTRACT_*): Renamed to CONTRACT_*.
+	(tree_assert_contract): Renamed to tree_contract.
+	(build_assertion): New.
+	(build_precondition): New.
+	(build_postcondition): New.
+	(finish_contract_condition): New.
+	(set_contract_comment): New.
+	(set_contract_condition): New.
+	(build_contract_check): New.
+	(emit_contract_statements): New.
+	* parser.c (make_call_declarator): Use CONTRACT_P.
+	(cp_parser_contract_condition): Move the matches of the attribute
+	end into a different function.
+	(cp_parser_contract_conditions): Kill spurious assertions.
+	* parser.c (is_contract_attribute_p): Only check pre/post/assert.
+	(cp_parser_contract_attribute): Remove checks against non-levels.
+	(cp_parser_contract_role): Make the role parsing non-optional.
+	(cp_parser_contract_mode_opt): Factor all of the mode parsing into
+	a single function.
+	(cp_parser_contract_attribute_spec): Remove interwoven parsing
+	code.
+	(cp_parser_function_definition_from_specifiers_and_declarator):
+	Formatting.
+	(cp_parser_seek_attribute_end): Clean up implementation.
+	* pt.c (tsubst_expr): Clean up instantiation code.
+	* semantics.c (build_contract_handler_fn): Cleanups.
+	(contract_level_names): Removed.
+	(get_contract_level_name): New; replaces contract_level_names.
+	(get_contract_role_name): New.
+	(build_contract_check): Renamed from generate_assert_check; moved
+	the mode processing code to the point of parsing.
+	(set_contract_mode): New; factored out of generate_assert_check.
+	(set_contract_comment): Likewise.
+	(set_contract_condition): Likewise.
+	(build_assertion): New.
+	(build_precondition): New.
+	(build_postcondition): New.
+	(build_contract_statement): Removed.
+	(ensure_contract_generated): Removed.
+	(emit_contract_statements): Ensure proper conditions for emitting code.
 
 2019-05-28  Nathan Sidwell  <nathan@acm.org>
 
@@ -3882,6 +4821,22 @@
 	PR c++/89433
 	* parser.c (cp_finalize_oacc_routine): Refer to OpenACC 'routine'
 	clauses from "omp declare target" attribute.
+
+2019-05-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Initial implementation of generalized redeclaration with contracts.
+	* cp-tree.h (lang_decl_fn): Add pending_contract_inner_fn_declared.
+	(DECL_CONTRACT_INNER_FN_DECLARED): New.
+	* decl.c (merge_contracts): Allow adding contracts on non-first
+	non-virtual decls when generalized redecl is enabled.
+	(duplicate_decls): Merge DECL_CONTRACT_INNER_FN_DECLARED fields.
+	(start_decl): Allow redeclaring a member outside a class if the
+	redeclaration adds contracts and generalized redecl is enabled.
+	* parser.c (cp_parser_member_declaration): Record whether the
+	unchecked version of a guarded function has definitely been declared.
+	(find_contracts): Insert a decl for the unchecked version of a guarded
+	function if required.
+	(cp_parser_late_parsing_for_member): Error? FIXME
 
 2019-05-16  Martin Sebor  <msebor@redhat.com>
 
@@ -4319,6 +5274,85 @@
 	PR translation/90011
 	* typeck2.c (check_narrowing): Remove trailing space from diagnostics.
 
+2019-04-08  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Initial implementation of pre contracts.
+	* cp-tree.def: Rename expects/ensures to pre/post.
+	* cp-gimplify.c (cp_genericize_r): Fix names of PRE_CONTRACT and
+	POST_CONTRACT.
+	* cp-tree.h (tree_assert_contract): Add location and type members.
+	Include a pending_condition member for contract conditions that have
+	delayed parsing.
+	(ASSERT_CONTRACT_LOCATION): New.
+	(ASSERT_CONTRACT_TYPE): New.
+	(ASSERT_CONTRACT_PENDING): New.
+	(lang_decl_fn): Add contracts and pending_contract_inner_fn members.
+	(DECL_CONTRACTS): New.
+	(DECL_PENDING_CONTRACT_INNER_FN): New.
+	(cp_declarator): Add contracts member.
+	(build_contracts_wrapper_function): New.
+	(build_arg_list): New.
+	(emit_contract_statements): New.
+	(build_contract_statement): Now also takes a location, tree_code and 
+	cp_token_cache *.
+	* decl.c (grokfndecl): Now also takes a list of contracts for guarded
+	functions and adds them to the resulting decl.
+	(grokdeclarator): Picks out contracts for function decls. Passes them
+	to grokfndecl.
+	* parser.c (make_call_declarator): Now also accepts a list of
+	attributes possibly containing contracts. Splits them out inside the
+	declarator.
+	(make_declarator): Sets contracts to NULL_TREE.
+	(cp_parser_lambda_declarator_opt): Uses make_call_declarator to set
+	attributes.
+	(cp_parser_direct_declarator): Ditto.
+	(cp_parser_statement): Adds the resulting assert contract if any is
+	parsed.
+	(cp_parser_contract_condition): New.
+	(cp_parser_contract_conditions): New.
+	(cp_parser_ctor_initializer_opt): Parses any remaining contract
+	conditions before finishing mem initializers.
+	(cp_parser_mem_initializer_list): Ditto.
+	(cp_parser_function_body): Parses any remaining contract conditions
+	and emits contracts before parsing a dtor body.
+	(get_contracts_internal_decl_name): New.
+	(build_contracts_internal_declarator): New.
+	(cp_parser_member_declaration): If the parsed member has contracts,
+	also declare an internal unchecked version of the function. If we have
+	a definition, move it to the unchecked function and store its decl.
+	(is_contract_attribute_p): Rename expects/ensures to pre/post.
+	(cp_parser_contract_attribute): Emit error if we parse something that
+	is not a contract instead of crashing.
+	(is_start_of_contract_p): New.
+	(cp_parser_contract_attribute_spec): Handle pre contracts. Save the
+	raw tokens of contract conditions for delayed parsing.
+	(cp_parser_std_attribute_specc): Call into
+	cp_parser_contract_attribute_spec when we see a pre/post contract.
+	(cp_parser_contracts_internal_function): New.
+	(cp_parser_function_definition_from_specifiers_and_declarator): If the
+	function we're about to parse has contracts, call
+	cp_parser_contracts_internal_function to parse it as the unchecked
+	function and then define the current function using
+	build_contracts_wrapper_function.
+	(cp_parser_late_parsing_for_member): If we are finishing a member with
+	contracts, build a new body using build_contracts_wrapper_function.
+	(cp_parser_seek_attribute_end): New.
+	* pt.c (tsubst_expr): Pass through the location and contract type. Add
+	the contract itself instead of the generated check.
+	* semantics.c (build_arg_list): New.
+	(build_contracts_wrapper_function): New.
+	(build_contract_handler_fn): Now accepts a location instead of using
+	input_location.
+	(build_contract_handler_dummy_try_rethrow): Now takes and passes
+	through a location.
+	(build_contract_statement): Now takes a location, type, and possibly
+	an unparsed contract condition. No longer immediately adds the
+	contract statement to AST.
+	(ensure_contract_generated): New.
+	(emit_contract_statements): New.
+	(finish_mem_initializers): Now emits ctor pre contracts immediately
+	before mem initializers if any exist.
+
 2019-04-08  Marek Polacek  <polacek@redhat.com>
 
 	* typeck2.c (digest_init_r): Don't condition the object slicing warning
@@ -4631,6 +5665,18 @@
 	(cxx_eval_constant_expression) <case SAVE_EXPR>: Call safe_push
 	method on save_exprs instead of add.
 
+2019-03-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Mark violation handler noreturn when continuation mode is never.
+	* cp-tree.h (enum cp_tree_index): Add CPTI_ON_CONTRACT_VIOLATION_NEVER
+	(on_contract_violation_never_fn): New macro for the above.
+	* except.c (init_exception_processing): Define a ECF_NORETURN version
+	of the contract violation handler for never continuing contracts.
+	* constexpr.c (cxx_eval_call_expression): Add a case for the never
+	continuing violation handler.
+	* semantics.c (build_contract_handler_fn): Call the never continuing
+	handler when appropriate.
+
 2019-03-13  Jason Merrill  <jason@redhat.com>
 
 	PR c++/86521 - C++17 copy elision in initialization by constructor.
@@ -4655,6 +5701,21 @@
 	* typeck.c (maybe_warn_pessimizing_move): Only accept (T &) &arg
 	as the std::move's argument.  Don't call convert_for_initialization
 	when warn_redundant_move isn't on.
+
+2019-03-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add ASSERT_CONTRACT handling to constexpr eval.
+	* constexpr.c (cxx_eval_constant_expression): Add a case for
+	ASSERT_CONTRACT that falls back onto the previous generic logic.
+	* cp-objcp-common.c (cp_common_init_ts): Mark ASSERT_CONTRACT as
+	TS_COMMON.
+	* cp-tree.h (tree_assert_contract): Add a const char *comment member
+	containing the pretty printed contract condition.
+	(ASSERT_CONTRACT_COMMENT): New macro for the above.
+	(ASSERT_CONTRACT_NODE): New.
+	* semantics.c (generate_assert_check): Save the contract comment.
+	(build_contract_statement): Set the assert_contract's TREE_TYPE to
+	void.
 
 2019-03-11  Jason Merrill  <jason@redhat.com>
 
@@ -5099,6 +6160,12 @@
 	* cp-gimplify.c (process_stmt_hotness_attribute): Take attrs_loc.
 	(genericize_if_stmt): Use likely/unlikely instead of predictor_name.
 
+2019-02-17  Wyatt Childers  <wchilders@lock3software.com>
+
+	Fix build error under clang.
+	* constexr.c (explain_constexpr_contract_violation): Add casts to long
+	int for the line number.
+
 2019-02-17  Marek Polacek  <polacek@redhat.com>
 
 	PR c++/89217 - ICE with list-initialization in range-based for loop.
@@ -5107,6 +6174,16 @@
 	* semantics.c (finish_compound_literal): When dealing with a
 	non-dependent expression in a template, return the original
 	expression.  Pass LOOKUP_NO_NARROWING to digest_init_flags.
+
+2019-02-14  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Improve error reporting for contract violation during constexpr.
+	* constexpr.c (+explain_constexpr_contract_violation): New. Emits
+	diagnostics for contract violations during constexpr eval.
+	(cxx_eval_call_expression): Intercept constexpr calls to the contract
+	violation function and use the above to diagnose the error.
+	* except.c (init_exception_processing): Mark the contract violation
+	functions as DECL_DECLARED_CONSTEXPR_P.
 
 2019-02-13  Marek Polacek  <polacek@redhat.com>
 
@@ -5145,6 +6222,11 @@
 	context (the first argument).
 	* pt.c (tsubst, case TYPENAME_TYPE): Handle TYPE_PACK_EXPANSION
 	as context.
+
+2019-02-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* parser.c (cp_parser_contract_role_opt): Treat invalid roles as the
+	default role instead of erroring.
 
 2019-02-12  Jason Merrill  <jason@redhat.com>
 
@@ -5219,6 +6301,16 @@
 	PR c++/87770
 	* pt.c (instantiates_primary_template_p): New.
 	(type_dependent_expression_p): Use it.
+
+2019-02-04  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* except.c (init_exception_processing): Move on contract violation
+	function from std to global namespace and rename it.
+
+2019-02-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* semantics.c (generate_assert_check): Update -fcontract-mode flag
+	name.
 
 2019-02-01  Jason Merrill  <jason@redhat.com>
 
@@ -5358,6 +6450,13 @@
 	* cp-gimplify.c (genericize_switch_stmt): Move cond genericization
 	before the begin_bc_block call.
 
+2019-01-22  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Implement -fcontracts-mode=[on|off] flag.
+	* semantics.c (generate_assert_check): If contracts mode is off,
+	immediately return a nop regardless of configured or explicitly
+	defined contract behavior.
+
 2019-01-21  Jason Merrill  <jason@redhat.com>
 
 	PR c++/87893 - constexpr ctor ICE on ARM.
@@ -5376,6 +6475,30 @@
 	* typeck.c (cp_build_binary_op): Don't instrument
 	SANITIZE_POINTER_COMPARE if processing_template_decl.
 	(pointer_diff): Similarly for SANITIZE_POINTER_SUBTRACT.
+
+2019-01-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Replace custom contract levels with configurable dynamic roles.
+	* contract.h: Rewritten/moved to c-family.
+	* cp-tree.h: Update location of contract.h.
+	(tree_assert_check): Add membre for concrete semantic, if specified.
+	(ASSERT_CONTRACT_SEMANTIC): New macro for above.
+	(generate_assert_check): Now takes the entire ASSERT_CONTRACT.
+	(build_contract_statement): Now also takes a concrete semantic.
+	* parser.c: Update location of contract.h.
+	(cp_parser_contract_level_opt): Now returns an enum contract_level.
+	Checks explicitly for concrete semantics.
+	(cp_parser_contract_role_opt): Now uses cpp_get_contract_role to
+	lookup custom roles.
+	(cp_parser_contract_attribute_spec): Now parses either an optional
+	level with an optional role or an explicit concrete semantic.
+	* pt.c (tsubst_expr): Pass through contract semantic.
+	* semantics.c: Update location of contract.h.
+	(generate_assert_check): Now maps roles to concrete semantics through
+	cpp_contract_roles. Retrieves information from ASSERT_CONTRACT tree
+	instead of individual arguments.
+	(build_contract_statement): Now also takes an enum
+	contract_concrete_semantic.
 
 2019-01-18  Jason Merrill  <jason@redhat.com>
 
@@ -5435,6 +6558,60 @@
 	PR c++/88146
 	* cvt.c (convert_to_void): Handle all cdtor calls as if
 	returning void.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Include role and semantic info in std::contract_violation
+	* cp-tree.h (generate_assert_check): Now takes a contract role.
+	* except.c (init_exception_processing): Contract violation handler now
+	takes a role (const string) and continuation mode (int).
+	* pt.c (tsubst_expr): Include contract role newly built
+	ASSERT_CONTRACTs.
+	* semantics.c (build_contract_handler_fn): Now takes and passes along
+	a role.
+	(build_contract_handler_dummy_try_rethrow): Ditto.
+	(generate_assert_check): Ditto.
+	(build_contract_statement): Passes role into generate_assert_check.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Parse an optional contract role in addition to level.
+	* contract.h (cpp_contract_level): Add bool concrete flag.
+	* cp-tree.h (tree_assert_contract): Add a const char *role member
+	storing the contract statement's role.
+	(ASSERT_CONTRACT_ROLE): New macro for the above.
+	(build_contract_statement): Now also takes takes a role.
+	* parser.c (cp_parser_contract_level_opt): Read an initial % as an
+	empty level (default).
+	(cp_parser_contract_role_opt): New.
+	(cp_parser_contract_attribute_spec): Try parsing an optional role
+	immediately after a contract level.
+	* semantics.c (build_contract_statement): Now also takes a role.
+	* c-opts.c (contract_build_levels): Include a bool concrete for each
+	of the hardcoded levels and concrete semantics.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* semantics.c (generate_assert_check): Handle concrete semantics in
+	lieu of a concrete level. These always map to the same
+	check/assume/ignore semantics regardless of other configuration.
+	(enum continuation_mode): New.
+	(build_contract_handler_fn): Now takes a continuation_mode. If the
+	continuation mode is ALWAYS_CONTINUE we call a version of the
+	violation helper that is marked pure and store its return value in a
+	dummy variable. The optimizer reads this as control always continuing
+	after the function. The call gets optimized entirely out too
+	frequently -- this is a fragile initial implementation.
+	(build_contract_handler_dummy_try_rethrow): Now takes a
+	continuation_mode and passes it directly onto the above.
+	(generate_assert_check): Now defines a continuation_mode based on
+	configured behavior and passes it to the above.
+	* cp-tree.h (cp_tree_index): Add CPTI_ON_CONTRACT_VIOLATION_ALWAYS to
+	hold a pure version of the contract violation function.
+	(on_contract_violation_always_fn): New macro expanding to above.
+	* except.c (init_exception_processing): Update the return type of the
+	contract violation fn to int. Define a pure version of the function
+	for use in check_always_continue.
 
 2019-01-16  Paolo Carlini  <paolo.carlini@oracle.com>
 

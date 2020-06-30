@@ -45,6 +45,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "gomp-constants.h"
 #include "predict.h"
 #include "memmodel.h"
+#include "print-tree.h"
+#include "c-family/contract.h"
 
 /* There routines provide a modular interface to perform many parsing
    operations.  They may therefore be used during actual parsing, or
@@ -539,6 +541,715 @@ end_maybe_infinite_loop (tree cond)
     }
 }
 
+/* Build and return an argument list using all the arguments passed to the
+   (presumably guarded) FUNCTION_DECL FN.  This can be used to forward all of
+   FN's arguments to a function taking the same list of arguments -- namely
+   the unchecked form of FN. */
+
+static vec<tree, va_gc> *
+build_arg_list (tree fn)
+{
+  gcc_assert (TREE_CODE (fn) == FUNCTION_DECL);
+
+  vec<tree, va_gc> *args = make_tree_vector ();
+  for (tree t = DECL_ARGUMENTS (fn); t != NULL_TREE; t = TREE_CHAIN (t))
+    {
+      if (VOID_TYPE_P (t))
+	continue;
+      if (TREE_CODE (TREE_TYPE (t)) == POINTER_TYPE
+	  && DECL_NAME (t) != NULL_TREE
+	  && IDENTIFIER_POINTER (DECL_NAME (t)) != NULL
+	  && strcmp (IDENTIFIER_POINTER (DECL_NAME (t)), "this") == 0)
+	continue; // skip already inserted `this` args
+
+      vec_safe_push (args, t);
+    }
+  return args;
+}
+
+/* Create, if it doesn't already exist, a VAR_DECL to hold the result of the
+ * unchecked function call.  */
+
+void
+build_unchecked_result (tree checked)
+{
+  /* Do not build until we have the deduced return type. */
+  if (undeduced_auto_decl (checked) && !DECL_TEMPLATE_INFO (checked))
+    return;
+
+  /* Build the named return value capturing the result of the unchecked call. */
+  tree type = TREE_TYPE (TREE_TYPE (checked));
+  if ((!VOID_TYPE_P (type) || is_auto (type))
+      && !DECL_UNCHECKED_RESULT (checked))
+    {
+      tree name = get_identifier ("__r");
+      tree var = build_lang_decl (VAR_DECL, name, type);
+      DECL_ARTIFICIAL (var) = 1;
+      DECL_UNCHECKED_RESULT (checked) = var;
+    }
+}
+
+/* Create a variable decl that holds the result of the unchecked function
+   call value.  */
+
+static tree
+build_unchecked_result_decl (tree call, tree checked)
+{
+  tree var = DECL_UNCHECKED_RESULT (checked);
+  DECL_INITIAL (var) = call;
+  pushdecl (var);
+  add_decl_expr (var);
+  return var;
+}
+
+/* Return a copy of the FUNCTION_DECL IDECL with its own unshared 
+   PARM_DECLs.  */
+
+static tree
+copy_fn_decl (tree idecl)
+{
+  tree decl = copy_decl (idecl);
+
+  if (DECL_RESULT (idecl))
+    {
+      DECL_RESULT (decl) = copy_decl (DECL_RESULT (idecl));
+      DECL_CONTEXT (DECL_RESULT (decl)) = decl;
+    }
+  if (!DECL_ARGUMENTS (idecl) || VOID_TYPE_P (DECL_ARGUMENTS (idecl)))
+    return decl;
+
+  tree last = DECL_ARGUMENTS (decl) = copy_decl (DECL_ARGUMENTS (decl));
+  DECL_CONTEXT (last) = decl;
+  for (tree p = TREE_CHAIN (DECL_ARGUMENTS (idecl)); p; p = TREE_CHAIN (p))
+    {
+      if (VOID_TYPE_P (p))
+        {
+          TREE_CHAIN (last) = void_list_node;
+          break;
+        }
+      last = TREE_CHAIN (last) = copy_decl (p);
+      DECL_CONTEXT (last) = decl;
+    }
+  return decl;
+}
+
+/* Build and return a new string representing the unchecked function name
+   corresponding to the name in IDENT. */
+
+// FIXME: are we sure we shouldn't just mangle or use some existing machinery?
+static const char *
+get_contracts_internal_decl_name (const char *ident)
+{
+  static char iident[256] = "__unchecked_";
+  strcpy (iident, "__unchecked_");
+
+  if (strncmp (ident, "operator", 8) != 0)
+    {
+      strcat (iident, "mf_");
+      strcat (iident, ident);
+      return iident;
+    }
+
+  // FIXME conversion ops?
+  // FIXME: just hex each char?
+
+  char opname[16] = {};
+  strcpy (opname, ident + 8); // skip "operator"
+
+  strcat (iident, "op_");
+
+  if (strcmp (opname, "==") == 0)
+    {
+      strcat (iident, "eq");
+      return iident;
+    }
+  else if (strcmp (opname, "!=") == 0)
+    {
+      strcat (iident, "noteq");
+      return iident;
+    }
+  else if (strcmp (opname, ">=") == 0)
+    {
+      strcat (iident, "ge");
+      return iident;
+    }
+  else if (strcmp (opname, "<=") == 0)
+    {
+      strcat (iident, "le");
+      return iident;
+    }
+
+  if (opname[strlen (opname) - 1] == '=')
+    {
+      opname[strlen (opname) - 1] = '\0';
+      strcat (iident, "assign_");
+    }
+
+  if (strcmp (opname, ">") == 0)
+    strcat (iident, "gt");
+  else if (strcmp (opname, "<") == 0)
+    strcat (iident, "lt");
+  else if (strcmp (opname, "!") == 0)
+    strcat (iident, "not");
+  else if (strcmp (opname, "&&") == 0)
+    strcat (iident, "land");
+  else if (strcmp (opname, "||") == 0)
+    strcat (iident, "lor");
+  // FIXME: post and pre inc/dec?
+  else if (strcmp (opname, "++") == 0)
+    strcat (iident, "inc");
+  else if (strcmp (opname, "--") == 0)
+    strcat (iident, "dec");
+  else if (strcmp (opname, "[]") == 0)
+    strcat (iident, "subs");
+  else if (strcmp (opname, "()") == 0)
+    strcat (iident, "call");
+  // FIXME addr of?
+  // FIXME deref?
+  else if (strcmp (opname, "->") == 0)
+    strcat (iident, "mr");
+  else if (strcmp (opname, ",") == 0)
+    strcat (iident, "comma");
+  else if (strcmp (opname, "->*") == 0)
+    strcat (iident, "mdr");
+  else if (strcmp (opname, "new") == 0)
+    strcat (iident, "new");
+  else if (strcmp (opname, "new[]") == 0)
+    strcat (iident, "newa");
+  else if (strcmp (opname, "delete") == 0)
+    strcat (iident, "delete");
+  else if (strcmp (opname, "delete[]") == 0)
+    strcat (iident, "deletea");
+  else if (strcmp (opname, "+") == 0)
+    strcat (iident, "add");
+  else if (strcmp (opname, "-") == 0)
+    strcat (iident, "sub");
+  else if (strcmp (opname, "*") == 0)
+    strcat (iident, "mul");
+  else if (strcmp (opname, "/") == 0)
+    strcat (iident, "div");
+  else if (strcmp (opname, "%") == 0)
+    strcat (iident, "mod");
+  else if (strcmp (opname, "^") == 0)
+    strcat (iident, "xor");
+  else if (strcmp (opname, "|") == 0)
+    strcat (iident, "or");
+  else if (strcmp (opname, "&") == 0)
+    strcat (iident, "and");
+  else if (strcmp (opname, "~") == 0)
+    strcat (iident, "comp");
+  else if (strcmp (opname, "<<") == 0)
+    strcat (iident, "lshift");
+  else if (strcmp (opname, ">>") == 0)
+    strcat (iident, "rshift");
+  else
+    gcc_assert (false); // FIXME
+
+  return iident;
+}
+
+/* Return a copy of UNQUALIFIED_NAME containing the name of the unchecked
+   function correspending the name passed. */
+
+static tree
+get_contracts_internal_ident (tree unqualified_name)
+{
+  /* At the point we run this we should be in finish_function and only have an
+     IDENTIFIER_NODE left.  */
+  gcc_assert (TREE_CODE (unqualified_name) == IDENTIFIER_NODE);
+  const char *iident =
+    get_contracts_internal_decl_name (IDENTIFIER_POINTER (unqualified_name));
+  gcc_assert (iident != NULL);
+  return get_identifier (iident);
+}
+
+/* Returns a FUNCTION_DECL for the unchecked version of the guarded
+   function CHECKED_DECL.  */
+
+static tree
+build_unchecked_function_declaration (tree checked)
+{
+  /* Create and rename unchecked function and give an internal name.  */
+  tree unchecked = copy_fn_decl (checked);
+  DECL_NAME (unchecked) = get_contracts_internal_ident (DECL_NAME (unchecked));
+  DECL_DEFERRED_CONTRACTS (unchecked) = NULL_TREE;
+  DECL_INITIAL (unchecked) = error_mark_node;
+
+  /* FIXME it may make more sense to have the checked function be concrete
+     with the unchecked be virtual since all checked function overrides must
+     be equivalent due to the contract matching requirement.  */
+  IDENTIFIER_VIRTUAL_P (DECL_NAME (unchecked)) = false;
+  DECL_VIRTUAL_P (unchecked) = false;
+
+  if (!DECL_TEMPLATE_INFO (unchecked))
+    return unchecked;
+
+  /* Create new template decl for UNCHECKED and rename it properly.  */
+  // FIXME: Do we really want to do this? I would think the unchecked
+  // function is never a template.
+  unshare_template (unchecked);
+  tree tmpl = DECL_TI_TEMPLATE (unchecked);
+  DECL_NAME (tmpl) = get_contracts_internal_ident (DECL_NAME (tmpl));
+
+  return unchecked;
+}
+
+/* Start the body of a checked function definition.  Returns a pair
+   containing an outer statement list and the function body.  */
+
+static tree
+start_checked_function_definition ()
+{
+  /* FIXME: Why do we have two unrelated statement lists?  */
+  tree def = push_stmt_list();
+  tree body = begin_compound_stmt (BCS_NORMAL);
+  return build_tree_list (def, body);
+}
+
+/* Finish processing the body of a checked function definition.
+   DEF is a TREE_LIST who's value is the function body. RESULT is
+   either the "canonical" result value of the unchecked
+   call or NULL-tree (for void calls).  */
+
+static void
+finish_checked_function_definition (tree def, tree result)
+{
+  /* For non-void functions, return the canonical result value.  */
+  if (result)
+    finish_return_stmt (result);
+
+  finish_function_body (TREE_VALUE (def));
+}
+
+/* Build the call to the unchecked FN with ARGS, possibly with a
+   variable to store the result. Return a variable declaration for
+   non-void functions, and NULL_TREE otherwise.  */
+
+static tree
+build_unchecked_call (tree fn, vec<tree, va_gc> *args, tree checked)
+{
+  /* Build call to the unchecked function.  */
+  /* FIXME we're marking the unchecked fn decl as not virtual, so why do we
+     need to disallow virtual when building the call? */
+  tree call = finish_call_expr (fn, &args,
+				/*disallow_virtual=*/true,
+				/*koenig_p=*/false,
+				/*complain=*/tf_warning_or_error);
+  if (call == error_mark_node)
+    return error_mark_node;
+
+  /* Return the variable capturing the function call.  */
+  tree type = TREE_TYPE (TREE_TYPE (fn));
+  if (!VOID_TYPE_P (type))
+    return build_unchecked_result_decl (call, checked);
+
+  /* Just add the call expression.  */
+  finish_expr_stmt(call);
+
+  return NULL_TREE;
+}
+
+/* Builds the checked function definition, which calls out to the unchecked
+   version of the function.  Returns then unchecked function declaration.  */
+
+tree
+build_checked_function_definition (tree checked)
+{
+  /* Build the unchecked function declaration.  */
+  tree unchecked = build_unchecked_function_declaration (checked);
+
+  /* Update various checked declaration properties.  */
+  DECL_DECLARED_INLINE_P (checked) = true;
+  DECL_DISREGARD_INLINE_LIMITS (checked) = true;
+
+  DECL_SAVED_TREE (unchecked) = remap_unchecked_body (checked, unchecked);
+  TREE_NO_WARNING (unchecked) = 1;
+
+  /* Generate the definition.  */
+  tree def = start_checked_function_definition ();
+  emit_preconditions (DECL_CONTRACTS (checked));
+  vec<tree, va_gc> *args = build_arg_list (checked);
+  tree result = build_unchecked_call (unchecked, args, checked);
+  emit_postconditions (DECL_CONTRACTS (checked));
+  finish_checked_function_definition (def, result);
+
+  DECL_SAVED_TREE (checked) = TREE_PURPOSE (def);
+
+  return unchecked;
+}
+
+/* Begin a new scope for the postcondition.  */
+
+tree
+start_postcondition_statement ()
+{
+  return begin_compound_stmt (BCS_NORMAL);
+}
+
+/* Finish the block containing the postcondition check.  */
+
+void
+finish_postcondition_statement (tree stmt)
+{
+  /* FIXME temporarily inlined from finish_compound_stmt except for actually
+     adding the compound statement to the current statement list. We need
+     several parts of this logic to handle normal and template parsing for
+     postconditions, but is there something better we can use instead?  */
+  if (TREE_CODE (stmt) == BIND_EXPR)
+    {
+      tree body = do_poplevel (BIND_EXPR_BODY (stmt));
+      /* If the STATEMENT_LIST is empty and this BIND_EXPR isn't special,
+	 discard the BIND_EXPR so it can be merged with the containing
+	 STATEMENT_LIST.  */
+      if (TREE_CODE (body) == STATEMENT_LIST
+	  && STATEMENT_LIST_HEAD (body) == NULL
+	  && !BIND_EXPR_BODY_BLOCK (stmt)
+	  && !BIND_EXPR_TRY_BLOCK (stmt))
+	stmt = body;
+      else
+	BIND_EXPR_BODY (stmt) = body;
+    }
+  else if (STATEMENT_LIST_NO_SCOPE (stmt))
+    stmt = pop_stmt_list (stmt);
+  else
+    {
+      /* Destroy any ObjC "super" receivers that may have been
+	 created.  */
+      objc_clear_super_receiver ();
+
+      stmt = do_poplevel (stmt);
+    }
+}
+
+/* Declare a variable for the postcondition.  The variable is
+   initialized to the result of the unchecked call.  */
+
+tree
+build_postcondition_variable (tree result, tree contract)
+{
+  if (!POSTCONDITION_IDENTIFIER (contract))
+    return NULL_TREE;
+  tree name = STRIP_ANY_LOCATION_WRAPPER (POSTCONDITION_IDENTIFIER (contract));
+  if (!name)
+    return NULL_TREE;
+  DECL_NAME (result) = name;
+  pushdecl (result);
+  return result;
+}
+
+static void
+build_contract_handler_fn (const char *level,
+			   const char *role,
+			   tree comment,
+			   contract_continuation cmode,
+			   location_t location)
+{
+  expanded_location loc = expand_location (location);
+
+  /* FIXME: It looks  like we have two bits of information for
+     continuing.  Is this right?  */
+  tree continue_mode = build_int_cst (boolean_type_node, cmode != NEVER_CONTINUE);
+  tree line_number = build_int_cst (integer_type_node, loc.line);
+  tree file_name = build_string_literal (strlen (loc.file) + 1, loc.file);
+  const char *function_name_str = current_function_name();
+  tree function_name = build_string_literal (strlen (function_name_str) + 1,
+					     function_name_str);
+  tree level_str = build_string_literal (strlen (level) + 1, level);
+  tree role_str = build_string_literal (strlen (role) + 1, role);
+
+  /* FIXME: Do we want a string for this?.  */
+  tree continuation = build_int_cst (integer_type_node, cmode);
+
+  tree violation_fn;
+  if (cmode == ALWAYS_CONTINUE)
+    violation_fn = on_contract_violation_always_fn;
+  else if (cmode == MAYBE_CONTINUE)
+    violation_fn = on_contract_violation_fn;
+  else
+    violation_fn = on_contract_violation_never_fn;
+  tree call = build_call_expr (violation_fn, 8, continue_mode, line_number,
+			       file_name, function_name, comment,
+			       level_str, role_str,
+			       continuation);
+
+  /* When in check_always_continue mode we treat the violation
+     handler as pure which informs the optimizer that UB happening
+     after the contract check can be propagated back to before the
+     check, possibly eliding the contract check itself. The handler
+     is not really pure so this is very fragile. To even keep the
+     handler call in -O0 we need to have it return a dummy value that
+     we save to a local otherwise the entire call is always optimized
+     out.  */
+  if (cmode == ALWAYS_CONTINUE)
+    {
+      /* FIXME: this tree may not be correct; this mode is fragile.  */
+      tree decl =
+	build_lang_decl (VAR_DECL, get_identifier ("__x"), integer_type_node);
+      DECL_INITIAL (decl) = call;
+      DECL_ARTIFICIAL (decl) = 1;
+      pushdecl (decl);
+      add_decl_expr (decl);
+      finish_expr_stmt (decl);
+    }
+  else
+    {
+      finish_expr_stmt (call);
+    }
+}
+
+static const char *
+get_contract_level_name (tree contract)
+{
+  if (CONTRACT_LITERAL_MODE_P (contract))
+    return "";
+  if (tree mode = CONTRACT_MODE (contract))
+    if (tree level = TREE_VALUE (mode))
+      return IDENTIFIER_POINTER (level);
+  return "default";
+}
+
+static const char *
+get_contract_role_name (tree contract)
+{
+  if (CONTRACT_LITERAL_MODE_P (contract))
+    return "";
+  if (tree mode = CONTRACT_MODE (contract))
+    if (tree role = TREE_PURPOSE (mode))
+      return IDENTIFIER_POINTER (role);
+  return "default";
+}
+
+/* Return true if CONTRACT is checked or assumed under the current build
+   configuration. */
+
+bool
+contract_active_p (tree contract)
+{
+  return get_contract_semantic (TREE_VALUE (contract)) != CCS_IGNORE;
+}
+
+/* Return true if any contract in the CONTRACT list is checked or assumed
+   under the current build configuration. */
+
+bool
+contract_any_active_p (tree contract)
+{
+  for (; contract != NULL_TREE; contract = TREE_CHAIN (contract))
+    if (contract_active_p (contract))
+      return true;
+  return false;
+}
+
+/* Return true if any contract in CONTRACT_ATTRs is not yet parsed.  */
+
+bool
+contract_any_deferred_p (tree contract_attr)
+{
+  for (; contract_attr; contract_attr = TREE_CHAIN (contract_attr))
+    if (CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (contract_attr)))
+      return true;
+  return false;
+}
+
+/* Generate the code that checks or assumes a contract, but do not attach
+   it to the current context.  */
+
+tree
+build_contract_check (tree contract)
+{
+  contract_semantic semantic = get_contract_semantic (contract);
+  if (semantic == CCS_INVALID)
+    return NULL_TREE;
+
+  tree condition = CONTRACT_CONDITION (contract);
+  if (condition == error_mark_node)
+    return NULL_TREE;
+
+  /* Ignored contracts are never checked or assumed.  */
+  if (semantic == CCS_IGNORE)
+    return build1 (NOP_EXPR, void_type_node, integer_zero_node);
+
+  /* If an assumed contract condition is not fully defined, the current method
+     of turning it into a compile time assumption fails and emits run time
+     code.  We don't want that, so just turn these into NOP.  */
+  if (semantic == CCS_ASSUME && !cp_tree_defined_p (condition))
+    return build1 (NOP_EXPR, void_type_node, integer_zero_node);
+
+  /* FIXME: This code gen will be moved to gimple.  */
+  tree if_stmt = begin_if_stmt ();
+  tree cond = build_x_unary_op (EXPR_LOCATION (contract),
+				TRUTH_NOT_EXPR,
+				condition,
+				tf_warning_or_error);
+  finish_if_stmt_cond (cond, if_stmt);
+
+  if (semantic == CCS_ASSUME)
+    {
+      tree unreachable_fn = builtin_decl_implicit (BUILT_IN_UNREACHABLE);
+      tree call = build_call_expr (unreachable_fn, 0);
+      finish_expr_stmt (call);
+    }
+  else
+    {
+      const char *level_name = get_contract_level_name (contract);
+      const char *role_name = get_contract_role_name (contract);
+      tree comment = CONTRACT_COMMENT (contract);
+
+      /* Get the continuation mode.  */
+      contract_continuation cmode;
+      switch (semantic)
+	{
+	  case CCS_NEVER: cmode = NEVER_CONTINUE; break;
+	  case CCS_MAYBE: cmode = MAYBE_CONTINUE; break;
+	  case CCS_ALWAYS: cmode = ALWAYS_CONTINUE; break;
+	  default: gcc_unreachable ();
+	}
+
+      build_contract_handler_fn (level_name, role_name, comment, cmode,
+				 EXPR_LOCATION (contract));
+    }
+
+  finish_then_clause (if_stmt);
+  tree scope = IF_SCOPE (if_stmt);
+  IF_SCOPE (if_stmt) = NULL;
+  return do_poplevel (scope);
+}
+
+/* Generate the statement for the given contract attribute by adding the
+   statement to the current block. Returns the next contract in the chain.  */
+
+static tree
+emit_contract_statement (tree attr)
+{
+  gcc_assert (TREE_CODE (attr) == TREE_LIST);
+  tree contract = TREE_VALUE (attr);
+
+  /* Only add valid contracts.  */
+  if (get_contract_semantic (contract) != CCS_INVALID
+      && CONTRACT_CONDITION (contract) != error_mark_node)
+    add_stmt (contract);
+
+  return TREE_CHAIN (attr);
+}
+
+/* Add the statements of contract attributes ATTRS to the current block.  */
+
+static void
+emit_contract_conditions (tree attrs, tree_code code)
+{
+  if (!attrs) return;
+  gcc_assert (TREE_CODE (attrs) == TREE_LIST);
+  gcc_assert (code == PRECONDITION_STMT || code == POSTCONDITION_STMT);
+  while (attrs)
+    {
+      tree contract = TREE_VALUE (attrs);
+      if (TREE_CODE (contract) == code)
+	attrs = emit_contract_statement (attrs);
+      else
+	attrs = TREE_CHAIN (attrs);
+    }
+}
+
+/* Emit the statement for an assertion attribute.  */
+
+void
+emit_assertion (tree attr)
+{
+  emit_contract_statement (attr);
+}
+
+/* Emit statements for precondition attributes.  */
+
+void
+emit_preconditions (tree attr)
+{
+  return emit_contract_conditions (attr, PRECONDITION_STMT);
+}
+
+/* Emit statements for postcondition attributes.  */
+
+void
+emit_postconditions (tree contracts)
+{
+  return emit_contract_conditions (contracts, POSTCONDITION_STMT);
+}
+
+/* Setup an initial contract node. This determines the concrete semantics
+   of the contract.  IDENTIFIER is only non-null for postconditions.  */
+
+tree
+start_contract (location_t loc,
+		tree attr,
+		tree config,
+		contract_mode mode,
+		tree id)
+{
+  tree_code code;
+  if (is_attribute_p ("assert", attr))
+    code = ASSERTION_STMT;
+  else if (is_attribute_p ("pre", attr))
+    code = PRECONDITION_STMT;
+  else if (is_attribute_p ("post", attr))
+    code = POSTCONDITION_STMT;
+  else
+    gcc_unreachable ();
+
+  /* Build the contract. The condition is added later.  */
+  tree contract;
+  if (code != POSTCONDITION_STMT)
+    contract = build3_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE);
+  else
+    contract = build4_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE, id);
+
+  /* Compute the concrete semantic for the contract.  */
+  if (!flag_contract_mode)
+    /* If contracts are off, treat all contracts as ignore.  */
+    set_contract_semantic (contract, CCS_IGNORE);
+  else if (mode.kind == contract_mode::cm_invalid)
+    set_contract_semantic (contract, CCS_INVALID);
+  else if (mode.kind == contract_mode::cm_explicit)
+    {
+      CONTRACT_LITERAL_MODE_P (contract) = true;
+      set_contract_semantic (contract, mode.get_semantic());
+    }
+  else
+    {
+      gcc_assert (mode.get_role());
+      gcc_assert (mode.get_level() != CONTRACT_INVALID);
+      CONTRACT_LITERAL_MODE_P (contract) = false;
+      contract_level level = mode.get_level ();
+      contract_role *role = mode.get_role ();
+      if (level == CONTRACT_DEFAULT)
+	set_contract_semantic (contract, role->default_semantic);
+      else if (level == CONTRACT_AUDIT)
+	set_contract_semantic (contract, role->audit_semantic);
+      else if (level == CONTRACT_AXIOM)
+	set_contract_semantic (contract, role->axiom_semantic);
+      else
+	gcc_assert (false);
+    }
+
+  return contract;
+}
+
+/* Attach the condition to the contract, build the comment, and the code
+   to execute when the contract is checked (if checked).  */
+
+tree
+finish_contract (tree contract, tree condition, tree comment)
+{
+  /* The condition is converted to bool.
+
+     FIXME: When we instantiate this, the input location is in entirely
+     the wrong place.  */
+  if (condition != error_mark_node && !type_dependent_expression_p (condition))
+    condition = maybe_convert_cond (condition);
+  CONTRACT_CONDITION (contract) = condition;
+
+  if (comment)
+    CONTRACT_COMMENT (contract) = comment;
+  return contract;
+}
 
 /* Begin a conditional that might contain a declaration.  When generating
    normal code, we want the declaration to appear before the statement
@@ -965,9 +1676,7 @@ finish_return_stmt (tree expr)
       if (warn_sequence_point)
 	verify_sequence_points (expr);
 
-      if (DECL_DESTRUCTOR_P (current_function_decl)
-	  || (DECL_CONSTRUCTOR_P (current_function_decl)
-	      && targetm.cxx.cdtor_returns_this ()))
+      if (DECL_CDTOR_NEEDS_LABLED_EXIT_P (current_function_decl))
 	{
 	  /* Similarly, all destructors must run destructors for
 	     base-classes before returning.  So, all returns in a
@@ -1787,7 +2496,10 @@ finish_mem_initializers (tree mem_inits)
 				  CTOR_INITIALIZER, mem_inits));
     }
   else
-    emit_mem_initializers (mem_inits);
+    {
+      emit_preconditions (DECL_CONTRACTS (current_function_decl));
+      emit_mem_initializers (mem_inits);
+    }
 }
 
 /* Obfuscate EXPR if it looks like an id-expression or member access so
@@ -1913,12 +2625,19 @@ finish_non_static_data_member (tree decl, tree object, tree qualifying_scope)
 
   /* DR 613/850: Can use non-static data members without an associated
      object in sizeof/decltype/alignof.  */
-  if (is_dummy_object (object) && cp_unevaluated_operand == 0
+  if (is_dummy_object (object)
+      && !cp_unevaluated_operand
       && (!processing_template_decl || !current_class_ref))
     {
       if (current_function_decl
 	  && DECL_STATIC_FUNCTION_P (current_function_decl))
 	error ("invalid use of member %qD in static member function", decl);
+      else if (current_function_decl && cp_contract_operand
+	  && DECL_CONSTRUCTOR_P (current_function_decl))
+	error ("invalid use of member %qD in constructor %<pre%> contract", decl);
+      else if (current_function_decl && cp_contract_operand
+	  && DECL_DESTRUCTOR_P (current_function_decl))
+	error ("invalid use of member %qD in destructor %<post%> contract", decl);
       else
 	error ("invalid use of non-static data member %qD", decl);
       inform (DECL_SOURCE_LOCATION (decl), "declared here");
@@ -2751,6 +3470,10 @@ finish_this_expr (void)
   tree fn = current_nonlambda_function ();
   if (fn && DECL_STATIC_FUNCTION_P (fn))
     error ("%<this%> is unavailable for static member functions");
+  else if (fn && cp_contract_operand && DECL_CONSTRUCTOR_P (fn))
+    error ("invalid use of %<this%> before it is valid");
+  else if (fn && cp_contract_operand && DECL_DESTRUCTOR_P (fn))
+    error ("invalid use of %<this%> after it is valid");
   else if (fn)
     error ("invalid use of %<this%> in non-member function");
   else
@@ -3624,6 +4347,10 @@ process_outer_var_ref (tree decl, tsubst_flags_t complain, bool odr_use)
 	}
       return error_mark_node;
     }
+  else if (cp_contract_operand
+      && (TREE_CODE (decl) == PARM_DECL || decl == cp_contract_return_value))
+    /* Use of a parameter in a contract condition is fine.  */
+    return decl;
   else
     {
       if (complain & tf_error)
@@ -3756,7 +4483,8 @@ finish_id_expression_1 (tree id_expression,
 	 body, except inside an unevaluated context (i.e. decltype).  */
       if (TREE_CODE (decl) == PARM_DECL
 	  && DECL_CONTEXT (decl) == NULL_TREE
-	  && !cp_unevaluated_operand)
+	  && !cp_unevaluated_operand
+	  && !cp_contract_operand)
 	{
 	  *error_msg = G_("use of parameter outside function body");
 	  return error_mark_node;

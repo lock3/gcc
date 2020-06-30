@@ -48,6 +48,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "intl.h"
 #include "c-family/c-ada-spec.h"
 #include "asan.h"
+#include "tree-inline.h"
 
 /* Id for dumping the raw trees.  */
 int raw_dump_id;
@@ -4343,6 +4344,31 @@ collect_ada_namespace (tree namespc, const char *source_file)
   for (; decl; decl = TREE_CHAIN (decl))
     if (TREE_CODE (decl) == NAMESPACE_DECL && !DECL_NAMESPACE_ALIAS (decl))
       collect_ada_namespace (decl, source_file);
+}
+
+/* cp_tree_defined_p helper -- returns TP if TP is undefined.  */
+
+static tree
+cp_tree_defined_p_r (tree *tp, int *, void *)
+{
+  enum tree_code code = TREE_CODE (*tp);
+  if ((code == FUNCTION_DECL || code == VAR_DECL)
+      && !decl_defined_p (*tp))
+    return *tp;
+  /* We never want to accidentally instantiate templates.  */
+  if (code == TEMPLATE_DECL)
+    return *tp; /* FIXME? */
+  return NULL_TREE;
+}
+
+/* Returns true iff there is a definition for all entities referenced in the
+   tree TP.  */
+
+bool
+cp_tree_defined_p (tree tp)
+{
+  tree undefined_t = walk_tree (&tp, cp_tree_defined_p_r, NULL, NULL);
+  return !undefined_t;
 }
 
 /* Returns true iff there is a definition available for variable or

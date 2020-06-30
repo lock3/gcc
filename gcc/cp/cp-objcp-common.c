@@ -83,6 +83,9 @@ cp_tree_size (enum tree_code code)
     case CONSTRAINT_INFO:       return sizeof (tree_constraint_info);
     case USERDEF_LITERAL:	return sizeof (tree_userdef_literal);
     case TEMPLATE_DECL:		return sizeof (tree_template_decl);
+    case ASSERTION_STMT:	return sizeof (tree_exp);
+    case PRECONDITION_STMT:	return sizeof (tree_exp);
+    case POSTCONDITION_STMT:	return sizeof (tree_exp);
     default:
       switch (TREE_CODE_CLASS (code))
 	{
@@ -554,6 +557,10 @@ cp_common_init_ts (void)
   MARK_TS_EXP (CO_AWAIT_EXPR);
   MARK_TS_EXP (CO_YIELD_EXPR);
   MARK_TS_EXP (CO_RETURN_EXPR);
+
+  MARK_TS_EXP (ASSERTION_STMT);
+  MARK_TS_EXP (PRECONDITION_STMT);
+  MARK_TS_EXP (POSTCONDITION_STMT);
 
   c_common_init_ts ();
 }

@@ -54,6 +54,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gcc-rich-location.h"
 #include "langhooks.h"
 #include "omp-general.h"
+#include "tree-inline.h"
 
 /* Possible cases of bad specifiers type used by bad_specifiers. */
 enum bad_spec_place {
@@ -919,6 +920,270 @@ determine_local_discriminator (tree decl)
   timevar_cond_stop (TV_NAME_LOOKUP, subtime);
 }
 
+/* Compare the contract conditions of OLD_ATTR and NEW_ATTR. Returns false
+   if the conditions are equivalent, and true otherwise.  */
+
+static bool
+diagnose_mismatched_contracts (tree old_attr, tree new_attr,
+			       contract_matching_context ctx)
+{
+  tree old_contract = TREE_VALUE (old_attr);
+  tree new_contract = TREE_VALUE (new_attr);
+
+  /* Different kinds of contracts do not match.  */
+  if (TREE_CODE (old_contract) != TREE_CODE (new_contract))
+    {
+      auto_diagnostic_group d;
+      error_at (EXPR_LOCATION (new_contract),
+		"mismatched contract condition in %s",
+		ctx == cmc_declaration ? "declaration" : "override");
+      inform (EXPR_LOCATION (old_contract), "previous contract here");
+      return true;
+    }
+
+  /* Two deferred contracts tentatively match.  */
+  if (CONTRACT_CONDITION_DEFERRED_P  (old_contract)
+	&& CONTRACT_CONDITION_DEFERRED_P (new_contract))
+    return false;
+
+  /* Compare the conditions of the contracts.  */
+  tree old_cond = cp_fully_fold_init (CONTRACT_CONDITION (old_contract));
+  tree new_cond = cp_fully_fold_init (CONTRACT_CONDITION (new_contract));
+  if (!cp_tree_equal (old_cond, new_cond))
+    {
+      auto_diagnostic_group d;
+      error_at (EXPR_LOCATION (CONTRACT_CONDITION (new_contract)),
+		"mismatched contract predicate in %s",
+		ctx == cmc_declaration ? "declaration" : "override");
+      inform (EXPR_LOCATION (CONTRACT_CONDITION (old_contract)),
+	      "previous predicate here");
+      return true;
+    }
+
+  return false;
+}
+
+/* Check that we aren't adding contracts to an already defined function.  */
+
+static bool
+diagnose_contracts_after_definition (tree olddecl, location_t newloc)
+{
+  /* Contracts cannot be added after the definition of an unguarded
+     function.  */
+  if (DECL_INITIAL (olddecl)
+      && DECL_INITIAL (olddecl) != error_mark_node
+      && !DECL_CONTRACTS (olddecl))
+    {
+      auto_diagnostic_group d;
+      error_at (newloc, "cannot add contracts after definition");
+      inform (DECL_SOURCE_LOCATION (olddecl), "original definition here");
+      return true;
+    }
+  return false;
+}
+
+/* Compare the contract attributes of OLDDECL and NEWDECL. Returns false 
+   if the contracts match, and true if they differ.  */
+
+static bool
+match_contract_conditions (location_t oldloc, tree old_attrs,
+			   location_t newloc, tree new_attrs,
+			   contract_matching_context ctx)
+{
+  /* Contracts only match if they are both specified.  */
+  if (!old_attrs || !new_attrs)
+    return false;
+
+  /* Compare each contract in turn.  */
+  while (old_attrs && new_attrs)
+    {
+      if (diagnose_mismatched_contracts (old_attrs, new_attrs, ctx))
+	return true;
+      old_attrs = TREE_CHAIN (old_attrs);
+      new_attrs = TREE_CHAIN (new_attrs);
+    }
+
+  /* If we didn't compare all attributes, the contracts don't match.  */
+  if (old_attrs || new_attrs)
+    {
+      auto_diagnostic_group d;
+      error_at (newloc,
+		"%s has %s contracts than previously declared",
+		ctx == cmc_declaration ? "declaration" : "override",
+		new_attrs ? "more" : "fewer");
+      inform (oldloc, "original declaration here");
+      return true;
+    }
+
+  return false;
+}
+
+/* Compare the contract attributes of OLDDECL and NEWDECL. Returns false
+   if the contracts match, and true if they differ.  */
+
+static bool
+match_contracts (tree olddecl, location_t newloc, tree new_attrs)
+{
+  tree old_attrs = DECL_CONTRACTS (olddecl);
+
+  if (diagnose_contracts_after_definition (olddecl, newloc))
+    return true;
+
+  if (!old_attrs && new_attrs)
+    {
+      /* TODO is there any way to relax this requirement?  */
+      if (DECL_VIRTUAL_P (olddecl) && !TYPE_BEING_DEFINED (DECL_CONTEXT (olddecl)))
+	{
+	  error_at (newloc,
+		    "declaration conflicts with "
+		    "declaration %q#D (cannot add contracts to virtual members)",
+		    olddecl);
+	  return true;
+	}
+      /* Contracts can be added in redeclarations with an optional warning.  */
+      if (flag_contract_strict_declarations
+	  && DECL_DEFERRED_CONTRACTS (olddecl)
+	  && TREE_PURPOSE (DECL_DEFERRED_CONTRACTS (olddecl)) == error_mark_node)
+	warning_at (newloc,
+		    OPT_fcontract_strict_declarations_,
+		    "declaration adds contracts to %q#D",
+		    olddecl);
+    }
+
+  return match_contract_conditions (DECL_SOURCE_LOCATION (olddecl), old_attrs,
+				    newloc, new_attrs,
+				    cmc_declaration);
+}
+
+/* Combine any contracts present on FN into the FUNCTION_DECL DECL.
+
+   If we already have contracts stored in DECL, either compare the contracts
+   and diagnose issues or save the contracts for deferred checking if they're
+   not entirely parsed.
+
+   Otherwise, simply save the contracts.  */
+
+void
+merge_contracts (tree decl, const cp_declarator *fn)
+{
+  if (decl == error_mark_node || !DECL_LANG_SPECIFIC (decl)
+     || TREE_CODE (decl) != FUNCTION_DECL)
+    return;
+
+  /* If we already have contracts from a more general template but we're a
+     specialization, delete the existing contracts in favor of whatever we're
+     about to merge in -- including an empty list.  */
+  if (DECL_DEFERRED_CONTRACTS (decl)
+      && DECL_P (TREE_PURPOSE (DECL_DEFERRED_CONTRACTS (decl))))
+    {
+      tree orig = TREE_PURPOSE (DECL_DEFERRED_CONTRACTS (decl));
+      if (TREE_CODE (orig) == TEMPLATE_DECL)
+	orig = DECL_TEMPLATE_RESULT (orig);
+      if (DECL_TEMPLATE_INFO (decl)
+	  && DECL_USE_TEMPLATE (decl) && !DECL_USE_TEMPLATE (orig))
+	DECL_DEFERRED_CONTRACTS (decl) = NULL_TREE;
+    }
+
+  if (!fn->contracts)
+    {
+      if (!flag_contract_strict_declarations)
+	return;
+      /* If we don't have contracts and haven't already set the deferred
+	 contracts to a "no initial contracts" sentinel, do so now to support
+	 flag_contract_strict_declarations.  */
+      if (!DECL_DEFERRED_CONTRACTS (decl))
+	DECL_DEFERRED_CONTRACTS (decl) =
+	  build_tree_list (error_mark_node, NULL_TREE);
+      /* FIXME we probably want a singleton for the marker instead of building
+	 one for every single function.  Can we store the original source loc
+	 of the decl and skip this marker logic entirely?  */
+      return;
+    }
+
+  bool any_uses_return = false;
+  for (tree ca = fn->contracts; ca; ca = TREE_CHAIN (ca))
+    if (TREE_CODE (TREE_VALUE (ca)) == POSTCONDITION_STMT
+	&& POSTCONDITION_IDENTIFIER (TREE_VALUE (ca)))
+      any_uses_return = true;
+  if (any_uses_return && undeduced_auto_decl (decl) && !decl_defined_p (decl)
+      && !DECL_TEMPLATE_INFO (decl))
+    {
+      error_at (fn->id_loc,
+		"non-defining declaration %q#D cannot use the optional "
+		"postcondition identifier in post contracts", decl);
+      return;
+    }
+
+  /* If there are attributes to merge, make sure they can be merged.  */
+  if (match_contracts (decl, fn->id_loc, fn->contracts))
+    {
+      /* If the contracts do not match, we've already emitted an error.
+	 Throw away the conditions to prevent spurious errors later.  */
+      return;
+    }
+
+  /* Clear out "no initial contracts" marker now that we have contracts.  */
+  if (!DECL_CONTRACTS (decl) && DECL_DEFERRED_CONTRACTS (decl))
+    DECL_DEFERRED_CONTRACTS (decl) = NULL_TREE;
+
+  /* If there are not yet contracts or we need to defer checking, save the
+     contracts.  */
+  if (!DECL_CONTRACTS (decl) || contract_any_deferred_p (fn->contracts))
+    {
+      tree original_loc = build1_loc (DECL_SOURCE_LOCATION (decl),
+				      VIEW_CONVERT_EXPR, void_type_node,
+				      NULL_TREE);
+      EXPR_LOCATION_WRAPPER_P (original_loc) = 1;
+
+      DECL_DEFERRED_CONTRACTS (decl) = chainon (
+	  DECL_DEFERRED_CONTRACTS (decl),
+	  build_tree_list (original_loc, fn->contracts));
+    }
+}
+
+/* If the FUNCTION_DECL DECL has any contracts that had their matching
+   deferred earlier, do that checking now.  */
+
+void
+match_deferred_contracts (tree decl)
+{
+  if (!DECL_DEFERRED_CONTRACTS (decl)
+      || !TREE_CHAIN (DECL_DEFERRED_CONTRACTS (decl)))
+    return;
+
+  /* If we're still deferring, defer even more.  */
+  if (contract_any_deferred_p (DECL_CONTRACTS (decl)))
+    return;
+
+  tree all_contracts = DECL_DEFERRED_CONTRACTS (decl);
+  tree contracts = TREE_VALUE (all_contracts);
+  location_t oldloc = 0;
+  if (TREE_CODE (TREE_PURPOSE (all_contracts)) == VIEW_CONVERT_EXPR)
+    oldloc = EXPR_LOCATION (TREE_PURPOSE (all_contracts));
+  else
+    oldloc = DECL_SOURCE_LOCATION (TREE_PURPOSE (all_contracts));
+
+  /* Do late contract matching.  */
+  for (tree n = TREE_CHAIN (all_contracts); n; n = TREE_CHAIN (n))
+    {
+      /* If the original context is a duplicate FUNCTION_DECL, we only keep
+	 the location alive as a VIEW_CONVERT_EXPR.  */
+      if (TREE_CODE (TREE_PURPOSE (n)) != VIEW_CONVERT_EXPR)
+	match_contract_conditions (
+	    DECL_SOURCE_LOCATION (TREE_PURPOSE (n)), TREE_VALUE (n),
+	    oldloc, contracts,
+	    cmc_override);
+      else
+	match_contract_conditions (
+	    oldloc, contracts,
+	    EXPR_LOCATION (TREE_PURPOSE (n)), TREE_VALUE (n),
+	    cmc_declaration);
+    }
+
+  /* Clear out deferred match list so we don't check it twice.  */
+  TREE_CHAIN (DECL_DEFERRED_CONTRACTS (decl)) = NULL_TREE;
+}
+
 
 
 /* Returns true if functions FN1 and FN2 have equivalent trailing
@@ -1369,9 +1634,21 @@ merge_attribute_bits (tree newdecl, tree olddecl)
   DECL_UNINLINABLE (olddecl) |= DECL_UNINLINABLE (newdecl);
 }
 
+
 #define GNU_INLINE_P(fn) (DECL_DECLARED_INLINE_P (fn)			\
 			  && lookup_attribute ("gnu_inline",		\
 					       DECL_ATTRIBUTES (fn)))
+
+/* Replace references to FROM's PARM_DECLs with their equivalent parm in TO's
+   PARM_DECLs inside all already parsed contracts of DECL.  */
+
+static void
+remap_decl_contracts (tree decl, tree from, tree to)
+{
+  for (tree c = DECL_CONTRACTS (decl); c; c = TREE_CHAIN (c))
+    if (!CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (c)))
+      remap_contract (from, to, TREE_VALUE (c));
+}
 
 /* A subroutine of duplicate_decls. Emits a diagnostic when newdecl
    ambiguates olddecl.  Returns true if an error occurs.  */
@@ -2037,6 +2314,11 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	  = DECL_OVERLOADED_OPERATOR_CODE_RAW (olddecl);
       new_defines_function = DECL_INITIAL (newdecl) != NULL_TREE;
 
+      /* Ensure contracts, if any, are present on the newdecl so they're saved
+	 when olddecl is overwritten later.  */
+      DECL_DEFERRED_CONTRACTS (newdecl) = DECL_DEFERRED_CONTRACTS (olddecl);
+      DECL_UNCHECKED_RESULT (newdecl) = DECL_UNCHECKED_RESULT (olddecl);
+
       /* Optionally warn about more than one declaration for the same
 	 name, but don't warn about a function declaration followed by a
 	 definition.  */
@@ -2181,6 +2463,8 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	  DECL_INITIAL (old_result) = DECL_INITIAL (new_result);
 	  if (DECL_FUNCTION_TEMPLATE_P (newdecl))
 	    {
+	      remap_decl_contracts (old_result, old_result, new_result);
+
 	      tree parm;
 	      DECL_ARGUMENTS (old_result)
 		= DECL_ARGUMENTS (new_result);
@@ -2586,6 +2870,9 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
       /* Preserve abstractness on cloned [cd]tors.  */
       DECL_ABSTRACT_P (newdecl) = DECL_ABSTRACT_P (olddecl);
 
+      if (! types_match || new_defines_function)
+	remap_decl_contracts (olddecl, olddecl, newdecl);
+
       /* Update newdecl's parms to point at olddecl.  */
       for (parm = DECL_ARGUMENTS (newdecl); parm;
 	   parm = DECL_CHAIN (parm))
@@ -2646,7 +2933,16 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	  /* Don't clear out the arguments if we're just redeclaring a
 	     function.  */
 	  if (DECL_ARGUMENTS (olddecl))
-	    DECL_ARGUMENTS (newdecl) = DECL_ARGUMENTS (olddecl);
+	    {
+	      /* Save new argument names for use in contracts parsing.  */
+	      for (tree o = DECL_ARGUMENTS (olddecl),
+		  n = DECL_ARGUMENTS (newdecl);
+		  o && n;
+		  o = TREE_CHAIN (o), n = TREE_CHAIN (n))
+		DECL_NAME (o) = DECL_NAME (n);
+
+	      DECL_ARGUMENTS (newdecl) = DECL_ARGUMENTS (olddecl);
+	    }
 	}
     }
   else if (TREE_CODE (newdecl) == NAMESPACE_DECL)
@@ -5360,10 +5656,17 @@ start_decl (const cp_declarator *declarator,
 
       if (DECL_EXTERNAL (decl) && ! DECL_TEMPLATE_SPECIALIZATION (decl)
 	  /* Aliases are definitions. */
-	  && !alias)
+	  && !alias
+	  && (DECL_VIRTUAL_P (decl) || !flag_contracts))
 	permerror (declarator->id_loc,
 		   "declaration of %q#D outside of class is not definition",
 		   decl);
+      else if (DECL_EXTERNAL (decl) && ! DECL_TEMPLATE_SPECIALIZATION (decl)
+	  /* Aliases are definitions. */
+	  && !alias
+	  && flag_contract_strict_declarations)
+	warning_at (declarator->id_loc, OPT_fcontract_strict_declarations_,
+		    "non-defining declaration of %q#D outside of class", decl);
     }
 
   was_public = TREE_PUBLIC (decl);
@@ -11898,6 +12201,12 @@ grokdeclarator (const cp_declarator *declarator,
 
       inner_declarator = declarator->declarator;
 
+      if (declarator->contracts != NULL_TREE
+	  && (declarator->kind != cdk_function
+	      || !inner_declarator || inner_declarator->kind != cdk_id))
+	error_at (EXPR_LOCATION (TREE_VALUE (declarator->contracts)),
+		  "contracts are only allowed on functions");
+
       /* We don't want to warn in parameter context because we don't
 	 yet know if the parse will succeed, and this might turn out
 	 to be a constructor call.  */
@@ -16373,9 +16682,7 @@ start_preparsed_function (tree decl1, tree attrs, int flags)
 
   ++function_depth;
 
-  if (DECL_DESTRUCTOR_P (decl1)
-      || (DECL_CONSTRUCTOR_P (decl1)
-	  && targetm.cxx.cdtor_returns_this ()))
+  if (DECL_CDTOR_NEEDS_LABLED_EXIT_P (decl1))
     {
       cdtor_label = create_artificial_label (input_location);
       LABEL_DECL_CDTOR (cdtor_label) = true;
@@ -16551,11 +16858,14 @@ finish_constructor_body (void)
   tree val;
   tree exprstmt;
 
+  /* Any return from a constructor will end up here.  */
+  if (DECL_CDTOR_NEEDS_LABLED_EXIT_P (current_function_decl))
+    add_stmt (build_stmt (input_location, LABEL_EXPR, cdtor_label));
+
+  emit_postconditions (DECL_CONTRACTS (current_function_decl));
+
   if (targetm.cxx.cdtor_returns_this ())
     {
-      /* Any return from a constructor will end up here.  */
-      add_stmt (build_stmt (input_location, LABEL_EXPR, cdtor_label));
-
       val = DECL_ARGUMENTS (current_function_decl);
       val = build2 (MODIFY_EXPR, TREE_TYPE (val),
 		    DECL_RESULT (current_function_decl), val);
@@ -16625,6 +16935,8 @@ begin_destructor_body (void)
 	 will be properly destroyed if we throw.  */
       push_base_cleanups ();
     }
+
+  emit_preconditions (DECL_CONTRACTS (current_function_decl));
 }
 
 /* At the end of every destructor we generate code to delete the object if
@@ -16638,6 +16950,8 @@ finish_destructor_body (void)
   /* Any return from a destructor will end up here; that way all base
      and member cleanups will be run when the function returns.  */
   add_stmt (build_stmt (input_location, LABEL_EXPR, cdtor_label));
+
+  emit_postconditions (DECL_CONTRACTS (current_function_decl));
 
   if (targetm.cxx.cdtor_returns_this ())
     {
@@ -16877,6 +17191,18 @@ finish_function (bool inline_p)
 	finish_eh_spec_block (TYPE_RAISES_EXCEPTIONS
 			      (TREE_TYPE (current_function_decl)),
 			      current_eh_spec_block);
+    }
+
+  bool finishing_guarded_p = !processing_template_decl
+    && contract_any_active_p (DECL_CONTRACTS (fndecl))
+    && !DECL_CONSTRUCTOR_P (fndecl)
+    && !DECL_DESTRUCTOR_P (fndecl);
+  tree unchecked = NULL_TREE;
+  if (finishing_guarded_p)
+    {
+      /* Prep the body that will be moved to unchecked.  */
+      DECL_SAVED_TREE (fndecl) = pop_stmt_list (DECL_SAVED_TREE (fndecl));
+      unchecked = build_checked_function_definition (fndecl);
     }
 
   /* If we're saving up tree structure, tie off the function now.  */
@@ -17138,6 +17464,18 @@ finish_function (bool inline_p)
   current_function_decl = NULL_TREE;
 
   invoke_plugin_callbacks (PLUGIN_FINISH_PARSE_FUNCTION, fndecl);
+
+  /* Finish unchecked version if we're finishing a guarded function.  */
+  if (finishing_guarded_p && unchecked)
+    {
+      tree saved_body = DECL_SAVED_TREE (unchecked);
+      start_preparsed_function (unchecked, DECL_ATTRIBUTES (unchecked),
+				SF_DEFAULT | SF_PRE_PARSED);
+      add_stmt (saved_body);
+      unchecked = finish_function (false);
+      expand_or_defer_fn (unchecked);
+    }
+
   return fndecl;
 }
 

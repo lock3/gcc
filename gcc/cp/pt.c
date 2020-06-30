@@ -11732,6 +11732,14 @@ instantiate_class_template_1 (tree type)
 	      r = tsubst (t, args, tf_error, NULL_TREE);
 	      if (TREE_CODE (t) == TEMPLATE_DECL)
 		--processing_template_decl;
+
+	      /* If we have contracts, let merge_contracts know that they come
+		 from the original template so they can be overriden on a
+		 specialization.  */
+	      if (r && r != error_mark_node && DECL_DEFERRED_CONTRACTS (r))
+		DECL_DEFERRED_CONTRACTS (r) =
+		  build_tree_list (t, DECL_CONTRACTS (r));
+
 	      set_current_access_from_decl (r);
 	      finish_member_declaration (r);
 	      /* Instantiate members marked with attribute used.  */
@@ -13057,6 +13065,41 @@ copy_template_args (tree t)
     = NON_DEFAULT_TEMPLATE_ARGS_COUNT (t);
 
   return new_vec;
+}
+
+/* Replace the TEMPLATE_INFO and TEMPLATE_DECL related to the FUNCTION_DECL
+   DECL with a copy.  Update references between them.  */
+
+void
+unshare_template (tree decl)
+{
+  tree tinfo = DECL_TEMPLATE_INFO (decl);
+  bool is_primary_p = true; /* PRIMARY_TEMPLATE_P (TI_TEMPLATE (tinfo)); */
+  /* FIXME handle specializations? */
+
+  tree new_ti = copy_decl (TI_TEMPLATE (tinfo));
+  DECL_TEMPLATE_RESULT (new_ti) = decl;
+  DECL_CHAIN (new_ti) = NULL_TREE;
+
+  /* Unshare the template parms.  */
+  tree parms = DECL_TEMPLATE_PARMS (new_ti);
+  tree parms_val = TREE_VALUE (parms);
+  parms = build_tree_list (TREE_PURPOSE (parms), copy_template_args (parms_val));
+  tree last = parms;
+  for (tree ps = TREE_CHAIN (DECL_TEMPLATE_PARMS (new_ti)); ps; ps = TREE_CHAIN (ps))
+    {
+      TREE_CHAIN (last) = build_tree_list (TREE_PURPOSE (ps), copy_template_args (TREE_VALUE (ps)));
+      last = TREE_CHAIN (last);
+    }
+  DECL_TEMPLATE_PARMS (new_ti) = parms;
+
+  DECL_TEMPLATE_INFO (decl) = build_template_info (new_ti, (copy_template_args (TI_ARGS (tinfo))));
+  DECL_TI_TEMPLATE (decl) = new_ti;
+
+  /* FIXME: only do this if PRIMARY_TEMPLATE_P (original_decl) ?  */
+  /* Mark decl as its own primary template.  */
+  if (is_primary_p)
+    DECL_PRIMARY_TEMPLATE (DECL_TI_TEMPLATE (decl)) = DECL_TI_TEMPLATE (decl);
 }
 
 /* Substitute ARGS into the *_ARGUMENT_PACK orig_arg.  */
@@ -16183,7 +16226,7 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	  /* This can happen for a parameter name used later in a function
 	     declaration (such as in a late-specified return type).  Just
 	     make a dummy decl, since it's only used for its type.  */
-	  gcc_assert (cp_unevaluated_operand != 0);
+	  gcc_assert (cp_unevaluated_operand);
 	  r = tsubst_decl (t, args, complain);
 	  /* Give it the template pattern as its context; its true context
 	     hasn't been instantiated yet and this is good enough for
@@ -17641,6 +17684,22 @@ lookup_init_capture_pack (tree decl)
   return r;
 }
 
+/* Instantiate the contract.  */
+
+static tree
+tsubst_contract (tree t, tree args, tsubst_flags_t complain, tree in_decl)
+{
+  tree r = copy_node (t);
+  push_deferring_access_checks (dk_no_check);
+  ++cp_contract_operand;
+  tree cond = tsubst_expr (CONTRACT_CONDITION (t), args, complain,
+			   in_decl, false);
+  --cp_contract_operand;
+  finish_contract (r, cond, copy_node (CONTRACT_COMMENT (t)));
+  pop_deferring_access_checks ();
+  return r;
+}
+
 /* Like tsubst_copy for expressions, etc. but also does semantic
    processing.  */
 
@@ -17711,6 +17770,19 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
 
     case USING_STMT:
       finish_using_directive (USING_STMT_NAMESPACE (t), /*attribs=*/NULL_TREE);
+      break;
+
+    case ASSERTION_STMT:
+    case PRECONDITION_STMT:
+    case POSTCONDITION_STMT:
+      {
+	/* TODO: Do we ever see preconditions and postconditions as
+	   statements? Certainly as attributes.  */
+	r = tsubst_contract (t, args, complain, in_decl);
+	if (r != error_mark_node)
+	  add_stmt (r);
+	RETURN (r);
+      }
       break;
 
     case DECL_EXPR:
@@ -20447,6 +20519,54 @@ recheck_decl_substitution (tree d, tree tmpl, tree args)
   pop_access_scope (d);
 }
 
+/* Instantiate contract conditions in T. Note that substitution failures
+   in contracts are hard errors.  */
+
+static tree
+tsubst_contract_conditions_r (tree t, tree args, tsubst_flags_t complain,
+			      tree in_decl)
+{
+  if (!t)
+    return NULL_TREE;
+  tree id = tsubst (TREE_PURPOSE (t), args, complain, in_decl);
+  if (id == error_mark_node)
+    return error_mark_node;
+  tree contract = tsubst_contract (TREE_VALUE (t), args, tf_warning_or_error,
+				   in_decl);
+  if (contract == error_mark_node)
+    return error_mark_node;
+  tree chain = tsubst_contract_conditions_r (TREE_CHAIN (t), args, complain,
+					     in_decl);
+  if (chain == error_mark_node)
+    return error_mark_node;
+  return tree_cons (id, contract, chain);
+}
+
+/* Instantiate contract conditions in T. Note that substitution failures
+   in contracts are hard errors.
+
+   Sets up additional context for unchecked result and then subs to
+   tsubst_contract_conditions_r.  */
+
+static void
+tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
+			    tree in_decl)
+{
+  if (!DECL_CONTRACTS (t)) return;
+  tree contract_attrs = DECL_CONTRACTS (t);
+  /* Rebuild unchecked result with concrete type.  */
+  if (DECL_UNCHECKED_RESULT (t))
+    {
+      tree orig_result = DECL_UNCHECKED_RESULT (t);
+      DECL_UNCHECKED_RESULT (t) = NULL_TREE;
+      build_unchecked_result (t);
+      register_local_specialization (DECL_UNCHECKED_RESULT (t), orig_result);
+    }
+  contract_attrs = tsubst_contract_conditions_r (contract_attrs, args,
+						 complain, in_decl);
+  DECL_DEFERRED_CONTRACTS (t) = build_tree_list (t, contract_attrs);
+}
+
 /* Instantiate the indicated variable, function, or alias template TMPL with
    the template arguments in TARG_PTR.  */
 
@@ -20596,6 +20716,15 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
       pop_access_scope (fndecl);
     }
   pop_deferring_access_checks ();
+
+  /* Specializations have completely independent contracts.  */
+  if (processing_specialization
+      && DECL_DECLARES_FUNCTION_P (fndecl)
+      && DECL_DEFERRED_CONTRACTS (fndecl))
+    {
+      DECL_DEFERRED_CONTRACTS (fndecl) = NULL_TREE;
+      DECL_UNCHECKED_RESULT (fndecl) = NULL_TREE;
+    }
 
   /* If we've just instantiated the main entry point for a function,
      instantiate all the alternate entry points as well.  We do this
@@ -24880,6 +25009,8 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	  && !DECL_DECLARED_INLINE_P (decl))
 	DECL_DECLARED_INLINE_P (decl) = 1;
 
+      DECL_DEFERRED_CONTRACTS (decl) = DECL_DEFERRED_CONTRACTS (code_pattern);
+
       maybe_instantiate_noexcept (decl, tf_error);
     }
   else if (VAR_P (decl))
@@ -25481,6 +25612,17 @@ instantiate_decl (tree d, bool defer_ok, bool expl_inst_class_mem_p)
       /* Create substitution entries for the parameters.  */
       register_parameter_specializations (code_pattern, d);
 
+      if (DECL_UNCHECKED_RESULT (d))
+	DECL_CONTEXT (DECL_UNCHECKED_RESULT (d)) = code_pattern;
+
+      /* Instantiate pending dependent contract conditions.  For constructors
+	 that will have the conditions inserted while substituting the
+	 initializer list, this must be done before substituting the body.
+	 For templates with deduced return types this must be done *after*
+	 substituting the body so we have the deduced return type. */
+      if (DECL_CONSTRUCTOR_P (d))
+	tsubst_contract_conditions (d, args, tf_warning_or_error, tmpl);
+
       /* Substitute into the body of the function.  */
       if (DECL_OMP_DECLARE_REDUCTION_P (code_pattern))
 	tsubst_omp_udr (DECL_SAVED_TREE (code_pattern), args,
@@ -25500,6 +25642,10 @@ instantiate_decl (tree d, bool defer_ok, bool expl_inst_class_mem_p)
 	  current_function_infinite_loop
 	    = DECL_STRUCT_FUNCTION (code_pattern)->language->infinite_loop;
 	}
+
+      /* Instantiate pending dependent contract conditions if we didn't already.  */
+      if (!DECL_CONSTRUCTOR_P (d))
+	tsubst_contract_conditions (d, args, tf_warning_or_error, tmpl);
 
       /* Finish the function.  */
       if (DECL_OMP_DECLARE_REDUCTION_P (code_pattern)

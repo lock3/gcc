@@ -248,6 +248,10 @@
 
 	* c-attribs.c (parse_tm_stmt_attr): Handle scoped attributes.
 
+2019-11-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* c.opt (fcontracts): New flag.
+
 2019-11-05  Jason Merrill  <jason@redhat.com>
 
 	* c-opts.c (c_common_post_options): -fconcepts-ts implies
@@ -547,6 +551,10 @@
 	(attr_noinit_exclusions): New table.
 	(handle_noinit_attribute): New function.
 
+2019-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* c.opt (fcontract-generalized-redecl=): Remove.
+
 2019-08-13  Richard Sandiford  <richard.sandiford@arm.com>
 
 	PR middle-end/91421
@@ -572,6 +580,28 @@
 	equal to PRAGMA_OMP_CLAUSE_USE_DEVICE_PTR instead of being a separate
 	enumeration value.
 
+2019-08-06  Andrew Sutton  <asutton@lock3software.com>
+
+	Major rewrite of contracts.
+
+	Redesign how contracts are represented, parsed, and generated. Still
+	working on fixing diagnostics and repairing damage in lots of different
+	places.
+	* c-common.c (attribute_contract_assert_p): Update to look for new
+	structure, ASSERTION_STMT explicitly.
+	* c-opts.c (handle_OPT_fcontract_role_): Replace enum
+	contract_concrete_semantic with contract_semantic.
+	(handle_OPT_fcontract_semantic_): Ditto.
+	* contract.c: Relpace enum contract_concrete_semantic with
+	contract_semantic.
+	(cpp_validate_role): Replace
+	is_unchecked_contract_semantic with unchecked_contract_p.
+	* contract.h (contract_concrete_semantic): Renamed to
+	contract_semantic.
+	(typedef contract_semantic): Removed.
+	(is_unchecked_contract_semantic): Renamed to unchecked_contract_p.
+	(is_checked_contract_semantic): Renamed to checked_contract_p.
+
 2019-08-05  Marek Polacek  <polacek@redhat.com>
 
 	PR c++/91338 - Implement P1161R3: Deprecate a[b,c].
@@ -587,6 +617,14 @@
 	* c-common.h (enum c_omp_clause_split): Add C_OMP_CLAUSE_SPLIT_LOOP.
 	* c-omp.c (c_omp_split_clauses): Add support for 4 new combined
 	constructs with the loop construct.
+
+2019-07-17  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Rename -fcontract-axiom-mode= to -fcontract-assumption-mode=.
+	* c-opts.c (handle_OPT_fcontract_axiom_mode_): Renamed to
+	handle_OPT_fcontract_assumption_mode_. Fix references.
+	* c.opt: Ditto.
+	* contract.c: Ditto.
 
 2019-07-13  Jakub Jelinek  <jakub@redhat.com>
 
@@ -630,6 +668,11 @@
 	PR preprocessor/90581
 	* c-opts.c (c_common_handle_option): Handle -fmax-include-depth.
 	* c.opt: Add new option -fmax-include-depth.
+
+2019-06-26  Andrew Sutton  <asutton@lock3software.com>
+
+	* c-cppbuiltin.C (c_cpp_builtins): Add feature test macros for
+	contracts.
 
 2019-06-26  Jason Merrill  <jason@redhat.com>
 
@@ -695,6 +738,10 @@
 	(handle_format_attribute): Spell out the word "arguments" in
 	a diagnostic.
 
+2019-06-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* c.opt (-fcontract-strict-declarations=): New flag.
+
 2019-06-11  Matthew Beliveau  <mbelivea@redhat.com>
 
 	PR c++/90449 - add -Winaccessible-base option.
@@ -731,6 +778,21 @@
 	<case BUILTIN_*_OVERFLOW>: Diagnose pointer to const qualified integer
 	as last argument.
 
+2019-05-28  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Redesign the contract facility.
+	* contract.h (enum contract_level): Remove non-levels.
+	(enum contract_concrete_semantic): Remove dynamic and ignore semantics.
+	(contract_semantic): New, will replace contract_concrete_semantic.
+	(contract_continuation): Moved from C++ parser.
+	(contract_role): New, will replace cpp_contract_role.
+	(contract_configuration): New.
+	(contract_mode): New.
+	(get_default_contract_role): New.
+	* contract.c (valid_configs): Rebuild the table for new enum order.
+	(cpp_validate_role): Update diagnostics.
+	(cpp_lookup_concrete_semantic): Likewise.
+
 2019-05-23  Eric Botcazou  <ebotcazou@adacore.com>
 
 	* c-ada-spec.c (compare_node): Compare the DECL_UIDs as a last resort.
@@ -753,6 +815,10 @@
 	PR c/89433
 	* c-attribs.c (c_common_attribute_table): Set min_len to -1 for
 	"omp declare target".
+
+2019-05-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* c.opt (-fcontract-generalized-redecl=): New flag.
 
 2019-05-16  Martin Sebor  <msebor@redhat.com>
 
@@ -948,6 +1014,24 @@
 	* c-common.c (shorten_compare): Call fold_for_warn on op0 when
 	implementing -Wtype-limits.
 
+2019-02-14  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Implement -fcontract-axiom-mode=[on|off] flag.
+	* c.opt (-fcontract-axiom-mode=): New.
+	* c-opts.c (handle_OPT_fcontract_axiom_mode_): New.
+	(c_common_handle_option): Now calls the above.
+	(setup_default_contract_role): Moved to contract.c.
+	* contract.c: (cpp_get_contract_role): Builds the default and review
+	roles if they don't exist.
+	(cpp_add_contract_role): Add bool update flag; simply returns the role
+	if it already exists and update is false.
+	(get_concrete_check): New.
+	(get_concrete_axiom_semantic): New.
+	(cpp_setup_default_contract_role): Moved from c-opts.c. Defines the
+	default roles based on the continuation and axiom modes.
+	* contract.h (cpp_add_contract_role): Add bool update flag.
+	(cpp_setup_default_contract_role): New.
+
 2019-02-11  Martin Sebor  <msebor@redhat.com>
 
 	PR c++/87996
@@ -955,6 +1039,29 @@
 	(valid_array_size_p): Call it.  Handle size as well as type.
 	* c-common.h (valid_constant_size_p): New function.
 	(enum cst_size_error): New type.
+
+2019-02-04  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Remove opt build level. Update default role semantics.
+	* c-opts.c (contract_build_level): Remove OPT.
+	(setup_default_contract_role): Ditto. Use assume as the default
+	semantic for axiom.
+	(handle_OPT_fcontract_build_level_): Remove OPT.
+	* c.opt (-fcontract-build-level=): Remove reference to custom levels.
+	(-fcontract-role=): Fix help message.
+
+2019-02-01  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Implement -fcontract-semantic; update flag name.
+	* c.opt (-fcontract-mode=): Renamed from -fcontracts-mode=.
+	(-fcontract-semantic=): New.
+	* c-opts.c (handle_OPT_fcontract_semantic_): New. Directly configures
+	the runtime semantic of a level in the default role.
+	(c_common_handle_option): Now calls the above.
+	(handle_OPT_fcontract_build_level_): Errors on conflicting flags
+	updated to include P1429 (-fcontract-semantic).
+	(handle_OPT_fcontract_continuation_mode_): Ditto.
+	(handle_OPT_fcontract_role_): Ditto.
 
 2019-01-31  David Malcolm  <dmalcolm@redhat.com>
 
@@ -982,11 +1089,56 @@
 	(check_and_warn_address_or_pointer_of_packed_member): Fix handling of
 	type casts within nested compound expressions.
 
+2019-01-22  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Implement -fcontracts-mode=[on|off] flag.
+	* c.opt (-fcontracts-mode=): New.
+	* contract.c (cpp_validate_role): An audit semantic weaker than a
+	default semantic is now only a warning.
+	(cpp_lookup_concrete_semantic): Add "always" as an alias to
+	check_always_continue.
+
 2019-01-22  Jakub Jelinek  <jakub@redhat.com>
 
 	PR middle-end/88968
 	* c-omp.c (c_finish_omp_atomic): For bitfield atomics, update type
 	variable after using BIT_FIELD_REF.
+
+2019-01-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Replace custom contract levels with configurable dynamic roles.
+	* c.opt: Replace -fcontract-assumption-level= and -fcontract-level=
+	with -fcontract-role=.
+	* c-opts.c (handle_OPT_fcontract_assumption_level_): Removed.
+	(handle_OPT_fcontract_level_): Removed.
+	(c_common_handle_option): Update contract related flags.
+	(setup_default_contract_role): New. Defines the contract roles based
+	on -fconract-continuation-mode.
+	(handle_OPT_fcontract_build_level_): Error if we've already configured
+	contracts via P1332 flags. Call setup_default_contract_role to setup
+	roles.
+	(handle_OPT_fcontract_continuation_mode_): New. Errors if we've
+	already configured contracts via P1332 flags. Calls
+	setup_default_contract_role.
+	(handle_OPT_fcontract_role_): New. Errors if we've already configured
+	contracts via std flags. Directly defines the semantic for each level
+	in a role.
+	(cpp_get_contract_build_mode): Removed.
+	(cpp_get_contract_level): Ditto.
+	(cpp_add_contract_level): Ditto.
+	(cpp_get_contract_assumption_mode): Ditto.
+	* contract.h: New. Holds contract related configuration.
+	(enum contract_level): Holds either a level or a concrete semantic.
+	(enum contract_concrete_semantic): Holds a concrete semantic or
+	CCS_DYNAMIC if the contract is dynamically configured.
+	(cpp_contract_role): Holds a role name and the configured semantics
+	for each level.
+	* contract.c: New. Holds contract related configuration.
+	(cpp_validate_role): Errors if a role has an invalid axiom semantic or
+	the audit semantic is weaker than the default semantic.
+	(cpp_lookup_concrete_semantic): New.
+	(cpp_get_contract_role): New.
+	(cpp_add_contract_role): New.
 
 2019-01-18  H.J. Lu  <hongjiu.lu@intel.com>
 
@@ -1002,6 +1154,17 @@
 	Also warn pointer conversion.
 	(warn_for_address_or_pointer_of_packed_member): Remove the
 	boolean argument.  Don't check pointer conversion here.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* c-opts.c (contract_build_levels): Include a bool concrete for each
+	of the hardcoded levels and concrete semantics.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Optionally parse a concrete semantic in lieu of a contract level.
+	* c-opts.c: Increase number of custom contract levels available.
+	Hardcode the concrete semantics after the normal levels.
 
 2019-01-15  Richard Sandiford  <richard.sandiford@arm.com>
 
@@ -1466,6 +1629,15 @@
 	PR c/63886
 	* c.opt (Wabsolute-value): New.
 
+2018-09-10  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add -fcontract-assumption-mode= flag used to promote unchecked
+	contracts into compile time assumptions.
+	* c-opts.c (handle_OPT_fcontract_assumption_level_): New.
+	(c_common_handle_option): Handle -fcontract-assumption-level=.
+	(cpp_get_contract_assumption_mode): New.
+	* c.opt (-fcontract-assumption-mode=): New.
+
 2018-09-06  Bernd Edlinger  <bernd.edlinger@hotmail.de>
 
 	* c-common.c (complete_flexible_array_elts): New helper function.
@@ -1476,6 +1648,22 @@
 	* c-common.c (braced_list_to_string): Remove eval parameter.
 	Add some more checks.  Always create zero-terminated STRING_CST.
 	* c-common.h (braced_list_to_string): Adjust prototype.
+
+2018-08-27  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add custom contract level support through
+	-fcontract-build-level= and -fcontract-level=.
+	* c-opts.c (handle_OPT_fcontract_build_level_): New.
+	(handle_OPT_fcontract_level_): New.
+	(cpp_get_contract_build_mode): New, return the current
+	translation contract build mode.
+	(cpp_get_contract_level): New, return a pointer to a predefined
+	contract build level.
+	(cpp_add_contract_level): New, add a new contract build level.
+	* c.opt (-fcontract-build-level): Allow a custom level.
+	(-fcontract-level): New, define a custom contract level.
+	(-fcontinue-on-contract-failure): Removed.
+	(-fcontract-continuation-mode): Replaced continue-on-contract-failure
 
 2018-08-27  David Malcolm  <dmalcolm@redhat.com>
 
@@ -1696,6 +1884,12 @@
 	type with TYPE_PACKED, instead ignore the attribute if we may
 	not apply to the original type.
 
+2018-07-11  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add contract continuation mode; refactor.
+	* c.opt (-fcontinue-on-contract-failure): New flag, controls
+	whether execution continues after a contract violation.
+
 2018-07-10  Jakub Jelinek  <jakub@redhat.com>
 
 	PR c++/86443
@@ -1743,9 +1937,20 @@
 	* c-lex.c (fe_file_change): Check SYSTEM_IMPLICIT_EXTERN_C not
 	NO_IMPLICIT_EXTERN_C.
 
+2018-07-02  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add contract build levels.
+	* c.opt (-contract-build-level): New flag, determines which
+	contracts have runtime checks generated.
+
 2018-06-28  Martin Liska  <mliska@suse.cz>
 
 	* cppspec.c: Include opt-suggestions.h.
+
+2018-06-26  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	* c-common.c (attribute_contract_assert_p): Emit a warning for
+	each repeated assert attribute.
 
 2018-06-20  Chung-Lin Tang  <cltang@codesourcery.com>
 	    Thomas Schwinge  <thomas@codesourcery.com>
@@ -1782,6 +1987,13 @@
 	13.  Set warn_abi_version and flag_abi_compat_version to the current
 	version rather than 0.  Fix defaulting flag_abi_compat_version from
 	warn_abi_version.
+
+2018-06-12  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add assert attribute rewriting in parser.
+	* c-common.c (attribute_contract_assert_p): New, check if an
+	attribute is a valid assert contract.
+	* c-common.h (attribute_contract_assert_p): New.
 
 2018-06-12  Martin Sebor  <msebor@redhat.com>
 

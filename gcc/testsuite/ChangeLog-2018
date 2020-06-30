@@ -6422,6 +6422,14 @@
 	PR fortran/86830
 	* gfortran.dg/typebound_call_30.f90: New test case.
 
+2018-09-10  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts20.C: New. Check that by default
+	unchecked contracts are not visible to the optimizer.
+	* g++.dg/cpp2a/contracts21.C: New. Check that the optimizer is
+	able to remove branch conditions based on assert contracts that
+	have been promoted to assumptions.
+
 2018-09-10  Janus Weil  <janus@gcc.gnu.org>
 
 	PR fortran/85395
@@ -6633,6 +6641,13 @@
 	PR tree-optimization/87074
 	* gcc.dg/pr87074.c: New test.
 
+2018-08-31  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts9.C: Add checks for function name in
+	contract violation handler.
+	* g++.dg/cpp2a/contracts13.C: Update location of compile error
+	of template constexpr function.
+
 2018-08-31  Richard Biener  <rguenther@suse.de>
 
 	PR tree-optimization/87168
@@ -6666,6 +6681,17 @@
 	* gfortran.dg/pr86328.f90 : New test.
 	in comment 12 of the PR.
 	* gfortran.dg/pr86760.f90 : New test.
+
+2018-08-30  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add example of printing backtrace in assert.
+	* backtrace_handler/Makefile: New.
+	* backtrace_handler/README: New.
+	* backtrace_handler/assert_fail.cpp: New.
+	* backtrace_handler/example_out.txt: New.
+	* backtrace_handler/example_pretty.txt: New.
+	* backtrace_handler/handle_contract_violation.cpp: New.
+	* backtrace_handler/prettytrace.sh: New.
 
 2018-08-30  Sandra Loosemore  <sandra@codesourcery.com>
 
@@ -6762,6 +6788,15 @@
 	PR tree-optimization/87126
 	* gcc.dg/tree-ssa/pr87126.c: New testcase.
 
+2018-08-28  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts11.C: Remove tests against duplicated
+	errors that have been fixed.
+	* g++.dg/cpp2a/contracts13.C: New. Check that passing assert
+	contracts do not effect constexpr evaluation. Check that an
+	error is generated if a contract check fails during constexpr
+	evaluation.
+
 2018-08-28  MCC CS  <deswurstes@users.noreply.github.com>
 
 	PR tree-optimization/87009
@@ -6816,6 +6851,27 @@
 
 	PR tree-optimization/87117
 	* gcc.dg/lvalue-5.c: New testcase.
+
+2018-08-27  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* contracts/except_preload_handler/Makefile: Update contract
+	continuation mode flag usage.
+	* contracts/noexcept_preload_handler/Makefile: Ditto.
+
+2018-08-27  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Update invalid contract level error test.
+	* g++.dg/cpp2a/contracts7.C: Update contract continuation mode
+	flag usage.
+	* g++.dg/cpp2a/contracts10.C: Ditto.
+	* g++.dg/cpp2a/contracts14.C: Ditto.
+	* g++.dg/cpp2a/contracts15.C: Ditto.
+	* g++.dg/cpp2a/contracts18.C: New. Check that an axiom contract
+	check is not generated. Check that custom contract levels can be
+	defined and used.
+	* g++.dg/cpp2a/contracts19.C: New. Check that custom contract
+	levels can be defined, used, and the name is avaliable in the
+	contract violation handler.
 
 2018-08-27  Jeff Law  <law@redhat.com>
 
@@ -6933,6 +6989,35 @@
 
 	PR fortran/86545
 	* gfortran.dg/generic_35.f90: New test case.
+
+2018-08-24  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts14.C: New. Test that an exception thrown
+	inside a custom contract violation handler are catchable from up
+	the call stack from the assert contract itself.
+	* g++.dg/cpp2a/contracts15.C: New. Ensure that exceptions thrown
+	within a custom contract violation handler are *not* catchable
+	up the call stack when the assert contract is inside a noexcept
+	function.
+	* g++.dg/cpp2a/contrcats16.C: New. Ensure exceptions cannot
+	escape the contract violation handler if the continuation mode
+	is off.
+	* g++.dg/cpp2a/contracts17.C: New. Ensure exceptions cannot
+	escape the contract violation handler when the containing
+	function is noexcept and the continuation mode is off.
+
+2018-08-24  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add examples of exception behavior with LD_PRELOAD with plain and
+	noexcept functions failing assert contract checks.
+	* contracts/except_preload_handler/Makefile: New.
+	* contracts/except_preload_handler/README: New.
+	* contracts/except_preload_handler/assert_fail.cpp: New.
+	* contracts/except_preload_handler/handle_contract_violation.cpp: New.
+	* contracts/noexcept_preload_handler/Makefile: New.
+	* contracts/noexcept_preload_handler/README: New.
+	* contracts/noexcept_preload_handler/assert_fail.cpp: New.
+	* contracts/noexcept_preload_handler/handle_contract_violation.cpp: New.
 
 2018-08-24  David Malcolm  <dmalcolm@redhat.com>
 
@@ -7356,6 +7441,18 @@
 	* gcc.dg/cpp/macsyntx.c: Adjust expected errors.
 	* gcc.dg/cpp/macsyntx2.c: likewise.
 
+2018-08-15  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Complete contract_violation info.
+	* g++.dg/cpp2a/contracts10.C: New. Check that contracts are
+	actually generated; ensure that the contract_violation info for
+	each violation is correct.
+	* g++.dg/cpp2a/contracts11.C: New. Check error reporting around
+	contract conditions that are not convertible to bool.
+	* g++.dg/cpp2a/contracts12.C: New. Check that constants for the
+	contract level are not present in the final binary when a
+	corresponding check for that level is not generated.
+
 2018-08-15  Uros Bizjak  <ubizjak@gmail.com>
 
 	PR testsuite/86745
@@ -7491,6 +7588,27 @@
 
 	PR fortran/86116
 	* gfortran.dg/generic_34.f90: New test case.
+
+2018-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add tests for assert contract attributes.
+	* g++.dg/cpp2a/contracts1.C: Fix existing tests and add details.
+	* g++.dg/cpp2a/contracts2.C: Fix existing tests and add details.
+	* g++.dg/cpp2a/contracts3.C: New.
+	* g++.dg/cpp2a/contracts4.C: New.
+	* g++.dg/cpp2a/contracts5.C: New.
+	* g++.dg/cpp2a/contracts6.C: New.
+	* g++.dg/cpp2a/contracts7.C: New.
+	* g++.dg/cpp2a/contracts8.C: New.
+	* g++.dg/cpp2a/contracts9.C: New.
+
+2018-08-13  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add example of a custom contract violation handler
+	* g++.dg/cpp2a/preload_handler/Makefile: New.
+	* g++.dg/cpp2a/preload_handler/README: New.
+	* g++.dg/cpp2a/preload_handler/assert_fail.cpp: New.
+	* g++.dg/cpp2a/preload_handler/handle_contract_violation.cpp: New.
 
 2018-08-13  Marek Polacek  <polacek@redhat.com>
 
@@ -9152,6 +9270,13 @@
 
 	* gcc.dg/vect/vect-mixed-size-cond-1.c: New test.
 
+2018-07-02  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add more assert contract tests.
+	* g++.dg/cpp2a/contracts1.C: Add additional checks; check for
+	error on invalid contract level.
+	* g++.dg/cpp2a/contracts2.C: New.
+
 2018-07-02  Jim Wilson  <jimw@sifive.com>
 
 	* gcc.target/riscv/interrupt-debug.c: New.
@@ -9374,6 +9499,10 @@
 
 	PR target/85769
 	* gcc.target/aarch64/f16_mov_immediate_3.c: New.
+
+2018-06-26  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: New.
 
 2018-06-26  Kelvin Nilsen  <kelvin@gcc.gnu.org>
 
