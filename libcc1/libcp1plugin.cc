@@ -1005,9 +1005,6 @@ plugin_add_using_decl (cc1_plugin::connection *,
   tree identifier = DECL_NAME (target);
   tree tcontext = DECL_CONTEXT (target);
 
-  if (UNSCOPED_ENUM_P (tcontext))
-    tcontext = CP_TYPE_CONTEXT (tcontext);
-
   if (class_member_p)
     {
       tree decl = do_class_using_decl (tcontext, identifier);
@@ -1552,7 +1549,7 @@ plugin_build_decl (cc1_plugin::connection *self,
 	 reversal.  */
       tree save = DECL_CHAIN (decl);
       DECL_CHAIN (decl) = NULL_TREE;
-      clone_function_decl (decl, /*update_methods=*/true);
+      clone_cdtor (decl, /*update_methods=*/true);
       gcc_assert (TYPE_FIELDS (current_class_type) == decl);
       TYPE_FIELDS (current_class_type)
 	= nreverse (TYPE_FIELDS (current_class_type));
@@ -3290,7 +3287,7 @@ plugin_build_call_expr (cc1_plugin::connection *self,
 	koenig_p = true;
       else if (is_overloaded_fn (callable))
 	{
-	  tree fn = get_first_fn (callable);
+	  tree fn = OVL_FIRST (callable);
 	  fn = STRIP_TEMPLATE (fn);
 
 	  if (!DECL_FUNCTION_MEMBER_P (fn)

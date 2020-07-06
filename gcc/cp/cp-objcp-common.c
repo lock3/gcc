@@ -335,11 +335,12 @@ cp_get_global_decls ()
   return NAMESPACE_LEVEL (global_namespace)->names;
 }
 
-/* Push DECL into the current scope.  */
+/* Push DECL into the current (namespace) scope.  */
 
 tree
 cp_pushdecl (tree decl)
 {
+  DECL_CONTEXT (decl) = FROB_CONTEXT (current_namespace);
   return pushdecl (decl);
 }
 
@@ -442,6 +443,9 @@ cp_register_dumps (gcc::dump_manager *dumps)
 {
   class_dump_id = dumps->dump_register
     (".class", "lang-class", "lang-class", DK_lang, OPTGROUP_NONE, false);
+
+  module_dump_id = dumps->dump_register
+    (".module", "lang-module", "lang-module", DK_lang, OPTGROUP_NONE, false);
 
   raw_dump_id = dumps->dump_register
     (".raw", "lang-raw", "lang-raw", DK_lang, OPTGROUP_NONE, false);
@@ -563,6 +567,18 @@ cp_common_init_ts (void)
   MARK_TS_EXP (POSTCONDITION_STMT);
 
   c_common_init_ts ();
+}
+
+/* Handle C++-specficic options here.  Punt to c_common otherwise.  */
+
+bool
+cp_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
+		  int kind, location_t loc,
+		  const struct cl_option_handlers *handlers)
+{
+  if (handle_module_option (unsigned (scode), arg, value))
+    return true;
+  return c_common_handle_option (scode, arg, value, kind, loc, handlers);
 }
 
 #include "gt-cp-cp-objcp-common.h"

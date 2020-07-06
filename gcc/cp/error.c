@@ -179,6 +179,48 @@ cxx_initialize_diagnostics (diagnostic_context *context)
   pp->m_format_postprocessor = new cxx_format_postprocessor ();
 }
 
+static void
+dump_module_suffix (cxx_pretty_printer *pp, tree decl, int flags)
+{
+  if (!modules_p ())
+    return;
+
+  if (!DECL_CONTEXT (decl))
+    return;
+
+  if (TREE_CODE (decl) != CONST_DECL
+      || !UNSCOPED_ENUM_P (DECL_CONTEXT (decl)))
+    {
+      if (!DECL_NAMESPACE_SCOPE_P (decl))
+	return;
+
+      if (TREE_CODE (decl) == NAMESPACE_DECL
+	  && !DECL_NAMESPACE_ALIAS (decl)
+	  && (TREE_PUBLIC (decl) || !TREE_PUBLIC (CP_DECL_CONTEXT (decl))))
+	return;
+    }
+
+  // FIXME: originally this would not print the suffix
+  // for decls originating from module 0 but that breaks
+  // the qualid encoding for "inline" restrictions. 
+  unsigned m = get_originating_module (decl);
+  if (m || (flags & TFF_MODULE_RESTRICTION)) 
+    {
+      const char *n;
+      if (flags & TFF_MODULE_RESTRICTION) 
+        n = primary_module_name(m);
+      else
+        n = module_name(m, false);
+
+    if (n)
+      {
+	  pp_character (pp, '@');
+	  pp->padding = pp_none;
+	  pp_string (pp, n);
+      }
+    }
+}
+
 /* Dump a scope, if deemed necessary.  */
 
 static void
@@ -701,7 +743,6 @@ class_key_or_enum_as_string (tree t)
 static void
 dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
 {
-  tree name;
   const char *variety = class_key_or_enum_as_string (t);
   int typdef = 0;
   int tmplate = 0;
@@ -711,23 +752,23 @@ dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
   if (flags & TFF_CLASS_KEY_OR_ENUM)
     pp_cxx_ws_string (pp, variety);
 
-  name = TYPE_NAME (t);
+  tree decl = TYPE_NAME (t);
 
-  if (name)
+  if (decl)
     {
-      typdef = (!DECL_ARTIFICIAL (name)
+      typdef = (!DECL_ARTIFICIAL (decl)
 		/* An alias specialization is not considered to be a
 		   typedef.  */
 		&& !alias_template_specialization_p (t, nt_opaque));
 
       if ((typdef
 	   && ((flags & TFF_CHASE_TYPEDEF)
-	       || (!flag_pretty_templates && DECL_LANG_SPECIFIC (name)
-		   && DECL_TEMPLATE_INFO (name))))
-	  || DECL_SELF_REFERENCE_P (name))
+	       || (!flag_pretty_templates && DECL_LANG_SPECIFIC (decl)
+		   && DECL_TEMPLATE_INFO (decl))))
+	  || DECL_SELF_REFERENCE_P (decl))
 	{
 	  t = TYPE_MAIN_VARIANT (t);
-	  name = TYPE_NAME (t);
+	  decl = TYPE_NAME (t);
 	  typdef = 0;
 	}
 
@@ -737,7 +778,7 @@ dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
 		    || PRIMARY_TEMPLATE_P (CLASSTYPE_TI_TEMPLATE (t)));
       
       if (! (flags & TFF_UNQUALIFIED_NAME))
-	dump_scope (pp, CP_DECL_CONTEXT (name), flags | TFF_SCOPE);
+	dump_scope (pp, CP_DECL_CONTEXT (decl), flags | TFF_SCOPE);
       flags &= ~TFF_UNQUALIFIED_NAME;
       if (tmplate)
 	{
@@ -747,9 +788,8 @@ dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
 
 	  while (DECL_TEMPLATE_INFO (tpl))
 	    tpl = DECL_TI_TEMPLATE (tpl);
-	  name = tpl;
+	  decl = tpl;
 	}
-      name = DECL_NAME (name);
     }
 
   if (LAMBDA_TYPE_P (t))
@@ -762,7 +802,7 @@ dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
 			 flags);
       pp_greater (pp);
     }
-  else if (!name || IDENTIFIER_ANON_P (name))
+  else if (!decl || IDENTIFIER_ANON_P (DECL_NAME (decl)))
     {
       if (flags & TFF_CLASS_KEY_OR_ENUM)
 	pp_string (pp, M_("<unnamed>"));
@@ -770,7 +810,10 @@ dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
 	pp_printf (pp, M_("<unnamed %s>"), variety);
     }
   else
-    pp_cxx_tree_identifier (pp, name);
+    pp_cxx_tree_identifier (pp, DECL_NAME (decl));
+
+  dump_module_suffix (pp, decl, flags);
+
 
   if (tmplate)
     dump_template_parms (pp, TYPE_TEMPLATE_INFO (t),
@@ -1073,6 +1116,9 @@ dump_simple_decl (cxx_pretty_printer *pp, tree t, tree type, int flags)
     pp_string (pp, M_("<structured bindings>"));
   else
     pp_string (pp, M_("<anonymous>"));
+
+  dump_module_suffix (pp, t, flags);
+
   if (flags & TFF_DECL_SPECIFIERS)
     dump_type_suffix (pp, type, flags);
 }
@@ -1889,6 +1935,8 @@ dump_function_name (cxx_pretty_printer *pp, tree t, int flags)
     }
   else
     dump_decl (pp, name, flags);
+
+  dump_module_suffix (pp, t, flags);
 
   if (DECL_TEMPLATE_INFO (t)
       && !DECL_FRIEND_PSEUDO_TEMPLATE_INSTANTIATION (t)
@@ -2909,7 +2957,14 @@ dump_binary_op (cxx_pretty_printer *pp, const char *opstring, tree t,
   else
     pp_string (pp, M_("<unknown operator>"));
   pp_cxx_whitespace (pp);
-  dump_expr (pp, TREE_OPERAND (t, 1), flags | TFF_EXPR_IN_PARENS);
+  tree op1 = TREE_OPERAND (t, 1);
+  if (TREE_CODE (t) == POINTER_PLUS_EXPR
+      && TREE_CODE (op1) == INTEGER_CST
+      && tree_int_cst_sign_bit (op1))
+    /* A pointer minus an integer is represented internally as plus a very
+       large number, don't expose that to users.  */
+    op1 = convert (ssizetype, op1);
+  dump_expr (pp, op1, flags | TFF_EXPR_IN_PARENS);
   pp_cxx_right_paren (pp);
 }
 

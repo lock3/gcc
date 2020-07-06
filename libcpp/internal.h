@@ -123,7 +123,9 @@ enum include_type
    /* Non-directive including mechanisms.  */
    IT_CMDLINE,  /* -include */
    IT_DEFAULT,  /* forced header  */
-   IT_MAIN,     /* main  */
+   IT_MAIN,     /* main, start on line 1 */
+   IT_MAIN_PREAMBLE,  /* main, but there will be a preamble before
+			 line 1  */
 
    IT_DIRECTIVE_HWM = IT_IMPORT + 1,  /* Directives below this.  */
    IT_HEADER_HWM = IT_DEFAULT + 1     /* Header files below this.  */
@@ -275,8 +277,11 @@ struct lexer_state
   /* Nonzero to skip evaluating part of an expression.  */
   unsigned int skip_eval;
 
-  /* Nonzero when handling a deferred pragma.  */
+  /* Nonzero when tokenizing a deferred pragma.  */
   unsigned char in_deferred_pragma;
+
+  /* Count to token that is a header-name.  */
+  unsigned char directive_file_token;
 
   /* Nonzero if the deferred pragma being handled allows macro expansion.  */
   unsigned char pragma_allow_expansion;
@@ -290,6 +295,12 @@ struct spec_nodes
   cpp_hashnode *n_false;		/* C++ keyword false */
   cpp_hashnode *n__VA_ARGS__;		/* C99 vararg macros */
   cpp_hashnode *n__VA_OPT__;		/* C++ vararg macros */
+
+  enum {M_EXPORT, M_MODULE, M_IMPORT, M_HWM};
+  
+  /* C++2a modules, only set when module_directives is in effect.
+     incoming variants [0], outgoing ones [1] */
+  cpp_hashnode *n_modules[M_HWM][2];
 };
 
 typedef struct _cpp_line_note _cpp_line_note;
@@ -354,6 +365,9 @@ struct cpp_buffer
      true, a CPP_EOF token is then returned.  Otherwise, the next
      token from the enclosing buffer is returned.  */
   bool return_at_eof : 1;
+
+  /* Is from main file.  */
+  bool main_file : 1;
 
   /* One for a system header, two for a C system header file that therefore
      needs to be extern "C" protected in C++, and zero otherwise.  */
@@ -633,7 +647,7 @@ static inline int cpp_in_primary_file (cpp_reader *);
 static inline int
 cpp_in_primary_file (cpp_reader *pfile)
 {
-  return pfile->line_table->depth == 1;
+  return pfile->buffer->main_file;
 }
 
 /* True if NODE is a macro for the purposes of ifdef, defined etc.  */
@@ -647,11 +661,14 @@ inline bool _cpp_defined_macro_p (cpp_hashnode *node)
 }
 
 /* In macro.c */
-extern void _cpp_notify_macro_use (cpp_reader *pfile, cpp_hashnode *node);
-inline void _cpp_maybe_notify_macro_use (cpp_reader *pfile, cpp_hashnode *node)
+extern bool _cpp_notify_macro_use (cpp_reader *pfile, cpp_hashnode *node,
+				   location_t);
+inline bool _cpp_maybe_notify_macro_use (cpp_reader *pfile, cpp_hashnode *node,
+					 location_t loc)
 {
   if (!(node->flags & NODE_USED))
-    _cpp_notify_macro_use (pfile, node);
+    return _cpp_notify_macro_use (pfile, node, loc);
+  return true;
 }
 extern cpp_macro *_cpp_new_macro (cpp_reader *, cpp_macro_kind, void *);
 extern void _cpp_free_definition (cpp_hashnode *);
@@ -677,11 +694,11 @@ extern void _cpp_init_hashtable (cpp_reader *, cpp_hash_table *);
 extern void _cpp_destroy_hashtable (cpp_reader *);
 
 /* In files.c */
-typedef struct _cpp_file _cpp_file;
+enum _cpp_find_file_kind
+  { _cpp_FFK_NORMAL, _cpp_FFK_FAKE, _cpp_FFK_PRE_INCLUDE, _cpp_FFK_HAS_INCLUDE };
 extern _cpp_file *_cpp_find_file (cpp_reader *, const char *, cpp_dir *,
-				  int angle, bool fake, bool preinclude,
-				  bool has_include, location_t);
-extern bool _cpp_find_failed (_cpp_file *);
+				  int angle, _cpp_find_file_kind, location_t);
+extern const char *_cpp_found_name (_cpp_file *);
 extern void _cpp_mark_file_once_only (cpp_reader *, struct _cpp_file *);
 extern void _cpp_fake_include (cpp_reader *, const char *);
 extern bool _cpp_stack_file (cpp_reader *, _cpp_file*, include_type, location_t);
@@ -746,17 +763,6 @@ extern void _cpp_do_file_change (cpp_reader *, enum lc_reason, const char *,
 				 linenum_type, unsigned int);
 extern void _cpp_pop_buffer (cpp_reader *);
 extern char *_cpp_bracket_include (cpp_reader *);
-
-/* In directives.c */
-struct _cpp_dir_only_callbacks
-{
-  /* Called to print a block of lines. */
-  void (*print_lines) (int, const void *, size_t);
-  bool (*maybe_print_line) (location_t);
-};
-
-extern void _cpp_preprocess_dir_only (cpp_reader *,
-				      const struct _cpp_dir_only_callbacks *);
 
 /* In traditional.c.  */
 extern bool _cpp_scan_out_logical_line (cpp_reader *, cpp_macro *, bool);
@@ -876,29 +882,7 @@ ufputs (const unsigned char *s, FILE *f)
   return fputs ((const char *)s, f);
 }
 
-  /* In line-map.c.  */
-
-/* Create a macro map.  A macro map encodes source locations of tokens
-   that are part of a macro replacement-list, at a macro expansion
-   point. See the extensive comments of struct line_map and struct
-   line_map_macro, in line-map.h.
-
-   This map shall be created when the macro is expanded. The map
-   encodes the source location of the expansion point of the macro as
-   well as the "original" source location of each token that is part
-   of the macro replacement-list. If a macro is defined but never
-   expanded, it has no macro map.  SET is the set of maps the macro
-   map should be part of.  MACRO_NODE is the macro which the new macro
-   map should encode source locations for.  EXPANSION is the location
-   of the expansion point of MACRO. For function-like macros
-   invocations, it's best to make it point to the closing parenthesis
-   of the macro, rather than the the location of the first character
-   of the macro.  NUM_TOKENS is the number of tokens that are part of
-   the replacement-list of MACRO.  */
-const line_map_macro *linemap_enter_macro (class line_maps *,
-					   struct cpp_hashnode*,
-					   location_t,
-					   unsigned int);
+/* In line-map.c.  */
 
 /* Create and return a virtual location for a token that is part of a
    macro expansion-list at a macro expansion point.  See the comment

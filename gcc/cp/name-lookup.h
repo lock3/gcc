@@ -85,6 +85,46 @@ struct GTY(()) cxx_saved_binding {
   tree real_type_value;
 };
 
+/* To support lazy module loading, we squirrel away a section number
+   for unloaded bindings.  We rely on pointers being aligned and
+   setting the bottom bit to mark a lazy value.
+   GTY doesn't like an array of union, so hve a containing struct.  */
+
+struct GTY(()) mc_slot {
+  union GTY((desc ("%1.is_lazy ()"))) mc_slot_lazy {
+    tree GTY((tag ("false"))) binding;
+  } u;
+
+  operator tree & ()
+  {
+    gcc_checking_assert (!is_lazy ());
+    return u.binding;
+  }
+  mc_slot &operator= (tree t)
+  {
+    u.binding = t;
+    return *this;
+  }
+  bool is_lazy () const
+  {
+    return bool (uintptr_t (u.binding) & 1);
+  }
+  void set_lazy (unsigned snum)
+  {
+    gcc_checking_assert (!u.binding);
+    u.binding = tree (uintptr_t ((snum << 1) | 1));
+  }
+  void or_lazy (unsigned snum)
+  {
+    gcc_checking_assert (is_lazy ());
+    u.binding = tree (uintptr_t (u.binding) | (snum << 1));
+  }
+  unsigned get_lazy () const
+  {
+    gcc_checking_assert (is_lazy ());
+    return unsigned (uintptr_t (u.binding) >> 1);
+  }
+};
 
 extern tree identifier_type_value (tree);
 extern void set_identifier_type_value (tree, tree);
@@ -306,6 +346,7 @@ extern tree lookup_arg_dependent (tree, tree, vec<tree, va_gc> *);
 extern tree search_anon_aggr (tree, tree, bool = false);
 extern tree get_class_binding_direct (tree, tree, bool want_type = false);
 extern tree get_class_binding (tree, tree, bool want_type = false);
+extern vec<tree, va_gc> *get_classtype_member_vec (tree klass);
 extern tree *find_member_slot (tree klass, tree name);
 extern tree *add_member_slot (tree klass, tree name);
 extern void resort_type_member_vec (void *, void *,
@@ -320,7 +361,7 @@ extern void finish_nonmember_using_decl (tree scope, tree name);
 extern void finish_using_directive (tree target, tree attribs);
 extern tree pushdecl (tree, bool is_friend = false);
 extern tree pushdecl_outermost_localscope (tree);
-extern tree pushdecl_top_level (tree, bool is_friend = false);
+extern tree pushdecl_top_level (tree, tree *maybe_init = NULL);
 extern tree pushdecl_top_level_and_finish (tree, tree);
 extern tree pushtag (tree, tree, tag_scope);
 extern int push_namespace (tree, bool make_inline = false);
@@ -333,4 +374,29 @@ extern void maybe_save_operator_binding (tree);
 extern void push_operator_bindings (void);
 extern void discard_operator_bindings (tree);
 
+// FIXME: class symbol handling.  In transition
+extern tree lookup_class_member (tree, tree, bool);
+extern void set_class_bindings (tree, tree);
+extern void insert_late_enum_def_bindings (tree, tree);
+extern tree lookup_all_conversions (tree);
+
+/* Lower level interface for modules. */
+extern tree *mergeable_namespace_entities (tree ctx, tree name, bool is_global);
+extern void add_mergeable_namespace_entity (tree *slot, tree decl);
+extern tree mergeable_class_entities (tree ctx, tree name);
+extern bool import_module_binding (tree ctx, tree name, unsigned mod,
+				   unsigned snum);
+extern bool set_module_binding (tree ctx, tree name, unsigned mod, bool iface,
+				tree value, tree type, tree visible);
+extern void add_module_decl (tree ctx, tree name, tree decl);
+extern tree extract_module_binding (tree &binding, tree ns, bitmap partitions);
+// FIXME: These two should be local to module.cc
+extern unsigned get_field_ident (tree ctx, tree decl);
+extern tree lookup_field_ident (tree ctx, tree name, unsigned ix);
+extern tree add_imported_namespace (tree ctx, tree name, unsigned module,
+				    location_t, bool visible_p, bool inline_p,
+				    tree anon_name);
+extern void note_pending_specializations (tree ns, tree name, bool is_header);
+extern void load_pending_specializations (tree ns, tree name);
+extern const char *get_cxx_dialect_name (enum cxx_dialect dialect);
 #endif /* GCC_CP_NAME_LOOKUP_H */

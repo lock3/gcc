@@ -117,6 +117,9 @@ struct GTY(()) globals {
 
   /* True if the mangling will be different in C++17 mode.  */
   bool need_cxx17_warning;
+
+  /* True if we mangled a module name.  */
+  bool mod;
 };
 
 static GTY (()) globals G;
@@ -170,7 +173,7 @@ integer_type_codes[itk_none] =
   '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0'
 };
 
-static int decl_is_template_id (const tree, tree* const);
+static tree maybe_template_info (const tree);
 
 /* Functions for handling substitutions.  */
 
@@ -272,11 +275,10 @@ static tree mangle_special_for_type (const tree, const char *);
   write_number ((NUMBER), /*unsigned_p=*/1, 10)
 
 /* If DECL is a template instance (including the uninstantiated template
-   itself), return nonzero and, if TEMPLATE_INFO is non-NULL, set
-   *TEMPLATE_INFO to its template info.  Otherwise return zero.  */
+   itself), return its TEMPLATE_INFO.  Otherwise return NULL.  */
 
-static int
-decl_is_template_id (const tree decl, tree* const template_info)
+static tree
+maybe_template_info (const tree decl)
 {
   if (TREE_CODE (decl) == TYPE_DECL)
     {
@@ -285,33 +287,20 @@ decl_is_template_id (const tree decl, tree* const template_info)
       const tree type = TREE_TYPE (decl);
 
       if (CLASS_TYPE_P (type) && CLASSTYPE_TEMPLATE_ID_P (type))
-	{
-	  if (template_info != NULL)
-	    /* For a templated TYPE_DECL, the template info is hanging
-	       off the type.  */
-	    *template_info = TYPE_TEMPLATE_INFO (type);
-	  return 1;
-	}
+	return TYPE_TEMPLATE_INFO (type);
     }
   else
     {
-      /* Check if this is a primary template.  */
+      /* Check if the template is a primary template.  */
       if (DECL_LANG_SPECIFIC (decl) != NULL
 	  && VAR_OR_FUNCTION_DECL_P (decl)
 	  && DECL_TEMPLATE_INFO (decl)
-	  && PRIMARY_TEMPLATE_P (DECL_TI_TEMPLATE (decl))
-	  && TREE_CODE (decl) != TEMPLATE_DECL)
-	{
-	  if (template_info != NULL)
-	    /* For most templated decls, the template info is hanging
-	       off the decl.  */
-	    *template_info = DECL_TEMPLATE_INFO (decl);
-	  return 1;
-	}
+	  && PRIMARY_TEMPLATE_P (DECL_TI_TEMPLATE (decl)))
+	return DECL_TEMPLATE_INFO (decl);
     }
 
   /* It's not a template id.  */
-  return 0;
+  return NULL_TREE;
 }
 
 /* Produce debugging output of current substitution candidates.  */
@@ -628,9 +617,7 @@ find_substitution (tree node)
 	    {
 	      tree args = CLASSTYPE_TI_ARGS (type);
 	      if (TREE_VEC_LENGTH (args) == 3
-		  && (TREE_CODE (TREE_VEC_ELT (args, 0))
-		      == TREE_CODE (char_type_node))
-		  && same_type_p (TREE_VEC_ELT (args, 0), char_type_node)
+		  && template_args_equal (TREE_VEC_ELT (args, 0), char_type_node)
 		  && is_std_substitution_char (TREE_VEC_ELT (args, 1),
 					       SUBID_CHAR_TRAITS)
 		  && is_std_substitution_char (TREE_VEC_ELT (args, 2),
@@ -654,8 +641,7 @@ find_substitution (tree node)
 	 args <char, std::char_traits<char> > .  */
       tree args = CLASSTYPE_TI_ARGS (type);
       if (TREE_VEC_LENGTH (args) == 2
-	  && TREE_CODE (TREE_VEC_ELT (args, 0)) == TREE_CODE (char_type_node)
-	  && same_type_p (TREE_VEC_ELT (args, 0), char_type_node)
+	  && template_args_equal (TREE_VEC_ELT (args, 0), char_type_node)
 	  && is_std_substitution_char (TREE_VEC_ELT (args, 1),
 				       SUBID_CHAR_TRAITS))
 	{
@@ -800,7 +786,7 @@ mangle_return_type_p (tree decl)
   return (!DECL_CONSTRUCTOR_P (decl)
 	  && !DECL_DESTRUCTOR_P (decl)
 	  && !DECL_CONV_FN_P (decl)
-	  && decl_is_template_id (decl, NULL));
+	  && maybe_template_info (decl));
 }
 
 /*   <encoding>		::= <function name> <bare-function-type>
@@ -827,9 +813,8 @@ write_encoding (const tree decl)
     {
       tree fn_type;
       tree d;
-      bool tmpl = decl_is_template_id (decl, NULL);
 
-      if (tmpl)
+      if (maybe_template_info (decl))
 	{
 	  fn_type = get_mostly_instantiated_function_type (decl);
 	  /* FN_TYPE will not have parameter types for in-charge or
@@ -848,6 +833,62 @@ write_encoding (const tree decl)
 				mangle_return_type_p (decl),
 				d);
     }
+}
+
+/* Interface to substitution and identifer mangling, used by the
+   module name mangler.  */
+
+void
+mangle_module_substitution (int v)
+{
+  if (v < 10)
+    {
+      write_char ('_');
+      write_char ('0' + v);
+    }
+  else
+    {
+      write_char ('W');
+      write_unsigned_number (v - 10);
+      write_char ('_');
+    }
+}
+
+void
+mangle_identifier (char c, tree id)
+{
+  if (c)
+    write_char (c);
+  write_source_name (id);
+}
+
+/* If the outermost non-namespace context (including DECL itself) is a
+   non-exported module decl, mangle the module information.
+
+   <module-name> ::= W <unqualified-name>+ E
+
+   FIXME: Module mangling is not fully baked.  How moduleness sticks
+   to regular back-references is tricky.  Namespaces cannot have
+   moduleness, but classes can.  However, both are mangled the same,
+   so the demangler doesn't have a clue. 
+*/
+
+static void
+write_module (int m, bool include_partition)
+{
+  G.mod = true;
+
+  write_char ('W');
+  mangle_module (m, include_partition);
+  write_char ('E');
+}
+
+static void
+maybe_write_module (tree decl)
+{
+  int m = get_originating_module (decl, true);
+  if (m >= 0)
+    write_module (m, false);
 }
 
 /* Lambdas can have a bit more context for mangling, specifically VAR_DECL
@@ -912,6 +953,9 @@ write_name (tree decl, const int ignore_local_scope)
       decl = TYPE_NAME (TYPE_MAIN_VARIANT (TREE_TYPE (decl)));
     }
 
+  if (modules_p ())
+    maybe_write_module (decl);
+
   context = decl_mangling_context (decl);
 
   gcc_assert (context != NULL_TREE);
@@ -933,13 +977,12 @@ write_name (tree decl, const int ignore_local_scope)
 	      || (abi_version_at_least (7)
 		  && TREE_CODE (context) == PARM_DECL))))
     {
-      tree template_info;
       /* Is this a template instance?  */
-      if (decl_is_template_id (decl, &template_info))
+      if (tree info = maybe_template_info (decl))
 	{
 	  /* Yes: use <unscoped-template-name>.  */
-	  write_unscoped_template_name (TI_TEMPLATE (template_info));
-	  write_template_args (TI_ARGS (template_info));
+	  write_unscoped_template_name (TI_TEMPLATE (info));
+	  write_template_args (TI_ARGS (info));
 	}
       else
 	/* Everything else gets an <unqualified-name>.  */
@@ -1041,8 +1084,6 @@ write_unscoped_template_name (const tree decl)
 static void
 write_nested_name (const tree decl)
 {
-  tree template_info;
-
   MANGLE_TRACE_TREE ("nested-name", decl);
 
   write_char ('N');
@@ -1065,11 +1106,11 @@ write_nested_name (const tree decl)
     }
 
   /* Is this a template instance?  */
-  if (decl_is_template_id (decl, &template_info))
+  if (tree info = maybe_template_info (decl))
     {
       /* Yes, use <template-prefix>.  */
       write_template_prefix (decl);
-      write_template_args (TI_ARGS (template_info));
+      write_template_args (TI_ARGS (info));
     }
   else if ((!abi_version_at_least (10) || TREE_CODE (decl) == TYPE_DECL)
 	   && TREE_CODE (TREE_TYPE (decl)) == TYPENAME_TYPE)
@@ -1106,8 +1147,6 @@ static void
 write_prefix (const tree node)
 {
   tree decl;
-  /* Non-NULL if NODE represents a template-id.  */
-  tree template_info = NULL;
 
   if (node == NULL
       || node == global_namespace)
@@ -1124,6 +1163,7 @@ write_prefix (const tree node)
   if (find_substitution (node))
     return;
 
+  tree template_info = NULL_TREE;
   if (DECL_P (node))
     {
       /* If this is a function or parm decl, that means we've hit function
@@ -1136,19 +1176,20 @@ write_prefix (const tree node)
 	return;
 
       decl = node;
-      decl_is_template_id (decl, &template_info);
+      template_info = maybe_template_info (decl);
     }
   else
     {
       /* Node is a type.  */
       decl = TYPE_NAME (node);
+      /* The DECL might not point at the node.  */
       if (CLASSTYPE_TEMPLATE_ID_P (node))
 	template_info = TYPE_TEMPLATE_INFO (node);
     }
 
   if (TREE_CODE (node) == TEMPLATE_TYPE_PARM)
     write_template_param (node);
-  else if (template_info != NULL)
+  else if (template_info)
     /* Templated.  */
     {
       write_template_prefix (decl);
@@ -1195,15 +1236,14 @@ write_template_prefix (const tree node)
   tree decl = DECL_P (node) ? node : TYPE_NAME (node);
   tree type = DECL_P (node) ? TREE_TYPE (node) : node;
   tree context = decl_mangling_context (decl);
-  tree template_info;
   tree templ;
   tree substitution;
 
   MANGLE_TRACE_TREE ("template-prefix", node);
 
   /* Find the template decl.  */
-  if (decl_is_template_id (decl, &template_info))
-    templ = TI_TEMPLATE (template_info);
+  if (tree info = maybe_template_info (decl))
+    templ = TI_TEMPLATE (info);
   else if (TREE_CODE (type) == TYPENAME_TYPE)
     /* For a typename type, all we have is the name.  */
     templ = DECL_NAME (decl);
@@ -1369,7 +1409,7 @@ write_unqualified_name (tree decl)
 	  /* Conversion operator. Handle it right here.
 	     <operator> ::= cv <type>  */
 	  tree type;
-	  if (decl_is_template_id (decl, NULL))
+	  if (maybe_template_info (decl))
 	    {
 	      tree fn_type;
 	      fn_type = get_mostly_instantiated_function_type (decl);
@@ -1413,8 +1453,7 @@ write_unqualified_name (tree decl)
       if (TREE_CODE (decl) == TYPE_DECL
           && TYPE_UNNAMED_P (type))
         write_unnamed_type_name (type);
-      else if (TREE_CODE (decl) == TYPE_DECL
-               && LAMBDA_TYPE_P (type))
+      else if (TREE_CODE (decl) == TYPE_DECL && LAMBDA_TYPE_P (type))
         write_closure_type_name (type);
       else
         write_source_name (DECL_NAME (decl));
@@ -3766,20 +3805,22 @@ start_mangling (const tree entity)
   G.entity = entity;
   G.need_abi_warning = false;
   G.need_cxx17_warning = false;
+  G.mod = false;
   obstack_free (&name_obstack, name_base);
   mangle_obstack = &name_obstack;
   name_base = obstack_alloc (&name_obstack, 0);
 }
 
-/* Done with mangling. If WARN is true, and the name of G.entity will
-   be mangled differently in a future version of the ABI, issue a
-   warning.  */
+/* Done with mangling.  Release the data.  */
 
 static void
 finish_mangling_internal (void)
 {
   /* Clear all the substitutions.  */
   vec_safe_truncate (G.substitutions, 0);
+
+  if (G.mod)
+    mangle_module_fini ();
 
   /* Null-terminate the string.  */
   write_char ('\0');
@@ -3823,6 +3864,20 @@ init_mangle (void)
   subst_identifiers[SUBID_BASIC_ISTREAM] = get_identifier ("basic_istream");
   subst_identifiers[SUBID_BASIC_OSTREAM] = get_identifier ("basic_ostream");
   subst_identifiers[SUBID_BASIC_IOSTREAM] = get_identifier ("basic_iostream");
+}
+
+/* Generate a mangling for MODULE's global initializer fn.  */
+
+tree
+mangle_module_global_init (int module)
+{
+  start_mangling (NULL_TREE);
+
+  write_string ("_ZGI");
+  write_module (module, true);
+  write_char ('v');
+
+  return finish_mangling_get_identifier ();
 }
 
 /* Generate the mangled name of DECL.  */

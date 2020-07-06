@@ -71,7 +71,7 @@ static bool diagnostic_n_impl (rich_location *, const diagnostic_metadata *,
 static void error_recursion (diagnostic_context *) ATTRIBUTE_NORETURN;
 static void real_abort (void) ATTRIBUTE_NORETURN;
 
-/* Name of program invoked, sans directories.  */
+/* Name of program invoked, sans directories  */
 
 const char *progname;
 
@@ -584,6 +584,15 @@ diagnostic_action_after_output (diagnostic_context *context,
 	if (context->abort_on_error)
 	  real_abort ();
 
+#if 1
+	fnotice (stderr, "We are damaged, This is broken.\n"
+		 "Logic is lost,\nWe struggle,\n"
+		 "Hunt through the rubble for what once was.\n");
+	fnotice (stderr, "THIS IS AN IN-DEVELOPMENT COMPILER,"
+		 " it barfed, quelle horreur\n"
+		 "See %s, WHICH IS NOT THE USUAL REPORTING MECHANISM!\n",
+		 bug_report_url);
+#else
 	fnotice (stderr, "Please submit a full bug report,\n"
 		 "with preprocessed source if appropriate.\n");
 	if (count > 0)
@@ -591,6 +600,7 @@ diagnostic_action_after_output (diagnostic_context *context,
 		   ("Please include the complete backtrace "
 		    "with any bug report.\n"));
 	fnotice (stderr, "See %s for instructions.\n", bug_report_url);
+#endif
 
 	exit (ICE_EXIT_CODE);
       }
@@ -600,6 +610,12 @@ diagnostic_action_after_output (diagnostic_context *context,
 	real_abort ();
       diagnostic_finish (context);
       fnotice (stderr, "compilation terminated.\n");
+#if 1
+      fnotice (stderr, "THIS IS AN IN-DEVELOPMENT COMPILER,"
+	       " it ate something that didn't agree with it\n"
+	       "See %s, WHICH IS NOT THE USUAL REPORTING MECHANISM!\n",
+	       bug_report_url);
+#endif
       exit (FATAL_EXIT_CODE);
 
     default:
@@ -649,25 +665,36 @@ diagnostic_report_current_module (diagnostic_context *context, location_t where)
       set_last_module (context, map);
       if (! MAIN_FILE_P (map))
 	{
-	  bool first = true;
+	  bool first = true, need_inc = true, was_module = MAP_MODULE_P (map);
 	  do
 	    {
 	      where = linemap_included_from (map);
 	      map = linemap_included_from_linemap (line_table, map);
+	      bool is_module = MAP_MODULE_P (map);
 	      const char *line_col
 		= maybe_line_and_column (SOURCE_LINE (map, where),
 					 first && context->show_column
 					 ? SOURCE_COLUMN (map, where) : 0);
 	      static const char *const msgs[] =
 		{
-		 N_("In file included from"),
+		 NULL,
 		 N_("                 from"),
+		 N_("In file included from"),	/* 2 */
+		 N_("        included from"),
+		 N_("In module"),		/* 4 */
+		 N_("of module"),
+		 N_("In module imported at"),	/* 6 */
+		 N_("imported at"),
 		};
-	      unsigned index = !first;
+
+	      unsigned index = (was_module ? 6 : is_module ? 4
+				: need_inc ? 2 : 0) + !first;
+
 	      pp_verbatim (context->printer, "%s%s %r%s%s%R",
-			   first ? "" : ",\n", _(msgs[index]),
+			   first ? "" : was_module ? ", " : ",\n",
+			   G_(msgs[index]),
 			   "locus", LINEMAP_FILE (map), line_col);
-	      first = false;
+	      first = false, need_inc = was_module, was_module = is_module;
 	    }
 	  while (! MAIN_FILE_P (map));
 	  pp_verbatim (context->printer, ":");

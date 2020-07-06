@@ -189,6 +189,9 @@ enum rid
   /* C++ concepts */
   RID_CONCEPT, RID_REQUIRES,
 
+  /* C++ modules.  */
+  RID__MODULE, RID__IMPORT, RID__EXPORT, /* Internal tokens.  */
+
   /* C++ coroutines */
   RID_CO_AWAIT, RID_CO_YIELD, RID_CO_RETURN,
 
@@ -356,13 +359,17 @@ enum c_tree_index
 
     CTI_DEFAULT_FUNCTION_TYPE,
 
+    CTI_NULL,
+
     /* These are not types, but we have to look them up all the time.  */
     CTI_FUNCTION_NAME_DECL,
     CTI_PRETTY_FUNCTION_NAME_DECL,
     CTI_C99_FUNCTION_NAME_DECL,
-    CTI_SAVED_FUNCTION_NAME_DECLS,
 
-    CTI_NULL,
+    CTI_MODULE_HWM,
+    /* Below here entities change during compilation.  */
+
+    CTI_SAVED_FUNCTION_NAME_DECLS,
 
     CTI_MAX
 };
@@ -437,9 +444,11 @@ extern machine_mode c_default_pointer_mode;
 #define D_CXX_CHAR8_T	0X1000	/* In C++, only with -fchar8_t.  */
 #define D_CXX20		0x2000  /* In C++, C++20 only.  */
 #define D_CXX_COROUTINES 0x4000  /* In C++, only with coroutines.  */
+#define D_CXX_MODULES	0x8000  /* In C++, only with modules.  */
 
 #define D_CXX_CONCEPTS_FLAGS D_CXXONLY | D_CXX_CONCEPTS
 #define D_CXX_CHAR8_T_FLAGS D_CXXONLY | D_CXX_CHAR8_T
+#define D_CXX_MODULES_FLAGS (D_CXXONLY | D_CXX_MODULES)
 #define D_CXX_COROUTINES_FLAGS (D_CXXONLY | D_CXX_COROUTINES)
 
 /* The reserved keyword table.  */
@@ -720,8 +729,8 @@ enum cxx_dialect {
   cxx14,
   /* C++17 */
   cxx17,
-  /* C++2a (C++20?) */
-  cxx2a
+  /* C++20 */
+  cxx20
 };
 
 /* The C++ dialect being used. C++98 is the default.  */
@@ -1197,7 +1206,7 @@ extern void c_finish_omp_taskyield (location_t);
 extern tree c_finish_omp_for (location_t, enum tree_code, tree, tree, tree,
 			      tree, tree, tree, tree, bool);
 extern bool c_omp_check_loop_iv (tree, tree, walk_tree_lh);
-extern bool c_omp_check_loop_iv_exprs (location_t, tree, tree, tree, tree,
+extern bool c_omp_check_loop_iv_exprs (location_t, tree, int, tree, tree, tree,
 				       walk_tree_lh);
 extern tree c_finish_oacc_wait (location_t, tree, tree);
 extern tree c_oacc_split_loop_clauses (tree, tree *, bool);
@@ -1207,6 +1216,7 @@ extern tree c_omp_declare_simd_clauses_to_numbers (tree, tree);
 extern void c_omp_declare_simd_clauses_to_decls (tree, tree);
 extern bool c_omp_predefined_variable (tree);
 extern enum omp_clause_default_kind c_omp_predetermined_sharing (tree);
+extern enum omp_clause_defaultmap_kind c_omp_predetermined_mapping (tree);
 extern tree c_omp_check_context_selector (location_t, tree);
 extern void c_omp_mark_declare_variant (location_t, tree, tree);
 extern const char *c_omp_map_clause_name (tree, bool);

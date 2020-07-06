@@ -79,6 +79,7 @@ extern bool lhd_handle_option (size_t, const char *, HOST_WIDE_INT, int,
 /* Declarations for tree gimplification hooks.  */
 extern int lhd_gimplify_expr (tree *, gimple_seq *, gimple_seq *);
 extern enum omp_clause_default_kind lhd_omp_predetermined_sharing (tree);
+extern enum omp_clause_defaultmap_kind lhd_omp_predetermined_mapping (tree);
 extern tree lhd_omp_assignment (tree, tree, tree);
 extern void lhd_omp_finish_clause (tree, gimple_seq *);
 struct gimplify_omp_ctx;
@@ -101,6 +102,11 @@ extern int lhd_type_dwarf_attribute (const_tree, int);
 #define LANG_HOOKS_INIT_OPTIONS_STRUCT	hook_void_gcc_optionsp
 #define LANG_HOOKS_INIT_OPTIONS		lhd_init_options
 #define LANG_HOOKS_INITIALIZE_DIAGNOSTICS lhd_initialize_diagnostics
+#define LANG_HOOKS_PREPROCESS_MAIN_FILE NULL
+#define LANG_HOOKS_PREPROCESS_TRANSLATE_INCLUDE NULL
+#define LANG_HOOKS_PREPROCESS_UNDEF NULL
+#define LANG_HOOKS_PREPROCESS_DEFERRED_MACRO NULL
+#define LANG_HOOKS_PREPROCESS_TOKEN NULL
 #define LANG_HOOKS_REGISTER_DUMPS	lhd_register_dumps
 #define LANG_HOOKS_COMPLAIN_WRONG_LANG_P lhd_complain_wrong_lang_p
 #define LANG_HOOKS_HANDLE_OPTION	lhd_handle_option
@@ -246,6 +252,7 @@ extern tree lhd_unit_size_without_reusable_padding (tree);
 #define LANG_HOOKS_OMP_CHECK_OPTIONAL_ARGUMENT hook_tree_tree_bool_null
 #define LANG_HOOKS_OMP_PRIVATIZE_BY_REFERENCE hook_bool_const_tree_false
 #define LANG_HOOKS_OMP_PREDETERMINED_SHARING lhd_omp_predetermined_sharing
+#define LANG_HOOKS_OMP_PREDETERMINED_MAPPING lhd_omp_predetermined_mapping
 #define LANG_HOOKS_OMP_REPORT_DECL lhd_pass_through_t
 #define LANG_HOOKS_OMP_DISREGARD_VALUE_EXPR hook_bool_tree_bool_false
 #define LANG_HOOKS_OMP_PRIVATE_DEBUG_CLAUSE hook_bool_tree_bool_false
@@ -274,6 +281,7 @@ extern tree lhd_unit_size_without_reusable_padding (tree);
   LANG_HOOKS_OMP_CHECK_OPTIONAL_ARGUMENT, \
   LANG_HOOKS_OMP_PRIVATIZE_BY_REFERENCE, \
   LANG_HOOKS_OMP_PREDETERMINED_SHARING, \
+  LANG_HOOKS_OMP_PREDETERMINED_MAPPING, \
   LANG_HOOKS_OMP_REPORT_DECL, \
   LANG_HOOKS_OMP_DISREGARD_VALUE_EXPR, \
   LANG_HOOKS_OMP_PRIVATE_DEBUG_CLAUSE, \
@@ -312,6 +320,11 @@ extern void lhd_end_section (void);
   LANG_HOOKS_INIT_OPTIONS_STRUCT, \
   LANG_HOOKS_INIT_OPTIONS, \
   LANG_HOOKS_INITIALIZE_DIAGNOSTICS, \
+  LANG_HOOKS_PREPROCESS_MAIN_FILE, \
+  LANG_HOOKS_PREPROCESS_TRANSLATE_INCLUDE, \
+  LANG_HOOKS_PREPROCESS_UNDEF, \
+  LANG_HOOKS_PREPROCESS_DEFERRED_MACRO, \
+  LANG_HOOKS_PREPROCESS_TOKEN, \
   LANG_HOOKS_REGISTER_DUMPS, \
   LANG_HOOKS_COMPLAIN_WRONG_LANG_P, \
   LANG_HOOKS_HANDLE_OPTION, \

@@ -1562,6 +1562,9 @@ ix86_asm_output_function_label (FILE *asm_out_file, const char *fname,
 {
   bool is_ms_hook = ix86_function_ms_hook_prologue (decl);
 
+  if (cfun)
+    cfun->machine->function_label_emitted = true;
+
   if (is_ms_hook)
     {
       int i, filler_count = (TARGET_64BIT ? 32 : 16);
@@ -5264,6 +5267,8 @@ ix86_frame_pointer_required (void)
 	  || ix86_current_function_calls_tls_descriptor))
     return true;
 
+  /* Several versions of mcount for the x86 assumes that there is a
+     frame, so we cannot allow profiling without a frame pointer.  */
   if (crtl->profile && !flag_fentry)
     return true;
 
@@ -9367,6 +9372,38 @@ ix86_output_function_epilogue (FILE *file ATTRIBUTE_UNUSED)
     }
 }
 
+/* Implement TARGET_ASM_PRINT_PATCHABLE_FUNCTION_ENTRY.  */
+
+void
+ix86_print_patchable_function_entry (FILE *file,
+				     unsigned HOST_WIDE_INT patch_area_size,
+				     bool record_p)
+{
+  if (cfun->machine->function_label_emitted)
+    {
+      /* NB: When ix86_print_patchable_function_entry is called after
+	 function table has been emitted, we have inserted or queued
+	 a pseudo UNSPECV_PATCHABLE_AREA instruction at the proper
+	 place.  There is nothing to do here.  */
+      return;
+    }
+
+  default_print_patchable_function_entry (file, patch_area_size,
+					  record_p);
+}
+
+/* Output patchable area.  NB: default_print_patchable_function_entry
+   isn't available in i386.md.  */
+
+void
+ix86_output_patchable_area (unsigned int patch_area_size,
+			    bool record_p)
+{
+  default_print_patchable_function_entry (asm_out_file,
+					  patch_area_size,
+					  record_p);
+}
+
 /* Return a scratch register to use in the split stack prologue.  The
    split stack prologue is used for -fsplit-stack.  It is the first
    instructions in the function, even before the regular prologue.
@@ -12506,6 +12543,8 @@ print_reg (rtx x, int code, FILE *file)
    ^ -- print addr32 prefix if TARGET_64BIT and Pmode != word_mode
    M -- print addr32 prefix for TARGET_X32 with VSIB address.
    ! -- print NOTRACK prefix for jxx/call/ret instructions if required.
+   N -- print maskz if it's constant 0 operand.
+   I -- print comparision predicate operand for sse cmp condition.
  */
 
 void
@@ -13809,7 +13848,9 @@ ix86_dirflag_mode_needed (rtx_insn *insn)
 static bool
 ix86_check_avx_upper_register (const_rtx exp)
 {
-  return SSE_REG_P (exp) && GET_MODE_BITSIZE (GET_MODE (exp)) > 128;
+  return (SSE_REG_P (exp)
+	  && !EXT_REX_SSE_REG_P (exp)
+	  && GET_MODE_BITSIZE (GET_MODE (exp)) > 128);
 }
 
 /* Return needed mode for entity in optimize_mode_switching pass.  */
@@ -15091,6 +15132,7 @@ ix86_build_const_vector (machine_mode mode, bool vect, rtx value)
     case E_V16SFmode:
     case E_V8SFmode:
     case E_V4SFmode:
+    case E_V2SFmode:
     case E_V8DFmode:
     case E_V4DFmode:
     case E_V2DFmode:
@@ -15131,6 +15173,7 @@ ix86_build_signbit_mask (machine_mode mode, bool vect, bool invert)
     case E_V4SImode:
     case E_V8SFmode:
     case E_V4SFmode:
+    case E_V2SFmode:
       vec_mode = mode;
       imode = SImode;
       break;
@@ -20414,8 +20457,16 @@ current_fentry_section (const char **name)
 void
 x86_function_profiler (FILE *file, int labelno ATTRIBUTE_UNUSED)
 {
-  if (cfun->machine->endbr_queued_at_entrance)
-    fprintf (file, "\t%s\n", TARGET_64BIT ? "endbr64" : "endbr32");
+  if (cfun->machine->insn_queued_at_entrance)
+    {
+      if (cfun->machine->insn_queued_at_entrance == TYPE_ENDBR)
+	fprintf (file, "\t%s\n", TARGET_64BIT ? "endbr64" : "endbr32");
+      unsigned int patch_area_size
+	= crtl->patch_area_size - crtl->patch_area_entry;
+      if (patch_area_size)
+	ix86_output_patchable_area (patch_area_size,
+				    crtl->patch_area_entry == 0);
+    }
 
   const char *mcount_name = MCOUNT_NAME;
 
@@ -21007,9 +21058,11 @@ ix86_vector_mode_supported_p (machine_mode mode)
     return true;
   if (TARGET_AVX512F && VALID_AVX512F_REG_MODE (mode))
     return true;
-  if ((TARGET_MMX || TARGET_MMX_WITH_SSE) && VALID_MMX_REG_MODE (mode))
+  if ((TARGET_MMX || TARGET_MMX_WITH_SSE)
+      && VALID_MMX_REG_MODE (mode))
     return true;
-  if (TARGET_3DNOW && VALID_MMX_REG_MODE_3DNOW (mode))
+  if ((TARGET_3DNOW || TARGET_MMX_WITH_SSE)
+      && VALID_MMX_REG_MODE_3DNOW (mode))
     return true;
   return false;
 }
@@ -21880,15 +21933,14 @@ ix86_init_cost (class loop *)
 static unsigned
 ix86_add_stmt_cost (class vec_info *vinfo, void *data, int count,
 		    enum vect_cost_for_stmt kind,
-		    class _stmt_vec_info *stmt_info, int misalign,
+		    class _stmt_vec_info *stmt_info, tree vectype,
+		    int misalign,
 		    enum vect_cost_model_location where)
 {
   unsigned *cost = (unsigned *) data;
   unsigned retval = 0;
   bool scalar_p
     = (kind == scalar_stmt || kind == scalar_load || kind == scalar_store);
-
-  tree vectype = stmt_info ? stmt_vectype (stmt_info) : NULL_TREE;
   int stmt_cost = - 1;
 
   bool fp = false;
@@ -23013,6 +23065,10 @@ ix86_run_selftests (void)
 
 #undef TARGET_ASM_FUNCTION_EPILOGUE
 #define TARGET_ASM_FUNCTION_EPILOGUE ix86_output_function_epilogue
+
+#undef TARGET_ASM_PRINT_PATCHABLE_FUNCTION_ENTRY
+#define TARGET_ASM_PRINT_PATCHABLE_FUNCTION_ENTRY \
+  ix86_print_patchable_function_entry
 
 #undef TARGET_ENCODE_SECTION_INFO
 #ifndef SUBTARGET_ENCODE_SECTION_INFO

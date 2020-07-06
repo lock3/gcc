@@ -577,9 +577,6 @@ make_blocks_1 (gimple_seq seq, basic_block bb)
 	      gimple_set_location (s, gimple_location (stmt));
 	      gimple_set_block (s, gimple_block (stmt));
 	      gimple_set_lhs (stmt, tmp);
-	      if (TREE_CODE (TREE_TYPE (tmp)) == COMPLEX_TYPE
-		  || TREE_CODE (TREE_TYPE (tmp)) == VECTOR_TYPE)
-		DECL_GIMPLE_REG_P (tmp) = 1;
 	      gsi_insert_after (&i, s, GSI_SAME_STMT);
 	    }
 	  start_new_block = true;
@@ -2983,12 +2980,6 @@ verify_address (tree t, bool verify_addressable)
 	|| TREE_CODE (base) == RESULT_DECL))
     return false;
 
-  if (DECL_GIMPLE_REG_P (base))
-    {
-      error ("%<DECL_GIMPLE_REG_P%> set on a variable with address taken");
-      return true;
-    }
-
   if (verify_addressable && !TREE_ADDRESSABLE (base))
     {
       error ("address taken but %<TREE_ADDRESSABLE%> bit not set");
@@ -4164,7 +4155,7 @@ verify_gimple_assign_ternary (gassign *stmt)
       return true;
     }
 
-  if (((rhs_code == VEC_COND_EXPR || rhs_code == COND_EXPR)
+  if ((rhs_code == COND_EXPR
        ? !is_gimple_condexpr (rhs1) : !is_gimple_val (rhs1))
       || !is_gimple_val (rhs2)
       || !is_gimple_val (rhs3))

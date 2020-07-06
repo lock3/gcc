@@ -139,6 +139,11 @@ this useless.
 
 This feature is used in automatic updating of makefiles.
 
+@item -Mno-modules
+@opindex Mno-modules
+Disable dependency generation for compiled module interfaces.  Some
+dependency parsers are not fully make-compatible.
+
 @item -MP
 @opindex MP
 This option instructs CPP to add a phony target for each dependency
@@ -415,6 +420,13 @@ of that macro from inadvertently commenting out the remainder of
 the source line.
 
 The @option{-CC} option is generally used to support lint comments.
+
+@item -EE
+@opindex EE
+Just preprocess the atom module preamble.  This consists of the module
+declaration (if present) and the import declarations.  Preprocessing
+is terminated just before the first token that cannot be part of the
+preamble.
 
 @item -P
 @opindex P

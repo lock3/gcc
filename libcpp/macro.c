@@ -268,6 +268,8 @@ class vaopt_state {
 
 /* Macro expansion.  */
 
+static cpp_macro *get_deferred_or_lazy_macro (cpp_reader *, cpp_hashnode *,
+					      location_t);
 static int enter_macro_context (cpp_reader *, cpp_hashnode *,
 				const cpp_token *, location_t);
 static int builtin_macro (cpp_reader *, cpp_hashnode *,
@@ -338,8 +340,6 @@ static cpp_macro *create_iso_definition (cpp_reader *);
 /* #define directive parsing and handling.  */
 
 static cpp_macro *lex_expansion_token (cpp_reader *, cpp_macro *);
-static bool warn_of_redefinition (cpp_reader *, cpp_hashnode *,
-				  const cpp_macro *);
 static bool parse_params (cpp_reader *, unsigned *, bool *);
 static void check_trad_stringification (cpp_reader *, const cpp_macro *,
 					const cpp_string *);
@@ -350,8 +350,6 @@ static void consume_next_token_from_context (cpp_reader *pfile,
 static const cpp_token* cpp_get_token_1 (cpp_reader *, location_t *);
 
 static cpp_hashnode* macro_of_context (cpp_context *context);
-
-static bool in_macro_expansion_p (cpp_reader *pfile);
 
 /* Statistical counter tracking the number of macros that got
    expanded.  */
@@ -1035,7 +1033,7 @@ _cpp_arguments_ok (cpp_reader *pfile, cpp_macro *macro, const cpp_hashnode *node
 
   if (argc < macro->paramc)
     {
-      /* In C++2a (here the va_opt flag is used), and also as a GNU
+      /* In C++20 (here the va_opt flag is used), and also as a GNU
 	 extension, variadic arguments are allowed to not appear in
 	 the invocation at all.
 	 e.g. #define debug(format, args...) something
@@ -1258,11 +1256,13 @@ collect_args (cpp_reader *pfile, const cpp_hashnode *node,
 
   if (token->type == CPP_EOF)
     {
-      /* We still need the CPP_EOF to end directives, and to end
-	 pre-expansion of a macro argument.  Step back is not
-	 unconditional, since we don't want to return a CPP_EOF to our
-	 callers at the end of an -include-d file.  */
-      if (pfile->context->prev || pfile->state.in_directive)
+      /* We still need the CPP_EOF to end directives, to end
+	 pre-expansion of a macro argument, and at the end of the main
+	 file.  We do not want it at the end of a -include'd (forced)
+	 header file.  */
+      if (pfile->state.in_directive
+	  || !pfile->line_table->depth
+	  || pfile->context->prev)
 	_cpp_backup_tokens (pfile, 1);
       cpp_error (pfile, CPP_DL_ERROR,
 		 "unterminated argument list invoking macro \"%s\"",
@@ -1432,7 +1432,7 @@ enter_macro_context (cpp_reader *pfile, cpp_hashnode *node,
 
       /* Laziness can only affect the expansion tokens of the macro,
 	 not its fun-likeness or parameters.  */
-      _cpp_maybe_notify_macro_use (pfile, node);
+      _cpp_maybe_notify_macro_use (pfile, node, location);
       if (pfile->cb.used)
 	pfile->cb.used (pfile, location, node);
 
@@ -2843,6 +2843,12 @@ cpp_get_token_1 (cpp_reader *pfile, location_t *location)
       if (node->type == NT_VOID || (result->flags & NO_EXPAND))
 	break;
 
+      if (!(node->flags & NODE_USED)
+	  && node->type == NT_USER_MACRO
+	  && !node->value.macro
+	  && !cpp_get_deferred_macro (pfile, node, result->src_loc))
+	break;
+
       if (!(node->flags & NODE_DISABLED))
 	{
 	  int ret = 0;
@@ -2870,8 +2876,7 @@ cpp_get_token_1 (cpp_reader *pfile, location_t *location)
 				      || (peek_tok->flags & PREV_WHITE));
 		  node = pfile->cb.macro_to_expand (pfile, result);
 		  if (node)
-		    ret = enter_macro_context (pfile, node, result,
-					       virt_loc);
+		    ret = enter_macro_context (pfile, node, result, virt_loc);
 		  else if (whitespace_after)
 		    {
 		      /* If macro_to_expand hook returned NULL and it
@@ -2888,8 +2893,7 @@ cpp_get_token_1 (cpp_reader *pfile, location_t *location)
 		}
 	    }
 	  else
-	    ret = enter_macro_context (pfile, node, result, 
-				       virt_loc);
+	    ret = enter_macro_context (pfile, node, result, virt_loc);
 	  if (ret)
  	    {
 	      if (pfile->state.in_directive || ret == 2)
@@ -2930,6 +2934,86 @@ cpp_get_token_1 (cpp_reader *pfile, location_t *location)
     }
 
   pfile->about_to_expand_macro_p = saved_about_to_expand_macro;
+
+  if (pfile->state.directive_file_token
+      && !pfile->state.parsing_args
+      && !(result->type == CPP_PADDING || result->type == CPP_COMMENT)
+      && !(15 & --pfile->state.directive_file_token))
+    {
+      /* Do header-name frobbery.  Concatenate < ... > as approprate.
+	 Do header search if needed, and finally drop the outer <> or
+	 "".  */
+      pfile->state.angled_headers = false;
+
+      /* Do angle-header reconstitution.  Then do include searching.
+	 We'll always end up with a ""-quoted header-name in that
+	 case.  If searching finds nothing, we emit a diagnostic and
+	 an empty string.  */
+      size_t len = 0;
+      char *fname = NULL;
+
+      cpp_token *tmp = _cpp_temp_token (pfile);
+      *tmp = *result;
+
+      tmp->type = CPP_HEADER_NAME;
+      bool need_search = !pfile->state.directive_file_token;
+      pfile->state.directive_file_token = false;
+
+      // FIXME: Perhaps move out to files.c into cpp_find_header_unit?
+      bool angle = result->type != CPP_STRING;
+      if (result->type == CPP_HEADER_NAME
+	  || (result->type == CPP_STRING && result->val.str.text[0] != 'R'))
+	{
+	  len = result->val.str.len - 2;
+	  fname = XNEWVEC (char, len + 1);
+	  memcpy (fname, result->val.str.text + 1, len);
+	  fname[len] = 0;
+	}
+      else if (result->type == CPP_LESS)
+	fname = _cpp_bracket_include (pfile);
+
+      if (fname)
+	{
+	  /* We have a header-name.  Look it up.  This will emit an
+	     unfound diagnostic.  Canonicalize the found name.  */
+	  const char *found = fname;
+
+	  if (need_search)
+	    {
+	      found = cpp_find_header_unit (pfile, fname, angle, tmp->src_loc);
+	      if (!found)
+		found = "";
+	      len = strlen (found);
+	    }
+	  /* Force a leading './' if it's not absolute.  */
+	  bool dotme = (found[0] == '.' ? !IS_DIR_SEPARATOR (found[1])
+			: found[0] && !IS_ABSOLUTE_PATH (found));
+
+	  if (BUFF_ROOM (pfile->u_buff) < len + 1 + dotme * 2)
+	    _cpp_extend_buff (pfile, &pfile->u_buff, len + 1 + dotme * 2);
+	  unsigned char *buf = BUFF_FRONT (pfile->u_buff);
+	  size_t pos = 0;
+	      
+	  if (dotme)
+	    {
+	      buf[pos++] = '.';
+	      /* Apparently '/' is unconditional.  */
+	      buf[pos++] = '/';
+	    }
+	  memcpy (&buf[pos], found, len);
+	  pos += len;
+	  buf[pos] = 0;
+
+	  tmp->val.str.len = pos;
+	  tmp->val.str.text = buf;
+
+	  tmp->type = CPP_HEADER_NAME;
+	  XDELETEVEC (fname);
+	  
+	  result = tmp;
+	}
+    }
+
   return result;
 }
 
@@ -2992,6 +3076,12 @@ const cpp_token *
 cpp_get_token_with_location (cpp_reader *pfile, location_t *loc)
 {
   return cpp_get_token_1 (pfile, loc);
+}
+
+void
+cpp_enable_filename_token (cpp_reader *pfile, bool enable)
+{
+  pfile->state.angled_headers += enable ? +1 : -1;
 }
 
 /* Returns true if we're expanding an object-like macro that was
@@ -3104,15 +3194,16 @@ warn_of_redefinition (cpp_reader *pfile, cpp_hashnode *node,
   if (node->flags & NODE_CONDITIONAL)
     return false;
 
-  cpp_macro *macro1 = node->value.macro;
-  if (macro1->lazy)
-    {
-      /* We don't want to mark MACRO as used, but do need to finalize
-	 its laziness.  */
-      pfile->cb.user_lazy_macro (pfile, macro1, macro1->lazy - 1);
-      macro1->lazy = 0;
-    }
+  if (cpp_macro *macro1 = get_deferred_or_lazy_macro (pfile, node, macro2->line))
+    return cpp_compare_macros (macro1, macro2);
+  return false;
+}
 
+/* Return TRUE if MACRO1 and MACRO2 differ.  */
+
+bool
+cpp_compare_macros (const cpp_macro *macro1, const cpp_macro *macro2)
+{
   /* Redefinition of a macro is allowed if and only if the old and new
      definitions are the same.  (6.10.3 paragraph 2).  */
 
@@ -3581,6 +3672,10 @@ _cpp_new_macro (cpp_reader *pfile, cpp_macro_kind kind, void *placement)
 {
   cpp_macro *macro = (cpp_macro *) placement;
 
+  /* Zero init all the fields.  This'll tell the compiler know all the
+     following inits are writing a virgin object.  */
+  memset (macro, 0, offsetof (cpp_macro, exp));
+
   macro->line = pfile->directive_line;
   macro->parm.params = 0;
   macro->lazy = 0;
@@ -3589,6 +3684,7 @@ _cpp_new_macro (cpp_reader *pfile, cpp_macro_kind kind, void *placement)
   macro->used = !CPP_OPTION (pfile, warn_unused_macros);
   macro->count = 0;
   macro->fun_like = 0;
+  macro->imported = false;
   macro->extra_tokens = 0;
   /* To suppress some diagnostics.  */
   macro->syshdr = pfile->buffer && pfile->buffer->sysp != 0;
@@ -3666,39 +3762,72 @@ cpp_define_lazily (cpp_reader *pfile, cpp_hashnode *node, unsigned num)
   macro->lazy = num + 1;
 }
 
-/* Notify the use of NODE in a macro-aware context (i.e. expanding it,
-   or testing its existance).  Also applies any lazy definition.  */
+/* NODE is a deferred macro, resolve it, returning the definition
+   (which may be NULL).  */
+cpp_macro *
+cpp_get_deferred_macro (cpp_reader *pfile, cpp_hashnode *node,
+			location_t loc)
+{
+  node->value.macro = pfile->cb.user_deferred_macro (pfile, loc, node);
 
-extern void
-_cpp_notify_macro_use (cpp_reader *pfile, cpp_hashnode *node)
+  if (!node->value.macro)
+    node->type = NT_VOID;
+
+  return node->value.macro;
+}
+
+static cpp_macro *
+get_deferred_or_lazy_macro (cpp_reader *pfile, cpp_hashnode *node,
+			    location_t loc)
+{
+  cpp_macro *macro = node->value.macro;
+  if (!macro)
+    {
+      macro = cpp_get_deferred_macro (pfile, node, loc);
+      if (!macro)
+	return NULL;
+    }
+
+  if (macro->lazy)
+    {
+      pfile->cb.user_lazy_macro (pfile, macro, macro->lazy - 1);
+      macro->lazy = 0;
+    }
+
+  return macro;
+}
+
+/* Notify the use of NODE in a macro-aware context (i.e. expanding it,
+   or testing its existance).  Also applies any lazy definition.
+   Return FALSE if the macro isn't really there.  */
+
+extern bool
+_cpp_notify_macro_use (cpp_reader *pfile, cpp_hashnode *node,
+		       location_t loc)
 {
   node->flags |= NODE_USED;
   switch (node->type)
     {
     case NT_USER_MACRO:
-      {
-	cpp_macro *macro = node->value.macro;
-	if (macro->lazy)
-	  {
-	    pfile->cb.user_lazy_macro (pfile, macro, macro->lazy - 1);
-	    macro->lazy = 0;
-	  }
-      }
+      if (!get_deferred_or_lazy_macro (pfile, node, loc))
+	return false;
       /* FALLTHROUGH.  */
 
     case NT_BUILTIN_MACRO:
       if (pfile->cb.used_define)
-	pfile->cb.used_define (pfile, pfile->directive_line, node);
+	pfile->cb.used_define (pfile, loc, node);
       break;
 
     case NT_VOID:
       if (pfile->cb.used_undef)
-	pfile->cb.used_undef (pfile, pfile->directive_line, node);
+	pfile->cb.used_undef (pfile, loc, node);
       break;
 
     default:
       abort ();
     }
+
+  return true;
 }
 
 /* Warn if a token in STRING matches one of a function-like MACRO's
@@ -3751,12 +3880,19 @@ check_trad_stringification (cpp_reader *pfile, const cpp_macro *macro,
 const unsigned char *
 cpp_macro_definition (cpp_reader *pfile, cpp_hashnode *node)
 {
-  unsigned int i, len;
-  unsigned char *buffer;
-
   gcc_checking_assert (cpp_user_macro_p (node));
 
-  const cpp_macro *macro = node->value.macro;
+  if (const cpp_macro *macro = get_deferred_or_lazy_macro (pfile, node, 0))
+    return cpp_macro_definition (pfile, node, macro);
+  return NULL;
+}
+
+const unsigned char *
+cpp_macro_definition (cpp_reader *pfile, cpp_hashnode *node,
+		      const cpp_macro *macro)
+{
+  unsigned int i, len;
+  unsigned char *buffer;
 
   /* Calculate length.  */
   len = NODE_LEN (node) * 10 + 2;		/* ' ' and NUL.  */

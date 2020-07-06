@@ -23,6 +23,7 @@ m4_include(config/acx.m4)
 m4_include(config/override.m4)
 m4_include(config/proginstall.m4)
 m4_include(config/elf.m4)
+m4_include(config/ax_cxx_compile_stdcxx.m4)
 m4_include([libtool.m4])
 m4_include([ltoptions.m4])
 m4_include([ltsugar.m4])
@@ -1462,10 +1463,13 @@ case "$have_compiler:$host:$target:$enable_bootstrap" in
     ;;
 esac
 
-# When bootstrapping with GCC, build stage 1 in C++98 mode to ensure that a
-# C++98 compiler can still start the bootstrap.
+# When bootstrapping with GCC, build stage 1 in C++11 mode to ensure that a
+# C++11 compiler can still start the bootstrap.  Otherwise, if building GCC,
+# require C++11 (or higher).
 if test "$enable_bootstrap:$GXX" = "yes:yes"; then
-  CXX="$CXX -std=gnu++98"
+  CXX="$CXX -std=c++11"
+elif test "$have_compiler" = yes; then
+  AX_CXX_COMPILE_STDCXX(11)
 fi
 
 # Used for setting $lt_cv_objdir
@@ -1703,6 +1707,32 @@ AC_SUBST(extra_mpfr_configure_flags)
 AC_SUBST(extra_mpc_gmp_configure_flags)
 AC_SUBST(extra_mpc_mpfr_configure_flags)
 AC_SUBST(extra_isl_gmp_configure_flags)
+
+# Specify a location for libcody
+AC_ARG_WITH(libcody,
+[AS_HELP_STRING([--with-libcody=PATH],
+		[specify prefix directory for installed libcody package.
+		 Equivalent to --with-libcody-include=PATH/include
+		 plus --with-libcody-lib=PATH/lib])])
+AC_ARG_WITH(libcody-include,
+[AS_HELP_STRING([--with-libcody-include=PATH],
+		[specify directory for installed libcody include files])])
+AC_ARG_WITH(libcody-lib,
+[AS_HELP_STRING([--with-libcody-lib=PATH],
+		[specify directory for the installed libcody library])])
+
+if test "x$with_libcody" != x; then
+  codylib="-L$with_libcody/lib"
+  codylibinc="-I$with_libcody/include"
+fi
+if test "x$with_libcody_include" != x; then
+  codylibinc="-I$with_libcody_include"
+fi
+if test "x$with_libcody_lib" != x; then
+  codylib="-L$with_libcody_lib"
+fi
+AC_SUBST(codylib)
+AC_SUBST(codylibinc)
 
 # Libraries to use for stage1 or when not bootstrapping.
 AC_ARG_WITH(stage1-libs,
@@ -2079,9 +2109,14 @@ if test -d ${srcdir}/gcc; then
         esac
 
         # Disable jit if -enable-host-shared not specified
-        case ${add_this_lang}:${language}:${host_shared} in
-          yes:jit:no)
-	    # PR jit/64780: explicitly specify --enable-host-shared
+        # but not if building for Mingw. All code in Windows
+        # is position independent code (PIC).
+        case $target in
+          *mingw*) ;;
+          *)
+          case ${add_this_lang}:${language}:${host_shared} in
+            yes:jit:no)
+	           # PR jit/64780: explicitly specify --enable-host-shared
 	    AC_MSG_ERROR([
 Enabling language "jit" requires --enable-host-shared.
 
@@ -2092,16 +2127,18 @@ If you want to build both the jit and the regular compiler, it is often
 best to do this via two separate configure/builds, in separate
 directories, to avoid imposing the performance cost of
 --enable-host-shared on the regular compiler.])
-	    ;;
-          all:jit:no)
-	    AC_MSG_WARN([--enable-host-shared required to build $language])
-            add_this_lang=unsupported
-            ;;
-          *:jit:no)
-            # Silently disable.
-            add_this_lang=unsupported
-            ;;
-	esac
+	            ;;
+            all:jit:no)
+	      AC_MSG_WARN([--enable-host-shared required to build $language])
+              add_this_lang=unsupported
+              ;;
+            *:jit:no)
+              # Silently disable.
+              add_this_lang=unsupported
+              ;;
+	        esac
+          ;;
+        esac
 
         # Disable a language that is unsupported by the target.
 	case "${add_this_lang}: $unsupported_languages " in

@@ -6531,7 +6531,9 @@ aarch64_layout_frame (void)
 	&& !crtl->abi->clobbers_full_reg_p (regno))
       frame.reg_offset[regno] = SLOT_REQUIRED;
 
-  /* With stack-clash, LR must be saved in non-leaf functions.  */
+  /* With stack-clash, LR must be saved in non-leaf functions.  The saving of
+     LR counts as an implicit probe which allows us to maintain the invariant
+     described in the comment at expand_prologue.  */
   gcc_assert (crtl->is_leaf
 	      || maybe_ne (frame.reg_offset[R30_REGNUM], SLOT_NOT_REQUIRED));
 
@@ -6748,6 +6750,14 @@ aarch64_layout_frame (void)
 			+ frame.callee_adjust
 			+ frame.sve_callee_adjust
 			+ frame.final_adjust, frame.frame_size));
+
+  if (!frame.emit_frame_chain && frame.callee_adjust == 0)
+    {
+      /* We've decided not to associate any register saves with the initial
+	 stack allocation.  */
+      frame.wb_candidate1 = INVALID_REGNUM;
+      frame.wb_candidate2 = INVALID_REGNUM;
+    }
 
   frame.laid_out = true;
 }
@@ -8180,7 +8190,11 @@ aarch64_expand_epilogue (bool for_sibcall)
   if (callee_adjust != 0)
     aarch64_pop_regs (reg1, reg2, callee_adjust, &cfi_ops);
 
-  if (callee_adjust != 0 || maybe_gt (initial_adjust, 65536))
+  /* If we have no register restore information, the CFA must have been
+     defined in terms of the stack pointer since the end of the prologue.  */
+  gcc_assert (cfi_ops || !frame_pointer_needed);
+
+  if (cfi_ops && (callee_adjust != 0 || maybe_gt (initial_adjust, 65536)))
     {
       /* Emit delayed restores and set the CFA to be SP + initial_adjust.  */
       insn = get_last_insn ();
@@ -11265,7 +11279,23 @@ aarch64_rtx_mult_cost (rtx x, enum rtx_code code, int outer, bool speed)
   op1 = XEXP (x, 1);
 
   if (VECTOR_MODE_P (mode))
-    mode = GET_MODE_INNER (mode);
+    {
+      unsigned int vec_flags = aarch64_classify_vector_mode (mode);
+      mode = GET_MODE_INNER (mode);
+      if (vec_flags & VEC_ADVSIMD)
+	{
+	  /* The by-element versions of the instruction have the same costs as
+	     the normal 3-vector version.  So don't add the costs of the
+	     duplicate into the costs of the multiply.  We make an assumption
+	     that the input to the VEC_DUPLICATE is already on the FP & SIMD
+	     side.  This means costing of a MUL by element pre RA is a bit
+	     optimistic.  */
+	  if (GET_CODE (op0) == VEC_DUPLICATE)
+	    op0 = XEXP (op0, 0);
+	  else if (GET_CODE (op1) == VEC_DUPLICATE)
+	    op1 = XEXP (op1, 0);
+	}
+    }
 
   /* Integer multiply/fma.  */
   if (GET_MODE_CLASS (mode) == MODE_INT)
@@ -11694,6 +11724,13 @@ aarch64_if_then_else_costs (rtx op0, rtx op1, rtx op2, int *cost, bool speed)
 	  /* CSEL with zero-extension (*cmovdi_insn_uxtw).  */
 	  op1 = XEXP (op1, 0);
 	  op2 = XEXP (op2, 0);
+	}
+      else if (GET_CODE (op1) == ZERO_EXTEND && op2 == const0_rtx)
+	{
+	  inner = XEXP (op1, 0);
+	  if (GET_CODE (inner) == NEG || GET_CODE (inner) == NOT)
+	    /* CSINV/NEG with zero extend + const 0 (*csinv3_uxtw_insn3).  */
+	    op1 = XEXP (inner, 0);
 	}
 
       *cost += rtx_cost (op1, VOIDmode, IF_THEN_ELSE, 1, speed);
@@ -13746,15 +13783,14 @@ aarch64_sve_adjust_stmt_cost (class vec_info *vinfo, vect_cost_for_stmt kind,
 static unsigned
 aarch64_add_stmt_cost (class vec_info *vinfo, void *data, int count,
 		       enum vect_cost_for_stmt kind,
-		       struct _stmt_vec_info *stmt_info, int misalign,
-		       enum vect_cost_model_location where)
+		       struct _stmt_vec_info *stmt_info, tree vectype,
+		       int misalign, enum vect_cost_model_location where)
 {
   unsigned *cost = (unsigned *) data;
   unsigned retval = 0;
 
   if (flag_vect_cost_model)
     {
-      tree vectype = stmt_info ? stmt_vectype (stmt_info) : NULL_TREE;
       int stmt_cost =
 	    aarch64_builtin_vectorization_cost (kind, vectype, misalign);
 
@@ -15260,6 +15296,8 @@ static const struct aarch64_attribute_info aarch64_attributes[] =
      aarch64_handle_attr_branch_protection, OPT_mbranch_protection_ },
   { "sign-return-address", aarch64_attr_enum, false, NULL,
      OPT_msign_return_address_ },
+  { "outline-atomics", aarch64_attr_bool, true, NULL,
+     OPT_moutline_atomics},
   { NULL, aarch64_attr_custom, false, NULL, OPT____ }
 };
 
@@ -16350,6 +16388,7 @@ aarch64_gimplify_va_arg_expr (tree valist, tree type, gimple_seq *pre_p,
 	}
 
       /* *(field_ptr_t)&ha = *((field_ptr_t)vr_saved_area  */
+      TREE_ADDRESSABLE (tmp_ha) = 1;
       tmp_ha = build1 (ADDR_EXPR, field_ptr_t, tmp_ha);
       addr = t;
       t = fold_convert (field_ptr_t, addr);
@@ -16780,7 +16819,8 @@ aarch64_short_vector_p (const_tree type,
     {
       /* Rely only on the type, not the mode, when processing SVE types.  */
       if (type && aarch64_some_values_include_pst_objects_p (type))
-	gcc_assert (aarch64_sve_mode_p (mode));
+	/* Leave later code to report an error if SVE is disabled.  */
+	gcc_assert (!TARGET_SVE || aarch64_sve_mode_p (mode));
       else
 	size = GET_MODE_SIZE (mode);
     }
@@ -20185,7 +20225,8 @@ aarch64_evpc_rev_local (struct expand_vec_perm_d *d)
 
   if (d->vec_flags == VEC_SVE_PRED
       || !d->one_vector_p
-      || !d->perm[0].is_constant (&diff))
+      || !d->perm[0].is_constant (&diff)
+      || !diff)
     return false;
 
   size = (diff + 1) * GET_MODE_UNIT_SIZE (d->vmode);

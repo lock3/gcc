@@ -120,6 +120,15 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
   (with { tree utype = unsigned_type_for (TREE_TYPE (@0)); }
    (convert (absu:utype @0)))))
 
+#if GIMPLE
+/* Optimize (X + (X >> (prec - 1))) ^ (X >> (prec - 1)) into abs (X).  */
+(simplify
+ (bit_xor:c (plus:c @0 (rshift@2 @0 INTEGER_CST@1)) @2)
+ (if (ANY_INTEGRAL_TYPE_P (TREE_TYPE (@0))
+      && !TYPE_UNSIGNED (TREE_TYPE (@0))
+      && wi::to_widest (@1) == element_precision (TREE_TYPE (@0)) - 1)
+  (abs @0)))
+#endif
 
 /* Simplifications of operations with one constant operand and
    simplifications to constants or single values.  */
@@ -1099,6 +1108,11 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
  (if (!TYPE_OVERFLOW_SANITIZED (type) && !TYPE_OVERFLOW_TRAPS (type)
       && !TYPE_SATURATING (type))
   (bit_ior @0 @1)))
+
+/* (x | y) - y -> (x & ~y) */
+(simplify
+ (minus (bit_ior:cs @0 @1) @1)
+ (bit_and @0 (bit_not @1)))
 
 /* (x | y) - (x ^ y) -> x & y */
 (simplify
@@ -2784,6 +2798,18 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
  (simplify
   (plus:c @0 (bit_and:c (minus @1 @0)
 			(convert? (negate@4 (convert? (cmp@5 @2 @3))))))
+  (if (INTEGRAL_TYPE_P (type)
+       && INTEGRAL_TYPE_P (TREE_TYPE (@4))
+       && TREE_CODE (TREE_TYPE (@4)) != BOOLEAN_TYPE
+       && INTEGRAL_TYPE_P (TREE_TYPE (@5))
+       && (TYPE_PRECISION (TREE_TYPE (@4)) >= TYPE_PRECISION (type)
+	   || !TYPE_UNSIGNED (TREE_TYPE (@4)))
+       && (GIMPLE || !TREE_SIDE_EFFECTS (@1)))
+   (cond (cmp @2 @3) @1 @0)))
+ /* Similarly with ^ instead of - though in that case with :c.  */
+ (simplify
+  (bit_xor:c @0 (bit_and:c (bit_xor:c @0 @1)
+			   (convert? (negate@4 (convert? (cmp@5 @2 @3))))))
   (if (INTEGRAL_TYPE_P (type)
        && INTEGRAL_TYPE_P (TREE_TYPE (@4))
        && TREE_CODE (TREE_TYPE (@4)) != BOOLEAN_TYPE
@@ -4787,9 +4813,16 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
   (cmp:c (minus@2 @0 @1) @0)
   (if (single_use (@2)
        && ANY_INTEGRAL_TYPE_P (TREE_TYPE (@0))
-       && TYPE_UNSIGNED (TREE_TYPE (@0))
-       && TYPE_OVERFLOW_WRAPS (TREE_TYPE (@0)))
+       && TYPE_UNSIGNED (TREE_TYPE (@0)))
    (cmp @1 @0))))
+
+/* Optimize A - B + -1 >= A into B >= A for unsigned comparisons.  */
+(for cmp (ge lt)
+ (simplify
+  (cmp:c (plus (minus @0 @1) integer_minus_onep) @0)
+   (if (ANY_INTEGRAL_TYPE_P (TREE_TYPE (@0))
+	&& TYPE_UNSIGNED (TREE_TYPE (@0)))
+    (cmp @1 @0))))
 
 /* Testing for overflow is unnecessary if we already know the result.  */
 /* A - B > A  */
@@ -5200,6 +5233,11 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
  (simplify
   (rdiv (SINH:s @0) (COSH:s @0))
    (TANH @0))
+
+ /* Simplify tanh (x) / sinh (x) -> 1.0 / cosh (x). */
+ (simplify
+   (rdiv (TANH:s @0) (SINH:s @0))
+   (rdiv {build_one_cst (type);} (COSH @0)))
 
  /* Simplify cos(x) / sin(x) -> 1 / tan(x). */
  (simplify
@@ -5979,7 +6017,65 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 	&& direct_internal_fn_supported_p (IFN_POPCOUNT, type,
 					   OPTIMIZE_FOR_BOTH))
     (convert (IFN_POPCOUNT:type @0)))))
+
+/* __builtin_ffs needs to deal on many targets with the possible zero
+   argument.  If we know the argument is always non-zero, __builtin_ctz + 1
+   should lead to better code.  */
+(simplify
+ (FFS tree_expr_nonzero_p@0)
+ (if (INTEGRAL_TYPE_P (TREE_TYPE (@0))
+      && direct_internal_fn_supported_p (IFN_CTZ, TREE_TYPE (@0),
+					 OPTIMIZE_FOR_SPEED))
+  (plus (CTZ:type @0) { build_one_cst (type); })))
 #endif
+
+(for ffs (BUILT_IN_FFS BUILT_IN_FFSL BUILT_IN_FFSLL
+	  BUILT_IN_FFSIMAX)
+ /* __builtin_ffs (X) == 0 -> X == 0.
+    __builtin_ffs (X) == 6 -> (X & 63) == 32.  */
+ (for cmp (eq ne)
+  (simplify
+   (cmp (ffs@2 @0) INTEGER_CST@1)
+    (with { int prec = TYPE_PRECISION (TREE_TYPE (@0)); }
+     (switch
+      (if (integer_zerop (@1))
+       (cmp @0 { build_zero_cst (TREE_TYPE (@0)); }))
+      (if (tree_int_cst_sgn (@1) < 0 || wi::to_widest (@1) > prec)
+       { constant_boolean_node (cmp == NE_EXPR ? true : false, type); })
+      (if (single_use (@2))
+       (cmp (bit_and @0 { wide_int_to_tree (TREE_TYPE (@0),
+					    wi::mask (tree_to_uhwi (@1),
+						      false, prec)); })
+	    { wide_int_to_tree (TREE_TYPE (@0),
+				wi::shifted_mask (tree_to_uhwi (@1) - 1, 1,
+						  false, prec)); }))))))
+
+ /* __builtin_ffs (X) > 6 -> X != 0 && (X & 63) == 0.  */
+ (for cmp (gt le)
+      cmp2 (ne eq)
+      cmp3 (eq ne)
+      bit_op (bit_and bit_ior)
+  (simplify
+   (cmp (ffs@2 @0) INTEGER_CST@1)
+    (with { int prec = TYPE_PRECISION (TREE_TYPE (@0)); }
+     (switch
+      (if (integer_zerop (@1))
+       (cmp2 @0 { build_zero_cst (TREE_TYPE (@0)); }))
+      (if (tree_int_cst_sgn (@1) < 0)
+       { constant_boolean_node (cmp == GT_EXPR ? true : false, type); })
+      (if (wi::to_widest (@1) >= prec)
+       { constant_boolean_node (cmp == GT_EXPR ? false : true, type); })
+      (if (wi::to_widest (@1) == prec - 1)
+       (cmp3 @0 { wide_int_to_tree (TREE_TYPE (@0),
+				    wi::shifted_mask (prec - 1, 1,
+						      false, prec)); }))
+      (if (single_use (@2))
+       (bit_op (cmp2 @0 { build_zero_cst (TREE_TYPE (@0)); })
+	       (cmp3 (bit_and @0
+			      { wide_int_to_tree (TREE_TYPE (@0),
+						  wi::mask (tree_to_uhwi (@1),
+						  false, prec)); })
+		     { build_zero_cst (TREE_TYPE (@0)); }))))))))
 
 /* Simplify:
 
@@ -6268,7 +6364,7 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
       }
       (if (ins)
        (bit_insert { op0; } { ins; }
-         { bitsize_int (at * tree_to_uhwi (TYPE_SIZE (TREE_TYPE (type)))); })
+         { bitsize_int (at * vector_element_bits (type)); })
        (if (changed)
         (vec_perm { op0; } { op1; } { op2; }))))))))))
 

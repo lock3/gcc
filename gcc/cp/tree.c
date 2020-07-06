@@ -691,7 +691,7 @@ build_cplus_new (tree type, tree init, tsubst_flags_t complain)
      it can produce a { }.  */
   if (BRACE_ENCLOSED_INITIALIZER_P (init))
     {
-      gcc_assert (cxx_dialect >= cxx2a);
+      gcc_assert (cxx_dialect >= cxx20);
       return finish_compound_literal (type, init, complain);
     }
 
@@ -993,7 +993,7 @@ build_min_array_type (tree elt_type, tree index_type)
    build_cplus_array_type.  */
 
 static void
-set_array_type_canon (tree t, tree elt_type, tree index_type)
+set_array_type_canon (tree t, tree elt_type, tree index_type, bool dep)
 {
   /* Set the canonical type for this new node.  */
   if (TYPE_STRUCTURAL_EQUALITY_P (elt_type)
@@ -1004,30 +1004,33 @@ set_array_type_canon (tree t, tree elt_type, tree index_type)
     TYPE_CANONICAL (t)
       = build_cplus_array_type (TYPE_CANONICAL (elt_type),
 				index_type
-				? TYPE_CANONICAL (index_type) : index_type);
+				? TYPE_CANONICAL (index_type) : index_type,
+				dep);
   else
     TYPE_CANONICAL (t) = t;
 }
 
 /* Like build_array_type, but handle special C++ semantics: an array of a
    variant element type is a variant of the array of the main variant of
-   the element type.  */
+   the element type.  IS_DEPENDENT is -ve if we should determine the
+   dependency.  Otherwise its bool value indicates dependency.  */
 
 tree
-build_cplus_array_type (tree elt_type, tree index_type)
+build_cplus_array_type (tree elt_type, tree index_type, int dependent)
 {
   tree t;
 
   if (elt_type == error_mark_node || index_type == error_mark_node)
     return error_mark_node;
 
-  bool dependent = (uses_template_parms (elt_type)
-		    || (index_type && uses_template_parms (index_type)));
+  if (dependent < 0)
+    dependent = (uses_template_parms (elt_type)
+		 || (index_type && uses_template_parms (index_type)));
 
   if (elt_type != TYPE_MAIN_VARIANT (elt_type))
     /* Start with an array of the TYPE_MAIN_VARIANT.  */
     t = build_cplus_array_type (TYPE_MAIN_VARIANT (elt_type),
-				index_type);
+				index_type, dependent);
   else if (dependent)
     {
       /* Since type_hash_canon calls layout_type, we need to use our own
@@ -1057,18 +1060,16 @@ build_cplus_array_type (tree elt_type, tree index_type)
 	  *e = t;
 
 	  /* Set the canonical type for this new node.  */
-	  set_array_type_canon (t, elt_type, index_type);
+	  set_array_type_canon (t, elt_type, index_type, dependent);
+
+	  /* Mark it as dependent now, this saves time later.  */
+	  TYPE_DEPENDENT_P_VALID (t) = true;
+	  TYPE_DEPENDENT_P (t) = true;
 	}
     }
   else
     {
-      bool typeless_storage
-	= (elt_type == unsigned_char_type_node
-	   || elt_type == signed_char_type_node
-	   || elt_type == char_type_node
-	   || (TREE_CODE (elt_type) == ENUMERAL_TYPE
-	       && TYPE_CONTEXT (elt_type) == std_node
-	       && !strcmp ("byte", TYPE_NAME_STRING (elt_type))));
+      bool typeless_storage = is_byte_access_type (elt_type);
       t = build_array_type (elt_type, index_type, typeless_storage);
     }
 
@@ -1084,7 +1085,7 @@ build_cplus_array_type (tree elt_type, tree index_type)
       if (!t)
 	{
 	  t = build_min_array_type (elt_type, index_type);
-	  set_array_type_canon (t, elt_type, index_type);
+	  set_array_type_canon (t, elt_type, index_type, dependent);
 	  if (!dependent)
 	    {
 	      layout_type (t);
@@ -1320,7 +1321,8 @@ cp_build_qualified_type_real (tree type,
 
       if (!t)
 	{
-	  t = build_cplus_array_type (element_type, TYPE_DOMAIN (type));
+	  t = build_cplus_array_type (element_type, TYPE_DOMAIN (type),
+				      TYPE_DEPENDENT_P (type));
 
 	  /* Keep the typedef name.  */
 	  if (TYPE_NAME (t) != TYPE_NAME (type))
@@ -1556,7 +1558,7 @@ strip_typedefs (tree t, bool *remove_attributes, unsigned int flags)
     case ARRAY_TYPE:
       type = strip_typedefs (TREE_TYPE (t), remove_attributes, flags);
       t0  = strip_typedefs (TYPE_DOMAIN (t), remove_attributes, flags);
-      result = build_cplus_array_type (type, t0);
+      result = build_cplus_array_type (type, t0, TYPE_DEPENDENT_P (t));
       break;
     case FUNCTION_TYPE:
     case METHOD_TYPE:
@@ -2219,6 +2221,23 @@ build_ref_qualified_type (tree type, cp_ref_qualifier rqual)
   return build_cp_fntype_variant (type, rqual, raises, late);
 }
 
+tree
+make_module_vec (tree name, unsigned clusters MEM_STAT_DECL)
+{
+  /* Stored in an unsigned short, but we're limited to the number of
+     modules anyway.  */
+  gcc_checking_assert (clusters <= (unsigned short)(~0));
+  size_t length = (clusters * sizeof (module_cluster)
+		   + sizeof (tree_module_vec) - sizeof (module_cluster));
+  tree vec = ggc_alloc_cleared_tree_node_stat (length PASS_MEM_STAT);
+  TREE_SET_CODE (vec, MODULE_VECTOR);
+  MODULE_VECTOR_NAME (vec) = name;
+  MODULE_VECTOR_ALLOC_CLUSTERS (vec) = clusters;
+  MODULE_VECTOR_NUM_CLUSTERS (vec) = 0;
+
+  return vec;
+}
+
 /* Make a raw overload node containing FN.  */
 
 tree
@@ -2238,13 +2257,13 @@ ovl_make (tree fn, tree next)
   return result;
 }
 
-/* Add FN to the (potentially NULL) overload set OVL.  USING_P is
-   true, if FN is via a using declaration.  We also pay attention to
-   DECL_HIDDEN.  We keep the hidden decls first, but remaining ones
-   are unordered.  */
+/* Add FN to the (potentially NULL) overload set OVL.  USINGNESS is
+   non-zero if this is a using-decl.  It is < if we're exporting the
+   using decl.  We also pay attention to DECL_HIDDEN.  We keep the
+   hidden decls first, but remaining ones are unordered.  */
 
 tree
-ovl_insert (tree fn, tree maybe_ovl, bool using_p)
+ovl_insert (tree fn, tree maybe_ovl, int usingness)
 {
   tree result = maybe_ovl;
   tree insert_after = NULL_TREE;
@@ -2259,13 +2278,17 @@ ovl_insert (tree fn, tree maybe_ovl, bool using_p)
     }
 
   bool hidden_p = DECL_HIDDEN_P (fn);
-  if (maybe_ovl || using_p || hidden_p || TREE_CODE (fn) == TEMPLATE_DECL)
+  if (maybe_ovl || usingness || hidden_p || TREE_CODE (fn) == TEMPLATE_DECL)
     {
       maybe_ovl = ovl_make (fn, maybe_ovl);
       if (hidden_p)
 	OVL_HIDDEN_P (maybe_ovl) = true;
-      if (using_p)
-	OVL_DEDUP_P (maybe_ovl) = OVL_USING_P (maybe_ovl) = true;
+      if (usingness)
+	{
+	  OVL_DEDUP_P (maybe_ovl) = OVL_USING_P (maybe_ovl) = true;
+	  if (usingness < 0)
+	    OVL_EXPORT_P (maybe_ovl) = true;
+	}
     }
   else
     maybe_ovl = fn;
@@ -2302,7 +2325,7 @@ ovl_skip_hidden (tree ovl)
   return ovl;
 }
 
-/* NODE is an OVL_HIDDEN_P node which is now revealed.  */
+/* NODE is an OVL_HIDDEN_P node that is now revealed.  */
 
 tree
 ovl_iterator::reveal_node (tree overload, tree node)
@@ -2684,6 +2707,52 @@ build_cp_fntype_variant (tree type, cp_ref_qualifier rqual,
   return v;
 }
 
+/* TYPE is a function or method type with a deferred exception
+   specification that has been parsed to RAISES.  Fixup all the type
+   variants that are affected in place.  Via decltype &| noexcept
+   tricks, the unparsed spec could have escaped into the type system.
+   The general case is hard to fixup canonical types for.  */
+
+void
+fixup_deferred_exception_variants (tree type, tree raises)
+{
+  tree original = TYPE_RAISES_EXCEPTIONS (type);
+  tree cr = flag_noexcept_type ? canonical_eh_spec (raises) : NULL_TREE;
+
+  gcc_checking_assert (TREE_CODE (TREE_PURPOSE (original))
+		       == DEFERRED_PARSE);
+
+  /* Though sucky, this walk will process the canonical variants
+     first.  */
+  for (tree variant = TYPE_MAIN_VARIANT (type);
+       variant; variant = TYPE_NEXT_VARIANT (variant))
+    if (TYPE_RAISES_EXCEPTIONS (variant) == original)
+      {
+	gcc_checking_assert (variant != TYPE_MAIN_VARIANT (type));
+
+	if (!TYPE_STRUCTURAL_EQUALITY_P (variant))
+	  {
+	    cp_cv_quals var_quals = TYPE_QUALS (variant);
+	    cp_ref_qualifier rqual = type_memfn_rqual (variant);
+
+	    tree v = TYPE_MAIN_VARIANT (type);
+	    for (; v; v = TYPE_NEXT_VARIANT (v))
+	      if (TYPE_CANONICAL (v) == v
+		  && cp_check_qualified_type (v, variant, var_quals,
+					      rqual, cr, false))
+		break;
+	    TYPE_RAISES_EXCEPTIONS (variant) = raises;
+
+	    if (!v)
+	      v = build_cp_fntype_variant (TYPE_CANONICAL (variant),
+					   rqual, cr, false);
+	    TYPE_CANONICAL (variant) = v;
+	  }
+	else
+	  TYPE_RAISES_EXCEPTIONS (variant) = raises;
+      }
+}
+
 /* Build the FUNCTION_TYPE or METHOD_TYPE which may throw exceptions
    listed in RAISES.  */
 
@@ -2708,6 +2777,7 @@ bind_template_template_parm (tree t, tree newargs)
   t2 = cxx_make_type (BOUND_TEMPLATE_TEMPLATE_PARM);
   decl = build_decl (input_location,
 		     TYPE_DECL, DECL_NAME (decl), NULL_TREE);
+  SET_DECL_TEMPLATE_PARM_P (decl);
 
   /* These nodes have to be created to reflect new TYPE_DECL and template
      arguments.  */
@@ -3679,20 +3749,28 @@ cp_tree_equal (tree t1, tree t2)
 
     case CALL_EXPR:
       {
-	tree arg1, arg2;
+	if (KOENIG_LOOKUP_P (t1) != KOENIG_LOOKUP_P (t2))
+	  return false;
+
+	if (!called_fns_equal (CALL_EXPR_FN (t1), CALL_EXPR_FN (t2)))
+	  return false;
+
 	call_expr_arg_iterator iter1, iter2;
-	if (KOENIG_LOOKUP_P (t1) != KOENIG_LOOKUP_P (t2)
-	    || !called_fns_equal (CALL_EXPR_FN (t1), CALL_EXPR_FN (t2)))
+	init_call_expr_arg_iterator (t1, &iter1);
+	init_call_expr_arg_iterator (t2, &iter2);
+	if (iter1.n != iter2.n)
 	  return false;
-	for (arg1 = first_call_expr_arg (t1, &iter1),
-	       arg2 = first_call_expr_arg (t2, &iter2);
-	     arg1 && arg2;
-	     arg1 = next_call_expr_arg (&iter1),
-	       arg2 = next_call_expr_arg (&iter2))
-	  if (!cp_tree_equal (arg1, arg2))
-	    return false;
-	if (arg1 || arg2)
-	  return false;
+
+	while (more_call_expr_args_p (&iter1))
+	  {
+	    tree arg1 = next_call_expr_arg (&iter1);
+	    tree arg2 = next_call_expr_arg (&iter2);
+
+	    gcc_checking_assert (arg1 && arg2);
+	    if (!cp_tree_equal (arg1, arg2))
+	      return false;
+	  }
+
 	return true;
       }
 
@@ -3787,16 +3865,19 @@ cp_tree_equal (tree t1, tree t2)
 				     CHECK_CONSTR_ARGS (t2)));
 
     case TREE_VEC:
-      {
-	unsigned ix;
-	if (TREE_VEC_LENGTH (t1) != TREE_VEC_LENGTH (t2))
+      /* These seem to always be template args.  Really we should be
+	 getting the caller to do this as it knows it to be true.  */
+#if 1
+      if (!comp_template_args (t1, t2, NULL, NULL, false))
+	return false;
+#else // Original code
+      if (TREE_VEC_LENGTH (t1) != TREE_VEC_LENGTH (t2))
+	return false;
+      for (unsigned ix = TREE_VEC_LENGTH (t1); ix--;)
+	if (!cp_tree_equal (TREE_VEC_ELT (t1, ix), TREE_VEC_ELT (t2, ix)))
 	  return false;
-	for (ix = TREE_VEC_LENGTH (t1); ix--;)
-	  if (!cp_tree_equal (TREE_VEC_ELT (t1, ix),
-			      TREE_VEC_ELT (t2, ix)))
-	    return false;
-	return true;
-      }
+#endif
+      return true;
 
     case SIZEOF_EXPR:
     case ALIGNOF_EXPR:
@@ -4047,13 +4128,27 @@ maybe_dummy_object (tree type, tree* binfop)
 
 /* Returns 1 if OB is a placeholder object, or a pointer to one.  */
 
-int
+bool
 is_dummy_object (const_tree ob)
 {
   if (INDIRECT_REF_P (ob))
     ob = TREE_OPERAND (ob, 0);
   return (TREE_CODE (ob) == CONVERT_EXPR
 	  && TREE_OPERAND (ob, 0) == void_node);
+}
+
+/* Returns true if TYPE is a character type or std::byte.  */
+
+bool
+is_byte_access_type (tree type)
+{
+  type = TYPE_MAIN_VARIANT (type);
+  if (char_type_p (type))
+    return true;
+
+  return (TREE_CODE (type) == ENUMERAL_TYPE
+	  && TYPE_CONTEXT (type) == std_node
+	  && !strcmp ("byte", TYPE_NAME_STRING (type)));
 }
 
 /* Returns 1 iff type T is something we want to treat as a scalar type for
@@ -4599,7 +4694,7 @@ handle_nodiscard_attribute (tree *node, tree name, tree args,
   return NULL_TREE;
 }
 
-/* Handle a C++2a "no_unique_address" attribute; arguments as in
+/* Handle a C++20 "no_unique_address" attribute; arguments as in
    struct attribute_spec.handler.  */
 static tree
 handle_no_unique_addr_attribute (tree* node,
@@ -5006,9 +5101,18 @@ cp_walk_subtrees (tree *tp, int *walk_subtrees_p, walk_tree_fn func,
   while (0)
 
   if (TYPE_P (*tp))
-    /* Walk into template args without looking through typedefs.  */
-    if (tree ti = TYPE_TEMPLATE_INFO_MAYBE_ALIAS (*tp))
-      WALK_SUBTREE (TI_ARGS (ti));
+    {
+      /* Walk into template args without looking through typedefs.  */
+      if (tree ti = TYPE_TEMPLATE_INFO_MAYBE_ALIAS (*tp))
+	WALK_SUBTREE (TI_ARGS (ti));
+      /* Don't look through typedefs; walk_tree_fns that want to look through
+	 typedefs (like min_vis_r) need to do that themselves.  */
+      if (typedef_variant_p (*tp))
+	{
+	  *walk_subtrees_p = 0;
+	  return NULL_TREE;
+	}
+    }
 
   /* Not one of the easy cases.  We must explicitly go through the
      children.  */
@@ -5021,11 +5125,16 @@ cp_walk_subtrees (tree *tp, int *walk_subtrees_p, walk_tree_fn func,
     case UNBOUND_CLASS_TEMPLATE:
     case TEMPLATE_PARM_INDEX:
     case TEMPLATE_TYPE_PARM:
-    case TYPENAME_TYPE:
     case TYPEOF_TYPE:
     case UNDERLYING_TYPE:
       /* None of these have subtrees other than those already walked
 	 above.  */
+      *walk_subtrees_p = 0;
+      break;
+
+    case TYPENAME_TYPE:
+      WALK_SUBTREE (TYPE_CONTEXT (*tp));
+      WALK_SUBTREE (TYPENAME_TYPE_FULLNAME (*tp));
       *walk_subtrees_p = 0;
       break;
 

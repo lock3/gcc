@@ -433,7 +433,7 @@
 #define vec_first_match_or_eos_index __builtin_vec_first_match_or_eos_index
 #define vec_first_mismatch_index __builtin_vec_first_mismatch_index
 #define vec_first_mismatch_or_eos_index __builtin_vec_first_mismatch_or_eos_index
-#define vec_pack_to_short_fp32 __builtin_vec_convert_4f32_8i16
+#define vec_pack_to_short_fp32 __builtin_vec_convert_4f32_8f16
 #define vec_parity_lsbb __builtin_vec_vparity_lsbb
 #define vec_vctz __builtin_vec_vctz
 #define vec_cnttz __builtin_vec_vctz
@@ -685,5 +685,31 @@ __altivec_scalar_pred(vec_any_nle,
 /* This also accepts a type for its parameter, so it is not enough
    to #define vec_step to __builtin_vec_step.  */
 #define vec_step(x) __builtin_vec_step (* (__typeof__ (x) *) 0)
+
+#ifdef _ARCH_PWR10
+/* May modify these macro definitions if future capabilities overload
+   with support for different vector argument and result types.  */
+#define vec_cntlzm(a, b)	__builtin_altivec_vclzdm (a, b)
+#define vec_cnttzm(a, b)	__builtin_altivec_vctzdm (a, b)
+#define vec_pdep(a, b)	__builtin_altivec_vpdepd (a, b)
+#define vec_pext(a, b)	__builtin_altivec_vpextd (a, b)
+#define vec_cfuge(a, b)	__builtin_altivec_vcfuged (a, b)
+#define vec_genpcvm(a, b)	__builtin_vec_xxgenpcvm (a, b)
+
+/* Overloaded built-in functions for ISA 3.1.  */
+#define vec_extractl(a, b, c)	__builtin_vec_extractl (a, b, c)
+#define vec_extracth(a, b, c)	__builtin_vec_extracth (a, b, c)
+
+#define vec_gnb(a, b)	__builtin_vec_gnb (a, b)
+#define vec_clrl(a, b)	__builtin_vec_clrl (a, b)
+#define vec_clrr(a, b)	__builtin_vec_clrr (a, b)
+#define vec_ternarylogic(a, b, c, d)	__builtin_vec_xxeval (a, b, c, d)
+
+#define vec_strir(a)	__builtin_vec_strir (a)
+#define vec_stril(a)	__builtin_vec_stril (a)
+
+#define vec_strir_p(a)	__builtin_vec_strir_p (a)
+#define vec_stril_p(a)	__builtin_vec_stril_p (a)
+#endif
 
 #endif /* _ALTIVEC_H */

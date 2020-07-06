@@ -252,6 +252,10 @@ struct lang_hooks_for_decls
      predetermined, OMP_CLAUSE_DEFAULT_UNSPECIFIED otherwise.  */
   enum omp_clause_default_kind (*omp_predetermined_sharing) (tree);
 
+  /* Return mapping kind if OpenMP mapping attribute of DECL is
+     predetermined, OMP_CLAUSE_DEFAULTMAP_CATEGORY_UNSPECIFIED otherwise.  */
+  enum omp_clause_defaultmap_kind (*omp_predetermined_mapping) (tree);
+
   /* Return decl that should be reported for DEFAULT(NONE) failure
      diagnostics.  Usually the DECL passed in.  */
   tree (*omp_report_decl) (tree);
@@ -351,6 +355,30 @@ struct lang_hooks
   /* Callback used to perform language-specific initialization for the
      global diagnostic context structure.  */
   void (*initialize_diagnostics) (diagnostic_context *);
+
+  /* Beginning the main source file.  */
+  void (*preprocess_main_file) (cpp_reader *, line_maps *,
+				const line_map_ordinary *);
+
+  /* Translate include hook hook.  */
+  bool (*preprocess_translate_include)
+    (cpp_reader *, line_maps *, location_t, const char *path);
+
+  /* Undefining a macro.  */
+  void (*preprocess_undef) (cpp_reader *, location_t, cpp_hashnode *);
+
+  /* Define a deferred macro.  */
+  struct cpp_macro *(*preprocess_deferred_macro) (cpp_reader *, location_t,
+						  cpp_hashnode *);
+
+  /* Observer for preprocessing stream.  */
+  uintptr_t (*preprocess_token) (cpp_reader *, const cpp_token *, uintptr_t);
+  /* Various flags it can return about the token.  */
+  enum PT_flags
+    {
+     PT_begin_pragma = 1 << 0
+    };
+  
 
   /* Register language-specific dumps.  */
   void (*register_dumps) (gcc::dump_manager *);

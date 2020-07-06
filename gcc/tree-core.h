@@ -600,6 +600,7 @@ enum tree_index {
   TI_UINT16_TYPE,
   TI_UINT32_TYPE,
   TI_UINT64_TYPE,
+  TI_UINT128_TYPE,
 
   TI_VOID,
 
@@ -619,6 +620,7 @@ enum tree_index {
   TI_PUBLIC,
   TI_PROTECTED,
   TI_PRIVATE,
+  TI_MODULE,
 
   TI_BOOLEAN_FALSE,
   TI_BOOLEAN_TRUE,
@@ -768,6 +770,10 @@ enum tree_index {
   TI_SAT_USA_TYPE,
   TI_SAT_UDA_TYPE,
   TI_SAT_UTA_TYPE,
+
+  TI_MODULE_HWM,
+  /* Nodes below here change during compilation, and should therefore
+     not be in the C++ module's global tree table.  */
 
   TI_OPTIMIZATION_DEFAULT,
   TI_OPTIMIZATION_CURRENT,
@@ -1724,7 +1730,7 @@ struct GTY(()) tree_decl_common {
   unsigned decl_flag_3 : 1;
   /* Logically, these two would go in a theoretical base shared by var and
      parm decl. */
-  unsigned gimple_reg_flag : 1;
+  unsigned not_gimple_reg_flag : 1;
   /* In VAR_DECL, PARM_DECL and RESULT_DECL, this is DECL_BY_REFERENCE.  */
   unsigned decl_by_reference_flag : 1;
   /* In a VAR_DECL and PARM_DECL, this is DECL_READ_P.  */
@@ -1825,6 +1831,7 @@ struct GTY(()) tree_decl_with_vis {
  /* Belong to FUNCTION_DECL exclusively.  */
  unsigned regdecl_flag : 1;
  /* 14 unused bits. */
+ /* 32 more unused on 64 bit HW. */
 };
 
 struct GTY(()) tree_var_decl {
@@ -1900,6 +1907,7 @@ struct GTY(()) tree_function_decl {
   unsigned replaceable_operator : 1;
 
   /* 11 bits left for future expansion.  */
+  /* 32 bits on 64-bit HW.  */
 };
 
 struct GTY(()) tree_translation_unit_decl {

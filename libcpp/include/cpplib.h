@@ -173,7 +173,7 @@ enum c_lang {CLK_GNUC89 = 0, CLK_GNUC99, CLK_GNUC11, CLK_GNUC17, CLK_GNUC2X,
 	     CLK_STDC2X,
 	     CLK_GNUCXX, CLK_CXX98, CLK_GNUCXX11, CLK_CXX11,
 	     CLK_GNUCXX14, CLK_CXX14, CLK_GNUCXX17, CLK_CXX17,
-	     CLK_GNUCXX2A, CLK_CXX2A, CLK_ASM};
+	     CLK_GNUCXX20, CLK_CXX20, CLK_ASM};
 
 /* Payload of a NUMBER, STRING, CHAR or COMMENT token.  */
 struct GTY(()) cpp_string {
@@ -484,11 +484,14 @@ struct cpp_options
   /* Nonzero for C2X decimal floating-point constants.  */
   unsigned char dfp_constants;
 
-  /* Nonzero for C++2a __VA_OPT__ feature.  */
+  /* Nonzero for C++20 __VA_OPT__ feature.  */
   unsigned char va_opt;
 
   /* Nonzero for the '::' token.  */
   unsigned char scope;
+
+  /* Nonzero means tokenize C++20 module directives.  */
+  unsigned char module_directives;
 
   /* Holds the name of the target (execution) character set.  */
   const char *narrow_charset;
@@ -531,6 +534,9 @@ struct cpp_options
        one.  */
     bool phony_targets;
 
+    /* Generate dependency info for modules.  */
+    bool modules;
+
     /* If true, no dependency is generated on the main file.  */
     bool ignore_main_file;
 
@@ -563,6 +569,8 @@ struct cpp_options
 
   /* The maximum depth of the nested #include.  */
   unsigned int max_include_depth;
+
+  unsigned char main_search;
 };
 
 /* Diagnostic levels.  To get a diagnostic without associating a
@@ -683,6 +691,9 @@ struct cpp_callbacks
   /* Callback that can change a user lazy into normal macro.  */
   void (*user_lazy_macro) (cpp_reader *, cpp_macro *, unsigned);
 
+  /* Callback to handle deferred cpp_macros.  */
+  cpp_macro *(*user_deferred_macro) (cpp_reader *, location_t, cpp_hashnode *);
+
   /* Callback to parse SOURCE_DATE_EPOCH from environment.  */
   time_t (*get_source_date_epoch) (cpp_reader *);
 
@@ -701,6 +712,12 @@ struct cpp_callbacks
   /* Callback for filename remapping in __FILE__ and __BASE_FILE__ macro
      expansions.  */
   const char *(*remap_filename) (const char*);
+
+  /* Maybe translate a #include into something else.  Push a
+     cpp_buffer containing the translation and return true if
+     translating.  */
+  bool (*translate_include) (cpp_reader *, line_maps *, location_t,
+			     const char *path);
 };
 
 #ifdef VMS
@@ -804,7 +821,10 @@ struct GTY(()) cpp_macro {
      tokens.  */
   unsigned int extra_tokens : 1;
 
-  /* 1 bits spare (32-bit). 33 on 64-bit target.  */
+  /* Imported (from a legacy header module).  */
+  unsigned int imported : 1;
+
+  /* 0 bits spare (32-bit). 32 on 64-bit target.  */
 
   union cpp_exp_u
   {
@@ -834,6 +854,7 @@ struct GTY(()) cpp_macro {
 #define NODE_USED	(1 << 5)	/* Dumped with -dU.  */
 #define NODE_CONDITIONAL (1 << 6)	/* Conditional macro */
 #define NODE_WARN_OPERATOR (1 << 7)	/* Warn about C++ named operator.  */
+#define NODE_MODULE (1 << 8)		/* C++-20 module-related name.  */
 
 /* Different flavors of hash node.  */
 enum node_type
@@ -877,7 +898,7 @@ enum cpp_builtin_type
 union GTY(()) _cpp_hashnode_value {
   /* Assert (maybe NULL) */
   cpp_macro * GTY((tag ("NT_VOID"))) answers;
-  /* Macro (never NULL) */
+  /* Macro (maybe NULL) */
   cpp_macro * GTY((tag ("NT_USER_MACRO"))) macro;
   /* Code for a builtin macro.  */
   enum cpp_builtin_type GTY ((tag ("NT_BUILTIN_MACRO"))) builtin;
@@ -891,11 +912,15 @@ struct GTY(()) cpp_hashnode {
   unsigned int directive_index : 7;	/* If is_directive,
 					   then index into directive table.
 					   Otherwise, a NODE_OPERATOR.  */
-  unsigned char rid_code;		/* Rid code - for front ends.  */
+  unsigned int rid_code : 8;		/* Rid code - for front ends.  */
+  unsigned int flags : 9;		/* CPP flags.  */
   ENUM_BITFIELD(node_type) type : 2;	/* CPP node type.  */
-  unsigned int flags : 8;		/* CPP flags.  */
 
-  /* 6 bits spare (plus another 32 on 64-bit hosts).  */
+  /* 5 bits spare.  */
+
+  /* On a 64-bit system there would be 32-bits of padding to the value
+     field.  So placing the deferred index here is not costly.   */
+  unsigned deferred;			/* Deferred index, (unless zero).  */
 
   union _cpp_hashnode_value GTY ((desc ("%1.type"))) value;
 };
@@ -969,17 +994,25 @@ extern void cpp_set_include_chains (cpp_reader *, cpp_dir *, cpp_dir *, int);
    call cpp_finish on that reader.  You can either edit the callbacks
    through the pointer returned from cpp_get_callbacks, or set them
    with cpp_set_callbacks.  */
-extern cpp_options *cpp_get_options (cpp_reader *);
-extern cpp_callbacks *cpp_get_callbacks (cpp_reader *);
+extern cpp_options *cpp_get_options (cpp_reader *) ATTRIBUTE_PURE;
+extern cpp_callbacks *cpp_get_callbacks (cpp_reader *) ATTRIBUTE_PURE;
 extern void cpp_set_callbacks (cpp_reader *, cpp_callbacks *);
-extern class mkdeps *cpp_get_deps (cpp_reader *);
+extern class mkdeps *cpp_get_deps (cpp_reader *) ATTRIBUTE_PURE;
+
+extern const char *cpp_find_header_unit (cpp_reader *, const char *file,
+					 bool angle_p,  location_t);
 
 /* This function reads the file, but does not start preprocessing.  It
    returns the name of the original file; this is the same as the
    input file, except for preprocessed input.  This will generate at
    least one file change callback, and possibly a line change callback
    too.  If there was an error opening the file, it returns NULL.  */
-extern const char *cpp_read_main_file (cpp_reader *, const char *);
+extern const char *cpp_read_main_file (cpp_reader *, const char *,
+				       bool has_preamble = false);
+
+/* Adjust for the main file to be an include.  */
+extern void cpp_retrofit_as_include (cpp_reader *);
+extern const cpp_hashnode *cpp_main_controlling_macro (cpp_reader *);
 
 /* Set up built-ins with special behavior.  Use cpp_init_builtins()
    instead unless your know what you are doing.  */
@@ -1017,6 +1050,7 @@ extern int cpp_avoid_paste (cpp_reader *, const cpp_token *,
 extern const cpp_token *cpp_get_token (cpp_reader *);
 extern const cpp_token *cpp_get_token_with_location (cpp_reader *,
 						     location_t *);
+extern void cpp_enable_filename_token (cpp_reader *, bool);
 inline bool cpp_user_macro_p (const cpp_hashnode *node)
 {
   return node->type == NT_USER_MACRO;
@@ -1029,6 +1063,18 @@ inline bool cpp_macro_p (const cpp_hashnode *node)
 {
   return node->type & NT_MACRO_MASK;
 }
+inline cpp_macro *cpp_set_deferred_macro (cpp_hashnode *node,
+					  cpp_macro *forced = NULL)
+{
+  cpp_macro *old = node->value.macro;
+
+  node->value.macro = forced;
+  node->type = NT_USER_MACRO;
+  node->flags &= ~NODE_USED;
+
+  return old;
+}
+cpp_macro *cpp_get_deferred_macro (cpp_reader *, cpp_hashnode *, location_t);
 
 /* Returns true if NODE is a function-like user macro.  */
 inline bool cpp_fun_like_macro_p (cpp_hashnode *node)
@@ -1036,11 +1082,13 @@ inline bool cpp_fun_like_macro_p (cpp_hashnode *node)
   return cpp_user_macro_p (node) && node->value.macro->fun_like;
 }
 
-extern const unsigned char *cpp_macro_definition (cpp_reader *,
-						  cpp_hashnode *);
+extern const unsigned char *cpp_macro_definition (cpp_reader *, cpp_hashnode *);
+extern const unsigned char *cpp_macro_definition (cpp_reader *, cpp_hashnode *,
+						  const cpp_macro *);
 inline location_t cpp_macro_definition_location (cpp_hashnode *node)
 {
-  return node->value.macro->line;
+  const cpp_macro *macro = node->value.macro;
+  return macro ? macro->line : 0;
 }
 extern void _cpp_backup_tokens (cpp_reader *, unsigned int);
 extern const cpp_token *cpp_peek_token (cpp_reader *, int);
@@ -1221,6 +1269,8 @@ extern int cpp_ideq (const cpp_token *, const char *);
 extern void cpp_output_line (cpp_reader *, FILE *);
 extern unsigned char *cpp_output_line_to_string (cpp_reader *,
 						 const unsigned char *);
+extern const unsigned char *cpp_alloc_token_string
+  (cpp_reader *, const unsigned char *, unsigned);
 extern void cpp_output_token (const cpp_token *, FILE *);
 extern const char *cpp_type2name (enum cpp_ttype, unsigned char flags);
 /* Returns the value of an escape sequence, truncated to the correct
@@ -1276,6 +1326,8 @@ extern void cpp_scan_nooutput (cpp_reader *);
 extern int  cpp_sys_macro_p (cpp_reader *);
 extern unsigned char *cpp_quote_string (unsigned char *, const unsigned char *,
 					unsigned int);
+extern bool cpp_compare_macros (const cpp_macro *macro1,
+				const cpp_macro *macro2);
 
 /* In files.c */
 extern bool cpp_included (cpp_reader *, const char *);
@@ -1304,6 +1356,18 @@ extern int cpp_read_state (cpp_reader *, const char *, FILE *,
 /* In lex.c */
 extern void cpp_force_token_locations (cpp_reader *, location_t);
 extern void cpp_stop_forcing_token_locations (cpp_reader *);
+enum CPP_DO_task
+{
+  CPP_DO_print,
+  CPP_DO_location,
+  CPP_DO_token
+};
+
+extern void cpp_directive_only_process (cpp_reader *pfile,
+					void *data,
+					void (*cb) (cpp_reader *,
+						    CPP_DO_task,
+						    void *data, ...));
 
 /* In expr.c */
 extern enum cpp_ttype cpp_userdef_string_remove_type

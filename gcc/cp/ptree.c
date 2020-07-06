@@ -41,6 +41,7 @@ cxx_print_decl (FILE *file, tree node, int indent)
   if (!CODE_CONTAINS_STRUCT (TREE_CODE (node), TS_DECL_COMMON)
       || !DECL_LANG_SPECIFIC (node))
     return;
+
   if (TREE_CODE (node) == FUNCTION_DECL)
     {
       int flags = TFF_DECL_SPECIFIERS|TFF_RETURN_TYPE
@@ -56,17 +57,71 @@ cxx_print_decl (FILE *file, tree node, int indent)
 	       decl_as_string (node, TFF_TEMPLATE_HEADER));
     }
 
-  indent_to (file, indent + 3);
+  bool need_indent = true;
+
+  if (TREE_CODE (node) == FUNCTION_DECL
+      || TREE_CODE (node) == VAR_DECL
+      || TREE_CODE (node) == TYPE_DECL
+      || TREE_CODE (node) == TEMPLATE_DECL
+      || TREE_CODE (node) == CONCEPT_DECL
+      || TREE_CODE (node) == NAMESPACE_DECL)
+    {
+      unsigned m = 0;
+      if (DECL_LANG_SPECIFIC (node) && DECL_MODULE_IMPORT_P (node))
+	m = get_importing_module (node, true);
+
+      if (const char *name = m == ~0u ? "" : module_name (m, true))
+	{
+	  if (need_indent)
+	    indent_to (file, indent + 3);
+	  fprintf (file, " module %d:%s", m, name);
+	  need_indent = false;
+	}
+
+      if (DECL_LANG_SPECIFIC (node) && DECL_MODULE_PURVIEW_P (node))
+	{
+	  if (need_indent)
+	    indent_to (file, indent + 3);
+	  fprintf (file, " purview");
+	  need_indent = false;
+	}
+    }
+
+  if (DECL_MODULE_EXPORT_P (node))
+    {
+      if (need_indent)
+	indent_to (file, indent + 3);
+      fprintf (file, " exported");
+      need_indent = false;
+    }
+
   if (DECL_EXTERNAL (node) && DECL_NOT_REALLY_EXTERN (node))
-    fprintf (file, " not-really-extern");
+    {
+      if (need_indent)
+	indent_to (file, indent + 3);
+      fprintf (file, " not-really-extern");
+      need_indent = false;
+    }
+
   if (TREE_CODE (node) == FUNCTION_DECL
       && DECL_PENDING_INLINE_INFO (node))
-    fprintf (file, " pending-inline-info %p",
-	     (void *) DECL_PENDING_INLINE_INFO (node));
+    {
+      if (need_indent)
+	indent_to (file, indent + 3);
+      fprintf (file, " pending-inline-info %p",
+	       (void *) DECL_PENDING_INLINE_INFO (node));
+      need_indent = false;
+    }
+  
   if (VAR_OR_FUNCTION_DECL_P (node)
       && DECL_TEMPLATE_INFO (node))
-    fprintf (file, " template-info %p",
-	     (void *) DECL_TEMPLATE_INFO (node));
+    {
+      if (need_indent)
+	indent_to (file, indent + 3);
+      fprintf (file, " template-info %p",
+	       (void *) DECL_TEMPLATE_INFO (node));
+      need_indent = false;
+    }
 }
 
 void
@@ -103,6 +158,16 @@ cxx_print_type (FILE *file, tree node, int indent)
     case TYPENAME_TYPE:
       print_node (file, "fullname", TYPENAME_TYPE_FULLNAME (node),
 		  indent + 4);
+      return;
+
+    case TYPEOF_TYPE:
+      print_node (file, "expr", TYPEOF_TYPE_EXPR (node), indent + 4);
+      return;
+
+    case BASES:
+      if (BASES_DIRECT (node))
+	fputs (" direct", file);
+      print_node (file, "type", BASES_TYPE (node), indent + 4);
       return;
 
     case TYPE_PACK_EXPANSION:
@@ -218,8 +283,43 @@ cxx_print_xnode (FILE *file, tree node, int indent)
       print_node (file, "optype", BASELINK_OPTYPE (node), indent + 4);
       break;
     case OVERLOAD:
-      print_node (file, "function", OVL_FUNCTION (node), indent+4);
-      print_node (file, "next", OVL_CHAIN (node), indent+4);
+      print_node (file, "function", OVL_FUNCTION (node), indent + 4);
+      print_node (file, "next", OVL_CHAIN (node), indent + 4);
+      break;
+    case MODULE_VECTOR:
+      {
+	unsigned len = MODULE_VECTOR_NUM_CLUSTERS (node);
+	print_node (file, "name", MODULE_VECTOR_NAME (node), indent + 4);
+	fprintf (file, " clusters %u, alloc %u", len,
+		 MODULE_VECTOR_ALLOC_CLUSTERS (node));
+	for (unsigned ix = 0; ix != len; ix++)
+	  {
+	    module_cluster *cluster = &MODULE_VECTOR_CLUSTER (node, ix);
+	    char pfx[20];
+	    for (unsigned jx = 0; jx != MODULE_VECTOR_SLOTS_PER_CLUSTER; jx++)
+	      if (cluster->indices[jx].span)
+		{
+		  int len = sprintf (pfx, "elt:%u", cluster->indices[jx].base);
+		  if (cluster->indices[jx].span > 1)
+		    len
+		      += sprintf (&pfx[len], "(+%u)", cluster->indices[jx].span);
+		  len += sprintf (&pfx[len], " cluster:%u/%u", ix, jx);
+		  mc_slot &slot = cluster->slots[jx];
+		  if (slot.is_lazy ())
+		    {
+		      indent_to (file, indent + 4);
+		      fprintf (file, "%s lazy:%u", pfx, slot.get_lazy ());
+		    }
+		  else if (slot)
+		    print_node (file, pfx, slot, indent + 4);
+		  else
+		    {
+		      indent_to (file, indent + 4);
+		      fprintf (file, "%s NULL", pfx);
+		    }
+		}
+	  }
+      }
       break;
     case TEMPLATE_PARM_INDEX:
       print_node (file, "decl", TEMPLATE_PARM_DECL (node), indent+4);
@@ -268,6 +368,17 @@ cxx_print_xnode (FILE *file, tree node, int indent)
       break;
     case LAMBDA_EXPR:
       cxx_print_lambda_node (file, node, indent);
+      break;
+    case STATIC_ASSERT:
+      if (location_t loc = STATIC_ASSERT_SOURCE_LOCATION (node))
+	{
+	  expanded_location xloc = expand_location (loc);
+	  indent_to (file, indent+4);
+	  fprintf (file, "%s:%d:%d", xloc.file, xloc.line, xloc.column);
+	}
+      print_node (file, "condition", STATIC_ASSERT_CONDITION (node), indent+4);
+      if (tree message = STATIC_ASSERT_MESSAGE (node))
+	print_node (file, "message", message, indent+4);
       break;
     default:
       break;

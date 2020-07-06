@@ -5682,7 +5682,7 @@ $as_echo_n "checking for CET support... " >&6; }
 case "$host" in
   i[34567]86-*-linux* | x86_64-*-linux*)
     may_have_cet=yes
-    save_CFLAGS="$CFLAGS"
+    cet_save_CFLAGS="$CFLAGS"
     CFLAGS="$CFLAGS -fcf-protection"
     case "$enable_cet" in
       auto)
@@ -5733,7 +5733,7 @@ fi
 rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 	;;
     esac
-    CFLAGS="$save_CFLAGS"
+    CFLAGS="$cet_save_CFLAGS"
     ;;
   *)
     may_have_cet=no
@@ -5741,9 +5741,9 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
     ;;
 esac
 
-save_CFLAGS="$CFLAGS"
+cet_save_CFLAGS="$CFLAGS"
 CFLAGS="$CFLAGS -fcf-protection=none"
-save_LDFLAGS="$LDFLAGS"
+cet_save_LDFLAGS="$LDFLAGS"
 LDFLAGS="$LDFLAGS -Wl,-z,ibt,-z,shstk"
 if test x$may_have_cet = xyes; then
   # Check whether -fcf-protection=none -Wl,-z,ibt,-z,shstk work.
@@ -5768,7 +5768,8 @@ rm -f core conftest.err conftest.$ac_objext \
 fi
 
 if test x$may_have_cet = xyes; then
-  if test "$cross_compiling" = yes; then :
+  if test x$cross_compiling = xno; then
+    if test "$cross_compiling" = yes; then :
   { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
 $as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
 as_fn_error $? "cannot run test program while cross compiling
@@ -5813,9 +5814,14 @@ rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
   conftest.$ac_objext conftest.beam conftest.$ac_ext
 fi
 
-  if test x$enable_cet = xno -a x$have_cet = xyes; then
-    as_fn_error $? "Intel CET must be enabled on Intel CET enabled host" "$LINENO" 5
+    if test x$enable_cet = xno -a x$have_cet = xyes; then
+      as_fn_error $? "Intel CET must be enabled on Intel CET enabled host" "$LINENO" 5
+    fi
   fi
+else
+  # Enable CET in cross compiler if possible so that it will run on both
+  # CET and non-CET hosts.
+  have_cet=yes
 fi
 if test x$enable_cet = xyes; then
   CET_HOST_FLAGS="-fcf-protection"
@@ -5825,8 +5831,8 @@ else
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
 $as_echo "no" >&6; }
 fi
-CFLAGS="$save_CFLAGS"
-LDFLAGS="$save_LDFLAGS"
+CFLAGS="$cet_save_CFLAGS"
+LDFLAGS="$cet_save_LDFLAGS"
 
 
 
@@ -11941,7 +11947,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 11944 "configure"
+#line 11950 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -12047,7 +12053,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 12050 "configure"
+#line 12056 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H

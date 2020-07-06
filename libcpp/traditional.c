@@ -312,7 +312,11 @@ _cpp_read_logical_line_trad (cpp_reader *pfile)
   do
     {
       if (pfile->buffer->need_line && !_cpp_get_fresh_line (pfile))
-	return false;
+	{
+	  /* Now pop the buffer that _cpp_get_fresh_line did not.  */
+	  _cpp_pop_buffer (pfile);
+	  return false;
+	}
     }
   while (!_cpp_scan_out_logical_line (pfile, NULL, false)
 	 || pfile->state.skipping);
@@ -766,7 +770,7 @@ _cpp_scan_out_logical_line (cpp_reader *pfile, cpp_macro *macro,
 		      /* This is a kludge.  We want to have the ISO
 			 preprocessor lex the next token.  */
 		      pfile->buffer->cur = cur;
-		      _cpp_handle_directive (pfile, false /* indented */);
+		      _cpp_handle_directive (pfile, false);
 		      result = false;
 		      goto done;
 		    }

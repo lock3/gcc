@@ -1,3 +1,687 @@
+2020-06-24  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/charconv (__from_chars_binary): Ignore leading zeros.
+	* testsuite/20_util/from_chars/1.cc: Check "0x1" for all bases,
+	not just 10 and 16.
+	* testsuite/20_util/from_chars/3.cc: New test.
+
+2020-06-24  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/stl_algobase.h (__find_if): Add FALLTHRU markers.
+	* include/std/charconv (__detail::__to_chars): Avoid
+	-Wsign-compare warning.
+
+2020-06-24  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95851
+	* include/std/charconv (__to_chars_i): Check for zero-sized
+	buffer unconditionally.
+	* testsuite/20_util/to_chars/95851.cc: New test.
+
+2020-06-23  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/20_util/from_chars/1_c++20_neg.cc: Check enumeration
+	type.
+	* testsuite/20_util/from_chars/1_neg.cc: Likewise. Move dg-error
+	directives outside preprocessor condition.
+
+2020-06-23  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95832
+	* include/std/variant (__detail::__variant::_Build_FUN): Remove
+	partial specialization to prevent narrowing conversions to bool.
+	* testsuite/20_util/variant/compile.cc: Test non-narrowing
+	conversions to bool.
+	* testsuite/20_util/variant/run.cc: Likewise.
+
+2020-06-23  Jonathan Wakely  <jwakely@redhat.com>
+
+	* doc/Makefile.in: Regenerate.
+	* include/Makefile.in: Regenerate.
+	* libsupc++/Makefile.in: Regenerate.
+	* po/Makefile.in: Regenerate.
+	* python/Makefile.in: Regenerate.
+	* src/Makefile.in: Regenerate.
+	* src/c++11/Makefile.in: Regenerate.
+	* src/c++17/Makefile.in: Regenerate.
+	* src/c++98/Makefile.in: Regenerate.
+	* src/filesystem/Makefile.in: Regenerate.
+	* testsuite/Makefile.in: Regenerate.
+
+2020-06-22  David Edelsohn  <dje.gcc@gmail.com>
+
+	* Makefile.am: Use -include.
+	* Makefile.in: Regenerate.
+
+2020-06-21  David Edelsohn  <dje.gcc@gmail.com>
+
+	* Makefile.am (tmake_file): Build and install AIX-style FAT libraries.
+	* Makefile.in: Regenerate.
+	* configure.ac (tmake_file): Substitute.
+	* configure: Regenerate.
+	* configure.host (aix*): Define tmake_file.
+	* config/os/aix/t-aix: New file.
+
+2020-06-20  Jason Merrill  <jason@redhat.com>
+
+	* testsuite/24_iterators/move_iterator/rel_ops_c++20.cc:
+	Remove greedy_ops tests.
+	* testsuite/24_iterators/reverse_iterator/rel_ops_c++20.cc:
+	Remove greedy_ops tests.
+
+2020-06-19  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95765
+	* include/bits/stl_algobase.h (__size_to_integer(float))
+	(__size_to_integer(double), __size_to_integer(long double))
+	(__size_to_integer(__float128)): Cast return type explicitly.
+	* include/bits/stl_uninitialized.h (__uninitialized_default_1<true>):
+	Remove unused typedef.
+
+2020-06-19  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/stl_pair.h (_Index_tuple): Remove redundant
+	namespace qualification.
+	(pair::pair(tuple<>&, tuple<>&, _Index_tuple, _Index_tuple)):
+	Likewise.
+	* include/std/tuple (_Head_base, _Tuple_impl, tuple_size)
+	(tuple_element, __get_helper, get, __make_tuple_impl)
+	(__make_1st_indices, __tuple_concater)
+	(pair::pair(tuple<>&, tuple<>&, _Index_tuple, _Index_tuple)):
+	Likewise.
+	* include/std/utility (tuple_element, __is_tuple_like_impl)
+	(tuple_size, __pair_get, get): Likewise.
+
+2020-06-19  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/std_function.h (function): Define all member
+	functions inline.
+
+2020-06-19  Marc Glisse  <marc.glisse@inria.fr>
+
+	* include/bits/stl_algo.h (__includes): Simplify the code.
+
+2020-06-19  Marc Glisse  <marc.glisse@inria.fr>
+
+	* include/std/optional (optional()): Explicitly define it.
+
+2020-06-17  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/94540
+	* include/bits/stl_uninitialized.h (__uninitialized_default_1<true>):
+	Construct the first value at *__first instead of on the stack.
+	(__uninitialized_default_n_1<true>): Likewise.
+	Improve comments on several of the non-standard algorithms.
+	* testsuite/20_util/specialized_algorithms/uninitialized_default/94540.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_default_n/94540.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_value_construct/94540.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_value_construct_n/94540.cc:
+	New test.
+	* testsuite/23_containers/vector/cons/94540.cc: New test.
+
+2020-06-17  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/20_util/specialized_algorithms/uninitialized_default_n/sizes.cc:
+	Replace Value type with int so trivial code path is used.
+	* testsuite/20_util/specialized_algorithms/uninitialized_value_construct_n/sizes.cc:
+	Likewise.
+
+2020-06-17  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/stl_uninitialized.h (uninitialized_fill_n): Only
+	use std::fill_n when the size is an integral type.
+	(__uninitialized_default_n): Likewise.
+	* testsuite/20_util/specialized_algorithms/uninitialized_default_n/sizes.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_fill_n/sizes.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_value_construct_n/sizes.cc:
+	New test.
+
+2020-06-16  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95282
+	* include/bits/atomic_base.h (__atomic_impl::load): Use the _Val
+	alias instead of deducing _Tp as an unqualified type.
+	(__atomic_impl::exchange): Use the _Val alias to remove volatile
+	from the reinterpret_cast result type.
+
+2020-06-16  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/atomic (atomic): Add static assertions.
+	* testsuite/29_atomics/atomic/requirements/types_neg.cc: New test.
+
+2020-06-16  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/94003
+	* testsuite/20_util/is_constructible/94003.cc: New test.
+
+2020-06-15  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/char_traits.h (__cpp_lib_constexpr_char_traits):
+	Update value for C++20.
+	* include/std/version (__cpp_lib_constexpr_char_traits): Likewise.
+	* testsuite/21_strings/char_traits/requirements/constexpr_functions_c++17.cc:
+	Update expected value.
+	* testsuite/21_strings/char_traits/requirements/constexpr_functions_c++20.cc:
+	Likewise.
+
+2020-06-15  Paul Keir  <paul.keir@uws.ac.uk>
+
+	* include/bits/char_traits.h (char_traits::move): constexpr move with
+	overlap was using copy_backward incorrectly.
+	* testsuite/21_strings/char_traits/requirements/constexpr_functions_c++20.cc:
+	New test.
+
+2020-06-12  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/29_atomics/atomic_flag/clear/1.cc: Also test clear()
+	when the value is currently set.
+	* testsuite/29_atomics/atomic_flag/test_and_set/explicit.cc:
+	Actually check the return value.
+	* testsuite/29_atomics/atomic_flag/test_and_set/implicit.cc:
+	Likewise.
+
+2020-06-12  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/atomic_base.h (atomic_flag::test): Add missing
+	const qualifiers.
+	* testsuite/29_atomics/atomic_flag/test/explicit.cc: Add
+	dg-options and verify results of test function.
+	* testsuite/29_atomics/atomic_flag/test/implicit.cc: Likewise.
+
+2020-06-11  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/94749
+	* include/bits/istream.tcc (basic_istream::ignore(streamsize, CharT)):
+	Only discard an extra character if we didn't already reach the
+	maximum number.
+	* src/c++98/istream.cc (istream::ignore(streamsiz, char))
+	(wistream::ignore(streamsize, wchar_t)): Likewise.
+	* testsuite/27_io/basic_istream/ignore/char/94749.cc: New test.
+	* testsuite/27_io/basic_istream/ignore/wchar_t/94749.cc: New test.
+
+2020-06-10  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/95578
+	* include/bits/ranges_algo.h (__lexicographical_compare_fn):
+	Also check that the iterator and sentinel have the same type before
+	applying the unwrapping optimization for __normal_iterator.
+	Split the check into two, one for the first iterator/sentinel
+	pair and another for second iterator/sentinel pair.  Remove uses
+	of __niter_base, and remove uses of std::move on a
+	__normal_iterator.
+	* include/bits/ranges_algobase.h (__equal_fn): Likewise.
+	(__copy_or_move): Likewise.  Perform similar adjustments for
+	the reverse_iterator and move_iterator optimizations.  Inline
+	the checks into the if-constexprs, and use using-declarations to
+	make them less visually noisy.  Remove uses of __niter_wrap.
+	(__copy_or_move_backward): Likewise.
+	* testsuite/25_algorithms/copy/95578.cc: New test.
+	* testsuite/25_algorithms/copy_backward/95578.cc: New test.
+	* testsuite/25_algorithms/equal/95578.cc: New test.
+	* testsuite/25_algorithms/lexicographical_compare/95578.cc: New test.
+	* testsuite/25_algorithms/move/95578.cc: New test.
+	* testsuite/25_algorithms/move_backward/95578.cc: New test.
+
+2020-06-10  François Dumont  <fdumont@gcc.gnu.org>
+	    Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/deque.tcc (__lex_cmp_dit): New.
+	(__lexicographical_compare_aux1): Define overloads for deque
+	iterators.
+	* include/bits/stl_algobase.h (__lexicographical_compare::__3way):
+	New static member function.
+	(__lexicographical_compare<true>::__3way): Likewise.
+	(__lexicographical_compare<true>::__lc): Use __3way.
+	(__lexicographical_compare_aux): Rename to
+	__lexicographical_compare_aux1 and declare overloads for deque
+	iterators.
+	(__lexicographical_compare_aux): Define new forwarding function
+	that calls __lexicographical_compare_aux1 and declare new overloads
+	for safe iterators.
+	(lexicographical_compare): Do not use __niter_base on
+	parameters.
+	* include/debug/safe_iterator.tcc
+	(__lexicographical_compare_aux): Define overloads for safe
+	iterators.
+	* testsuite/25_algorithms/lexicographical_compare/1.cc: Add
+	checks with random access iterators.
+	* testsuite/25_algorithms/lexicographical_compare/deque_iterators/1.cc:
+	New test.
+
+2020-06-09  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/stl_iterator.h (move_iterator::operator=): Define.
+	* testsuite/24_iterators/move_iterator/dr3265.cc: New test.
+
+2020-06-09  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/optional (bad_optional_access): Define default
+	constructor and destructor as defaulted.
+	* testsuite/20_util/optional/bad_access.cc: New test.
+
+2020-06-08  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/20_util/default_delete/48631_neg.cc: Adjust dg-error
+	line number.
+	* testsuite/20_util/default_delete/void_neg.cc: Likewise.
+
+2020-06-08  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/unique_ptr.h (operator<<): Define for C++20.
+	* testsuite/20_util/unique_ptr/io/lwg2948.cc: New test.
+
+2020-06-04  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/iterator_concepts.h (__detail::__ptr, __detail::__ref)
+	(__detail::__cat, __detail::__diff): Move to class scope in the
+	relevant __iterator_traits specializations.
+	(__iterator_traits<>): Use nested class templates instead of ones from
+	namespace __detail.
+	* include/bits/stl_iterator.h (__detail::__common_iter_ptr): Move to
+	class scope in iterator_traits<common_iterator<I, S>>.
+	(iterator_traits<common_iterator<I, S>>): Use nested class template
+	instead of __detail::__common_iter_ptr.
+
+2020-06-04  François Dumont  <fdumont@gcc.gnu.org>
+
+	* include/bits/stl_algo.h (__copy_n_a): Move to ...
+	* include/bits/stl_algobase.h (__copy_n_a): ...here. Add __strict
+	parameter.
+	(__copy_n_a(istreambuf_iterator<>, _Size, _Deque_iterator<>, bool)):
+	Declare.
+	(__niter_base(const _Safe_iterator<_Ite, _Seq,
+	random_access_iterator_tag>&)): Declare.
+	(__copy_move_a2(istreambuf_iterator<>, istreambuf_iterator<>,
+	_Deque_iterator<>)): Declare.
+	* include/bits/deque.tcc
+	(__copy_move_a2(istreambuf_iterator<>, istreambuf_iterator<>,
+	_Deque_iterator<>)): New.
+	(__copy_n_a(istreambuf_iterator<>, _Size, _Deque_iterator<>, bool)):
+	New.
+	* include/bits/streambuf_iterator.h
+	(__copy_n_a(istreambuf_iterator<>, _Size, _CharT*, bool)): Adapt.
+	* include/debug/safe_iterator.tcc (__niter_base): New.
+	* testsuite/25_algorithms/copy/streambuf_iterators/char/4.cc
+	(test03): New.
+	* testsuite/25_algorithms/copy/streambuf_iterators/char/debug/deque_neg.cc:
+	New test.
+	* testsuite/25_algorithms/copy_n/debug/istreambuf_ite_deque_neg.cc:
+	New test.
+	* testsuite/25_algorithms/copy_n/istreambuf_iterator/2.cc: New test.
+	* testsuite/25_algorithms/copy_n/istreambuf_iterator/deque.cc:
+	New test.
+
+2020-06-04  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/ranges_algobase.h (__copy_n_fn): Only call
+	ranges::copy for positive values.
+	* include/bits/stl_algo.h (copy_n): Convert Size argument to an
+	integral type and only call __copy_n for positive values.
+	* testsuite/util/testsuite_iterators.h
+	(random_access_iterator_wrapper::operator+=): Fix range check for
+	negative values.
+	(output_container, input_container, forward_container)
+	(bidirectional_container, random_access_container): New alias
+	templates.
+	* testsuite/25_algorithms/copy_n/5.cc: New test.
+
+2020-06-02  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/90102
+	* include/debug/deque (deque(const _Base&)): Replace parameter
+	with a struct that wraps a const _Base&.
+	* include/debug/forward_list (forward_list(_Base_ref)): New
+	constructor.
+	* include/debug/list (list(const _Base&)): Replace parameter
+	with a struct that wraps a const _Base&.
+	* include/debug/map.h (map(const _Base&)): Likewise.
+	* include/debug/multimap.h (multimap(const _Base&)): Likewise.
+	* include/debug/multiset.h (multiset(const _Base&)): Likewise.
+	* include/debug/set.h (set(const _Base&)): Likewise.
+	* include/debug/unordered_map (unordered_map(const _Base&))
+	(unordered_multimap(const _Base&)): Likewise.
+	* include/debug/unordered_set (unordered_set(const _Base&))
+	(unordered_multiset(const _Base&)): Likewise.
+	* testsuite/23_containers/vector/cons/destructible_debug_neg.cc:
+	Adjust dg-error line number.
+	* include/debug/vector (vector(const _Base&)): Likewise.
+	* testsuite/23_containers/deque/debug/90102.cc: New test.
+	* testsuite/23_containers/forward_list/debug/90102.cc: New test.
+	* testsuite/23_containers/list/debug/90102.cc: New test.
+	* testsuite/23_containers/map/debug/90102.cc: New test.
+	* testsuite/23_containers/multimap/debug/90102.cc: New test.
+	* testsuite/23_containers/multiset/debug/90102.cc: New test.
+	* testsuite/23_containers/set/debug/90102.cc: New test.
+	* testsuite/23_containers/unordered_map/debug/90102.cc: New test.
+	* testsuite/23_containers/unordered_multimap/debug/90102.cc: New test.
+	* testsuite/23_containers/unordered_multiset/debug/90102.cc: New test.
+	* testsuite/23_containers/unordered_set/debug/90102.cc: New test.
+	* testsuite/23_containers/vector/debug/90102.cc: New test.
+
+2020-06-01  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95392
+	* include/bits/fs_path.h (path::_S_to_string): Move to
+	namespace-scope and rename to ...
+	(__detail::__string_from_range): ... this.
+	[WINDOWS] (__detail::__wstr_from_utf8): New function template to
+	convert a char sequence containing UTF-8 to wstring.
+	(path::_S_convert(Iter, Iter)): Adjust call to _S_to_string.
+	(path::_S_convert_loc(Iter, Iter, const locale&)): Likewise.
+	(u8path(InputIterator, InputIterator)) [WINDOWS]: Use
+	__string_from_range to obtain a contiguous range and
+	__wstr_from_utf8 to obtain a wide string.
+	(u8path(const Source&)) [WINDOWS]: Use __effective_range to
+	obtain a contiguous range and __wstr_from_utf8 to obtain a wide
+	string.
+	(path::_S_convert(const _EcharT*, const _EcharT)) [WINDOWS]:
+	Use __wstr_from_utf8.
+
+2020-06-01  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/util/testsuite_iterators.h:
+	(input_iterator_wrapper::operator++(int)): Return proxy object.
+
+2020-06-01  Jonathan Wakely  <jwakely@redhat.com>
+
+	* doc/xml/manual/evolution.xml: Document deprecation of
+	__is_nullptr_t and removal of std::allocator members.
+	* doc/html/manual/api.html: Regenerate.
+
+2020-06-01  Jonathan Wakely  <jwakely@redhat.com>
+
+	* doc/xml/manual/containers.xml: Replace <xref> with <link>.
+	* doc/xml/manual/evolution.xml: Likewise.
+	* doc/html/manual/api.html: Regenerate.
+	* doc/html/manual/containers.html: Regenerate.
+
+2020-06-01  Gerald Pfeifer  <gerald@pfeifer.com>
+
+	* doc/xml/faq.xml: Adjust Valgrind reference and remove another.
+	* doc/html/faq.html: Regenerate.
+
+2020-06-01  Gerald Pfeifer  <gerald@pfeifer.com>
+
+	* doc/xml/manual/policy_data_structures_biblio.xml: Remove
+	stray change.
+
+2020-06-01  Gerald Pfeifer  <gerald@pfeifer.com>
+
+	* doc/xml/manual/policy_data_structures_biblio.xml: Switch
+	www.cs.princeton.edu to https.
+	* doc/html/manual/policy_data_structures.html: Regenerate.
+
+2020-05-31  Douglas B Rupp  <douglas.b.rupp@gmail.com>
+
+	* crossconfig.m4 (<*-vxworks>): Check for more math decls.
+	* configure: Rebuild.
+
+2020-05-29  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR bootstrap/95413
+	* configure: Regenerated.
+
+2020-05-29  François Dumont  <fdumont@gcc.gnu.org>
+
+	PR libstdc++/95079
+	* include/bits/hashtable_policy.h (_Insert_base<>::try_emplace): New.
+	* include/bits/unordered_map.h (unordered_map<>::try_emplace): Adapt.
+	(unordered_map<>::insert_or_assign): Adapt.
+
+2020-05-27  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95282
+	* include/bits/atomic_base.h (__atomic_impl::load): Add
+	cv-qualifiers to parameter so that _Tp is deduced as the
+	unqualified type.
+	* testsuite/29_atomics/atomic_float/95282.cc: New test.
+
+2020-05-27  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95322
+	* include/std/ranges (transform_view::_Sentinel): Allow hidden
+	friends to work with _Iterator<true> and _Iterator<false>.
+	(join_view::_Sentinel): Likewise.
+	* testsuite/std/ranges/adaptors/95322.cc: New test.
+
+2020-05-27  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/94354
+	* include/bits/stl_iterator.h (reverse_iterator): Fix comparison
+	operators to use the correct operations on the underlying
+	iterators.
+	* testsuite/24_iterators/reverse_iterator/rel_ops.cc: New test.
+
+2020-05-27  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/18_support/comparisons/categories/zero_neg.cc: New test.
+
+2020-05-26  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/95322
+	* include/bits/stl_iterator.h (__detail::_Common_iter_proxy):
+	Remove and instead define it ...
+	(common_iterator::_Proxy): ... here.
+	(common_iterator::operator->): Use it.
+	* testsuite/24_iterators/common_iterator/2.cc: New test.
+	* testsuite/std/ranges/adaptors/95322.cc: New test.
+
+2020-05-23  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/93978
+	* testsuite/std/ranges/adaptors/93978.cc: Add -Wall to
+	dg-additional-options.  Avoid unused-but-set-variable warning.
+
+2020-05-23  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/95289
+	* include/debug/helper_functions.h (__get_distance): Only declare
+	as a constexpr function for C++14 and up.
+	* testsuite/25_algorithms/copy/debug/95289.cc: New test.
+
+	* include/bits/fs_path.h (__detail::_S_range_begin)
+	(__detail::_S_range_end, path::_S_string_from_iter): Replace with
+	overloaded function template __detail::__effective_range.
+	(__detail::__effective_range): New overloaded function template to
+	create a basic_string or basic_string_view for an effective range.
+	(__detail::__value_type_is_char): Use __detail::__effective_range.
+	Do not use remove_const on value type.
+	(__detail::__value_type_is_char_or_char8_t): Likewise.
+	(path::path(const Source&, format))
+	(path::path(const Source&, const locale&))
+	(path::operator/=(const Source&), path::append(const Source&))
+	(path::concat(const Source&)): Use __detail::__effective_range.
+	(path::_S_to_string(InputIterator, InputIterator)): New function
+	template to create a string view if possible, or string otherwise.
+	(path::_S_convert): Add overloads that convert a string returned
+	by __detail::__effective_range. Use if-constexpr to inline conversion
+	logic from all overloads of _Cvt::_S_convert.
+	(path::_S_convert_loc): Add overload that converts a string. Use
+	_S_to_string to avoid allocation when possible.
+	(path::_Cvt): Remove.
+	(path::operator+=(CharT)): Remove indirection through path::concat.
+	* include/experimental/bits/fs_path.h (path::_S_convert_loc): Add
+	overload for non-const pointers, to avoid constructing a std::string.
+	* src/c++17/fs_path.cc (path::_S_convert_loc): Replace conditional
+	compilation with call to _S_convert.
+
+	* include/bits/fs_path.h (__detail::_S_range_begin)
+	(__detail::_S_range_end): Remove unintentional static specifiers.
+	* include/experimental/bits/fs_path.h (__detail::_S_range_begin)
+	(__detail::_S_range_end): Likewise.
+
+	* include/bits/fs_path.h (filesystem::__detail::__is_encoded_char):
+	Replace alias template with variable template. Don't remove const.
+	(filesystem::__detail::__is_path_src): Replace overloaded function
+	template with variable template and specializations.
+	(filesystem::__detail::__is_path_iter_src): Replace alias template
+	with class template.
+	(filesystem::__detail::_Path): Use __is_path_src. Remove support for
+	iterator pairs.
+	(filesystem::__detail::_Path2): New alias template for checking
+	InputIterator requirements.
+	(filesystem::__detail::__constructible_from): Remove.
+	(filesystem::path): Replace _Path<Iter, Iter> with _Path2<Iter>.
+	* testsuite/27_io/filesystem/path/construct/80762.cc: Check with two
+	constructor arguments of void and void* types.
+
+2020-05-21  Matthias Kretz  <kretz@kde.org>
+
+	* testsuite/Makefile.am: Remove dup target_triplet and set tool,
+	allowing runtest to work without arguments.
+	* testsuite/Makefile.in: Regenerate.
+
+2020-05-21  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/93983
+	* include/bits/iterator_concepts.h (__detail::__cpp17_iterator):
+	Reorder constraints to avoid recursion when constructors use
+	iterator_traits (LWG 3420).
+	* testsuite/24_iterators/customization_points/lwg3420.cc: New test.
+
+	* include/experimental/socket (basic_socket::is_open()
+	(basic_socket_acceptor::is_open()): Use _GLIBCXX_NODISCARD macro.
+
+	* include/experimental/bits/net.h (__endpoint, __protocol)
+	(__acceptable_protocol, __inet_protocol): New concepts.
+	(__detail::__is_endpoint): Move trait from <experimental/socket>.
+	(__is_protocol, __is_acceptable_protocol, __is_inet_protocol): New
+	traits.
+	(__endpoint, __protocol, __acceptable_protocol): New variable
+	templates.
+	* include/experimental/socket (__is_endpoint): Move to net.h header.
+	(basic_socket, basic_socket_acceptor): Check requirements.
+
+	* include/experimental/executor (use_future_t::use_future_t()): Fix
+	incorrect noexcept-specifier.
+	* include/experimental/internet (basic_resolver_results): Adjust
+	whitespace.
+	* include/experimental/socket (__basic_socket_impl::release): Add
+	member function.
+	(basic_socket(io_context&, const endpoint_type&)): Fix argument to
+	target constructor.
+	(basic_socket::release(), basic_socket::release(error_code&)): Add
+	missing member functions.
+	(basic_socket::is_open()): Add nodiscard attribute.
+	(basic_socket::close(error_code&)): Pass argument to base function.
+	(basic_socket_acceptor::release())
+	(basic_socket_acceptor::release(error_code&)): Add missing member
+	functions.
+	(basic_socket_acceptor::is_open()): Add nodiscard attribute.
+	(basic_socket_streambuf::error()): Add noexcept.
+	(basic_socket_iostream::error()): Likewise.
+	* testsuite/experimental/net/socket/basic_socket.cc: New test.
+
+	* include/experimental/buffer: Replace typedefs with
+	alias-declarations.
+	* include/experimental/executor: Likewise.
+	* include/experimental/internet: Likewise.
+	* include/experimental/socket: Likewise.
+	* include/experimental/timer: Likewise.
+
+2020-05-19  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/94087
+	* src/c++11/random.cc (__x86_rdseed): Allow fallback function to be
+	passed in.
+	(__x86_rdseed_rdrand): New function that uses rdseed with rdrand
+	fallback.
+	(random_device::_M_init): Use __x86_rdseed_rdrand when both
+	instructions are available.
+	* testsuite/26_numerics/random/random_device/94087.cc: New test.
+
+2020-05-19  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/66439
+	* testsuite/20_util/pair/astuple/get_neg.cc: Prune "type/value
+	mismatch" messages.
+	* testsuite/20_util/tuple/element_access/get_neg.cc: Likewise.
+
+2020-05-15  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR bootstrap/95147
+	* configure: Regenerated.
+
+2020-05-14  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* configure: Regenerated.
+
+2020-05-13  Alexandre Oliva <oliva@adacore.com>
+
+	PR libstdc++/77691
+	* include/experimental/memory_resource
+	(__resource_adaptor_imp::do_allocate): Handle max_align_t on
+	x86-vxworks as on x86-solaris.
+	(__resource_adaptor_imp::do_deallocate): Likewise.
+	* testsuite/experimental/memory_resource/new_delete_resource.cc:
+	Drop xfail.
+	(BAD_MAX_ALIGN_T): Define on x86-vxworks as on x86-solaris.
+	(test03): Drop max-align test for char-aligned alloc.
+
+2020-05-08  Ulrich Drepper  <drepper@redhat.com>
+
+	* include/bits/atomic_base.h (atomic_flag): Implement test member
+	function.
+	* include/std/version: Define __cpp_lib_atomic_flag_test.
+	* testsuite/29_atomics/atomic_flag/test/explicit.cc: New file.
+	* testsuite/29_atomics/atomic_flag/test/implicit.cc: New file.
+
+2020-05-07  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/94971 (partial)
+	* include/bits/ranges_algo.h (ranges::__sample_fn): Qualify
+	std::sample using macro to work in parallel mode.
+	(__sort_fn): Likewise for std::sort.
+	(ranges::__nth_element_fn): Likewise for std::nth_element.
+	* include/bits/stl_algobase.h (lexicographical_compare_three_way):
+	Likewise for std::__min_cmp.
+	* include/parallel/algobase.h (lexicographical_compare_three_way):
+	Add to namespace std::__parallel.
+
+	PR c/92472
+	* include/parallel/multiway_merge.h (_GuardedIterator::operator*)
+	(_GuardedIterator::operator _RAIter, _UnguardedIterator::operator*)
+	(_UnguardedIterator::operator _RAIter): Add const qualifier.
+	(operator<(_GuardedIterator&, _GuardedIterator&)
+	(operator<=(_GuardedIterator&, _GuardedIterator&)
+	(operator<(_UnguardedIterator&, _UnguardedIterator&)
+	(operator<=(_UnguardedIterator&, _UnguardedIterator&): Change
+	parameters to const references.
+
+2020-05-07  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* config/abi/post/sparc64-linux-gnu/baseline_symbols.txt: Update.
+	* config/abi/post/sparc64-linux-gnu/32/baseline_symbols.txt: Likewise.
+
+2020-05-06  François Dumont  <fdumont@gcc.gnu.org>
+
+	* include/bits/stl_algobase.h (struct _Bit_iterator): New declaration.
+	(std::__fill_a1(_Bit_iterator, _Bit_iterator, const bool&)): Likewise.
+	* include/bits/stl_bvector.h (__fill_bvector): Move outside
+	_GLIBCXX_STD_C namespace.
+	(fill(_Bit_iterator, _Bit_iterator, const bool&)): Likewise and rename
+	into...
+	(__fill_a1): ...this.
+	* testsuite/25_algorithms/fill/bvector/1.cc: New.
+
+2020-05-06  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* config/abi/post/x86_64-linux-gnu/x32/baseline_symbols.txt: Updated.
+
+2020-05-06  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
+
+	* config/abi/post/i386-solaris/baseline_symbols.txt: Regenerate.
+	* config/abi/post/i386-solaris/amd64/baseline_symbols.txt:
+	Likewise.
+	* config/abi/post/sparc-solaris/baseline_symbols.txt: Likewise.
+	* config/abi/post/sparc-solaris/sparcv9/baseline_symbols.txt:
+	Likewise.
+
 2020-05-06  Martin Liska  <mliska@suse.cz>
 
 	Revert:

@@ -117,8 +117,8 @@ static const struct lang_flags lang_defaults[] =
   /* CXX14    */  { 1,  1,  0,  1,  1,  1,  1,   1,   1,   1,    1,     1,     1,   0,      0,   1,     0 },
   /* GNUCXX17 */  { 1,  1,  1,  1,  1,  0,  1,   1,   1,   1,    1,     1,     0,   1,      1,   1,     0 },
   /* CXX17    */  { 1,  1,  1,  1,  1,  1,  1,   1,   1,   1,    1,     1,     0,   1,      0,   1,     0 },
-  /* GNUCXX2A */  { 1,  1,  1,  1,  1,  0,  1,   1,   1,   1,    1,     1,     0,   1,      1,   1,     0 },
-  /* CXX2A    */  { 1,  1,  1,  1,  1,  1,  1,   1,   1,   1,    1,     1,     0,   1,      1,   1,     0 },
+  /* GNUCXX20 */  { 1,  1,  1,  1,  1,  0,  1,   1,   1,   1,    1,     1,     0,   1,      1,   1,     0 },
+  /* CXX20    */  { 1,  1,  1,  1,  1,  1,  1,   1,   1,   1,    1,     1,     0,   1,      1,   1,     0 },
   /* ASM      */  { 0,  0,  1,  0,  0,  0,  0,   0,   0,   0,    0,     0,     0,   0,      0,   0,     0 }
 };
 
@@ -533,8 +533,8 @@ cpp_init_builtins (cpp_reader *pfile, int hosted)
 
   if (CPP_OPTION (pfile, cplusplus))
     {
-      if (CPP_OPTION (pfile, lang) == CLK_CXX2A
-	  || CPP_OPTION (pfile, lang) == CLK_GNUCXX2A)
+      if (CPP_OPTION (pfile, lang) == CLK_CXX20
+	  || CPP_OPTION (pfile, lang) == CLK_GNUCXX20)
 	_cpp_define_builtin (pfile, "__cplusplus 201709L");
       else if (CPP_OPTION (pfile, lang) == CLK_CXX17
 	  || CPP_OPTION (pfile, lang) == CLK_GNUCXX17)
@@ -660,38 +660,44 @@ cpp_post_options (cpp_reader *pfile)
    it is the empty string.  Return the original filename
    on success (e.g. foo.i->foo.c), or NULL on failure.  */
 const char *
-cpp_read_main_file (cpp_reader *pfile, const char *fname)
+cpp_read_main_file (cpp_reader *pfile, const char *fname, bool have_preamble)
 {
-  const location_t loc = 0;
-
-  if (CPP_OPTION (pfile, deps.style) != DEPS_NONE)
-    {
-      if (!pfile->deps)
-	pfile->deps = deps_init ();
-
-      /* Set the default target (if there is none already).  */
-      deps_add_default_target (pfile->deps, fname);
-    }
+  if (!pfile->deps && CPP_OPTION (pfile, deps.style) != DEPS_NONE)
+    pfile->deps = deps_init ();
 
   pfile->main_file
-    = _cpp_find_file (pfile, fname, &pfile->no_search_path, /*angle=*/0,
-		      /*fake=*/false, /*preinclude=*/false, /*hasinclude=*/false,
-		      loc);
-  if (_cpp_find_failed (pfile->main_file))
+    = _cpp_find_file (pfile, fname,
+		      // FIXME: We should expose an enum
+		      CPP_OPTION (pfile, preprocessed)
+		      || CPP_OPTION (pfile, main_search) == 0
+		      ? &pfile->no_search_path
+		      : CPP_OPTION (pfile, main_search) == 1
+		      ? pfile->quote_include
+		      : pfile->bracket_include,
+		      /*angle=*/0, _cpp_FFK_NORMAL, 0);
+
+  const char *found_name = _cpp_found_name (pfile->main_file);
+
+  if (pfile->deps)
+    /* Set the default target (if there is none already).  */
+    deps_add_default_target (pfile->deps, found_name ? found_name : fname);
+
+  if (!found_name)
     return NULL;
 
-  _cpp_stack_file (pfile, pfile->main_file, IT_MAIN, 0);
+  _cpp_stack_file (pfile, pfile->main_file,
+		   have_preamble ? IT_MAIN_PREAMBLE : IT_MAIN, 0);
 
   /* For foo.i, read the original filename foo.c now, for the benefit
      of the front ends.  */
   if (CPP_OPTION (pfile, preprocessed))
     {
       read_original_filename (pfile);
-      fname =
-	ORDINARY_MAP_FILE_NAME
-	((LINEMAPS_LAST_ORDINARY_MAP (pfile->line_table)));
+      found_name = ORDINARY_MAP_FILE_NAME
+	(LINEMAPS_LAST_ORDINARY_MAP (pfile->line_table));
     }
-  return fname;
+
+  return found_name;
 }
 
 /* For preprocessed files, if the first tokens are of the form # NUM.
@@ -794,9 +800,8 @@ cpp_finish (cpp_reader *pfile, FILE *deps_stream)
   while (pfile->buffer)
     _cpp_pop_buffer (pfile);
 
-  if (CPP_OPTION (pfile, deps.style) != DEPS_NONE && deps_stream)
-    deps_write (pfile->deps, deps_stream,
-		CPP_OPTION (pfile, deps.phony_targets), 72);
+  if (deps_stream)
+    deps_write (pfile, deps_stream, 72);
 
   /* Report on headers that could use multiple include guards.  */
   if (CPP_OPTION (pfile, print_include_names))
@@ -826,5 +831,27 @@ post_options (cpp_reader *pfile)
     {
       CPP_OPTION (pfile, trigraphs) = 0;
       CPP_OPTION (pfile, warn_trigraphs) = 0;
+    }
+
+  if (CPP_OPTION (pfile, module_directives))
+    {
+      const char *const inits[spec_nodes::M_HWM]
+	= {"__export", "__module", "__import"};
+
+      for (int ix = 0; ix != spec_nodes::M_HWM; ix++)
+	{
+	  cpp_hashnode *node = cpp_lookup (pfile, UC (inits[ix]),
+					   strlen (inits[ix]));
+	  node->flags |= NODE_MODULE;
+	  pfile->spec_nodes.n_modules[ix][1] = node;
+	  if (!CPP_OPTION (pfile, preprocessed))
+	    {
+	      /* Drop the leading '__'.  */
+	      node = cpp_lookup (pfile, NODE_NAME (node) + 2,
+				 NODE_LEN (node) - 2);
+	      node->flags |= NODE_MODULE;
+	    }
+	  pfile->spec_nodes.n_modules[ix][0] = node;
+	}
     }
 }

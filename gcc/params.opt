@@ -310,6 +310,10 @@ Maximal stack frame growth due to inlining (in percent).
 Common Joined UInteger Var(param_large_unit_insns) Optimization Init(10000) Param
 The size of translation unit to be considered large.
 
+-param-lazy-modules=
+C++ Joined UInteger Var(param_lazy_modules) Init(32768) Param
+Maximum number of concurrently open C++ module files when lazy loading.
+
 -param=lim-expensive=
 Common Joined UInteger Var(param_lim_expensive) Init(20) Param Optimization
 The minimum cost of an expensive expression in the loop invariant motion.
@@ -907,6 +911,14 @@ Stop reverse growth if the reverse probability of best edge is less than this th
 -param=tree-reassoc-width=
 Common Joined UInteger Var(param_tree_reassoc_width) Param Optimization
 Set the maximum number of instructions executed in parallel in reassociated tree.  If 0, use the target dependent heuristic.
+
+-param=tsan-distinguish-volatile=
+Common Joined UInteger Var(param_tsan_distinguish_volatile) IntegerRange(0, 1) Param
+Emit special instrumentation for accesses to volatiles.
+
+-param=tsan-instrument-func-entry-exit=
+Common Joined UInteger Var(param_tsan_instrument_func_entry_exit) Init(1) IntegerRange(0, 1) Param
+Emit instrumentation calls to __tsan_func_entry() and __tsan_func_exit().
 
 -param=uninit-control-dep-attempts=
 Common Joined UInteger Var(param_uninit_control_dep_attempts) Init(1000) IntegerRange(1, 65536) Param Optimization

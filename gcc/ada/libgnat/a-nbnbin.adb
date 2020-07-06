@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---             Copyright (C) 2019, Free Software Foundation, Inc.           --
+--             Copyright (C) 2019-2020, Free Software Foundation, Inc.      --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -29,8 +29,10 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+pragma Ada_2020;
+
 with Ada.Unchecked_Deallocation;
-with Ada.Characters.Conversions; use Ada.Characters.Conversions;
+with Ada.Strings.Text_Output.Utils;
 
 with Interfaces; use Interfaces;
 
@@ -75,7 +77,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "=" --
    ---------
 
-   function "=" (L, R : Big_Integer) return Boolean is
+   function "=" (L, R : Valid_Big_Integer) return Boolean is
    begin
       return Big_EQ (Get_Bignum (L), Get_Bignum (R));
    end "=";
@@ -84,7 +86,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "<" --
    ---------
 
-   function "<" (L, R : Big_Integer) return Boolean is
+   function "<" (L, R : Valid_Big_Integer) return Boolean is
    begin
       return Big_LT (Get_Bignum (L), Get_Bignum (R));
    end "<";
@@ -93,7 +95,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "<=" --
    ----------
 
-   function "<=" (L, R : Big_Integer) return Boolean is
+   function "<=" (L, R : Valid_Big_Integer) return Boolean is
    begin
       return Big_LE (Get_Bignum (L), Get_Bignum (R));
    end "<=";
@@ -102,7 +104,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- ">" --
    ---------
 
-   function ">" (L, R : Big_Integer) return Boolean is
+   function ">" (L, R : Valid_Big_Integer) return Boolean is
    begin
       return Big_GT (Get_Bignum (L), Get_Bignum (R));
    end ">";
@@ -111,7 +113,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- ">=" --
    ----------
 
-   function ">=" (L, R : Big_Integer) return Boolean is
+   function ">=" (L, R : Valid_Big_Integer) return Boolean is
    begin
       return Big_GE (Get_Bignum (L), Get_Bignum (R));
    end ">=";
@@ -120,7 +122,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- To_Big_Integer --
    --------------------
 
-   function To_Big_Integer (Arg : Integer) return Big_Integer is
+   function To_Big_Integer (Arg : Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, To_Bignum (Long_Long_Integer (Arg)));
@@ -146,7 +148,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
       -- To_Big_Integer --
       --------------------
 
-      function To_Big_Integer (Arg : Int) return Big_Integer is
+      function To_Big_Integer (Arg : Int) return Valid_Big_Integer is
          Result : Big_Integer;
       begin
          Set_Bignum (Result, To_Bignum (Long_Long_Integer (Arg)));
@@ -174,7 +176,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
       -- To_Big_Integer --
       --------------------
 
-      function To_Big_Integer (Arg : Int) return Big_Integer is
+      function To_Big_Integer (Arg : Int) return Valid_Big_Integer is
          Result : Big_Integer;
       begin
          Set_Bignum (Result, To_Bignum (Unsigned_64 (Arg)));
@@ -199,7 +201,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    Hex_Chars : constant array (0 .. 15) of Character := "0123456789ABCDEF";
 
    function To_String
-     (Arg : Big_Integer; Width : Field := 0; Base : Number_Base := 10)
+     (Arg : Valid_Big_Integer; Width : Field := 0; Base : Number_Base := 10)
       return String
    is
       Big_Base : constant Big_Integer := To_Big_Integer (Integer (Base));
@@ -290,18 +292,19 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- Put_Image --
    ---------------
 
-   procedure Put_Image
-     (Stream : not null access Ada.Streams.Root_Stream_Type'Class;
-      Arg    : Big_Integer) is
+   procedure Put_Image (S : in out Sink'Class; V : Big_Integer) is
+      --  This is implemented in terms of To_String. It might be more elegant
+      --  and more efficient to do it the other way around, but this is the
+      --  most expedient implementation for now.
    begin
-      Wide_Wide_String'Write (Stream, To_Wide_Wide_String (To_String (Arg)));
+      Strings.Text_Output.Utils.Put_UTF_8 (S, To_String (V));
    end Put_Image;
 
    ---------
    -- "+" --
    ---------
 
-   function "+" (L : Big_Integer) return Big_Integer is
+   function "+" (L : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, new Bignum_Data'(Get_Bignum (L).all));
@@ -312,7 +315,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "-" --
    ---------
 
-   function "-" (L : Big_Integer) return Big_Integer is
+   function "-" (L : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Neg (Get_Bignum (L)));
@@ -323,7 +326,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "abs" --
    -----------
 
-   function "abs" (L : Big_Integer) return Big_Integer is
+   function "abs" (L : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Abs (Get_Bignum (L)));
@@ -334,7 +337,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "+" --
    ---------
 
-   function "+" (L, R : Big_Integer) return Big_Integer is
+   function "+" (L, R : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Add (Get_Bignum (L), Get_Bignum (R)));
@@ -345,7 +348,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "-" --
    ---------
 
-   function "-" (L, R : Big_Integer) return Big_Integer is
+   function "-" (L, R : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Sub (Get_Bignum (L), Get_Bignum (R)));
@@ -356,7 +359,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "*" --
    ---------
 
-   function "*" (L, R : Big_Integer) return Big_Integer is
+   function "*" (L, R : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Mul (Get_Bignum (L), Get_Bignum (R)));
@@ -367,7 +370,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "/" --
    ---------
 
-   function "/" (L, R : Big_Integer) return Big_Integer is
+   function "/" (L, R : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Div (Get_Bignum (L), Get_Bignum (R)));
@@ -378,7 +381,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "mod" --
    -----------
 
-   function "mod" (L, R : Big_Integer) return Big_Integer is
+   function "mod" (L, R : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Mod (Get_Bignum (L), Get_Bignum (R)));
@@ -389,7 +392,7 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "rem" --
    -----------
 
-   function "rem" (L, R : Big_Integer) return Big_Integer is
+   function "rem" (L, R : Valid_Big_Integer) return Valid_Big_Integer is
       Result : Big_Integer;
    begin
       Set_Bignum (Result, Big_Rem (Get_Bignum (L), Get_Bignum (R)));
@@ -400,16 +403,9 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- "**" --
    ----------
 
-   function "**" (L : Big_Integer; R : Natural) return Big_Integer is
+   function "**"
+     (L : Valid_Big_Integer; R : Natural) return Valid_Big_Integer is
    begin
-      --  Explicitly check for validity before allocating Exp so that
-      --  the call to Get_Bignum below cannot raise an exception before
-      --  we get a chance to free Exp.
-
-      if not Is_Valid (L) then
-         raise Constraint_Error with "invalid big integer";
-      end if;
-
       declare
          Exp    : Bignum := To_Bignum (Long_Long_Integer (R));
          Result : Big_Integer;
@@ -424,21 +420,23 @@ package body Ada.Numerics.Big_Numbers.Big_Integers is
    -- Min --
    ---------
 
-   function Min (L, R : Big_Integer) return Big_Integer is
+   function Min (L, R : Valid_Big_Integer) return Valid_Big_Integer is
      (if L < R then L else R);
 
    ---------
    -- Max --
    ---------
 
-   function Max (L, R : Big_Integer) return Big_Integer is
+   function Max (L, R : Valid_Big_Integer) return Valid_Big_Integer is
      (if L > R then L else R);
 
    -----------------------------
    -- Greatest_Common_Divisor --
    -----------------------------
 
-   function Greatest_Common_Divisor (L, R : Big_Integer) return Big_Positive is
+   function Greatest_Common_Divisor
+     (L, R : Valid_Big_Integer) return Big_Positive
+   is
       function GCD (A, B : Big_Integer) return Big_Integer;
       --  Recursive internal version
 

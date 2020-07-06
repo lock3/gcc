@@ -23,6 +23,7 @@ along with this program; see the file COPYING3.  If not see
 #include "config.h"
 #include "system.h"
 #include "mkdeps.h"
+#include "internal.h"
 
 /* Not set up to just include std::vector et al, here's a simple
    implementation.  */
@@ -80,7 +81,7 @@ public:
   };
 
   mkdeps ()
-    : quote_lwm (0)
+    : module_name (NULL), bmi_name (NULL), is_header_unit (false), quote_lwm (0)
   {
   }
   ~mkdeps ()
@@ -93,14 +94,22 @@ public:
       free (const_cast <char *> (deps[i]));
     for (i = vpath.size (); i--;)
       XDELETEVEC (vpath[i].str);
+    for (i = modules.size (); i--;)
+      XDELETEVEC (modules[i]);
+    XDELETEVEC (module_name);
+    free (const_cast <char *> (bmi_name));
   }
 
 public:
   vec<const char *> targets;
   vec<const char *> deps;
   vec<velt> vpath;
+  vec<const char *> modules;
 
 public:
+  const char *module_name;
+  const char *bmi_name;
+  bool is_header_unit;
   unsigned short quote_lwm;
 };
 
@@ -322,6 +331,27 @@ deps_add_vpath (class mkdeps *d, const char *vpath)
     }
 }
 
+/* Add a new module dependency.  M is the module name, with P being
+   any partition name thereof (might be NULL).  If BMI is NULL, this
+   is an import dependency.  Otherwise, this is an output dependency
+   specifying BMI as the output file, of type IS_HEADER_UNIT.  */
+
+void
+deps_add_module (struct mkdeps *d, const char *m,
+		 const char *bmi, bool is_header_unit)
+{
+  m = xstrdup (m);
+
+  if (bmi)
+    {
+      d->module_name = m;
+      d->is_header_unit = is_header_unit;
+      d->bmi_name = xstrdup (bmi);
+    }
+  else
+    d->modules.push (m);
+}
+
 /* Write NAME, with a leading space to FP, a Makefile.  Advance COL as
    appropriate, wrap at COLMAX, returning new column number.  Iff
    QUOTE apply quoting.  Append TRAIL.  */
@@ -367,8 +397,10 @@ make_write_vec (const mkdeps::vec<const char *> &vec, FILE *fp,
    .PHONY targets for all the dependencies too.  */
 
 static void
-make_write (const class mkdeps *d, FILE *fp, bool phony, unsigned int colmax)
+make_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
 {
+  const mkdeps *d = pfile->deps;
+
   unsigned column = 0;
   if (colmax && colmax < 34)
     colmax = 34;
@@ -376,23 +408,79 @@ make_write (const class mkdeps *d, FILE *fp, bool phony, unsigned int colmax)
   if (d->deps.size ())
     {
       column = make_write_vec (d->targets, fp, 0, colmax, d->quote_lwm);
+      if (CPP_OPTION (pfile, deps.modules) && d->bmi_name)
+	column = make_write_name (d->bmi_name, fp, column, colmax);
       fputs (":", fp);
       column++;
       make_write_vec (d->deps, fp, column, colmax);
       fputs ("\n", fp);
-      if (phony)
+      if (CPP_OPTION (pfile, deps.phony_targets))
 	for (unsigned i = 1; i < d->deps.size (); i++)
 	  fprintf (fp, "%s:\n", munge (d->deps[i]));
+    }
+
+  if (!CPP_OPTION (pfile, deps.modules))
+    return;
+
+  if (d->modules.size ())
+    {
+      column = make_write_vec (d->targets, fp, 0, colmax, d->quote_lwm);
+      if (d->bmi_name)
+	column = make_write_name (d->bmi_name, fp, column, colmax);
+      fputs (":", fp);
+      column++;
+      column = make_write_vec (d->modules, fp, column, colmax, 0, ".c++m");
+      fputs ("\n", fp);
+    }
+
+  if (d->module_name)
+    {
+      if (d->bmi_name)
+	{
+	  /* module-name : bmi-name */
+	  column = make_write_name (d->module_name, fp, 0, colmax,
+				    true, ".c++m");
+	  fputs (":", fp);
+	  column++;
+	  column = make_write_name (d->bmi_name, fp, column, colmax);
+	  fputs ("\n", fp);
+
+	  column = fprintf (fp, ".PHONY:");
+	  column = make_write_name (d->module_name, fp, column, colmax,
+				    true, ".c++m");
+	  fputs ("\n", fp);
+	}
+
+      if (d->bmi_name && !d->is_header_unit)
+	{
+	  /* An order-only dependency.
+	      bmi-name :| first-target
+	     We can probably drop this this in favour of Make-4.3's grouped
+	      targets '&:'  */
+	  column = make_write_name (d->bmi_name, fp, 0, colmax);
+	  fputs (":|", fp);
+	  column++;
+	  column = make_write_name (d->targets[0], fp, column, colmax);
+	  fputs ("\n", fp);
+	}
+    }
+  
+  if (d->modules.size ())
+    {
+      column = fprintf (fp, "CXX_IMPORTS +=");
+      make_write_vec (d->modules, fp, column, colmax, 0, ".c++m");
+      fputs ("\n", fp);
     }
 }
 
 /* Write out dependencies according to the selected format (which is
    only Make at the moment).  */
+/* Really we should be opening fp here.  */
 
 void
-deps_write (const class mkdeps *d, FILE *fp, bool phony, unsigned int colmax)
+deps_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
 {
-  make_write (d, fp, phony, colmax);
+  make_write (pfile, fp, colmax);
 }
 
 /* Write out a deps buffer to a file, in a form that can be read back

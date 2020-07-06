@@ -173,10 +173,33 @@ add_friend (tree type, tree decl, bool complain)
   if (decl == error_mark_node)
     return;
 
+  if (modules_p () && warn_long_distance_friends && complain
+      && !module_friendship_compatible (TYPE_NAME (type), decl))
+    {
+      warning (OPT_Wlong_distance_friends,
+	       "%q#T is not visible to befriended declaration %q#D",
+	       type, decl);
+      // FIXME decl source loc of function decl mangled by friend decl?
+      //inform (DECL_SOURCE_LOCATION (decl), "import declared %q#D here", decl);
+    }
+
   typedecl = TYPE_MAIN_DECL (type);
   list = DECL_FRIENDLIST (typedecl);
   name = DECL_NAME (decl);
   type = TREE_TYPE (typedecl);
+
+#if 0
+  if (TREE_CODE (decl) == FUNCTION_DECL
+      && DECL_TEMPLATE_INFO (decl)
+      && TREE_CODE (DECL_TI_TEMPLATE (decl)) != TEMPLATE_DECL)
+    {
+      /* Allow us to find the type from the decl.  */
+      // FIXME: Find out if uninstantiated template friends come
+      // through here too.
+      gcc_checking_assert (!DECL_CHAIN (decl));
+      DECL_CHAIN (decl) = type;
+    }
+#endif
 
   while (list)
     {
@@ -236,6 +259,17 @@ add_friend (tree type, tree decl, bool complain)
 void
 make_friend_class (tree type, tree friend_type, bool complain)
 {
+  if (modules_p () && warn_long_distance_friends && complain
+      && !module_friendship_compatible (TYPE_NAME (type),
+					TYPE_NAME (friend_type)))
+    {
+      warning (OPT_Wlong_distance_friends,
+	       "%q#T is not visible to befriended declaration %q#T",
+	       type, friend_type);
+      inform (location_of (friend_type), "import declared %q#T here",
+	      friend_type);
+    }
+
   tree classes;
 
   /* CLASS_TEMPLATE_DEPTH counts the number of template headers for
@@ -621,8 +655,8 @@ do_friend (tree ctype, tree declarator, tree decl,
 		 class specialization, and pushdecl will insert an
 		 unqualified friend decl into the template parameter
 		 scope, rather than the namespace containing it.  */
-	      tree ns = decl_namespace_context (decl);
 
+	      tree ns = decl_namespace_context (decl);
 	      push_nested_namespace (ns);
 	      decl = pushdecl_namespace_level (decl, /*is_friend=*/true);
 	      pop_nested_namespace (ns);

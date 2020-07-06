@@ -236,17 +236,25 @@ MMD
 C ObjC C++ ObjC++ NoDriverArg Separate MissingArgError(missing filename after %qs)
 Like -MD but ignore system header files.
 
+Mmodules
+C++
+Generate C++ Module dependency information.
+
+Mno-modules
+C++
+; undocumented
+
 MP
 C ObjC C++ ObjC++
 Generate phony targets for all headers.
 
 MQ
 C ObjC C++ ObjC++ Joined Separate MissingArgError(missing makefile target after %qs)
--MQ <target>	Add a MAKE-quoted target.
+-MQ <target>	Add a target that may require quoting.
 
 MT
 C ObjC C++ ObjC++ Joined Separate MissingArgError(missing makefile target after %qs)
--MT <target>	Add an unquoted target.
+-MT <target>	Add a target that does not require quoting.
 
 P
 C ObjC C++ ObjC++
@@ -730,6 +738,10 @@ Warn when a logical operator is suspiciously always evaluating to true or false.
 Wlogical-not-parentheses
 C ObjC C++ ObjC++ Var(warn_logical_not_paren) Warning LangEnabledBy(C ObjC C++ ObjC++,Wall)
 Warn when logical not is used on the left hand side operand of a comparison.
+
+Wlong-distance-friends
+C++ Var(warn_long_distance_friends) Warning LangEnabledBy(C++,Wall)
+Warn when friends are declared across module boundaries.
 
 Wlong-long
 C ObjC C++ ObjC++ CPP(cpp_warn_long_long) CppReason(CPP_W_LONG_LONG) Var(warn_long_long) Init(-1) Warning LangEnabledBy(C ObjC,Wc90-c99-compat)
@@ -1669,6 +1681,57 @@ flax-vector-conversions
 C ObjC C++ ObjC++ Var(flag_lax_vector_conversions)
 Allow implicit conversions between vectors with differing numbers of subparts and/or differing element types.
 
+fmodules-ts
+C++ ObjC++ Var(flag_modules) Integer Init(0)
+Enable C++ modules-ts (experimental).
+
+fno-modules
+C++ ObjC++ Undocumented RejectNegative Var(flag_modules,0) Integer
+;; undocumented
+
+fmodule-header
+C++ ObjC RejectNegative Var(flag_header_unit,0) Integer
+Enable C++ header module (experimental).
+
+fmodule-header=
+C++ ObjC++ Joined RejectNegative Undocumented
+
+fmodule-only
+C++ ObjC RejectNegative Var(flag_module_only) Integer
+Only emit Binary Module Interface.
+
+fmodule-mapper=
+C++ ObjC++ Joined RejectNegative MissingArgError(missing mapper)
+Mapper for module to CMI files.
+
+fmodule-lazy
+C++ ObjC++ Var(flag_module_lazy) Init(1)
+Enable lazy module importing.
+
+fmodule-version-ignore
+C++ ObjC Var(flag_module_version_ignore) Integer
+; undocumented, Very dangerous, but occasionally useful
+
+Winvalid-imported-macros
+C++ ObjC++ Var(warn_imported_macros)
+Warn about macros that have conflicting header units definitions.
+
+fnote-include-translate
+C++ Var(note_include_translate)
+Note #include directives translated to import declarations.
+
+Winclude-translate
+C++ Alias(fnote-include-translate) Undocumented
+; undocumented, delete
+
+fnote-include-translate=query
+C++ RejectNegative
+Note queries of #include directives translation.
+
+fnote-include-translate=
+C++ Joined RejectNegative MissingArgError(missing header name)
+Note a #include translation of a specific header.
+
 fmax-include-depth=
 C ObjC C++ ObjC++ Joined RejectNegative UInteger
 fmax-include-depth=<number> Set the maximum depth of the nested #include.
@@ -2115,11 +2178,11 @@ C++ ObjC++
 Conform to the ISO 2017 C++ standard.
 
 std=c++2a
-C++ ObjC++
+C++ ObjC++ Alias(std=c++20) Undocumented
 Conform to the ISO 2020 C++ draft standard (experimental and incomplete support).
 
 std=c++20
-C++ ObjC++ Alias(std=c++2a)
+C++ ObjC++
 Conform to the ISO 2020 C++ draft standard (experimental and incomplete support).
 
 std=c11
@@ -2193,11 +2256,11 @@ C++ ObjC++
 Conform to the ISO 2017 C++ standard with GNU extensions.
 
 std=gnu++2a
-C++ ObjC++
+C++ ObjC++ Alias(std=gnu++20)
 Conform to the ISO 2020 C++ draft standard with GNU extensions (experimental and incomplete support).
 
 std=gnu++20
-C++ ObjC++ Alias(std=gnu++2a)
+C++ ObjC++
 Conform to the ISO 2020 C++ draft standard with GNU extensions (experimental and incomplete support).
 
 std=gnu11

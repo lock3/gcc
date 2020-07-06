@@ -1799,7 +1799,7 @@ parse_dump_option (const char *option_value, const char **pos_p)
       end_ptr = strchr (ptr, '-');
       eq_ptr = strchr (ptr, '=');
 
-      if (eq_ptr && !end_ptr)
+      if (eq_ptr && (!end_ptr || end_ptr > eq_ptr))
 	end_ptr = eq_ptr;
 
       if (!end_ptr)
@@ -2077,6 +2077,34 @@ enable_rtl_dump_file (void)
 			    NULL);
   return num_enabled > 0;
 }
+
+/* debug_dump_context's ctor.  Temporarily override the dump_context
+   (to forcibly enable output to stderr).  */
+
+debug_dump_context::debug_dump_context ()
+: m_context (),
+  m_saved (&dump_context::get ()),
+  m_saved_flags (dump_flags),
+  m_saved_pflags (pflags),
+  m_saved_file (dump_file)
+{
+  set_dump_file (stderr);
+  dump_context::s_current = &m_context;
+  pflags = dump_flags = MSG_ALL_KINDS | MSG_ALL_PRIORITIES;
+  dump_context::get ().refresh_dumps_are_enabled ();
+}
+
+/* debug_dump_context's dtor.  Restore the saved dump_context.  */
+
+debug_dump_context::~debug_dump_context ()
+{
+  set_dump_file (m_saved_file);
+  dump_context::s_current = m_saved;
+  dump_flags = m_saved_flags;
+  pflags = m_saved_pflags;
+  dump_context::get ().refresh_dumps_are_enabled ();
+}
+
 
 #if CHECKING_P
 

@@ -943,7 +943,7 @@ do_dbg_cnt (void)
 class ccp_folder : public substitute_and_fold_engine
 {
  public:
-  tree get_value (tree) FINAL OVERRIDE;
+  tree get_value (tree, gimple *) FINAL OVERRIDE;
   bool fold_stmt (gimple_stmt_iterator *) FINAL OVERRIDE;
 };
 
@@ -952,7 +952,7 @@ class ccp_folder : public substitute_and_fold_engine
    of calling member functions.  */
 
 tree
-ccp_folder::get_value (tree op)
+ccp_folder::get_value (tree op, gimple *stmt ATTRIBUTE_UNUSED)
 {
   return get_constant_value (op);
 }
@@ -2002,6 +2002,7 @@ evaluate_stmt (gimple *stmt)
 	    case BUILT_IN_BSWAP16:
 	    case BUILT_IN_BSWAP32:
 	    case BUILT_IN_BSWAP64:
+	    case BUILT_IN_BSWAP128:
 	      val = get_value_for_expr (gimple_call_arg (stmt, 0), true);
 	      if (val.lattice_val == UNDEFINED)
 		break;

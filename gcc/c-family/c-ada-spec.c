@@ -634,20 +634,24 @@ static const char *current_source_file;
 static location_t
 decl_sloc (const_tree decl, bool last)
 {
-  tree field;
-
   /* Compare the declaration of struct-like types based on the sloc of their
      last field (if LAST is true), so that more nested types collate before
      less nested ones.  */
   if (TREE_CODE (decl) == TYPE_DECL
       && !DECL_ORIGINAL_TYPE (decl)
-      && RECORD_OR_UNION_TYPE_P (TREE_TYPE (decl))
-      && (field = TYPE_FIELDS (TREE_TYPE (decl))))
+      && RECORD_OR_UNION_TYPE_P (TREE_TYPE (decl)))
     {
-      if (last)
+      tree field = TYPE_FIELDS (TREE_TYPE (decl));
+
+      /* Skip any builtin fields we added.  */
+      while (field && DECL_IS_BUILTIN (field))
+	field = DECL_CHAIN (field);
+
+      if (field && last)
 	while (DECL_CHAIN (field))
 	  field = DECL_CHAIN (field);
-      return DECL_SOURCE_LOCATION (field);
+      if (field)
+	DECL_SOURCE_LOCATION (field);
     }
 
   return DECL_SOURCE_LOCATION (decl);
@@ -3412,9 +3416,12 @@ dump_ads (const char *source_file,
       cpp_check = check;
       dump_ada_nodes (&pp, source_file);
 
-      /* We require Ada 2012 syntax, so generate corresponding pragma.
-         Also, disable style checks since this file is auto-generated.  */
-      fprintf (f, "pragma Ada_2012;\npragma Style_Checks (Off);\n\n");
+      /* We require Ada 2012 syntax, so generate corresponding pragma.  */
+      fputs ("pragma Ada_2012;\n", f);
+
+      /* Disable style checks and warnings on unused entities since this file
+	 is auto-generated and always has a with clause for Interfaces.C.  */
+      fputs ("pragma Style_Checks (Off);\npragma Warnings (\"U\");\n\n", f);
 
       /* Dump withs.  */
       dump_ada_withs (f);

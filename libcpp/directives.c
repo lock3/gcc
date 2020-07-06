@@ -667,7 +667,8 @@ do_undef (cpp_reader *pfile)
 				   pfile->directive_line, 0,
 				   "undefining \"%s\"", NODE_NAME (node));
 
-	  if (CPP_OPTION (pfile, warn_unused_macros))
+	  if (node->value.macro
+	      && CPP_OPTION (pfile, warn_unused_macros))
 	    _cpp_warn_if_unused_macro (pfile, node, NULL);
 
 	  _cpp_free_definition (node);
@@ -844,6 +845,7 @@ do_include_common (cpp_reader *pfile, enum include_type type)
       /* Get out of macro context, if we are.  */
       skip_rest_of_line (pfile);
 
+      // FIXME: why here, not when we do the stacking?
       if (pfile->cb.include)
 	pfile->cb.include (pfile, pfile->directive_line,
 			   pfile->directive->name, fname, angle_brackets,
@@ -940,7 +942,7 @@ strtolinenum (const uchar *str, size_t len, linenum_type *nump, bool *wrapped)
 
 /* Interpret #line command.
    Note that the filename string (if any) is a true string constant
-   (escapes are interpreted), unlike in #line.  */
+   (escapes are interpreted).  */
 static void
 do_line (cpp_reader *pfile)
 {
@@ -1004,6 +1006,7 @@ do_line (cpp_reader *pfile)
 /* Interpret the # 44 "file" [flags] notation, which has slightly
    different syntax and semantics from #line:  Flags are allowed,
    and we never complain about the line number being too big.  */
+
 static void
 do_linemarker (cpp_reader *pfile)
 {
@@ -1115,26 +1118,42 @@ do_linemarker (cpp_reader *pfile)
   line_table->seen_line_directive = true;
 }
 
-/* Arrange the file_change callback.  pfile->line has changed to
-   FILE_LINE of TO_FILE, for reason REASON.  SYSP is 1 for a system
-   header, 2 for a system header that needs to be extern "C" protected,
-   and zero otherwise.  */
+/* Arrange the file_change callback.  Changing to TO_FILE:TO_LINE for
+   REASON.  SYSP is 1 for a system header, 2 for a system header that
+   needs to be extern "C" protected, and zero otherwise.  */
 void
 _cpp_do_file_change (cpp_reader *pfile, enum lc_reason reason,
-		     const char *to_file, linenum_type file_line,
+		     const char *to_file, linenum_type to_line,
 		     unsigned int sysp)
 {
   linemap_assert (reason != LC_ENTER_MACRO);
-  const struct line_map *map = linemap_add (pfile->line_table, reason, sysp,
-					    to_file, file_line);
+
   const line_map_ordinary *ord_map = NULL;
-  if (map != NULL)
+  if (!to_line && reason == LC_RENAME_VERBATIM)
     {
-      ord_map = linemap_check_ordinary (map);
-      linemap_line_start (pfile->line_table,
-			  ORDINARY_MAP_STARTING_LINE_NUMBER (ord_map),
-			  127);
+      /* A linemarker moving to line zero.  If we're on the second
+         line of the current map, and it also starts at zero, just
+         rewind -- we're probably reading the builtins of a
+         preprocessed source.  */
+      line_map_ordinary *last = LINEMAPS_LAST_ORDINARY_MAP (pfile->line_table);
+      if (!ORDINARY_MAP_STARTING_LINE_NUMBER (last)
+	  && SOURCE_LINE (last, pfile->line_table->highest_line) == 2)
+	{
+	  ord_map = last;
+	  pfile->line_table->highest_location
+	    = pfile->line_table->highest_line = MAP_START_LOCATION (last);
+	}
     }
+
+  if (!ord_map)
+    if (const line_map *map = linemap_add (pfile->line_table, reason, sysp,
+					   to_file, to_line))
+      {
+	ord_map = linemap_check_ordinary (map);
+	linemap_line_start (pfile->line_table,
+			    ORDINARY_MAP_STARTING_LINE_NUMBER (ord_map),
+			    127);
+      }
 
   if (pfile->cb.file_change)
     pfile->cb.file_change (pfile, ord_map);
@@ -1964,8 +1983,10 @@ do_ifdef (cpp_reader *pfile)
       if (node)
 	{
 	  skip = !_cpp_defined_macro_p (node);
+	  if (!_cpp_maybe_notify_macro_use (pfile, node, pfile->directive_line))
+	    /* It wasn't a macro after all.  */
+	    skip = true;
 	  _cpp_mark_macro_used (node);
-	  _cpp_maybe_notify_macro_use (pfile, node);
 	  if (pfile->cb.used)
 	    pfile->cb.used (pfile, pfile->directive_line, node);
 	  check_eol (pfile, false);
@@ -1988,13 +2009,11 @@ do_ifndef (cpp_reader *pfile)
 
       if (node)
 	{
-	  /* Do not treat conditional macros as being defined.  This is due to
-	     the powerpc port using conditional macros for 'vector', 'bool',
-	     and 'pixel' to act as conditional keywords.  This messes up tests
-	     like #ifndef bool.  */
 	  skip = _cpp_defined_macro_p (node);
+	  if (!_cpp_maybe_notify_macro_use (pfile, node, pfile->directive_line))
+	    /* It wasn't a macro after all.  */
+	    skip = false;
 	  _cpp_mark_macro_used (node);
-	  _cpp_maybe_notify_macro_use (pfile, node);
 	  if (pfile->cb.used)
 	    pfile->cb.used (pfile, pfile->directive_line, node);
 	  check_eol (pfile, false);
@@ -2559,7 +2578,7 @@ cpp_set_callbacks (cpp_reader *pfile, cpp_callbacks *cb)
 class mkdeps *
 cpp_get_deps (cpp_reader *pfile)
 {
-  if (!pfile->deps)
+  if (CPP_OPTION (pfile, deps.style) != DEPS_NONE && !pfile->deps)
     pfile->deps = deps_init ();
   return pfile->deps;
 }
