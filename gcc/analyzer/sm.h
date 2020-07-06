@@ -26,6 +26,8 @@ along with GCC; see the file COPYING3.  If not see
 extern tree is_zero_assignment (const gimple *stmt);
 extern bool any_pointer_p (tree var);
 
+namespace ana {
+
 class state_machine;
 class sm_context;
 class pending_diagnostic;
@@ -55,10 +57,19 @@ public:
 
   const char *get_state_name (state_t s) const;
 
+  state_t get_state_by_name (const char *name);
+
   /* Return true if STMT is a function call recognized by this sm.  */
   virtual bool on_stmt (sm_context *sm_ctxt,
 			const supernode *node,
 			const gimple *stmt) const = 0;
+
+  virtual void on_phi (sm_context *sm_ctxt ATTRIBUTE_UNUSED,
+		       const supernode *node ATTRIBUTE_UNUSED,
+		       const gphi *phi ATTRIBUTE_UNUSED,
+		       tree rhs ATTRIBUTE_UNUSED) const
+  {
+  }
 
   virtual void on_condition (sm_context *sm_ctxt,
 			     const supernode *node,
@@ -77,6 +88,8 @@ public:
   }
 
   void validate (state_t s) const;
+
+  void dump_to_pp (pretty_printer *pp) const;
 
 protected:
   state_t add_state (const char *name);
@@ -174,5 +187,7 @@ extern state_machine *make_taint_state_machine (logger *logger);
 extern state_machine *make_sensitive_state_machine (logger *logger);
 extern state_machine *make_signal_state_machine (logger *logger);
 extern state_machine *make_pattern_test_state_machine (logger *logger);
+
+} // namespace ana
 
 #endif /* GCC_ANALYZER_SM_H */

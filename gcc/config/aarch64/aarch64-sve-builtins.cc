@@ -184,8 +184,15 @@ CONSTEXPR const type_suffix_info type_suffixes[NUM_TYPE_SUFFIXES + 1] = {
 /*     _f16 _f32 _f64
    _s8 _s16 _s32 _s64
    _u8 _u16 _u32 _u64.  */
-#define TYPES_all_data(S, D) \
+#define TYPES_all_arith(S, D) \
   TYPES_all_float (S, D), TYPES_all_integer (S, D)
+
+/*     _bf16
+	_f16 _f32 _f64
+   _s8  _s16 _s32 _s64
+   _u8  _u16 _u32 _u64.  */
+#define TYPES_all_data(S, D) \
+  S (bf16), TYPES_all_arith (S, D)
 
 /* _b only.  */
 #define TYPES_b(S, D) \
@@ -253,17 +260,25 @@ CONSTEXPR const type_suffix_info type_suffixes[NUM_TYPE_SUFFIXES + 1] = {
 #define TYPES_hsd_integer(S, D) \
   TYPES_hsd_signed (S, D), S (u16), S (u32), S (u64)
 
+/* _f32.  */
+#define TYPES_s_float(S, D) \
+  S (f32)
+
 /*      _f32
    _s16 _s32 _s64
    _u16 _u32 _u64.  */
 #define TYPES_s_float_hsd_integer(S, D) \
-  S (f32), TYPES_hsd_integer (S, D)
+  TYPES_s_float (S, D), TYPES_hsd_integer (S, D)
 
 /* _f32
    _s32 _s64
    _u32 _u64.  */
 #define TYPES_s_float_sd_integer(S, D) \
-  S (f32), TYPES_sd_integer (S, D)
+  TYPES_s_float (S, D), TYPES_sd_integer (S, D)
+
+/* _s32.  */
+#define TYPES_s_signed(S, D) \
+  S (s32)
 
 /* _u32.  */
 #define TYPES_s_unsigned(S, D) \
@@ -271,7 +286,7 @@ CONSTEXPR const type_suffix_info type_suffixes[NUM_TYPE_SUFFIXES + 1] = {
 
 /* _s32 _u32.  */
 #define TYPES_s_integer(S, D) \
-  S (s32), TYPES_s_unsigned (S, D)
+  TYPES_s_signed (S, D), TYPES_s_unsigned (S, D)
 
 /* _s32 _s64.  */
 #define TYPES_sd_signed(S, D) \
@@ -298,6 +313,10 @@ CONSTEXPR const type_suffix_info type_suffixes[NUM_TYPE_SUFFIXES + 1] = {
 #define TYPES_all_float_and_sd_integer(S, D) \
   TYPES_all_float (S, D), TYPES_sd_integer (S, D)
 
+/* _f64.  */
+#define TYPES_d_float(S, D) \
+  S (f64)
+
 /* _u64.  */
 #define TYPES_d_unsigned(S, D) \
   S (u64)
@@ -311,7 +330,7 @@ CONSTEXPR const type_suffix_info type_suffixes[NUM_TYPE_SUFFIXES + 1] = {
    _s64
    _u64.  */
 #define TYPES_d_data(S, D) \
-  S (f64), TYPES_d_integer (S, D)
+  TYPES_d_float (S, D), TYPES_d_integer (S, D)
 
 /* All the type combinations allowed by svcvt.  */
 #define TYPES_cvt(S, D) \
@@ -334,6 +353,10 @@ CONSTEXPR const type_suffix_info type_suffixes[NUM_TYPE_SUFFIXES + 1] = {
   D (u16, f16), \
   D (u32, f16), D (u32, f32), D (u32, f64), \
   D (u64, f16), D (u64, f32), D (u64, f64)
+
+/* _bf16_f32.  */
+#define TYPES_cvt_bfloat(S, D) \
+  D (bf16, f32)
 
 /* _f32_f16
    _f64_f32.  */
@@ -359,14 +382,17 @@ CONSTEXPR const type_suffix_info type_suffixes[NUM_TYPE_SUFFIXES + 1] = {
   TYPES_inc_dec_n1 (D, u32), \
   TYPES_inc_dec_n1 (D, u64)
 
-/* {     _f16 _f32 _f64 }   {     _f16 _f32 _f64 }
-   { _s8 _s16 _s32 _s64 } x { _s8 _s16 _s32 _s64 }
-   { _u8 _u16 _u32 _u64 }   { _u8 _u16 _u32 _u64 }.  */
+/* {     _bf16           }   {     _bf16           }
+   {      _f16 _f32 _f64 }   {      _f16 _f32 _f64 }
+   { _s8  _s16 _s32 _s64 } x { _s8  _s16 _s32 _s64 }
+   { _u8  _u16 _u32 _u64 }   { _u8  _u16 _u32 _u64 }.  */
 #define TYPES_reinterpret1(D, A) \
+  D (A, bf16), \
   D (A, f16), D (A, f32), D (A, f64), \
   D (A, s8), D (A, s16), D (A, s32), D (A, s64), \
   D (A, u8), D (A, u16), D (A, u32), D (A, u64)
 #define TYPES_reinterpret(S, D) \
+  TYPES_reinterpret1 (D, bf16), \
   TYPES_reinterpret1 (D, f16), \
   TYPES_reinterpret1 (D, f32), \
   TYPES_reinterpret1 (D, f64), \
@@ -416,6 +442,7 @@ DEF_SVE_TYPES_ARRAY (all_signed);
 DEF_SVE_TYPES_ARRAY (all_float_and_signed);
 DEF_SVE_TYPES_ARRAY (all_unsigned);
 DEF_SVE_TYPES_ARRAY (all_integer);
+DEF_SVE_TYPES_ARRAY (all_arith);
 DEF_SVE_TYPES_ARRAY (all_data);
 DEF_SVE_TYPES_ARRAY (b);
 DEF_SVE_TYPES_ARRAY (b_unsigned);
@@ -432,8 +459,10 @@ DEF_SVE_TYPES_ARRAY (hs_float);
 DEF_SVE_TYPES_ARRAY (hd_unsigned);
 DEF_SVE_TYPES_ARRAY (hsd_signed);
 DEF_SVE_TYPES_ARRAY (hsd_integer);
+DEF_SVE_TYPES_ARRAY (s_float);
 DEF_SVE_TYPES_ARRAY (s_float_hsd_integer);
 DEF_SVE_TYPES_ARRAY (s_float_sd_integer);
+DEF_SVE_TYPES_ARRAY (s_signed);
 DEF_SVE_TYPES_ARRAY (s_unsigned);
 DEF_SVE_TYPES_ARRAY (s_integer);
 DEF_SVE_TYPES_ARRAY (sd_signed);
@@ -441,10 +470,12 @@ DEF_SVE_TYPES_ARRAY (sd_unsigned);
 DEF_SVE_TYPES_ARRAY (sd_integer);
 DEF_SVE_TYPES_ARRAY (sd_data);
 DEF_SVE_TYPES_ARRAY (all_float_and_sd_integer);
+DEF_SVE_TYPES_ARRAY (d_float);
 DEF_SVE_TYPES_ARRAY (d_unsigned);
 DEF_SVE_TYPES_ARRAY (d_integer);
 DEF_SVE_TYPES_ARRAY (d_data);
 DEF_SVE_TYPES_ARRAY (cvt);
+DEF_SVE_TYPES_ARRAY (cvt_bfloat);
 DEF_SVE_TYPES_ARRAY (cvt_long);
 DEF_SVE_TYPES_ARRAY (cvt_narrow_s);
 DEF_SVE_TYPES_ARRAY (cvt_narrow);
@@ -2602,12 +2633,21 @@ function_expander::overlaps_input_p (rtx x)
   return false;
 }
 
+/* Convert ptr_mode value X to Pmode.  */
+rtx
+function_expander::convert_to_pmode (rtx x)
+{
+  if (ptr_mode == SImode)
+    x = simplify_gen_unary (ZERO_EXTEND, DImode, x, SImode);
+  return x;
+}
+
 /* Return the base address for a contiguous load or store function.
    MEM_MODE is the mode of the addressed memory.  */
 rtx
 function_expander::get_contiguous_base (machine_mode mem_mode)
 {
-  rtx base = args[1];
+  rtx base = convert_to_pmode (args[1]);
   if (mode_suffix_id == MODE_vnum)
     {
       /* Use the size of the memory mode for extending loads and truncating
@@ -2814,9 +2854,7 @@ function_expander::prepare_gather_address_operands (unsigned int argno,
     {
       /* Scalar base, vector displacement.  This is the order that the md
 	 pattern wants.  */
-      if (Pmode == SImode)
-	args[argno] = simplify_gen_unary (ZERO_EXTEND, DImode,
-					  args[argno], SImode);
+      args[argno] = convert_to_pmode (args[argno]);
       vector_type = displacement_vector_type ();
       if (units == UNITS_elements && !scaled_p)
 	shift_idx = argno + 1;
@@ -3329,7 +3367,7 @@ register_tuple_type (unsigned int num_vectors, vector_type_index type)
 	      && TYPE_ALIGN (tuple_type) == 128);
 
   /* Work out the structure name.  */
-  char buffer[sizeof ("svfloat64x4_t")];
+  char buffer[sizeof ("svbfloat16x4_t")];
   const char *vector_type_name = vector_types[type].acle_name;
   snprintf (buffer, sizeof (buffer), "%.*sx%d_t",
 	    (int) strlen (vector_type_name) - 2, vector_type_name,

@@ -1425,7 +1425,7 @@ aarch64_sve_abi (void)
 	= default_function_abi.full_reg_clobbers ();
       for (int regno = V8_REGNUM; regno <= V23_REGNUM; ++regno)
 	CLEAR_HARD_REG_BIT (full_reg_clobbers, regno);
-      for (int regno = P4_REGNUM; regno <= P11_REGNUM; ++regno)
+      for (int regno = P4_REGNUM; regno <= P15_REGNUM; ++regno)
 	CLEAR_HARD_REG_BIT (full_reg_clobbers, regno);
       sve_abi.initialize (ARM_PCS_SVE, full_reg_clobbers);
     }
@@ -1656,6 +1656,7 @@ aarch64_classify_vector_mode (machine_mode mode)
     case E_VNx8HImode:
     case E_VNx4SImode:
     case E_VNx2DImode:
+    case E_VNx8BFmode:
     case E_VNx8HFmode:
     case E_VNx4SFmode:
     case E_VNx2DFmode:
@@ -1666,6 +1667,7 @@ aarch64_classify_vector_mode (machine_mode mode)
     case E_VNx16HImode:
     case E_VNx8SImode:
     case E_VNx4DImode:
+    case E_VNx16BFmode:
     case E_VNx16HFmode:
     case E_VNx8SFmode:
     case E_VNx4DFmode:
@@ -1674,6 +1676,7 @@ aarch64_classify_vector_mode (machine_mode mode)
     case E_VNx24HImode:
     case E_VNx12SImode:
     case E_VNx6DImode:
+    case E_VNx24BFmode:
     case E_VNx24HFmode:
     case E_VNx12SFmode:
     case E_VNx6DFmode:
@@ -1682,6 +1685,7 @@ aarch64_classify_vector_mode (machine_mode mode)
     case E_VNx32HImode:
     case E_VNx16SImode:
     case E_VNx8DImode:
+    case E_VNx32BFmode:
     case E_VNx32HFmode:
     case E_VNx16SFmode:
     case E_VNx8DFmode:
@@ -2290,7 +2294,7 @@ aarch64_is_noplt_call_p (rtx sym)
 
 /* Return true if the offsets to a zero/sign-extract operation
    represent an expression that matches an extend operation.  The
-   operands represent the paramters from
+   operands represent the parameters from
 
    (extract:MODE (mult (reg) (MULT_IMM)) (EXTRACT_IMM) (const_int 0)).  */
 bool
@@ -2607,11 +2611,16 @@ aarch64_load_symref_appropriately (rtx dest, rtx imm,
     case SYMBOL_SMALL_TLSGD:
       {
 	rtx_insn *insns;
-	machine_mode mode = GET_MODE (dest);
-	rtx result = gen_rtx_REG (mode, R0_REGNUM);
+	/* The return type of __tls_get_addr is the C pointer type
+	   so use ptr_mode.  */
+	rtx result = gen_rtx_REG (ptr_mode, R0_REGNUM);
+	rtx tmp_reg = dest;
+
+	if (GET_MODE (dest) != ptr_mode)
+	  tmp_reg = can_create_pseudo_p () ? gen_reg_rtx (ptr_mode) : result;
 
 	start_sequence ();
-	if (TARGET_ILP32)
+	if (ptr_mode == SImode)
 	  aarch64_emit_call_insn (gen_tlsgd_small_si (result, imm));
 	else
 	  aarch64_emit_call_insn (gen_tlsgd_small_di (result, imm));
@@ -2619,7 +2628,11 @@ aarch64_load_symref_appropriately (rtx dest, rtx imm,
 	end_sequence ();
 
 	RTL_CONST_CALL_P (insns) = 1;
-	emit_libcall_block (insns, dest, result, imm);
+	emit_libcall_block (insns, tmp_reg, result, imm);
+	/* Convert back to the mode of the dest adding a zero_extend
+	   from SImode (ptr_mode) to DImode (Pmode). */
+	if (dest != tmp_reg)
+	  convert_move (dest, tmp_reg, true);
 	return;
       }
 
@@ -2726,8 +2739,21 @@ aarch64_load_symref_appropriately (rtx dest, rtx imm,
       }
 
     case SYMBOL_TINY_GOT:
-      emit_insn (gen_ldr_got_tiny (dest, imm));
-      return;
+      {
+	rtx insn;
+	machine_mode mode = GET_MODE (dest);
+
+	if (mode == ptr_mode)
+	  insn = gen_ldr_got_tiny (mode, dest, imm);
+	else
+	  {
+	    gcc_assert (mode == Pmode);
+	    insn = gen_ldr_got_tiny_sidi (dest, imm);
+	  }
+
+	emit_insn (insn);
+	return;
+      }
 
     case SYMBOL_TINY_TLSIE:
       {
@@ -3700,7 +3726,7 @@ aarch64_add_offset_1 (scalar_int_mode mode, rtx dest,
   gcc_assert (emit_move_imm || temp1 != NULL_RTX);
   gcc_assert (temp1 == NULL_RTX || !reg_overlap_mentioned_p (temp1, src));
 
-  HOST_WIDE_INT moffset = abs_hwi (offset);
+  unsigned HOST_WIDE_INT moffset = absu_hwi (offset);
   rtx_insn *insn;
 
   if (!moffset)
@@ -3744,7 +3770,8 @@ aarch64_add_offset_1 (scalar_int_mode mode, rtx dest,
   if (emit_move_imm)
     {
       gcc_assert (temp1 != NULL_RTX || can_create_pseudo_p ());
-      temp1 = aarch64_force_temporary (mode, temp1, GEN_INT (moffset));
+      temp1 = aarch64_force_temporary (mode, temp1,
+				       gen_int_mode (moffset, mode));
     }
   insn = emit_insn (offset < 0
 		    ? gen_sub3_insn (dest, src, temp1)
@@ -5994,14 +6021,31 @@ aarch64_layout_frame (void)
 	offset += BYTES_PER_SVE_PRED;
       }
 
-  /* We save a maximum of 8 predicate registers, and since vector
-     registers are 8 times the size of a predicate register, all the
-     saved predicates fit within a single vector.  Doing this also
-     rounds the offset to a 128-bit boundary.  */
   if (maybe_ne (offset, 0))
     {
-      gcc_assert (known_le (offset, vector_save_size));
-      offset = vector_save_size;
+      /* If we have any vector registers to save above the predicate registers,
+	 the offset of the vector register save slots need to be a multiple
+	 of the vector size.  This lets us use the immediate forms of LDR/STR
+	 (or LD1/ST1 for big-endian).
+
+	 A vector register is 8 times the size of a predicate register,
+	 and we need to save a maximum of 12 predicate registers, so the
+	 first vector register will be at either #1, MUL VL or #2, MUL VL.
+
+	 If we don't have any vector registers to save, and we know how
+	 big the predicate save area is, we can just round it up to the
+	 next 16-byte boundary.  */
+      if (last_fp_reg == (int) INVALID_REGNUM && offset.is_constant ())
+	offset = aligned_upper_bound (offset, STACK_BOUNDARY / BITS_PER_UNIT);
+      else
+	{
+	  if (known_le (offset, vector_save_size))
+	    offset = vector_save_size;
+	  else if (known_le (offset, vector_save_size * 2))
+	    offset = vector_save_size * 2;
+	  else
+	    gcc_unreachable ();
+	}
     }
 
   /* If we need to save any SVE vector registers, add them next.  */
@@ -7880,6 +7924,30 @@ aarch64_movw_imm (HOST_WIDE_INT val, scalar_int_mode mode)
     }
   return ((val & (((HOST_WIDE_INT) 0xffff) << 0)) == val
 	  || (val & (((HOST_WIDE_INT) 0xffff) << 16)) == val);
+}
+
+/* Test whether:
+
+     X = (X & AND_VAL) | IOR_VAL;
+
+   can be implemented using:
+
+     MOVK X, #(IOR_VAL >> shift), LSL #shift
+
+   Return the shift if so, otherwise return -1.  */
+int
+aarch64_movk_shift (const wide_int_ref &and_val,
+		    const wide_int_ref &ior_val)
+{
+  unsigned int precision = and_val.get_precision ();
+  unsigned HOST_WIDE_INT mask = 0xffff;
+  for (unsigned int shift = 0; shift < precision; shift += 16)
+    {
+      if (and_val == ~mask && (ior_val & mask) == ior_val)
+	return shift;
+      mask <<= 16;
+    }
+  return -1;
 }
 
 /* VAL is a value with the inner mode of MODE.  Replicate it to fill a
@@ -11011,6 +11079,8 @@ aarch64_if_then_else_costs (rtx op0, rtx op1, rtx op2, int *cost, bool speed)
   rtx inner;
   rtx comparator;
   enum rtx_code cmpcode;
+  const struct cpu_cost_table *extra_cost
+    = aarch64_tune_params.insn_extra_cost;
 
   if (COMPARISON_P (op0))
     {
@@ -11045,8 +11115,17 @@ aarch64_if_then_else_costs (rtx op0, rtx op1, rtx op2, int *cost, bool speed)
 		    /* CBZ/CBNZ.  */
 		    *cost += rtx_cost (inner, VOIDmode, cmpcode, 0, speed);
 
-	        return true;
-	      }
+		  return true;
+		}
+	      if (register_operand (inner, VOIDmode)
+		  && aarch64_imm24 (comparator, VOIDmode))
+		{
+		  /* SUB and SUBS.  */
+		  *cost += COSTS_N_INSNS (2);
+		  if (speed)
+		    *cost += extra_cost->alu.arith * 2;
+		  return true;
+		}
 	    }
 	  else if (cmpcode == LT || cmpcode == GE)
 	    {
@@ -11457,6 +11536,13 @@ aarch64_rtx_costs (rtx x, machine_mode mode, int outer ATTRIBUTE_UNUSED,
 	    *cost += extra_cost->alu.clz;
 	}
 
+      return false;
+
+    case CTZ:
+      *cost = COSTS_N_INSNS (2);
+
+      if (speed)
+	*cost += extra_cost->alu.clz + extra_cost->alu.rev;
       return false;
 
     case COMPARE:
@@ -12684,6 +12770,25 @@ aarch64_builtin_reciprocal (tree fndecl)
   gcc_unreachable ();
 }
 
+/* Emit code to perform the floating-point operation:
+
+     DST = SRC1 * SRC2
+
+   where all three operands are already known to be registers.
+   If the operation is an SVE one, PTRUE is a suitable all-true
+   predicate.  */
+
+static void
+aarch64_emit_mult (rtx dst, rtx ptrue, rtx src1, rtx src2)
+{
+  if (ptrue)
+    emit_insn (gen_aarch64_pred (UNSPEC_COND_FMUL, GET_MODE (dst),
+				 dst, ptrue, src1, src2,
+				 gen_int_mode (SVE_RELAXED_GP, SImode)));
+  else
+    emit_set_insn (dst, gen_rtx_MULT (GET_MODE (dst), src1, src2));
+}
+
 /* Emit instruction sequence to compute either the approximate square root
    or its approximate reciprocal, depending on the flag RECP, and return
    whether the sequence was emitted or not.  */
@@ -12706,7 +12811,7 @@ aarch64_emit_approx_sqrt (rtx dst, rtx src, bool recp)
 		& AARCH64_APPROX_MODE (mode))))
 	return false;
 
-      if (flag_finite_math_only
+      if (!flag_finite_math_only
 	  || flag_trapping_math
 	  || !flag_unsafe_math_optimizations
 	  || optimize_function_for_size_p (cfun))
@@ -12716,17 +12821,33 @@ aarch64_emit_approx_sqrt (rtx dst, rtx src, bool recp)
     /* Caller assumes we cannot fail.  */
     gcc_assert (use_rsqrt_p (mode));
 
+  rtx pg = NULL_RTX;
+  if (aarch64_sve_mode_p (mode))
+    pg = aarch64_ptrue_reg (aarch64_sve_pred_mode (mode));
   machine_mode mmsk = (VECTOR_MODE_P (mode)
 		       ? related_int_vector_mode (mode).require ()
 		       : int_mode_for_mode (mode).require ());
-  rtx xmsk = gen_reg_rtx (mmsk);
+  rtx xmsk = NULL_RTX;
   if (!recp)
-    /* When calculating the approximate square root, compare the
-       argument with 0.0 and create a mask.  */
-    emit_insn (gen_rtx_SET (xmsk,
-			    gen_rtx_NEG (mmsk,
-					 gen_rtx_EQ (mmsk, src,
-						     CONST0_RTX (mode)))));
+    {
+      /* When calculating the approximate square root, compare the
+	 argument with 0.0 and create a mask.  */
+      rtx zero = CONST0_RTX (mode);
+      if (pg)
+	{
+	  xmsk = gen_reg_rtx (GET_MODE (pg));
+	  rtx hint = gen_int_mode (SVE_KNOWN_PTRUE, SImode);
+	  emit_insn (gen_aarch64_pred_fcm (UNSPEC_COND_FCMNE, mode,
+					   xmsk, pg, hint, src, zero));
+	}
+      else
+	{
+	  xmsk = gen_reg_rtx (mmsk);
+	  emit_insn (gen_rtx_SET (xmsk,
+				  gen_rtx_NEG (mmsk,
+					       gen_rtx_EQ (mmsk, src, zero))));
+	}
+    }
 
   /* Estimate the approximate reciprocal square root.  */
   rtx xdst = gen_reg_rtx (mode);
@@ -12747,29 +12868,40 @@ aarch64_emit_approx_sqrt (rtx dst, rtx src, bool recp)
   while (iterations--)
     {
       rtx x2 = gen_reg_rtx (mode);
-      emit_set_insn (x2, gen_rtx_MULT (mode, xdst, xdst));
+      aarch64_emit_mult (x2, pg, xdst, xdst);
 
       emit_insn (gen_aarch64_rsqrts (mode, x1, src, x2));
 
       if (iterations > 0)
-	emit_set_insn (xdst, gen_rtx_MULT (mode, xdst, x1));
+	aarch64_emit_mult (xdst, pg, xdst, x1);
     }
 
   if (!recp)
     {
-      /* Qualify the approximate reciprocal square root when the argument is
-	 0.0 by squashing the intermediary result to 0.0.  */
-      rtx xtmp = gen_reg_rtx (mmsk);
-      emit_set_insn (xtmp, gen_rtx_AND (mmsk, gen_rtx_NOT (mmsk, xmsk),
-					      gen_rtx_SUBREG (mmsk, xdst, 0)));
-      emit_move_insn (xdst, gen_rtx_SUBREG (mode, xtmp, 0));
+      if (pg)
+	/* Multiply nonzero source values by the corresponding intermediate
+	   result elements, so that the final calculation is the approximate
+	   square root rather than its reciprocal.  Select a zero result for
+	   zero source values, to avoid the Inf * 0 -> NaN that we'd get
+	   otherwise.  */
+	emit_insn (gen_cond (UNSPEC_COND_FMUL, mode,
+			     xdst, xmsk, xdst, src, CONST0_RTX (mode)));
+      else
+	{
+	  /* Qualify the approximate reciprocal square root when the
+	     argument is 0.0 by squashing the intermediary result to 0.0.  */
+	  rtx xtmp = gen_reg_rtx (mmsk);
+	  emit_set_insn (xtmp, gen_rtx_AND (mmsk, gen_rtx_NOT (mmsk, xmsk),
+					    gen_rtx_SUBREG (mmsk, xdst, 0)));
+	  emit_move_insn (xdst, gen_rtx_SUBREG (mode, xtmp, 0));
 
-      /* Calculate the approximate square root.  */
-      emit_set_insn (xdst, gen_rtx_MULT (mode, xdst, src));
+	  /* Calculate the approximate square root.  */
+	  aarch64_emit_mult (xdst, pg, xdst, src);
+	}
     }
 
   /* Finalize the approximation.  */
-  emit_set_insn (dst, gen_rtx_MULT (mode, xdst, x1));
+  aarch64_emit_mult (dst, pg, xdst, x1);
 
   return true;
 }
@@ -12799,6 +12931,10 @@ aarch64_emit_approx_div (rtx quo, rtx num, rtx den)
   if (!TARGET_SIMD && VECTOR_MODE_P (mode))
     return false;
 
+  rtx pg = NULL_RTX;
+  if (aarch64_sve_mode_p (mode))
+    pg = aarch64_ptrue_reg (aarch64_sve_pred_mode (mode));
+
   /* Estimate the approximate reciprocal.  */
   rtx xrcp = gen_reg_rtx (mode);
   emit_insn (gen_aarch64_frecpe (mode, xrcp, den));
@@ -12806,10 +12942,12 @@ aarch64_emit_approx_div (rtx quo, rtx num, rtx den)
   /* Iterate over the series twice for SF and thrice for DF.  */
   int iterations = (GET_MODE_INNER (mode) == DFmode) ? 3 : 2;
 
-  /* Optionally iterate over the series once less for faster performance,
-     while sacrificing the accuracy.  */
+  /* Optionally iterate over the series less for faster performance,
+     while sacrificing the accuracy.  The default is 2 for DF and 1 for SF.  */
   if (flag_mlow_precision_div)
-    iterations--;
+    iterations = (GET_MODE_INNER (mode) == DFmode
+		  ? aarch64_double_recp_precision
+		  : aarch64_float_recp_precision);
 
   /* Iterate over the series to calculate the approximate reciprocal.  */
   rtx xtmp = gen_reg_rtx (mode);
@@ -12818,7 +12956,7 @@ aarch64_emit_approx_div (rtx quo, rtx num, rtx den)
       emit_insn (gen_aarch64_frecps (mode, xtmp, xrcp, den));
 
       if (iterations > 0)
-	emit_set_insn (xrcp, gen_rtx_MULT (mode, xrcp, xtmp));
+	aarch64_emit_mult (xrcp, pg, xrcp, xtmp);
     }
 
   if (num != CONST1_RTX (mode))
@@ -12826,11 +12964,11 @@ aarch64_emit_approx_div (rtx quo, rtx num, rtx den)
       /* As the approximate reciprocal of DEN is already calculated, only
 	 calculate the approximate division when NUM is not 1.0.  */
       rtx xnum = force_reg (mode, num);
-      emit_set_insn (xrcp, gen_rtx_MULT (mode, xrcp, xnum));
+      aarch64_emit_mult (xrcp, pg, xrcp, xnum);
     }
 
   /* Finalize the approximation.  */
-  emit_set_insn (quo, gen_rtx_MULT (mode, xrcp, xtmp));
+  aarch64_emit_mult (quo, pg, xrcp, xtmp);
   return true;
 }
 
@@ -14026,8 +14164,8 @@ aarch64_override_options (void)
       if (selected_arch->arch != selected_cpu->arch)
 	{
 	  warning (0, "switch %<-mcpu=%s%> conflicts with %<-march=%s%> switch",
-		       all_architectures[selected_cpu->arch].name,
-		       selected_arch->name);
+		       aarch64_cpu_string,
+		       aarch64_arch_string);
 	}
       aarch64_isa_flags = arch_isa;
       explicit_arch = selected_arch->arch;
@@ -16089,8 +16227,10 @@ aarch64_full_sve_mode (scalar_mode mode)
       return VNx4SFmode;
     case E_HFmode:
       return VNx8HFmode;
+    case E_BFmode:
+      return VNx8BFmode;
     case E_DImode:
-	return VNx2DImode;
+      return VNx2DImode;
     case E_SImode:
       return VNx4SImode;
     case E_HImode:
@@ -18123,6 +18263,34 @@ aarch64_declare_function_name (FILE *stream, const char* name,
   /* Don't forget the type directive for ELF.  */
   ASM_OUTPUT_TYPE_DIRECTIVE (stream, name, "function");
   ASM_OUTPUT_LABEL (stream, name);
+
+  cfun->machine->label_is_assembled = true;
+}
+
+/* Implement PRINT_PATCHABLE_FUNCTION_ENTRY.  Check if the patch area is after
+   the function label and emit a BTI if necessary.  */
+
+void
+aarch64_print_patchable_function_entry (FILE *file,
+					unsigned HOST_WIDE_INT patch_area_size,
+					bool record_p)
+{
+  if (cfun->machine->label_is_assembled
+      && aarch64_bti_enabled ()
+      && !cgraph_node::get (cfun->decl)->only_called_directly_p ())
+    {
+      /* Remove the BTI that follows the patch area and insert a new BTI
+	 before the patch area right after the function label.  */
+      rtx_insn *insn = next_real_nondebug_insn (get_insns ());
+      if (insn
+	  && INSN_P (insn)
+	  && GET_CODE (PATTERN (insn)) == UNSPEC_VOLATILE
+	  && XINT (PATTERN (insn), 1) == UNSPECV_BTI_C)
+	delete_insn (insn);
+      asm_fprintf (file, "\thint\t34 // bti c\n");
+    }
+
+  default_print_patchable_function_entry (file, patch_area_size, record_p);
 }
 
 /* Implement ASM_OUTPUT_DEF_FROM_DECLS.  Output .variant_pcs for aliases.  */
@@ -20165,14 +20333,15 @@ aarch64_expand_subvti (rtx op0, rtx low_dest, rtx low_in1,
     }
   else
     {
-      if (CONST_INT_P (low_in2))
-	{
-	  high_in2 = force_reg (DImode, high_in2);
-	  emit_insn (gen_subdi3_compare1_imm (low_dest, low_in1, low_in2,
-					      GEN_INT (-INTVAL (low_in2))));
-	}
+      if (aarch64_plus_immediate (low_in2, DImode))
+	emit_insn (gen_subdi3_compare1_imm (low_dest, low_in1, low_in2,
+					    GEN_INT (-INTVAL (low_in2))));
       else
-	emit_insn (gen_subdi3_compare1 (low_dest, low_in1, low_in2));
+	{
+	  low_in2 = force_reg (DImode, low_in2);
+	  emit_insn (gen_subdi3_compare1 (low_dest, low_in1, low_in2));
+	}
+      high_in2 = force_reg (DImode, high_in2);
 
       if (unsigned_p)
 	emit_insn (gen_usubdi3_carryinC (high_dest, high_in1, high_in2));
@@ -21157,7 +21326,7 @@ aarch64_gen_adjusted_ldpstp (rtx *operands, bool load,
     {
       base_off = 0x1000 - 1;
       /* We must still make sure that the base offset is aligned with respect
-	 to the address.  But it may may not be made any bigger.  */
+	 to the address.  But it may not be made any bigger.  */
       base_off -= (((base_off % msize) - (off_val_1 % msize)) + msize) % msize;
     }
 
@@ -21969,6 +22138,9 @@ aarch64_run_selftests (void)
 
 #undef TARGET_ASM_TRAMPOLINE_TEMPLATE
 #define TARGET_ASM_TRAMPOLINE_TEMPLATE aarch64_asm_trampoline_template
+
+#undef TARGET_ASM_PRINT_PATCHABLE_FUNCTION_ENTRY
+#define TARGET_ASM_PRINT_PATCHABLE_FUNCTION_ENTRY aarch64_print_patchable_function_entry
 
 #undef TARGET_BUILD_BUILTIN_VA_LIST
 #define TARGET_BUILD_BUILTIN_VA_LIST aarch64_build_builtin_va_list

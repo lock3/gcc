@@ -21,6 +21,8 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_ANALYZER_PROGRAM_STATE_H
 #define GCC_ANALYZER_PROGRAM_STATE_H
 
+namespace ana {
+
 /* Data shared by all program_state instances.  */
 
 class extrinsic_state
@@ -43,9 +45,16 @@ public:
 
   unsigned get_num_checkers () const { return m_checkers.length (); }
 
+  void dump_to_pp (pretty_printer *pp) const;
+  void dump_to_file (FILE *outf) const;
+  void dump () const;
+
+private:
   /* The state machines.  */
   auto_delete_vec <state_machine> &m_checkers;
 };
+
+} // namespace ana
 
 template <> struct default_hash_traits<svalue_id>
 : public pod_hash_traits<svalue_id>
@@ -92,6 +101,8 @@ pod_hash_traits<svalue_id>::is_empty (value_type v)
   return v.null_p ();
 }
 
+namespace ana {
+
 /* Map from svalue_id to state machine state, also capturing the origin of
    each state.  */
 
@@ -126,7 +137,7 @@ public:
     svalue_id m_origin;
   };
   typedef hash_map <svalue_id, entry_t> map_t;
-  typedef typename map_t::iterator iterator_t;
+  typedef map_t::iterator iterator_t;
 
   sm_state_map ();
 
@@ -135,7 +146,8 @@ public:
   sm_state_map *
   clone_with_remapping (const one_way_svalue_id_map &id_map) const;
 
-  void print (const state_machine &sm, pretty_printer *pp) const;
+  void print (const state_machine &sm, const region_model *model,
+	      pretty_printer *pp) const;
   void dump (const state_machine &sm) const;
 
   bool is_empty_p () const;
@@ -155,10 +167,10 @@ public:
 		  svalue_id sid,
 		  state_machine::state_t state,
 		  svalue_id origin);
-  void set_state (const equiv_class &ec,
+  bool set_state (const equiv_class &ec,
 		  state_machine::state_t state,
 		  svalue_id origin);
-  void impl_set_state (svalue_id sid,
+  bool impl_set_state (svalue_id sid,
 		       state_machine::state_t state,
 		       svalue_id origin);
 
@@ -168,7 +180,8 @@ public:
   void purge_for_unknown_fncall (const exploded_graph &eg,
 				 const state_machine &sm,
 				 const gcall *call, tree fndecl,
-				 region_model *new_model);
+				 region_model *new_model,
+				 region_model_context *ctxt);
 
   void remap_svalue_ids (const svalue_id_map &map);
 
@@ -275,6 +288,11 @@ public:
   /* TODO: lose the pointer here (const-correctness issues?).  */
   region_model *m_region_model;
   auto_delete_vec<sm_state_map> m_checker_states;
+
+  /* If false, then don't attempt to explore further states along this path.
+     For use in "handling" lvalues for tree codes we haven't yet
+     implemented.  */
+  bool m_valid;
 };
 
 /* An abstract base class for use with for_each_state_change.  */
@@ -332,7 +350,8 @@ class state_change
     void remap_svalue_ids (const svalue_id_map &map);
     int on_svalue_purge (svalue_id first_unused_sid);
 
-    void validate (const program_state &new_state) const;
+    void validate (const program_state &new_state,
+		   const extrinsic_state &ext_state) const;
 
     int m_sm_idx;
     svalue_id m_new_sid;
@@ -356,10 +375,13 @@ class state_change
   void remap_svalue_ids (const svalue_id_map &map);
   int on_svalue_purge (svalue_id first_unused_sid);
 
-  void validate (const program_state &new_state) const;
+  void validate (const program_state &new_state,
+		 const extrinsic_state &ext_state) const;
 
  private:
   auto_vec<sm_change> m_sm_changes;
 };
+
+} // namespace ana
 
 #endif /* GCC_ANALYZER_PROGRAM_STATE_H */

@@ -1135,6 +1135,15 @@ build_array_of_n_type (tree elt, int n)
   return build_cplus_array_type (elt, build_index_type (size_int (n - 1)));
 }
 
+/* True iff T is an array of unknown bound.  */
+
+bool
+array_of_unknown_bound_p (const_tree t)
+{
+  return (TREE_CODE (t) == ARRAY_TYPE
+	  && !TYPE_DOMAIN (t));
+}
+
 /* True iff T is an N3639 array of runtime bound (VLA).  These were approved
    for C++14 but then removed.  This should only be used for N3639
    specifically; code wondering more generally if something is a VLA should use
@@ -2785,9 +2794,23 @@ no_linkage_check (tree t, bool relaxed_p)
      fix it up later if not.  We need to check this even in templates so
      that we properly handle a lambda-expression in the signature.  */
   if (LAMBDA_TYPE_P (t)
-      && CLASSTYPE_LAMBDA_EXPR (t) != error_mark_node
-      && LAMBDA_TYPE_EXTRA_SCOPE (t) == NULL_TREE)
-    return t;
+      && CLASSTYPE_LAMBDA_EXPR (t) != error_mark_node)
+    {
+      tree extra = LAMBDA_TYPE_EXTRA_SCOPE (t);
+      if (!extra)
+	return t;
+
+      /* If the mangling scope is internal-linkage or not repeatable
+	 elsewhere, the lambda effectively has no linkage.  (Sadly
+	 we're not very careful with the linkages of types.)  */
+      if (TREE_CODE (extra) == VAR_DECL
+	  && !(TREE_PUBLIC (extra)
+	       && (processing_template_decl
+		   || (DECL_LANG_SPECIFIC (extra) && DECL_USE_TEMPLATE (extra))
+		   /* DECL_COMDAT is set too late for us to check.  */
+		   || DECL_VAR_DECLARED_INLINE_P (extra))))
+	return t;
+    }
 
   /* Otherwise there's no point in checking linkage on template functions; we
      can't know their complete types.  */
@@ -3779,9 +3802,13 @@ cp_tree_equal (tree t1, tree t2)
 	    if (SIZEOF_EXPR_TYPE_P (t2))
 	      o2 = TREE_TYPE (o2);
 	  }
+
 	if (TREE_CODE (o1) != TREE_CODE (o2))
 	  return false;
-	if (TYPE_P (o1))
+
+	if (ARGUMENT_PACK_P (o1))
+	  return template_args_equal (o1, o2);
+	else if (TYPE_P (o1))
 	  return same_type_p (o1, o2);
 	else
 	  return cp_tree_equal (o1, o2);
@@ -3848,11 +3875,26 @@ cp_tree_equal (tree t1, tree t2)
 			     DEFERRED_NOEXCEPT_PATTERN (t2))
 	      && comp_template_args (DEFERRED_NOEXCEPT_ARGS (t1),
 				     DEFERRED_NOEXCEPT_ARGS (t2)));
-      break;
 
     case LAMBDA_EXPR:
       /* Two lambda-expressions are never considered equivalent.  */
       return false;
+
+    case TYPE_ARGUMENT_PACK:
+    case NONTYPE_ARGUMENT_PACK:
+      {
+	tree p1 = ARGUMENT_PACK_ARGS (t1);
+	tree p2 = ARGUMENT_PACK_ARGS (t2);
+	int len = TREE_VEC_LENGTH (p1);
+	if (TREE_VEC_LENGTH (p2) != len)
+	  return false;
+
+	for (int ix = 0; ix != len; ix++)
+	  if (!template_args_equal (TREE_VEC_ELT (p1, ix),
+				    TREE_VEC_ELT (p2, ix)))
+	    return false;
+	return true;
+      }
 
     default:
       break;
@@ -4918,6 +4960,11 @@ cp_walk_subtrees (tree *tp, int *walk_subtrees_p, walk_tree_fn func,
     }							\
   while (0)
 
+  if (TYPE_P (*tp))
+    /* Walk into template args without looking through typedefs.  */
+    if (tree ti = TYPE_TEMPLATE_INFO_MAYBE_ALIAS (*tp))
+      WALK_SUBTREE (TI_ARGS (ti));
+
   /* Not one of the easy cases.  We must explicitly go through the
      children.  */
   result = NULL_TREE;
@@ -5008,6 +5055,11 @@ cp_walk_subtrees (tree *tp, int *walk_subtrees_p, walk_tree_fn func,
 	  WALK_SUBTREE (TREE_OPERAND (*tp, i));
       }
       *walk_subtrees_p = 0;
+      break;
+
+    case CONSTRUCTOR:
+      if (COMPOUND_LITERAL_P (*tp))
+	WALK_SUBTREE (TREE_TYPE (*tp));
       break;
 
     case TRAIT_EXPR:
@@ -5247,6 +5299,10 @@ decl_linkage (tree decl)
   if (TREE_CODE (decl) == FIELD_DECL)
     return lk_none;
 
+  /* Things in local scope do not have linkage.  */
+  if (decl_function_context (decl))
+    return lk_none;
+
   /* Things that are TREE_PUBLIC have external linkage.  */
   if (TREE_PUBLIC (decl))
     return lk_external;
@@ -5265,11 +5321,6 @@ decl_linkage (tree decl)
      type.  */
   if (TREE_CODE (decl) == CONST_DECL)
     return decl_linkage (TYPE_NAME (DECL_CONTEXT (decl)));
-
-  /* Things in local scope do not have linkage, if they don't have
-     TREE_PUBLIC set.  */
-  if (decl_function_context (decl))
-    return lk_none;
 
   /* Members of the anonymous namespace also have TREE_PUBLIC unset, but
      are considered to have external linkage for language purposes, as do
@@ -5694,7 +5745,15 @@ type_initializer_zero_p (tree type, tree init)
     return TREE_CODE (init) != STRING_CST && initializer_zerop (init);
 
   if (TREE_CODE (init) != CONSTRUCTOR)
-    return initializer_zerop (init);
+    {
+      /* A class can only be initialized by a non-class type if it has
+	 a ctor that converts from that type.  Such classes are excluded
+	 since their semantics are unknown.  */
+      if (RECORD_OR_UNION_TYPE_P (type)
+	  && !RECORD_OR_UNION_TYPE_P (TREE_TYPE (init)))
+	return false;
+      return initializer_zerop (init);
+    }
 
   if (TREE_CODE (type) == ARRAY_TYPE)
     {

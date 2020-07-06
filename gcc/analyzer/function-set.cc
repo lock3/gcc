@@ -27,6 +27,8 @@ along with GCC; see the file COPYING3.  If not see
 
 #if ENABLE_ANALYZER
 
+namespace ana {
+
 /* Return true if NAME is within this set.  */
 
 bool
@@ -57,6 +59,8 @@ bool
 function_set::contains_decl_p (tree fndecl) const
 {
   gcc_assert (fndecl && DECL_P (fndecl));
+  if (!maybe_special_function_p (fndecl))
+    return false;
   return contains_name_p (IDENTIFIER_POINTER (DECL_NAME (fndecl)));
 }
 
@@ -187,5 +191,7 @@ analyzer_function_set_cc_tests ()
 } // namespace selftest
 
 #endif /* CHECKING_P */
+
+} // namespace ana
 
 #endif /* #if ENABLE_ANALYZER */

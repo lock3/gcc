@@ -981,7 +981,11 @@ check_narrowing (tree type, tree init, tsubst_flags_t complain,
       return ok;
     }
 
-  init = maybe_constant_value (init);
+  /* Even non-dependent expressions can still have template
+     codes like CAST_EXPR, so use *_non_dependent_expr to cope.  */
+  init = fold_non_dependent_expr (init, complain);
+  if (init == error_mark_node)
+    return ok;
 
   /* If we were asked to only check constants, return early.  */
   if (const_only && !TREE_CONSTANT (init))
@@ -1929,11 +1933,15 @@ process_init_constructor (tree type, tree init, int nested, int flags,
       TREE_SIDE_EFFECTS (init) = true;
     }
   else if (picflags & PICFLAG_NOT_ALL_CONSTANT)
-    /* Make sure TREE_CONSTANT isn't set from build_constructor.  */
-    TREE_CONSTANT (init) = false;
+    {
+      /* Make sure TREE_CONSTANT isn't set from build_constructor.  */
+      TREE_CONSTANT (init) = false;
+      TREE_SIDE_EFFECTS (init) = false;
+    }
   else
     {
       TREE_CONSTANT (init) = 1;
+      TREE_SIDE_EFFECTS (init) = false;
       if (!(picflags & PICFLAG_NOT_ALL_SIMPLE))
 	TREE_STATIC (init) = 1;
     }

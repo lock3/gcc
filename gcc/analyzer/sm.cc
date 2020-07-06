@@ -28,6 +28,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "options.h"
 #include "function.h"
 #include "diagnostic-core.h"
+#include "pretty-print.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/analyzer-logging.h"
 #include "analyzer/sm.h"
@@ -61,6 +62,8 @@ any_pointer_p (tree var)
   return POINTER_TYPE_P (TREE_TYPE (var));
 }
 
+namespace ana {
+
 /* Add a state with name NAME to this state_machine.
    The string is required to outlive the state_machine.
 
@@ -81,12 +84,38 @@ state_machine::get_state_name (state_t s) const
   return m_state_names[s];
 }
 
+/* Get the state with name NAME, which must exist.
+   This is purely intended for use in selftests.  */
+
+state_machine::state_t
+state_machine::get_state_by_name (const char *name)
+{
+  unsigned i;
+  const char *iter_name;
+  FOR_EACH_VEC_ELT (m_state_names, i, iter_name)
+    if (!strcmp (name, iter_name))
+      return i;
+  /* Name not found.  */
+  gcc_unreachable ();
+}
+
 /* Assert that S is a valid state for this state_machine.  */
 
 void
 state_machine::validate (state_t s) const
 {
   gcc_assert (s < m_state_names.length ());
+}
+
+/* Dump a multiline representation of this state machine to PP.  */
+
+void
+state_machine::dump_to_pp (pretty_printer *pp) const
+{
+  unsigned i;
+  const char *name;
+  FOR_EACH_VEC_ELT (m_state_names, i, name)
+    pp_printf (pp, "  state %i: %qs\n", i, name);
 }
 
 /* Create instances of the various state machines, each using LOGGER,
@@ -97,7 +126,10 @@ make_checkers (auto_delete_vec <state_machine> &out, logger *logger)
 {
   out.safe_push (make_malloc_state_machine (logger));
   out.safe_push (make_fileptr_state_machine (logger));
-  out.safe_push (make_taint_state_machine (logger));
+  /* The "taint" checker must be explicitly enabled (as it currently
+     leads to state explosions that stop the other checkers working).  */
+  if (flag_analyzer_checker)
+    out.safe_push (make_taint_state_machine (logger));
   out.safe_push (make_sensitive_state_machine (logger));
   out.safe_push (make_signal_state_machine (logger));
 
@@ -118,5 +150,7 @@ make_checkers (auto_delete_vec <state_machine> &out, logger *logger)
 					  (*sm)->get_name ()));
     }
 }
+
+} // namespace ana
 
 #endif /* #if ENABLE_ANALYZER */

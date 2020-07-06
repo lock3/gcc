@@ -22,6 +22,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "system.h"
 #include "coretypes.h"
 #include "tree.h"
+#include "diagnostic-core.h"
 #include "diagnostic.h"
 #include "function.h"
 #include "analyzer/analyzer.h"
@@ -57,6 +58,46 @@ along with GCC; see the file COPYING3.  If not see
 
 #if ENABLE_ANALYZER
 
+namespace ana {
+
+/* class extrinsic_state.  */
+
+/* Dump a multiline representation of this state to PP.  */
+
+void
+extrinsic_state::dump_to_pp (pretty_printer *pp) const
+{
+  pp_printf (pp, "extrinsic_state: %i checker(s)\n", get_num_checkers ());
+  unsigned i;
+  state_machine *checker;
+  FOR_EACH_VEC_ELT (m_checkers, i, checker)
+    {
+      pp_printf (pp, "m_checkers[%i]: %qs\n", i, checker->get_name ());
+      checker->dump_to_pp (pp);
+    }
+}
+
+/* Dump a multiline representation of this state to OUTF.  */
+
+void
+extrinsic_state::dump_to_file (FILE *outf) const
+{
+  pretty_printer pp;
+  if (outf == stderr)
+    pp_show_color (&pp) = pp_show_color (global_dc->printer);
+  pp.buffer->stream = outf;
+  dump_to_pp (&pp);
+  pp_flush (&pp);
+}
+
+/* Dump a multiline representation of this state to stderr.  */
+
+DEBUG_FUNCTION void
+extrinsic_state::dump () const
+{
+  dump_to_file (stderr);
+}
+
 /* class sm_state_map.  */
 
 /* sm_state_map's ctor.  */
@@ -85,7 +126,7 @@ sm_state_map::clone_with_remapping (const one_way_svalue_id_map &id_map) const
 {
   sm_state_map *result = new sm_state_map ();
   result->m_global_state = m_global_state;
-  for (typename map_t::iterator iter = m_map.begin ();
+  for (map_t::iterator iter = m_map.begin ();
        iter != m_map.end ();
        ++iter)
     {
@@ -107,10 +148,13 @@ sm_state_map::clone_with_remapping (const one_way_svalue_id_map &id_map) const
   return result;
 }
 
-/* Print this sm_state_map (for SM) to PP.  */
+/* Print this sm_state_map (for SM) to PP.
+   If MODEL is non-NULL, print representative tree values where
+   available.  */
 
 void
-sm_state_map::print (const state_machine &sm, pretty_printer *pp) const
+sm_state_map::print (const state_machine &sm, const region_model *model,
+		     pretty_printer *pp) const
 {
   bool first = true;
   pp_string (pp, "{");
@@ -119,7 +163,7 @@ sm_state_map::print (const state_machine &sm, pretty_printer *pp) const
       pp_printf (pp, "global: %s", sm.get_state_name (m_global_state));
       first = false;
     }
-  for (typename map_t::iterator iter = m_map.begin ();
+  for (map_t::iterator iter = m_map.begin ();
        iter != m_map.end ();
        ++iter)
     {
@@ -130,10 +174,27 @@ sm_state_map::print (const state_machine &sm, pretty_printer *pp) const
       sid.print (pp);
 
       entry_t e = (*iter).second;
-      pp_printf (pp, ": %s (origin: ",
-		 sm.get_state_name (e.m_state));
-      e.m_origin.print (pp);
-      pp_string (pp, ")");
+      pp_printf (pp, ": %s", sm.get_state_name (e.m_state));
+      if (model)
+	if (tree rep = model->get_representative_tree (sid))
+	  {
+	    pp_string (pp, " (");
+	    dump_quoted_tree (pp, rep);
+	    pp_character (pp, ')');
+	  }
+      if (!e.m_origin.null_p ())
+	{
+	  pp_string (pp, " (origin: ");
+	  e.m_origin.print (pp);
+	  if (model)
+	    if (tree rep = model->get_representative_tree (e.m_origin))
+	      {
+		pp_string (pp, " (");
+		dump_quoted_tree (pp, rep);
+		pp_character (pp, ')');
+	      }
+	  pp_string (pp, ")");
+	}
     }
   pp_string (pp, "}");
 }
@@ -146,7 +207,7 @@ sm_state_map::dump (const state_machine &sm) const
   pretty_printer pp;
   pp_show_color (&pp) = pp_show_color (global_dc->printer);
   pp.buffer->stream = stderr;
-  print (sm, &pp);
+  print (sm, NULL, &pp);
   pp_newline (&pp);
   pp_flush (&pp);
 }
@@ -170,7 +231,7 @@ sm_state_map::hash () const
   /* Accumulate the result by xoring a hash for each slot, so that the
      result doesn't depend on the ordering of the slots in the map.  */
 
-  for (typename map_t::iterator iter = m_map.begin ();
+  for (map_t::iterator iter = m_map.begin ();
        iter != m_map.end ();
        ++iter)
     {
@@ -197,7 +258,7 @@ sm_state_map::operator== (const sm_state_map &other) const
   if (m_map.elements () != other.m_map.elements ())
     return false;
 
-  for (typename map_t::iterator iter = m_map.begin ();
+  for (map_t::iterator iter = m_map.begin ();
        iter != m_map.end ();
        ++iter)
     {
@@ -257,7 +318,8 @@ sm_state_map::set_state (region_model *model,
   if (model == NULL)
     return;
   equiv_class &ec = model->get_constraints ()->get_equiv_class (sid);
-  set_state (ec, state, origin);
+  if (!set_state (ec, state, origin))
+    return;
 
   /* Also do it for all svalues that are equal via non-cm, so that
      e.g. (void *)&r and (foo *)&r transition together.  */
@@ -274,34 +336,42 @@ sm_state_map::set_state (region_model *model,
 }
 
 /* Set the state of EC to STATE, recording that the state came from
-   ORIGIN.  */
+   ORIGIN.
+   Return true if any states of svalue_ids within EC changed.  */
 
-void
+bool
 sm_state_map::set_state (const equiv_class &ec,
 			 state_machine::state_t state,
 			 svalue_id origin)
 {
   int i;
   svalue_id *sid;
+  bool any_changed = false;
   FOR_EACH_VEC_ELT (ec.m_vars, i, sid)
-    impl_set_state (*sid, state, origin);
+    any_changed |= impl_set_state (*sid, state, origin);
+  return any_changed;
 }
 
-/* Set state of PV to STATE, bypassing equivalence classes.  */
+/* Set state of SID to STATE, bypassing equivalence classes.
+   Return true if the state changed.  */
 
-void
+bool
 sm_state_map::impl_set_state (svalue_id sid, state_machine::state_t state,
 			      svalue_id origin)
 {
+  if (get_state (sid) == state)
+    return false;
+
   /* Special-case state 0 as the default value.  */
   if (state == 0)
     {
       if (m_map.get (sid))
 	m_map.remove (sid);
-      return;
+      return true;
     }
   gcc_assert (!sid.null_p ());
   m_map.put (sid, entry_t (state, origin));
+  return true;
 }
 
 /* Set the "global" state within this state map to STATE.  */
@@ -331,7 +401,8 @@ sm_state_map::purge_for_unknown_fncall (const exploded_graph &eg,
 					const state_machine &sm,
 					const gcall *call,
 					tree fndecl,
-					region_model *new_model)
+					region_model *new_model,
+					region_model_context *ctxt)
 {
   logger * const logger = eg.get_logger ();
   if (logger)
@@ -364,7 +435,7 @@ sm_state_map::purge_for_unknown_fncall (const exploded_graph &eg,
 	      continue;
 	}
       tree parm = gimple_call_arg (call, arg_idx);
-      svalue_id parm_sid = new_model->get_rvalue (parm, NULL);
+      svalue_id parm_sid = new_model->get_rvalue (parm, ctxt);
       set_state (new_model, parm_sid, 0, svalue_id::null ());
 
       /* Also clear sm-state from svalue_ids that are passed via a
@@ -372,7 +443,7 @@ sm_state_map::purge_for_unknown_fncall (const exploded_graph &eg,
       if (TREE_CODE (parm) == ADDR_EXPR)
 	{
 	  tree pointee = TREE_OPERAND (parm, 0);
-	  svalue_id parm_sid = new_model->get_rvalue (pointee, NULL);
+	  svalue_id parm_sid = new_model->get_rvalue (pointee, ctxt);
 	  set_state (new_model, parm_sid, 0, svalue_id::null ());
 	}
     }
@@ -380,7 +451,7 @@ sm_state_map::purge_for_unknown_fncall (const exploded_graph &eg,
   /* Purge any state for any LHS.  */
   if (tree lhs = gimple_call_lhs (call))
     {
-      svalue_id lhs_sid = new_model->get_rvalue (lhs, NULL);
+      svalue_id lhs_sid = new_model->get_rvalue (lhs, ctxt);
       set_state (new_model, lhs_sid, 0, svalue_id::null ());
     }
 }
@@ -393,7 +464,7 @@ sm_state_map::remap_svalue_ids (const svalue_id_map &map)
   map_t tmp_map;
 
   /* Build an intermediate map, using the new sids.  */
-  for (typename map_t::iterator iter = m_map.begin ();
+  for (map_t::iterator iter = m_map.begin ();
        iter != m_map.end ();
        ++iter)
     {
@@ -409,7 +480,7 @@ sm_state_map::remap_svalue_ids (const svalue_id_map &map)
   m_map.empty ();
 
   /* Copy over from intermediate map.  */
-  for (typename map_t::iterator iter = tmp_map.begin ();
+  for (map_t::iterator iter = tmp_map.begin ();
        iter != tmp_map.end ();
        ++iter)
     {
@@ -435,7 +506,7 @@ sm_state_map::on_svalue_purge (const state_machine &sm,
   /* TODO: ideally remove the slot directly; for now
      do it in two stages.  */
   auto_vec<svalue_id> to_remove;
-  for (typename map_t::iterator iter = m_map.begin ();
+  for (map_t::iterator iter = m_map.begin ();
        iter != m_map.end ();
        ++iter)
     {
@@ -450,6 +521,11 @@ sm_state_map::on_svalue_purge (const state_machine &sm,
 				 map, e.m_state);
 
 	  to_remove.safe_push (dst_sid);
+	}
+      else if ((*iter).second.m_origin.as_int () >= first_unused_sid.as_int ())
+	{
+	  /* If the origin svalue is being purged, then reset it to null.  */
+	  (*iter).second.m_origin = svalue_id::null ();
 	}
     }
 
@@ -500,7 +576,7 @@ sm_state_map::validate (const state_machine &sm,
   return;
 #endif
 
-  for (typename map_t::iterator iter = m_map.begin ();
+  for (map_t::iterator iter = m_map.begin ();
        iter != m_map.end ();
        ++iter)
     {
@@ -519,9 +595,10 @@ sm_state_map::validate (const state_machine &sm,
 
 program_state::program_state (const extrinsic_state &ext_state)
 : m_region_model (new region_model ()),
-  m_checker_states (ext_state.m_checkers.length ())
+  m_checker_states (ext_state.get_num_checkers ()),
+  m_valid (true)
 {
-  int num_states = ext_state.m_checkers.length ();
+  int num_states = ext_state.get_num_checkers ();
   for (int i = 0; i < num_states; i++)
     m_checker_states.quick_push (new sm_state_map ());
 }
@@ -530,7 +607,8 @@ program_state::program_state (const extrinsic_state &ext_state)
 
 program_state::program_state (const program_state &other)
 : m_region_model (new region_model (*other.m_region_model)),
-  m_checker_states (other.m_checker_states.length ())
+  m_checker_states (other.m_checker_states.length ()),
+  m_valid (true)
 {
   int i;
   sm_state_map *smap;
@@ -556,6 +634,8 @@ program_state::operator= (const program_state &other)
   FOR_EACH_VEC_ELT (other.m_checker_states, i, smap)
     m_checker_states.quick_push (smap->clone ());
 
+  m_valid = other.m_valid;
+
   return *this;
 }
 
@@ -572,6 +652,8 @@ program_state::program_state (program_state &&other)
   FOR_EACH_VEC_ELT (other.m_checker_states, i, smap)
     m_checker_states.quick_push (smap);
   other.m_checker_states.truncate (0);
+
+  m_valid = other.m_valid;
 }
 #endif
 
@@ -635,13 +717,20 @@ program_state::print (const extrinsic_state &ext_state,
       if (!smap->is_empty_p ())
 	{
 	  pp_printf (pp, "%s: ", ext_state.get_name (i));
-	  smap->print (ext_state.get_sm (i), pp);
+	  smap->print (ext_state.get_sm (i), m_region_model, pp);
 	  pp_newline (pp);
 	}
     }
+  if (!m_valid)
+    {
+      pp_printf (pp, "invalid state");
+      pp_newline (pp);
+    }
 }
 
-/* Dump a multiline representation of this state to PP.  */
+/* Dump a representation of this state to PP.
+   If SUMMARIZE is true, print a one-line summary;
+   if false, print a detailed multiline representation.  */
 
 void
 program_state::dump_to_pp (const extrinsic_state &ext_state,
@@ -657,10 +746,22 @@ program_state::dump_to_pp (const extrinsic_state &ext_state,
     {
       if (!smap->is_empty_p ())
 	{
+	  if (summarize)
+	    pp_space (pp);
 	  pp_printf (pp, "%s: ", ext_state.get_name (i));
-	  smap->print (ext_state.get_sm (i), pp);
-	  pp_newline (pp);
+	  smap->print (ext_state.get_sm (i), m_region_model, pp);
+	  if (!summarize)
+	    pp_newline (pp);
 	}
+    }
+
+  if (!m_valid)
+    {
+      if (summarize)
+	pp_space (pp);
+      pp_printf (pp, "invalid state");
+      if (!summarize)
+	pp_newline (pp);
     }
 }
 
@@ -1029,8 +1130,13 @@ state_change::sm_change::on_svalue_purge (svalue_id first_unused_sid)
 /* Assert that this object is sane.  */
 
 void
-state_change::sm_change::validate (const program_state &new_state) const
+state_change::sm_change::validate (const program_state &new_state,
+				   const extrinsic_state &ext_state) const
 {
+  gcc_assert ((unsigned)m_sm_idx < ext_state.get_num_checkers ());
+  const state_machine &sm = ext_state.get_sm (m_sm_idx);
+  sm.validate (m_old_state);
+  sm.validate (m_new_state);
   m_new_sid.validate (*new_state.m_region_model);
 }
 
@@ -1137,7 +1243,8 @@ state_change::on_svalue_purge (svalue_id first_unused_sid)
 /* Assert that this object is sane.  */
 
 void
-state_change::validate (const program_state &new_state) const
+state_change::validate (const program_state &new_state,
+			const extrinsic_state &ext_state) const
 {
   /* Skip this in a release build.  */
 #if !CHECKING_P
@@ -1146,12 +1253,36 @@ state_change::validate (const program_state &new_state) const
   unsigned i;
   sm_change *change;
   FOR_EACH_VEC_ELT (m_sm_changes, i, change)
-    change->validate (new_state);
+    change->validate (new_state, ext_state);
 }
 
 #if CHECKING_P
 
 namespace selftest {
+
+/* Implementation detail of ASSERT_DUMP_EQ.  */
+
+static void
+assert_dump_eq (const location &loc,
+		const program_state &state,
+		const extrinsic_state &ext_state,
+		bool summarize,
+		const char *expected)
+{
+  auto_fix_quotes sentinel;
+  pretty_printer pp;
+  pp_format_decoder (&pp) = default_tree_printer;
+  state.dump_to_pp (ext_state, summarize, &pp);
+  ASSERT_STREQ_AT (loc, pp_formatted_text (&pp), expected);
+}
+
+/* Assert that STATE.dump_to_pp (SUMMARIZE) is EXPECTED.  */
+
+#define ASSERT_DUMP_EQ(STATE, EXT_STATE, SUMMARIZE, EXPECTED)		\
+  SELFTEST_BEGIN_STMT							\
+  assert_dump_eq ((SELFTEST_LOCATION), (STATE), (EXT_STATE), (SUMMARIZE), \
+		  (EXPECTED));						\
+  SELFTEST_END_STMT
 
 /* Tests for sm_state_map.  */
 
@@ -1286,6 +1417,101 @@ test_sm_state_map ()
   // TODO: coverage for purging
 }
 
+/* Verify that program_state::dump_to_pp works as expected.  */
+
+static void
+test_program_state_dumping ()
+{
+  /* Create a program_state for a global ptr "p" that has
+     malloc sm-state, pointing to a region on the heap.  */
+  tree p = build_global_decl ("p", ptr_type_node);
+
+  state_machine *sm = make_malloc_state_machine (NULL);
+  const state_machine::state_t UNCHECKED_STATE
+    = sm->get_state_by_name ("unchecked");
+  auto_delete_vec <state_machine> checkers;
+  checkers.safe_push (sm);
+  extrinsic_state ext_state (checkers);
+
+  program_state s (ext_state);
+  region_model *model = s.m_region_model;
+  region_id new_rid = model->add_new_malloc_region ();
+  svalue_id ptr_sid
+      = model->get_or_create_ptr_svalue (ptr_type_node, new_rid);
+  model->set_value (model->get_lvalue (p, NULL),
+		    ptr_sid, NULL);
+  sm_state_map *smap = s.m_checker_states[0];
+
+  smap->impl_set_state (ptr_sid, UNCHECKED_STATE, svalue_id::null ());
+  ASSERT_EQ (smap->get_state (ptr_sid), UNCHECKED_STATE);
+
+  ASSERT_DUMP_EQ
+    (s, ext_state, false,
+     "rmodel: r0: {kind: `root', parent: null, sval: null}\n"
+     "|-heap: r1: {kind: `heap', parent: r0, sval: sv0}\n"
+     "|  |: sval: sv0: {poisoned: uninit}\n"
+     "|  `-r2: {kind: `symbolic', parent: r1, sval: null}\n"
+     "`-globals: r3: {kind: `globals', parent: r0, sval: null, map: {`p': r4}}\n"
+     "  `-`p': r4: {kind: `primitive', parent: r3, sval: sv1, type: `void *'}\n"
+     "    |: sval: sv1: {type: `void *', &r2}\n"
+     "    |: type: `void *'\n"
+     "svalues:\n"
+     "  sv0: {poisoned: uninit}\n"
+     "  sv1: {type: `void *', &r2}\n"
+     "constraint manager:\n"
+     "  equiv classes:\n"
+     "  constraints:\n"
+     "malloc: {sv1: unchecked (`p')}\n");
+
+  ASSERT_DUMP_EQ (s, ext_state, true,
+		  "rmodel: p: &r2 malloc: {sv1: unchecked (`p')}");
+}
+
+/* Verify that program_state::dump_to_pp works for string literals.  */
+
+static void
+test_program_state_dumping_2 ()
+{
+    /* Create a program_state for a global ptr "p" that points to
+       a string constant.  */
+  tree p = build_global_decl ("p", ptr_type_node);
+
+  tree string_cst_ptr = build_string_literal (4, "foo");
+
+  auto_delete_vec <state_machine> checkers;
+  extrinsic_state ext_state (checkers);
+
+  program_state s (ext_state);
+  region_model *model = s.m_region_model;
+  region_id p_rid = model->get_lvalue (p, NULL);
+  svalue_id str_sid = model->get_rvalue (string_cst_ptr, NULL);
+  model->set_value (p_rid, str_sid, NULL);
+
+  ASSERT_DUMP_EQ
+    (s, ext_state, false,
+     "rmodel: r0: {kind: `root', parent: null, sval: null}\n"
+     "|-globals: r1: {kind: `globals', parent: r0, sval: null, map: {`p': r2}}\n"
+     "|  `-`p': r2: {kind: `primitive', parent: r1, sval: sv3, type: `void *'}\n"
+     "|    |: sval: sv3: {type: `void *', &r4}\n"
+     "|    |: type: `void *'\n"
+     "`-r3: {kind: `array', parent: r0, sval: sv0, type: `const char[4]', array: {[0]: r4}}\n"
+     "  |: sval: sv0: {type: `const char[4]', `\"foo\"'}\n"
+     "  |: type: `const char[4]'\n"
+     "  `-[0]: r4: {kind: `primitive', parent: r3, sval: null, type: `const char'}\n"
+     "    |: type: `const char'\n"
+     "svalues:\n"
+     "  sv0: {type: `const char[4]', `\"foo\"'}\n"
+     "  sv1: {type: `int', `0'}\n"
+     "  sv2: {type: `const char *', &r4}\n"
+     "  sv3: {type: `void *', &r4}\n"
+     "constraint manager:\n"
+     "  equiv classes:\n"
+     "  constraints:\n");
+
+  ASSERT_DUMP_EQ (s, ext_state, true,
+		  "rmodel: p: &\"foo\"[0]");
+}
+
 /* Verify that program_states with identical sm-state can be merged,
    and that the merged program_state preserves the sm-state.  */
 
@@ -1388,6 +1614,8 @@ void
 analyzer_program_state_cc_tests ()
 {
   test_sm_state_map ();
+  test_program_state_dumping ();
+  test_program_state_dumping_2 ();
   test_program_state_merging ();
   test_program_state_merging_2 ();
 }
@@ -1395,5 +1623,7 @@ analyzer_program_state_cc_tests ()
 } // namespace selftest
 
 #endif /* CHECKING_P */
+
+} // namespace ana
 
 #endif /* #if ENABLE_ANALYZER */

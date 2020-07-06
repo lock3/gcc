@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <alloca.h>
 #include "analyzer-decls.h"
 
 struct foo
@@ -170,8 +171,8 @@ int test_12c (void)
 
 struct coord
 {
-  int x;
-  int y;
+  long x;
+  long y;
 };
 
 int test_12d (struct coord c)
@@ -208,14 +209,16 @@ void test_13 (struct outer *o)
 {
   __analyzer_eval (o->mid.in.f == 0.f); /* { dg-warning "UNKNOWN" } */
   o->mid.in.f = 0.f;
-  __analyzer_eval (o->mid.in.f == 0.f); /* { dg-warning "TRUE" } */
+  __analyzer_eval (o->mid.in.f == 0.f); /* { dg-warning "TRUE" "PR 93356" { xfail *-*-* } } */
+  /* { dg-warning "UNKNOWN" "disabled float comparisons" { target *-*-* } .-1 } */
 }
 
 void test_14 (struct outer o)
 {
   __analyzer_eval (o.mid.in.f == 0.f); /* { dg-warning "UNKNOWN" } */
   o.mid.in.f = 0.f;
-  __analyzer_eval (o.mid.in.f == 0.f); /* { dg-warning "TRUE" } */
+  __analyzer_eval (o.mid.in.f == 0.f); /* { dg-warning "TRUE" "PR 93356" { xfail *-*-* } } */
+  /* { dg-warning "UNKNOWN" "disabled float comparisons" { target *-*-* } .-1 } */
 }
 
 void test_15 (const char *str)
@@ -892,8 +895,7 @@ int test_40 (int flag)
     i = 17;
 
   /* With state-merging, we lose the relationship between 'flag' and 'i'.  */
-  __analyzer_dump_exploded_nodes (0); /* { dg-warning "2 exploded nodes" } */
-  __analyzer_dump_exploded_nodes (0); /* { dg-warning "1 exploded node" } */
+  __analyzer_dump_exploded_nodes (0); /* { dg-warning "1 processed enode" } */
 
   if (flag)
     __analyzer_eval (i == 43); /* { dg-warning "UNKNOWN" } */
@@ -946,7 +948,8 @@ void test_42 (void)
   float f;
   i = 42;
   f = i;
-  __analyzer_eval (f == 42.0); /* { dg-warning "TRUE" } */
+  __analyzer_eval (f == 42.0); /* { dg-warning "TRUE" "PR 93356" { xfail *-*-* } } */
+  /* { dg-warning "UNKNOWN" "disabled float comparisons" { target *-*-* } .-1 } */
 }
 
 void test_43 (void)

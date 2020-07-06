@@ -900,9 +900,9 @@ struct comp_cat_info_t
 };
 static const comp_cat_info_t comp_cat_info[cc_last]
 = {
-   { "partial_ordering", "equivalent", "greater", "less", "unordered" },
-   { "weak_ordering", "equivalent", "greater", "less" },
-   { "strong_ordering", "equal", "greater", "less" }
+   { "partial_ordering", { "equivalent", "greater", "less", "unordered" } },
+   { "weak_ordering", { "equivalent", "greater", "less" } },
+   { "strong_ordering", { "equal", "greater", "less" } }
 };
 
 /* A cache of the category types to speed repeated lookups.  */
@@ -1074,6 +1074,9 @@ genericize_spaceship (tree type, tree op0, tree op1)
   tree eq = lookup_comparison_result (tag, type, 0);
   comp = fold_build2 (EQ_EXPR, boolean_type_node, op0, op1);
   r = fold_build3 (COND_EXPR, type, comp, eq, r);
+
+  /* Wrap the whole thing in a TARGET_EXPR like build_conditional_expr_1.  */
+  r = get_target_expr (r);
 
   return r;
 }
@@ -1460,6 +1463,22 @@ build_comparison_op (tree fndecl, tsubst_flags_t complain)
     --cp_unevaluated_operand;
 }
 
+/* True iff DECL is an implicitly-declared special member function with no real
+   source location, so we can use its DECL_SOURCE_LOCATION to remember where we
+   triggered its synthesis.  */
+
+bool
+decl_remember_implicit_trigger_p (tree decl)
+{
+  if (!DECL_ARTIFICIAL (decl))
+    return false;
+  special_function_kind sfk = special_function_p (decl);
+  /* Inherited constructors have the location of their using-declaration, and
+     operator== has the location of the corresponding operator<=>.  */
+  return (sfk != sfk_inheriting_constructor
+	  && sfk != sfk_comparison);
+}
+
 /* Synthesize FNDECL, a non-static member function.   */
 
 void
@@ -1476,7 +1495,7 @@ synthesize_method (tree fndecl)
 
   /* Reset the source location, we might have been previously
      deferred, and thus have saved where we were first needed.  */
-  if (DECL_ARTIFICIAL (fndecl) && !DECL_INHERITED_CTOR (fndecl))
+  if (decl_remember_implicit_trigger_p (fndecl))
     DECL_SOURCE_LOCATION (fndecl)
       = DECL_SOURCE_LOCATION (TYPE_NAME (DECL_CONTEXT (fndecl)));
 
@@ -1720,11 +1739,10 @@ check_nontriv (tree *tp, int *, void *)
 static tree
 assignable_expr (tree to, tree from)
 {
-  ++cp_unevaluated_operand;
+  cp_unevaluated cp_uneval_guard;
   to = build_stub_object (to);
   from = build_stub_object (from);
   tree r = cp_build_modify_expr (input_location, to, NOP_EXPR, from, tf_none);
-  --cp_unevaluated_operand;
   return r;
 }
 
@@ -1787,6 +1805,7 @@ constructible_expr (tree to, tree from)
 static tree
 is_xible_helper (enum tree_code code, tree to, tree from, bool trivial)
 {
+  deferring_access_check_sentinel acs (dk_no_deferred);
   if (VOID_TYPE_P (to) || ABSTRACT_CLASS_TYPE_P (to)
       || (from && FUNC_OR_METHOD_TYPE_P (from)
 	  && (TYPE_READONLY (from) || FUNCTION_REF_QUALIFIED (from))))
@@ -1969,7 +1988,7 @@ walk_field_subobs (tree fields, special_function_kind sfk, tree fnname,
 		  if (nsdmi == error_mark_node)
 		    *spec_p = error_mark_node;
 		  else if (*spec_p != error_mark_node
-			   && !expr_noexcept_p (nsdmi, complain))
+			   && !expr_noexcept_p (nsdmi, tf_none))
 		    *spec_p = noexcept_false_spec;
 		}
 	      /* Don't do the normal processing.  */
@@ -2714,9 +2733,15 @@ implicitly_declare_fn (special_function_kind kind, tree type,
     type_set_nontrivial_flag (type, kind);
 
   /* Create the function.  */
-  tree this_type = cp_build_qualified_type (type, this_quals);
-  fn_type = build_method_type_directly (this_type, return_type,
-					parameter_types);
+  if (friend_p)
+    fn_type = build_function_type (return_type, parameter_types);
+  else
+    {
+      tree this_type = cp_build_qualified_type (type, this_quals);
+      fn_type = build_method_type_directly (this_type, return_type,
+					    parameter_types);
+    }
+
   if (raises)
     {
       if (raises != error_mark_node)
@@ -2791,12 +2816,19 @@ implicitly_declare_fn (special_function_kind kind, tree type,
 	 inheriting constructor doesn't satisfy the requirements.  */
       constexpr_p = DECL_DECLARED_CONSTEXPR_P (inherited_ctor);
     }
-  /* Add the "this" parameter.  */
-  this_parm = build_this_parm (fn, fn_type, this_quals);
-  DECL_CHAIN (this_parm) = DECL_ARGUMENTS (fn);
-  DECL_ARGUMENTS (fn) = this_parm;
 
-  grokclassfn (type, fn, kind == sfk_destructor ? DTOR_FLAG : NO_SPECIAL);
+  if (friend_p)
+    DECL_CONTEXT (fn) = DECL_CONTEXT (pattern_fn);
+  else
+    {
+      /* Add the "this" parameter.  */
+      this_parm = build_this_parm (fn, fn_type, this_quals);
+      DECL_CHAIN (this_parm) = DECL_ARGUMENTS (fn);
+      DECL_ARGUMENTS (fn) = this_parm;
+
+      grokclassfn (type, fn, kind == sfk_destructor ? DTOR_FLAG : NO_SPECIAL);
+    }
+
   DECL_IN_AGGR_P (fn) = 1;
   DECL_ARTIFICIAL (fn) = 1;
   DECL_DEFAULTED_FN (fn) = 1;

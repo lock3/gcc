@@ -39,6 +39,8 @@ along with GCC; see the file COPYING3.  If not see
 
 #if ENABLE_ANALYZER
 
+namespace ana {
+
 namespace {
 
 /* A state machine for detecting misuses of <stdio.h>'s FILE * API.  */
@@ -176,9 +178,9 @@ public:
     /* CWE-775: "Missing Release of File Descriptor or Handle after
        Effective Lifetime". */
     m.add_cwe (775);
-    return warning_at (rich_loc, m, OPT_Wanalyzer_file_leak,
-		       "leak of FILE %qE",
-		       m_arg);
+    return warning_meta (rich_loc, m, OPT_Wanalyzer_file_leak,
+			 "leak of FILE %qE",
+			 m_arg);
   }
 
   label_text describe_state_change (const evdesc::state_change &change)
@@ -433,5 +435,7 @@ analyzer_sm_file_cc_tests ()
 } // namespace selftest
 
 #endif /* CHECKING_P */
+
+} // namespace ana
 
 #endif /* #if ENABLE_ANALYZER */

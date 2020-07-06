@@ -5803,7 +5803,7 @@ free_lang_data_in_decl (tree decl, class free_lang_data_d *fld)
     }
   else if (VAR_P (decl))
     {
-      /* See comment above why we set the flag for functoins.  */
+      /* See comment above why we set the flag for functions.  */
       if (TREE_PUBLIC (decl))
 	TREE_ADDRESSABLE (decl) = true;
       if ((DECL_EXTERNAL (decl)
@@ -8862,6 +8862,21 @@ get_narrower (tree op, int *unsignedp_ptr)
   tree win = op;
   bool integral_p = INTEGRAL_TYPE_P (TREE_TYPE (op));
 
+  if (TREE_CODE (op) == COMPOUND_EXPR)
+    {
+      while (TREE_CODE (op) == COMPOUND_EXPR)
+	op = TREE_OPERAND (op, 1);
+      tree ret = get_narrower (op, unsignedp_ptr);
+      if (ret == op)
+	return win;
+      op = win;
+      for (tree *p = &win; TREE_CODE (op) == COMPOUND_EXPR;
+	   op = TREE_OPERAND (op, 1), p = &TREE_OPERAND (*p, 1))
+	*p = build2_loc (EXPR_LOCATION (op), COMPOUND_EXPR,
+			 TREE_TYPE (ret), TREE_OPERAND (op, 0),
+			 ret);
+      return win;
+    }
   while (TREE_CODE (op) == NOP_EXPR)
     {
       int bitschange
@@ -9206,8 +9221,18 @@ variably_modified_type_p (tree type, tree fn)
 	    RETURN_TRUE_IF_VAR (DECL_SIZE (t));
 	    RETURN_TRUE_IF_VAR (DECL_SIZE_UNIT (t));
 
+	    /* If the type is a qualified union, then the DECL_QUALIFIER
+	       of fields can also be an expression containing a variable.  */
 	    if (TREE_CODE (type) == QUAL_UNION_TYPE)
 	      RETURN_TRUE_IF_VAR (DECL_QUALIFIER (t));
+
+	    /* If the field is a qualified union, then it's only a container
+	       for what's inside so we look into it.  That's necessary in LTO
+	       mode because the sizes of the field tested above have been set
+	       to PLACEHOLDER_EXPRs by free_lang_data.  */
+	    if (TREE_CODE (TREE_TYPE (t)) == QUAL_UNION_TYPE
+		&& variably_modified_type_p (TREE_TYPE (t), fn))
+	      return true;
 	  }
       break;
 
@@ -13653,7 +13678,7 @@ component_ref_size (tree ref, bool *interior_zero_length /* = NULL */)
     }
 
   /* BASE is the declared object of which MEMBER is either a member
-     or that is is cast to REFTYPE (e.g., a char buffer used to store
+     or that is cast to REFTYPE (e.g., a char buffer used to store
      a REFTYPE object).  */
   tree reftype = TREE_TYPE (TREE_OPERAND (ref, 0));
   tree basetype = TREE_TYPE (base);
@@ -13881,9 +13906,9 @@ verify_type_variant (const_tree t, tree tv)
 	  debug_tree (TYPE_SIZE_UNIT (t));
 	  return false;
 	}
+      verify_variant_match (TYPE_NEEDS_CONSTRUCTING);
     }
   verify_variant_match (TYPE_PRECISION);
-  verify_variant_match (TYPE_NEEDS_CONSTRUCTING);
   if (RECORD_OR_UNION_TYPE_P (t))
     verify_variant_match (TYPE_TRANSPARENT_AGGR);
   else if (TREE_CODE (t) == ARRAY_TYPE)

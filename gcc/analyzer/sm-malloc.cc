@@ -38,6 +38,8 @@ along with GCC; see the file COPYING3.  If not see
 
 #if ENABLE_ANALYZER
 
+namespace ana {
+
 namespace {
 
 /* A state machine for detecting misuses of the malloc/free API.
@@ -54,6 +56,11 @@ public:
   bool on_stmt (sm_context *sm_ctxt,
 		const supernode *node,
 		const gimple *stmt) const FINAL OVERRIDE;
+
+  void on_phi (sm_context *sm_ctxt,
+	       const supernode *node,
+	       const gphi *phi,
+	       tree rhs) const FINAL OVERRIDE;
 
   void on_condition (sm_context *sm_ctxt,
 		     const supernode *node,
@@ -89,6 +96,12 @@ public:
 
   /* Stop state, for pointers we don't want to track any more.  */
   state_t m_stop;
+
+private:
+  void on_zero_assignment (sm_context *sm_ctxt,
+			   const supernode *node,
+			   const gimple *stmt,
+			   tree lhs) const;
 };
 
 /* Class for diagnostics relating to malloc_state_machine.  */
@@ -117,8 +130,15 @@ public:
       return change.formatted_print ("assuming %qE is non-NULL",
 				     change.m_expr);
     if (change.m_new_state == m_sm.m_null)
-      return change.formatted_print ("assuming %qE is NULL",
-				     change.m_expr);
+      {
+	if (change.m_old_state == m_sm.m_unchecked)
+	  return change.formatted_print ("assuming %qE is NULL",
+					 change.m_expr);
+	else
+	  return change.formatted_print ("%qE is NULL",
+					 change.m_expr);
+      }
+
     return label_text ();
   }
 
@@ -143,8 +163,8 @@ public:
     auto_diagnostic_group d;
     diagnostic_metadata m;
     m.add_cwe (415); /* CWE-415: Double Free.  */
-    return warning_at (rich_loc, m, OPT_Wanalyzer_double_free,
-		       "double-%<free%> of %qE", m_arg);
+    return warning_meta (rich_loc, m, OPT_Wanalyzer_double_free,
+			 "double-%<free%> of %qE", m_arg);
   }
 
   label_text describe_state_change (const evdesc::state_change &change)
@@ -233,8 +253,9 @@ public:
     /* CWE-690: Unchecked Return Value to NULL Pointer Dereference.  */
     diagnostic_metadata m;
     m.add_cwe (690);
-    return warning_at (rich_loc, m, OPT_Wanalyzer_possible_null_dereference,
-		       "dereference of possibly-NULL %qE", m_arg);
+    return warning_meta (rich_loc, m,
+			 OPT_Wanalyzer_possible_null_dereference,
+			 "dereference of possibly-NULL %qE", m_arg);
   }
 
   label_text describe_final_event (const evdesc::final_event &ev) FINAL OVERRIDE
@@ -295,9 +316,9 @@ public:
     diagnostic_metadata m;
     m.add_cwe (690);
     bool warned
-      = warning_at (rich_loc, m, OPT_Wanalyzer_possible_null_argument,
-		    "use of possibly-NULL %qE where non-null expected",
-		    m_arg);
+      = warning_meta (rich_loc, m, OPT_Wanalyzer_possible_null_argument,
+		      "use of possibly-NULL %qE where non-null expected",
+		      m_arg);
     if (warned)
       inform_nonnull_attribute (m_fndecl, m_arg_idx);
     return warned;
@@ -336,8 +357,9 @@ public:
     /* CWE-690: Unchecked Return Value to NULL Pointer Dereference.  */
     diagnostic_metadata m;
     m.add_cwe (690);
-    return warning_at (rich_loc, m, OPT_Wanalyzer_null_dereference,
-		       "dereference of NULL %qE", m_arg);
+    return warning_meta (rich_loc, m,
+			 OPT_Wanalyzer_null_dereference,
+			 "dereference of NULL %qE", m_arg);
   }
 
   label_text describe_return_of_state (const evdesc::return_of_state &info)
@@ -384,8 +406,9 @@ public:
     auto_diagnostic_group d;
     diagnostic_metadata m;
     m.add_cwe (690);
-    bool warned = warning_at (rich_loc, m, OPT_Wanalyzer_null_argument,
-			      "use of NULL %qE where non-null expected", m_arg);
+    bool warned = warning_meta (rich_loc, m, OPT_Wanalyzer_null_argument,
+				"use of NULL %qE where non-null expected",
+				m_arg);
     if (warned)
       inform_nonnull_attribute (m_fndecl, m_arg_idx);
     return warned;
@@ -417,8 +440,8 @@ public:
     /* CWE-416: Use After Free.  */
     diagnostic_metadata m;
     m.add_cwe (416);
-    return warning_at (rich_loc, m, OPT_Wanalyzer_use_after_free,
-		       "use after %<free%> of %qE", m_arg);
+    return warning_meta (rich_loc, m, OPT_Wanalyzer_use_after_free,
+			 "use after %<free%> of %qE", m_arg);
   }
 
   label_text describe_state_change (const evdesc::state_change &change)
@@ -457,8 +480,8 @@ public:
   {
     diagnostic_metadata m;
     m.add_cwe (401);
-    return warning_at (rich_loc, m, OPT_Wanalyzer_malloc_leak,
-		       "leak of %qE", m_arg);
+    return warning_meta (rich_loc, m, OPT_Wanalyzer_malloc_leak,
+			 "leak of %qE", m_arg);
   }
 
   label_text describe_state_change (const evdesc::state_change &change)
@@ -512,16 +535,16 @@ public:
       default:
 	gcc_unreachable ();
       case KIND_UNKNOWN:
-	return warning_at (rich_loc, m, OPT_Wanalyzer_free_of_non_heap,
-			   "%<free%> of %qE which points to memory"
-			   " not on the heap",
-			   m_arg);
+	return warning_meta (rich_loc, m, OPT_Wanalyzer_free_of_non_heap,
+			     "%<free%> of %qE which points to memory"
+			     " not on the heap",
+			     m_arg);
 	break;
       case KIND_ALLOCA:
-	return warning_at (rich_loc, m, OPT_Wanalyzer_free_of_non_heap,
-			   "%<free%> of memory allocated on the stack by"
-			   " %qs (%qE) will corrupt the heap",
-			   "alloca", m_arg);
+	return warning_meta (rich_loc, m, OPT_Wanalyzer_free_of_non_heap,
+			     "%<free%> of memory allocated on the stack by"
+			     " %qs (%qE) will corrupt the heap",
+			     "alloca", m_arg);
 	break;
       }
   }
@@ -588,6 +611,8 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
       {
 	if (is_named_call_p (callee_fndecl, "malloc", call, 1)
 	    || is_named_call_p (callee_fndecl, "calloc", call, 2)
+	    || is_std_named_call_p (callee_fndecl, "malloc", call, 1)
+	    || is_std_named_call_p (callee_fndecl, "calloc", call, 2)
 	    || is_named_call_p (callee_fndecl, "__builtin_malloc", call, 1)
 	    || is_named_call_p (callee_fndecl, "__builtin_calloc", call, 2))
 	  {
@@ -617,6 +642,7 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 	  }
 
 	if (is_named_call_p (callee_fndecl, "free", call, 1)
+	    || is_std_named_call_p (callee_fndecl, "free", call, 1)
 	    || is_named_call_p (callee_fndecl, "__builtin_free", call, 1))
 	  {
 	    tree arg = gimple_call_arg (call, 0);
@@ -629,7 +655,7 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 	    sm_ctxt->on_transition (node, stmt, arg, m_nonnull, m_freed);
 
 	    /* Keep state "null" as-is, rather than transitioning to "free";
-	       we don't want want to complain about double-free of NULL.  */
+	       we don't want to complain about double-free of NULL.  */
 
 	    /* freed -> stop, with warning.  */
 	    sm_ctxt->warn_for_state (node, stmt, arg, m_freed,
@@ -677,15 +703,8 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
       }
 
   if (tree lhs = is_zero_assignment (stmt))
-    {
-      if (any_pointer_p (lhs))
-	{
-	  sm_ctxt->on_transition (node, stmt, lhs, m_start, m_null);
-	  sm_ctxt->on_transition (node, stmt, lhs, m_unchecked, m_null);
-	  sm_ctxt->on_transition (node, stmt, lhs, m_nonnull, m_null);
-	  sm_ctxt->on_transition (node, stmt, lhs, m_freed, m_null);
-	}
-    }
+    if (any_pointer_p (lhs))
+      on_zero_assignment (sm_ctxt, node, stmt,lhs);
 
   if (const gassign *assign_stmt = dyn_cast <const gassign *> (stmt))
     {
@@ -729,6 +748,21 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 	}
     }
   return false;
+}
+
+/* Implementation of state_machine::on_phi vfunc for malloc_state_machine.  */
+
+void
+malloc_state_machine::on_phi (sm_context *sm_ctxt,
+			      const supernode *node,
+			      const gphi *phi,
+			      tree rhs) const
+{
+  if (zerop (rhs))
+    {
+      tree lhs = gimple_phi_result (phi);
+      on_zero_assignment (sm_ctxt, node, phi, lhs);
+    }
 }
 
 /* Implementation of state_machine::on_condition vfunc for malloc_state_machine.
@@ -784,6 +818,21 @@ malloc_state_machine::on_leak (tree var) const
   return new malloc_leak (*this, var);
 }
 
+/* Shared logic for handling GIMPLE_ASSIGNs and GIMPLE_PHIs that
+   assign zero to LHS.  */
+
+void
+malloc_state_machine::on_zero_assignment (sm_context *sm_ctxt,
+					  const supernode *node,
+					  const gimple *stmt,
+					  tree lhs) const
+{
+  sm_ctxt->on_transition (node, stmt, lhs, m_start, m_null);
+  sm_ctxt->on_transition (node, stmt, lhs, m_unchecked, m_null);
+  sm_ctxt->on_transition (node, stmt, lhs, m_nonnull, m_null);
+  sm_ctxt->on_transition (node, stmt, lhs, m_freed, m_null);
+}
+
 } // anonymous namespace
 
 /* Internal interface to this file. */
@@ -793,5 +842,7 @@ make_malloc_state_machine (logger *logger)
 {
   return new malloc_state_machine (logger);
 }
+
+} // namespace ana
 
 #endif /* #if ENABLE_ANALYZER */

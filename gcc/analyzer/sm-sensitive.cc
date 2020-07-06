@@ -39,6 +39,8 @@ along with GCC; see the file COPYING3.  If not see
 
 #if ENABLE_ANALYZER
 
+namespace ana {
+
 namespace {
 
 /* An experimental state machine, for tracking exposure of sensitive
@@ -103,9 +105,10 @@ public:
     diagnostic_metadata m;
     /* CWE-532: Information Exposure Through Log Files */
     m.add_cwe (532);
-    return warning_at (rich_loc, m, OPT_Wanalyzer_exposure_through_output_file,
-		       "sensitive value %qE written to output file",
-		       m_arg);
+    return warning_meta (rich_loc, m,
+			 OPT_Wanalyzer_exposure_through_output_file,
+			 "sensitive value %qE written to output file",
+			 m_arg);
   }
 
   label_text describe_state_change (const evdesc::state_change &change)
@@ -244,5 +247,7 @@ make_sensitive_state_machine (logger *logger)
 {
   return new sensitive_state_machine (logger);
 }
+
+} // namespace ana
 
 #endif /* #if ENABLE_ANALYZER */

@@ -21,6 +21,8 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_ANALYZER_DIAGNOSTIC_MANAGER_H
 #define GCC_ANALYZER_DIAGNOSTIC_MANAGER_H
 
+namespace ana {
+
 /* A to-be-emitted diagnostic stored within diagnostic_manager.  */
 
 class saved_diagnostic
@@ -50,6 +52,8 @@ public:
 private:
   DISABLE_COPY_AND_ASSIGN (saved_diagnostic);
 };
+
+class path_builder;
 
 /* A class with responsibility for saving pending diagnostics, so that
    they can be emitted after the exploded_graph is complete.
@@ -93,17 +97,25 @@ public:
   {
     return m_saved_diagnostics[idx];
   }
+  const saved_diagnostic *get_saved_diagnostic (unsigned idx) const
+  {
+    return m_saved_diagnostics[idx];
+  }
 
 private:
-  void build_emission_path (const exploded_graph &eg,
+  void build_emission_path (const path_builder &pb,
 			    const exploded_path &epath,
 			    checker_path *emission_path) const;
 
-  void add_events_for_eedge (const exploded_edge &eedge,
-			     const extrinsic_state &ext_state,
+  void add_events_for_eedge (const path_builder &pb,
+			     const exploded_edge &eedge,
 			     checker_path *emission_path) const;
 
-  void add_events_for_superedge (const exploded_edge &eedge,
+  bool significant_edge_p (const path_builder &pb,
+			   const exploded_edge &eedge) const;
+
+  void add_events_for_superedge (const path_builder &pb,
+				 const exploded_edge &eedge,
 				 checker_path *emission_path) const;
 
   void prune_path (checker_path *path,
@@ -114,11 +126,14 @@ private:
 				const state_machine *sm,
 				tree var,
 				state_machine::state_t state) const;
+  void update_for_unsuitable_sm_exprs (tree *expr) const;
   void prune_interproc_events (checker_path *path) const;
   void finish_pruning (checker_path *path) const;
 
   auto_delete_vec<saved_diagnostic> m_saved_diagnostics;
   const int m_verbosity;
 };
+
+} // namespace ana
 
 #endif /* GCC_ANALYZER_DIAGNOSTIC_MANAGER_H */
