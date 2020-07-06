@@ -4904,8 +4904,7 @@ build_template_decl (tree decl, tree parms, bool member_template_p)
   if (modules_p ())
     {
       /* Propagate module information from the decl.  */
-      if (TREE_CODE (CP_DECL_CONTEXT (tmpl)) != RECORD_TYPE)
-	DECL_MODULE_EXPORT_P (tmpl) = DECL_MODULE_EXPORT_P (decl);
+      DECL_MODULE_EXPORT_P (tmpl) = DECL_MODULE_EXPORT_P (decl);
       if (DECL_LANG_SPECIFIC (decl))
 	{
 	  DECL_MODULE_PURVIEW_P (tmpl) = DECL_MODULE_PURVIEW_P (decl);
@@ -9978,8 +9977,7 @@ lookup_template_class_1 (tree d1, tree arglist, tree in_decl, tree context,
       /* Although GEN_TMPL is the TEMPLATE_DECL, it has the same value
 	 of export flag.  We want to propagate this because it might
 	 be a friend declaration that pushes a new hidden binding.  */
-      if (TREE_CODE (CP_DECL_CONTEXT (type_decl)) != RECORD_TYPE)
-	DECL_MODULE_EXPORT_P (type_decl) = DECL_MODULE_EXPORT_P (gen_tmpl);
+      DECL_MODULE_EXPORT_P (type_decl) = DECL_MODULE_EXPORT_P (gen_tmpl);
 
       if (CLASS_TYPE_P (template_type))
 	{
@@ -14205,8 +14203,7 @@ tsubst_template_decl (tree t, tree args, tsubst_flags_t complain,
   if (modules_p ())
     {
       /* Propagate module information from the decl.  */
-      if (TREE_CODE (CP_DECL_CONTEXT (r)) != RECORD_TYPE)
-	DECL_MODULE_EXPORT_P (r) = DECL_MODULE_EXPORT_P (inner);
+      DECL_MODULE_EXPORT_P (r) = DECL_MODULE_EXPORT_P (inner);
       if (DECL_LANG_SPECIFIC (inner))
 	{
 	  DECL_MODULE_PURVIEW_P (r) = DECL_MODULE_PURVIEW_P (inner);
@@ -17972,7 +17969,8 @@ tsubst_contract (tree t, tree args, tsubst_flags_t complain, tree in_decl)
   ++cp_contract_operand;
   tree cond = tsubst_expr (CONTRACT_CONDITION (t), args, complain,
 			   in_decl, false);
-  SET_EXPR_LOCATION (cond, EXPR_LOCATION (CONTRACT_CONDITION (t)));
+  if (cond != error_mark_node)
+    SET_EXPR_LOCATION (cond, EXPR_LOCATION (CONTRACT_CONDITION (t)));
   --cp_contract_operand;
   finish_contract (r, cond, copy_node (CONTRACT_COMMENT (t)));
   pop_deferring_access_checks ();
@@ -20807,6 +20805,9 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
 			    tree in_decl)
 {
   if (!DECL_HAS_CONTRACTS_P (t)) return;
+  /* Manipulate a copy of the contracts rather than the general template's
+     (important when we have non-contract attributes).  */
+  DECL_ATTRIBUTES (t) = copy_list (DECL_ATTRIBUTES (t));
   tree contract_attrs = DECL_CONTRACTS (t);
   /* Rebuild unchecked result with concrete type.  */
   if (DECL_UNCHECKED_RESULT (t))

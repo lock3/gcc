@@ -9,7 +9,7 @@ template<typename T>
 int fun1(int a, T b)
 {
   [[ assert: a > 0 ]];
-  [[ assert: b > 0 ]];
+  [[ assert: (long long)b > 0LL ]];
   return a > 0;
 }
 

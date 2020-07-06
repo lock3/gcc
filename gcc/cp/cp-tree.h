@@ -492,11 +492,9 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       DECLTYPE_FOR_REF_CAPTURE (in DECLTYPE_TYPE)
       CONSTRUCTOR_C99_COMPOUND_LITERAL (in CONSTRUCTOR)
       DECL_MODULE_EXPORT_P (in _DECL)
-      DECL_MODULE_ACCESS (in _DECL)
       OVL_NESTED_P (in OVERLOAD)
       LAMBDA_EXPR_INSTANTIATED (in LAMBDA_EXPR)
       Reserved for DECL_MODULE_EXPORT (in DECL_)
-      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    4: IDENTIFIER_MARKED (IDENTIFIER_NODEs)
       TREE_HAS_CONSTRUCTOR (in INDIRECT_REF, SAVE_EXPR, CONSTRUCTOR,
 	  CALL_EXPR, or FIELD_DECL).
@@ -504,11 +502,13 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       FUNCTION_REF_QUALIFIED (in FUNCTION_TYPE, METHOD_TYPE)
       OVL_LOOKUP_P (in OVERLOAD)
       LOOKUP_FOUND_P (in RECORD_TYPE, UNION_TYPE, ENUMERAL_TYPE, NAMESPACE_DECL)
+      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    5: IDENTIFIER_VIRTUAL_P (in IDENTIFIER_NODE)
       FUNCTION_RVALUE_QUALIFIED (in FUNCTION_TYPE, METHOD_TYPE)
       CALL_EXPR_REVERSE_ARGS (in CALL_EXPR, AGGR_INIT_EXPR)
       CONSTRUCTOR_PLACEHOLDER_BOUNDARY (in CONSTRUCTOR)
       OVL_EXPORT_P (in OVL_USING_P OVERLOAD)
+      DECL_MODULE_ACCESS (in FIELD_DECL)
    6: TYPE_MARKED_P (in _TYPE)
       DECL_NONTRIVIALLY_INITIALIZED_P (in VAR_DECL)
       RANGE_FOR_IVDEP (in RANGE_FOR_STMT)
@@ -1401,7 +1401,7 @@ struct GTY (()) tree_static_assert {
 inline contract_semantic
 get_contract_semantic (const_tree t)
 {
-  return (contract_semantic) (TREE_LANG_FLAG_3 (CONTRACT_CHECK (t))
+  return (contract_semantic) (TREE_LANG_FLAG_4 (CONTRACT_CHECK (t))
       | (TREE_LANG_FLAG_2 (t) << 1)
       | (TREE_LANG_FLAG_0 ((t)) << 2));
 }
@@ -1411,7 +1411,7 @@ get_contract_semantic (const_tree t)
 inline void
 set_contract_semantic (tree t, contract_semantic semantic)
 {
-  TREE_LANG_FLAG_3 (CONTRACT_CHECK (t)) = semantic & 0x01;
+  TREE_LANG_FLAG_4 (CONTRACT_CHECK (t)) = semantic & 0x01;
   TREE_LANG_FLAG_2 (t) = (semantic & 0x02) >> 1;
   TREE_LANG_FLAG_0 (t) = (semantic & 0x04) >> 2;
 }
@@ -1838,7 +1838,7 @@ check_constraint_info (tree t)
   (DECL_LANG_SPECIFIC (NODE)->u.base.attached_decls_p)
 
 /* Whether this field _DECL has module restricted access.  */
-#define DECL_MODULE_ACCESS(NODE) TREE_LANG_FLAG_3 (NODE)
+#define DECL_MODULE_ACCESS(NODE) TREE_LANG_FLAG_5 (NODE)
 
 
 enum cp_tree_node_structure_enum {

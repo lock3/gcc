@@ -738,13 +738,14 @@ build_unchecked_result_decl (tree call, tree checked)
   return var;
 }
 
-/* Return a copy of the FUNCTION_DECL IDECL with its own unshared 
-   PARM_DECLs.  */
+/* Return a copy of the FUNCTION_DECL IDECL with its own unshared
+   PARM_DECL and DECL_ATTRIBUTEs.  */
 
 static tree
 copy_fn_decl (tree idecl)
 {
   tree decl = copy_decl (idecl);
+  DECL_ATTRIBUTES (decl) = copy_list (DECL_ATTRIBUTES (idecl));
 
   if (DECL_RESULT (idecl))
     {

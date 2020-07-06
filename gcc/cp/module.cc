@@ -11897,11 +11897,8 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
       /* The template should have copied these from its result decl.  */
       tree res = DECL_TEMPLATE_RESULT (decl);
 
-      /* If this is a field decl, we're reusing the export bit as the "module
-	 access" bit.  */
-      if (TREE_CODE (CP_DECL_CONTEXT (decl)) != RECORD_TYPE)
-	gcc_checking_assert (DECL_MODULE_EXPORT_P (decl)
-			     == DECL_MODULE_EXPORT_P (res));
+      gcc_checking_assert (DECL_MODULE_EXPORT_P (decl)
+			   == DECL_MODULE_EXPORT_P (res));
       if (DECL_LANG_SPECIFIC (res))
 	{
 	  gcc_checking_assert (DECL_MODULE_PURVIEW_P (decl)

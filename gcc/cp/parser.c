@@ -31185,6 +31185,9 @@ cp_parser_enclosed_template_argument_list (cp_parser* parser)
 static void
 begin_contract_scope (tree fndecl)
 {
+  /* inject_parm_decls expects this to be NULL_TREE, though we may have one
+     from a previous contract so we clear it here.  */
+  current_class_ptr = NULL_TREE;
   inject_parm_decls (fndecl);
 
   /* If we're in a static member func, ensure we don't have any backdoors into
