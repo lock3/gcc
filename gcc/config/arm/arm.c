@@ -1021,6 +1021,13 @@ int arm_arch_i8mm = 0;
 /* Nonzero if chip supports the BFloat16 instructions.  */
 int arm_arch_bf16 = 0;
 
+/* Nonzero if chip supports the Custom Datapath Extension.  */
+int arm_arch_cde = 0;
+int arm_arch_cde_coproc = 0;
+const int arm_arch_cde_coproc_bits[] = {
+  0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80
+};
+
 /* The condition codes of the ARM, and the inverse function.  */
 static const char * const arm_condition_codes[] =
 {
@@ -3740,6 +3747,21 @@ arm_option_reconfigure_globals (void)
       arm_fp16_format = ARM_FP16_FORMAT_IEEE;
     }
 
+  arm_arch_cde = 0;
+  arm_arch_cde_coproc = 0;
+  int cde_bits[] = {isa_bit_cdecp0, isa_bit_cdecp1, isa_bit_cdecp2,
+		    isa_bit_cdecp3, isa_bit_cdecp4, isa_bit_cdecp5,
+		    isa_bit_cdecp6, isa_bit_cdecp7};
+  for (int i = 0, e = ARRAY_SIZE (cde_bits); i < e; i++)
+    {
+      int cde_bit = bitmap_bit_p (arm_active_target.isa, cde_bits[i]);
+      if (cde_bit)
+	{
+	  arm_arch_cde |= cde_bit;
+	  arm_arch_cde_coproc |= arm_arch_cde_coproc_bits[i];
+	}
+    }
+
   /* And finally, set up some quirks.  */
   arm_arch_no_volatile_ce
     = bitmap_bit_p (arm_active_target.isa, isa_bit_quirk_no_volatile_ce);
@@ -3901,8 +3923,6 @@ static const isr_attribute_arg isr_attribute_args [] =
   { "irq",   ARM_FT_ISR },
   { "FIQ",   ARM_FT_FIQ },
   { "fiq",   ARM_FT_FIQ },
-  { "ABORT", ARM_FT_ISR },
-  { "abort", ARM_FT_ISR },
   { "ABORT", ARM_FT_ISR },
   { "abort", ARM_FT_ISR },
   { "UNDEF", ARM_FT_EXCEPTION },
@@ -5941,6 +5961,8 @@ arm_return_in_memory (const_tree type, const_tree fntype)
 
       /* Find the first field, ignoring non FIELD_DECL things which will
 	 have been created by C++.  */
+      /* NOTE: This code is deprecated and has not been updated to handle
+	 DECL_FIELD_ABI_IGNORED.  */
       for (field = TYPE_FIELDS (type);
 	   field && TREE_CODE (field) != FIELD_DECL;
 	   field = DECL_CHAIN (field))
@@ -6113,13 +6135,42 @@ aapcs_vfp_cum_init (CUMULATIVE_ARGS *pcum  ATTRIBUTE_UNUSED,
   pcum->aapcs_vfp_reg_alloc = 0;
 }
 
+/* Bitmasks that indicate whether earlier versions of GCC would have
+   taken a different path through the ABI logic.  This should result in
+   a -Wpsabi warning if the earlier path led to a different ABI decision.
+
+   WARN_PSABI_EMPTY_CXX17_BASE
+      Indicates that the type includes an artificial empty C++17 base field
+      that, prior to GCC 10.1, would prevent the type from being treated as
+      a HFA or HVA.  See PR94711 for details.
+
+   WARN_PSABI_NO_UNIQUE_ADDRESS
+      Indicates that the type includes an empty [[no_unique_address]] field
+      that, prior to GCC 10.1, would prevent the type from being treated as
+      a HFA or HVA.  */
+const unsigned int WARN_PSABI_EMPTY_CXX17_BASE = 1U << 0;
+const unsigned int WARN_PSABI_NO_UNIQUE_ADDRESS = 1U << 1;
+
 /* Walk down the type tree of TYPE counting consecutive base elements.
    If *MODEP is VOIDmode, then set it to the first valid floating point
    type.  If a non-floating point type is found, or if a floating point
    type that doesn't match a non-VOIDmode *MODEP is found, then return -1,
-   otherwise return the count in the sub-tree.  */
+   otherwise return the count in the sub-tree.
+
+   The WARN_PSABI_FLAGS argument allows the caller to check whether this
+   function has changed its behavior relative to earlier versions of GCC.
+   Normally the argument should be nonnull and point to a zero-initialized
+   variable.  The function then records whether the ABI decision might
+   be affected by a known fix to the ABI logic, setting the associated
+   WARN_PSABI_* bits if so.
+
+   When the argument is instead a null pointer, the function tries to
+   simulate the behavior of GCC before all such ABI fixes were made.
+   This is useful to check whether the function returns something
+   different after the ABI fixes.  */
 static int
-aapcs_vfp_sub_candidate (const_tree type, machine_mode *modep)
+aapcs_vfp_sub_candidate (const_tree type, machine_mode *modep,
+			 unsigned int *warn_psabi_flags)
 {
   machine_mode mode;
   HOST_WIDE_INT size;
@@ -6191,7 +6242,8 @@ aapcs_vfp_sub_candidate (const_tree type, machine_mode *modep)
 	    || TREE_CODE (TYPE_SIZE (type)) != INTEGER_CST)
 	  return -1;
 
-	count = aapcs_vfp_sub_candidate (TREE_TYPE (type), modep);
+	count = aapcs_vfp_sub_candidate (TREE_TYPE (type), modep,
+					 warn_psabi_flags);
 	if (count == -1
 	    || !index
 	    || !TYPE_MAX_VALUE (index)
@@ -6229,7 +6281,30 @@ aapcs_vfp_sub_candidate (const_tree type, machine_mode *modep)
 	    if (TREE_CODE (field) != FIELD_DECL)
 	      continue;
 
-	    sub_count = aapcs_vfp_sub_candidate (TREE_TYPE (field), modep);
+	    if (DECL_FIELD_ABI_IGNORED (field))
+	      {
+		/* See whether this is something that earlier versions of
+		   GCC failed to ignore.  */
+		unsigned int flag;
+		if (lookup_attribute ("no_unique_address",
+				      DECL_ATTRIBUTES (field)))
+		  flag = WARN_PSABI_NO_UNIQUE_ADDRESS;
+		else if (cxx17_empty_base_field_p (field))
+		  flag = WARN_PSABI_EMPTY_CXX17_BASE;
+		else
+		  /* No compatibility problem.  */
+		  continue;
+
+		/* Simulate the old behavior when WARN_PSABI_FLAGS is null.  */
+		if (warn_psabi_flags)
+		  {
+		    *warn_psabi_flags |= flag;
+		    continue;
+		  }
+	      }
+
+	    sub_count = aapcs_vfp_sub_candidate (TREE_TYPE (field), modep,
+						 warn_psabi_flags);
 	    if (sub_count < 0)
 	      return -1;
 	    count += sub_count;
@@ -6262,7 +6337,8 @@ aapcs_vfp_sub_candidate (const_tree type, machine_mode *modep)
 	    if (TREE_CODE (field) != FIELD_DECL)
 	      continue;
 
-	    sub_count = aapcs_vfp_sub_candidate (TREE_TYPE (field), modep);
+	    sub_count = aapcs_vfp_sub_candidate (TREE_TYPE (field), modep,
+						 warn_psabi_flags);
 	    if (sub_count < 0)
 	      return -1;
 	    count = count > sub_count ? count : sub_count;
@@ -6324,10 +6400,39 @@ aapcs_vfp_is_call_or_return_candidate (enum arm_pcs pcs_variant,
      out from the mode.  */
   if (type)
     {
-      int ag_count = aapcs_vfp_sub_candidate (type, &new_mode);
-
+      unsigned int warn_psabi_flags = 0;
+      int ag_count = aapcs_vfp_sub_candidate (type, &new_mode,
+					      &warn_psabi_flags);
       if (ag_count > 0 && ag_count <= 4)
-	*count = ag_count;
+	{
+	  static unsigned last_reported_type_uid;
+	  unsigned uid = TYPE_UID (TYPE_MAIN_VARIANT (type));
+	  int alt;
+	  if (warn_psabi
+	      && warn_psabi_flags
+	      && uid != last_reported_type_uid
+	      && ((alt = aapcs_vfp_sub_candidate (type, &new_mode, NULL))
+		  != ag_count))
+	    {
+	      const char *url
+		= CHANGES_ROOT_URL "gcc-10/changes.html#empty_base";
+	      gcc_assert (alt == -1);
+	      last_reported_type_uid = uid;
+	      /* Use TYPE_MAIN_VARIANT to strip any redundant const
+		 qualification.  */
+	      if (warn_psabi_flags & WARN_PSABI_NO_UNIQUE_ADDRESS)
+		inform (input_location, "parameter passing for argument of "
+			"type %qT with %<[[no_unique_address]]%> members "
+			"changed %{in GCC 10.1%}",
+			TYPE_MAIN_VARIANT (type), url);
+	      else if (warn_psabi_flags & WARN_PSABI_EMPTY_CXX17_BASE)
+		inform (input_location, "parameter passing for argument of "
+			"type %qT when C++17 is enabled changed to match "
+			"C++14 %{in GCC 10.1%}",
+			TYPE_MAIN_VARIANT (type), url);
+	    }
+	  *count = ag_count;
+	}
       else
 	return false;
     }
@@ -6869,7 +6974,20 @@ arm_needs_doubleword_align (machine_mode mode, const_tree type)
 
   int ret = 0;
   int ret2 = 0;
-  /* Record/aggregate types: Use greatest member alignment of any member.  */
+  /* Record/aggregate types: Use greatest member alignment of any member.
+
+     Note that we explicitly consider zero-sized fields here, even though
+     they don't map to AAPCS machine types.  For example, in:
+
+	 struct __attribute__((aligned(8))) empty {};
+
+	 struct s {
+	   [[no_unique_address]] empty e;
+	   int x;
+	 };
+
+     "s" contains only one Fundamental Data Type (the int field)
+     but gains 8-byte alignment and size thanks to "e".  */
   for (tree field = TYPE_FIELDS (type); field; field = DECL_CHAIN (field))
     if (DECL_ALIGN (field) > PARM_BOUNDARY)
       {
@@ -12013,7 +12131,8 @@ arm_builtin_vectorization_cost (enum vect_cost_for_stmt type_of_cost,
 /* Implement targetm.vectorize.add_stmt_cost.  */
 
 static unsigned
-arm_add_stmt_cost (void *data, int count, enum vect_cost_for_stmt kind,
+arm_add_stmt_cost (class vec_info *vinfo, void *data, int count,
+		   enum vect_cost_for_stmt kind,
 		   struct _stmt_vec_info *stmt_info, int misalign,
 		   enum vect_cost_model_location where)
 {
@@ -12028,7 +12147,8 @@ arm_add_stmt_cost (void *data, int count, enum vect_cost_for_stmt kind,
       /* Statements in an inner loop relative to the loop being
 	 vectorized are weighted more heavily.  The value here is
 	 arbitrary and could potentially be improved with analysis.  */
-      if (where == vect_body && stmt_info && stmt_in_inner_loop_p (stmt_info))
+      if (where == vect_body && stmt_info
+	  && stmt_in_inner_loop_p (vinfo, stmt_info))
 	count *= 50;  /* FIXME.  */
 
       retval = (unsigned) (count * stmt_cost);
@@ -15763,7 +15883,7 @@ arm_gen_dicompare_reg (rtx_code code, rtx x, rtx y, rtx scratch)
 	cc_reg = gen_rtx_REG (mode, CC_REGNUM);
 
 	emit_insn (gen_rtx_SET (cc_reg,
-				gen_rtx_COMPARE (VOIDmode, conjunction,
+				gen_rtx_COMPARE (mode, conjunction,
 						 const0_rtx)));
 	return cc_reg;
       }
@@ -20122,51 +20242,43 @@ output_move_neon (rtx *operands)
 	  break;
 	}
       /* Fall through.  */
-    case LABEL_REF:
     case PLUS:
+      if (GET_CODE (addr) == PLUS)
+	addr = XEXP (addr, 0);
+      /* Fall through.  */
+    case LABEL_REF:
       {
 	int i;
 	int overlap = -1;
-	if (TARGET_HAVE_MVE && !BYTES_BIG_ENDIAN
-	    && GET_CODE (addr) != LABEL_REF)
+	for (i = 0; i < nregs; i++)
 	  {
-	    sprintf (buff, "v%srw.32\t%%q0, %%1", load ? "ld" : "st");
-	    ops[0] = reg;
-	    ops[1] = mem;
-	    output_asm_insn (buff, ops);
-	  }
-	else
-	  {
-	    for (i = 0; i < nregs; i++)
+	    /* We're only using DImode here because it's a convenient
+	       size.  */
+	    ops[0] = gen_rtx_REG (DImode, REGNO (reg) + 2 * i);
+	    ops[1] = adjust_address (mem, DImode, 8 * i);
+	    if (reg_overlap_mentioned_p (ops[0], mem))
 	      {
-		/* We're only using DImode here because it's a convenient
-		   size.  */
-		ops[0] = gen_rtx_REG (DImode, REGNO (reg) + 2 * i);
-		ops[1] = adjust_address (mem, DImode, 8 * i);
-		if (reg_overlap_mentioned_p (ops[0], mem))
-		  {
-		    gcc_assert (overlap == -1);
-		    overlap = i;
-		  }
-		else
-		  {
-		    if (TARGET_HAVE_MVE && GET_CODE (addr) == LABEL_REF)
-		      sprintf (buff, "v%sr.64\t%%P0, %%1", load ? "ld" : "st");
-		    else
-		      sprintf (buff, "v%sr%%?\t%%P0, %%1", load ? "ld" : "st");
-		    output_asm_insn (buff, ops);
-		  }
+		gcc_assert (overlap == -1);
+		overlap = i;
 	      }
-	    if (overlap != -1)
+	    else
 	      {
-		ops[0] = gen_rtx_REG (DImode, REGNO (reg) + 2 * overlap);
-		ops[1] = adjust_address (mem, SImode, 8 * overlap);
 		if (TARGET_HAVE_MVE && GET_CODE (addr) == LABEL_REF)
-		  sprintf (buff, "v%sr.32\t%%P0, %%1", load ? "ld" : "st");
+		  sprintf (buff, "v%sr.64\t%%P0, %%1", load ? "ld" : "st");
 		else
 		  sprintf (buff, "v%sr%%?\t%%P0, %%1", load ? "ld" : "st");
 		output_asm_insn (buff, ops);
 	      }
+	  }
+	if (overlap != -1)
+	  {
+	    ops[0] = gen_rtx_REG (DImode, REGNO (reg) + 2 * overlap);
+	    ops[1] = adjust_address (mem, SImode, 8 * overlap);
+	    if (TARGET_HAVE_MVE && GET_CODE (addr) == LABEL_REF)
+	      sprintf (buff, "v%sr.32\t%%P0, %%1", load ? "ld" : "st");
+	    else
+	      sprintf (buff, "v%sr%%?\t%%P0, %%1", load ? "ld" : "st");
+	    output_asm_insn (buff, ops);
 	  }
 
         return "";
@@ -25000,7 +25112,7 @@ arm_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
 
   if (TARGET_VFP_BASE && IS_VFP_REGNUM (regno))
     {
-      if (mode == DFmode)
+      if (mode == DFmode || mode == DImode)
 	return VFP_REGNO_OK_FOR_DOUBLE (regno);
 
       if (mode == HFmode || mode == BFmode || mode == HImode
@@ -25044,10 +25156,11 @@ arm_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
       if (ARM_NUM_REGS (mode) > 4)
 	return false;
 
-      if (TARGET_THUMB2 && !TARGET_HAVE_MVE)
+      if (TARGET_THUMB2 && !(TARGET_HAVE_MVE || TARGET_CDE))
 	return true;
 
-      return !(TARGET_LDRD && GET_MODE_SIZE (mode) > 4 && (regno & 1) != 0);
+      return !((TARGET_LDRD || TARGET_CDE)
+	       && GET_MODE_SIZE (mode) > 4 && (regno & 1) != 0);
     }
 
   if (regno == FRAME_POINTER_REGNUM
@@ -27875,7 +27988,11 @@ arm_file_start (void)
 	{
 	  const char* truncated_name
 	    = arm_rewrite_selected_cpu (arm_active_target.core_name);
-	  asm_fprintf (asm_out_file, "\t.cpu %s\n", truncated_name);
+	  if (bitmap_bit_p (arm_active_target.isa, isa_bit_quirk_no_asmcpu))
+	    asm_fprintf (asm_out_file, "\t.eabi_attribute 5, \"%s\"\n",
+			 truncated_name);
+	  else
+	    asm_fprintf (asm_out_file, "\t.cpu %s\n", truncated_name);
 	}
 
       if (print_tune_info)
@@ -32700,31 +32817,6 @@ arm_simd_check_vect_par_cnst_half_p (rtx op, machine_mode mode,
 	return false;
     }
   return true;
-}
-
-/* To check op's immediate values matches the mode of the defined insn.  */
-bool
-arm_mve_immediate_check (rtx op, machine_mode mode, bool val)
-{
-  if (val)
-    {
-      if (((GET_CODE (op) == CONST_INT) && (INTVAL (op) <= 7)
-	   && (mode == E_V16QImode))
-	  || ((GET_CODE (op) == CONST_INT) && (INTVAL (op) <= 15)
-	   && (mode == E_V8HImode))
-	  || ((GET_CODE (op) == CONST_INT) && (INTVAL (op) <= 31)
-	   && (mode == E_V4SImode)))
-	return true;
-    }
-  else
-    {
-      if (((GET_CODE (op) == CONST_INT) && (INTVAL (op) <= 7)
-	   && (mode == E_V8HImode))
-	  || ((GET_CODE (op) == CONST_INT) && (INTVAL (op) <= 15)
-	   && (mode == E_V4SImode)))
-	return true;
-    }
-  return false;
 }
 
 /* Can output mi_thunk for all cases except for non-zero vcall_offset

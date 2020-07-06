@@ -29,7 +29,6 @@ class FuncDeclaration;
 class StructDeclaration;
 class TypeInfoDeclaration;
 class VarDeclaration;
-class UserAttributeDeclaration;
 class Expression;
 class ClassReferenceExp;
 class Module;
@@ -485,7 +484,7 @@ extern bool doing_semantic_analysis_p;
 /* In d-attribs.c.  */
 extern tree insert_type_attribute (tree, const char *, tree = NULL_TREE);
 extern tree insert_decl_attribute (tree, const char *, tree = NULL_TREE);
-extern tree build_attributes (Expressions *);
+extern void apply_user_attributes (Dsymbol *, tree);
 
 /* In d-builtins.cc.  */
 extern const attribute_spec d_langhook_attribute_table[];
@@ -505,8 +504,8 @@ extern tree d_decl_context (Dsymbol *);
 extern tree copy_aggregate_type (tree);
 extern bool declaration_reference_p (Declaration *);
 extern tree declaration_type (Declaration *);
-extern bool argument_reference_p (Parameter *);
-extern tree type_passed_as (Parameter *);
+extern bool parameter_reference_p (Parameter *);
+extern tree parameter_type (Parameter *);
 extern tree build_integer_cst (dinteger_t, tree = d_int_type);
 extern tree build_float_cst (const real_t &, Type *);
 extern tree d_array_length (tree);
@@ -681,8 +680,7 @@ extern tree make_array_type (Type *, unsigned HOST_WIDE_INT);
 extern tree make_struct_type (const char *, int n, ...);
 extern tree insert_type_modifiers (tree, unsigned);
 extern void insert_aggregate_field (tree, tree, size_t);
-extern void finish_aggregate_type (unsigned, unsigned, tree,
-				   UserAttributeDeclaration *);
+extern void finish_aggregate_type (unsigned, unsigned, tree);
 extern tree build_ctype (Type *);
 
 #endif  /* GCC_D_TREE_H  */

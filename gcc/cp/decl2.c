@@ -1191,8 +1191,7 @@ is_late_template_attribute (tree attr, tree decl)
 	  && identifier_p (t))
 	continue;
 
-      if (value_dependent_expression_p (t)
-	  || type_dependent_expression_p (t))
+      if (value_dependent_expression_p (t))
 	return true;
     }
 
@@ -1229,7 +1228,7 @@ is_late_template_attribute (tree attr, tree decl)
    the declaration itself is dependent, so all attributes should be applied
    at instantiation time.  */
 
-static tree
+tree
 splice_template_attributes (tree *attr_p, tree decl)
 {
   tree *p = attr_p;
@@ -2527,6 +2526,21 @@ determine_visibility (tree decl)
     }
   else if (DECL_LANG_SPECIFIC (decl) && DECL_USE_TEMPLATE (decl))
     template_decl = decl;
+
+  if (TREE_CODE (decl) == TYPE_DECL
+      && LAMBDA_TYPE_P (TREE_TYPE (decl))
+      && CLASSTYPE_LAMBDA_EXPR (TREE_TYPE (decl)) != error_mark_node)
+    if (tree extra = LAMBDA_TYPE_EXTRA_SCOPE (TREE_TYPE (decl)))
+      {
+	/* The lambda's visibility is limited by that of its extra
+	   scope.  */
+	int vis = 0;
+	if (TYPE_P (extra))
+	  vis = type_visibility (extra);
+	else
+	  vis = expr_visibility (extra);
+	constrain_visibility (decl, vis, false);
+      }
 
   /* If DECL is a member of a class, visibility specifiers on the
      class can influence the visibility of the DECL.  */
@@ -5522,17 +5536,6 @@ mark_used (tree decl, tsubst_flags_t complain)
   /* Mark enumeration types as used.  */
   if (TREE_CODE (decl) == CONST_DECL)
     used_types_insert (DECL_CONTEXT (decl));
-
-  if (TREE_CODE (decl) == FUNCTION_DECL
-      && DECL_MAYBE_DELETED (decl))
-    {
-      /* ??? Switch other defaulted functions to use DECL_MAYBE_DELETED?  */
-      gcc_assert (special_function_p (decl) == sfk_comparison);
-
-      ++function_depth;
-      synthesize_method (decl);
-      --function_depth;
-    }
 
   if (TREE_CODE (decl) == FUNCTION_DECL
       && !maybe_instantiate_noexcept (decl, complain))

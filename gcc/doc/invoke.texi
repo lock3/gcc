@@ -549,8 +549,9 @@ Objective-C and Objective-C++ Dialects}.
 @gccoptlist{-p  -pg  -fprofile-arcs  --coverage  -ftest-coverage @gol
 -fprofile-abs-path @gol
 -fprofile-dir=@var{path}  -fprofile-generate  -fprofile-generate=@var{path} @gol
--fprofile-note=@var{path}  -fprofile-update=@var{method} @gol
--fprofile-filter-files=@var{regex}  -fprofile-exclude-files=@var{regex} -fprofile-reproducibility @gol
+-fprofile-note=@var{path} -fprofile-prefix-path=@var{path} @gol
+-fprofile-update=@var{method} -fprofile-filter-files=@var{regex} @gol
+-fprofile-exclude-files=@var{regex} -fprofile-reproducibility @gol
 -fsanitize=@var{style}  -fsanitize-recover  -fsanitize-recover=@var{style} @gol
 -fasan-shadow-offset=@var{number}  -fsanitize-sections=@var{s1},@var{s2},... @gol
 -fsanitize-undefined-trap-on-error  -fbounds-check @gol
@@ -1343,7 +1344,7 @@ See RS/6000 and PowerPC Options.
 -mshstk -mmanual-endbr -mforce-indirect-call  -mavx512vbmi2 -mavx512bf16 -menqcmd @gol
 -mvpclmulqdq  -mavx512bitalg  -mmovdiri  -mmovdir64b  -mavx512vpopcntdq @gol
 -mavx5124fmaps  -mavx512vnni  -mavx5124vnniw  -mprfchw  -mrdpid @gol
--mrdseed  -msgx -mavx512vp2intersect@gol
+-mrdseed  -msgx -mavx512vp2intersect -mserialize -mtsxldtrk@gol
 -mcldemote  -mms-bitfields  -mno-align-stringops  -minline-all-stringops @gol
 -minline-stringops-dynamically  -mstringop-strategy=@var{alg} @gol
 -mmemcpy-strategy=@var{strategy}  -mmemset-strategy=@var{strategy} @gol
@@ -4835,12 +4836,13 @@ Options} and @ref{Objective-C and Objective-C++ Dialect Options}.
 -Wenum-compare @r{(in C/ObjC; this is on by default in C++)} @gol
 -Wenum-conversion @r{in C/ObjC;} @gol
 -Wformat   @gol
+-Wformat-overflow  @gol
+-Wformat-truncation  @gol
 -Wint-in-bool-context  @gol
 -Wimplicit @r{(C and Objective-C only)} @gol
 -Wimplicit-int @r{(C and Objective-C only)} @gol
 -Wimplicit-function-declaration @r{(C and Objective-C only)} @gol
 -Winit-self @r{(only for C++)} @gol
--Wzero-length-bounds @gol
 -Wlogical-not-parentheses @gol
 -Wmain @r{(only for C/ObjC and unless} @option{-ffreestanding}@r{)}  @gol
 -Wmaybe-uninitialized @gol
@@ -4875,7 +4877,8 @@ Options} and @ref{Objective-C and Objective-C++ Dialect Options}.
 -Wunused-label     @gol
 -Wunused-value     @gol
 -Wunused-variable  @gol
--Wvolatile-register-var}
+-Wvolatile-register-var  @gol
+-Wzero-length-bounds}
 
 Note that some warning flags are not implied by @option{-Wall}.  Some of
 them warn about constructions that users generally do not consider
@@ -8004,7 +8007,7 @@ reduce the padding and so make the structure smaller.
 Warn if anything is declared more than once in the same scope, even in
 cases where multiple declaration is valid and changes nothing.
 
-@item -Wno-restrict
+@item -Wrestrict
 @opindex Wrestrict
 @opindex Wno-restrict
 Warn when an object referenced by a @code{restrict}-qualified parameter
@@ -8253,7 +8256,6 @@ Enabling this option effectively enables the following warnings:
 -Wanalyzer-tainted-array-index @gol
 -Wanalyzer-unsafe-call-within-signal-handler @gol
 -Wanalyzer-use-after-free @gol
--Wanalyzer-use-of-uninitialized-value @gol
 -Wanalyzer-use-of-pointer-in-stale-stack-frame @gol
 }
 
@@ -8425,15 +8427,6 @@ to disable it.
 
 This diagnostic warns for paths through the code in which a pointer
 is dereferenced that points to a variable in a stale stack frame.
-
-@item -Wno-analyzer-use-of-uninitialized-value
-@opindex Wanalyzer-use-of-uninitialized-value
-@opindex Wno-analyzer-use-of-uninitialized-value
-This warning requires @option{-fanalyzer}, which enables it; use
-@option{-Wno-analyzer-use-of-uninitialized-value} to disable it.
-
-This diagnostic warns for paths through the code in which an uninitialized
-value is used.
 
 @end table
 
@@ -8607,10 +8600,12 @@ The graph is written to @file{@var{file}.state-purge.dot}.
 
 @item -fdump-analyzer-supergraph
 @opindex fdump-analyzer-supergraph
-Dump a representation of the ``supergraph'' suitable for viewing with
-GraphViz to @file{@var{file}.supergraph.dot}.  This shows all of the
+Dump representations of the ``supergraph'' suitable for viewing with
+GraphViz to @file{@var{file}.supergraph.dot} and to
+@file{@var{file}.supergraph-eg.dot}.  These show all of the
 control flow graphs in the program, with interprocedural edges for
-calls and returns.
+calls and returns.  The second dump contains annotations showing nodes
+in the ``exploded graph'' and diagnostics associated with them.
 
 @end table
 
@@ -9236,14 +9231,15 @@ by @option{-O2} and also turns on the following optimization flags:
 -floop-unroll-and-jam @gol
 -fpeel-loops @gol
 -fpredictive-commoning @gol
+-fsplit-loops @gol
 -fsplit-paths @gol
--ftree-loop-distribute-patterns @gol
 -ftree-loop-distribution @gol
 -ftree-loop-vectorize @gol
 -ftree-partial-pre @gol
 -ftree-slp-vectorize @gol
 -funswitch-loops @gol
 -fvect-cost-model @gol
+-fvect-cost-model=dynamic @gol
 -fversion-loops-for-strides}
 
 @item -O0
@@ -10430,7 +10426,8 @@ Assume that a loop with an exit will eventually take the exit and not loop
 indefinitely.  This allows the compiler to remove loops that otherwise have
 no side-effects, not considering eventual endless looping as such.
 
-This option is enabled by default at @option{-O2}.
+This option is enabled by default at @option{-O2} for C++ with -std=c++11
+or higher.
 
 @item -ftree-dominator-opts
 @opindex ftree-dominator-opts
@@ -10937,9 +10934,9 @@ The @option{-fstrict-aliasing} option is enabled at levels
 @itemx -falign-functions=@var{n}:@var{m}:@var{n2}
 @itemx -falign-functions=@var{n}:@var{m}:@var{n2}:@var{m2}
 @opindex falign-functions
-Align the start of functions to the next power-of-two greater than
-@var{n}, skipping up to @var{m}-1 bytes.  This ensures that at least
-the first @var{m} bytes of the function can be fetched by the CPU
+Align the start of functions to the next power-of-two greater than or
+equal to @var{n}, skipping up to @var{m}-1 bytes.  This ensures that at
+least the first @var{m} bytes of the function can be fetched by the CPU
 without crossing an @var{n}-byte alignment boundary.
 
 If @var{m} is not specified, it defaults to @var{n}.
@@ -11005,6 +11002,9 @@ Align loops to a power-of-two boundary.  If the loops are executed
 many times, this makes up for any execution of the dummy padding
 instructions.
 
+If @option{-falign-labels} is greater than this value, then its value
+is used instead.
+
 Parameters of this option are analogous to the @option{-falign-functions} option.
 @option{-fno-align-loops} and @option{-falign-loops=1} are
 equivalent and mean that loops are not aligned.
@@ -11023,6 +11023,9 @@ Enabled at levels @option{-O2}, @option{-O3}.
 Align branch targets to a power-of-two boundary, for branch targets
 where the targets can only be reached by jumping.  In this case,
 no dummy operations need be executed.
+
+If @option{-falign-labels} is greater than this value, then its value
+is used instead.
 
 Parameters of this option are analogous to the @option{-falign-functions} option.
 @option{-fno-align-jumps} and @option{-falign-jumps=1} are
@@ -12777,6 +12780,11 @@ speed
 (@option{sra-max-scalarization-size-Ospeed}) or size
 (@option{sra-max-scalarization-size-Osize}) respectively.
 
+@item sra-max-propagations
+The maximum number of artificial accesses that Scalar Replacement of
+Aggregates (SRA) will track, per one local variable, in order to
+facilitate copy propagation.
+
 @item tm-max-aggregate-size
 When making copies of thread-local variables in a transaction, this
 parameter specifies the size in bytes after which variables are
@@ -13383,6 +13391,20 @@ To optimize the program based on the collected profile information, use
 If @var{path} is specified, GCC saves @file{.gcno} file into @var{path}
 location.  If you combine the option with multiple source files,
 the @file{.gcno} file will be overwritten.
+
+@item -fprofile-prefix-path=@var{path}
+
+This option can be used in combination with
+@option{profile-generate=}@var{profile_dir} and
+@option{profile-use=}@var{profile_dir} to inform GCC where is the base
+directory of built source tree.  By default @var{profile_dir} will contain
+files with mangled absolute paths of all object files in the built project.
+This is not desirable when directory used to build the instrumented binary
+differs from the directory used to build the binary optimized with profile
+feedback because the profile data will not be found during the optimized build.
+In such setups @option{-fprofile-prefix-path=}@var{path} with @var{path}
+pointing to the base directory of the build can be used to strip the irrelevant
+part of the path and keep all file names relative to the main build directory.
 
 @item -fprofile-update=@var{method}
 @opindex fprofile-update
@@ -14090,6 +14112,7 @@ If @code{N=0}, no pad location is recorded.
 The NOP instructions are inserted at---and maybe before, depending on
 @var{M}---the function entry address, even before the prologue.
 
+The maximum value of @var{N} and @var{M} is 65535.
 @end table
 
 
@@ -16728,7 +16751,9 @@ dynamically linked.  This is the default code model.
 @item -mcmodel=large
 @opindex mcmodel=large
 Generate code for the large code model.  This makes no assumptions about
-addresses and sizes of sections.  Programs can be statically linked only.
+addresses and sizes of sections.  Programs can be statically linked only.  The
+@option{-mcmodel=large} option is incompatible with @option{-mabi=ilp32},
+@option{-fpic} and @option{-fPIC}.
 
 @item -mstrict-align
 @itemx -mno-strict-align
@@ -16862,6 +16887,7 @@ instruction set.  If using a later revision, e.g. @option{-march=armv8.1-a}
 or @option{-march=armv8-a+lse}, the ARMv8.1-Atomics instructions will be
 used directly.  The same applies when using @option{-mcpu=} when the
 selected cpu supports the @samp{lse} feature.
+This option is on by default.
 
 @item -march=@var{name}
 @opindex march
@@ -16916,7 +16942,7 @@ performance of the code.  Permissible values for this option are:
 @samp{octeontx2f95mm}
 @samp{thunderx}, @samp{thunderxt88},
 @samp{thunderxt88p1}, @samp{thunderxt81}, @samp{tsv110},
-@samp{thunderxt83}, @samp{thunderx2t99},
+@samp{thunderxt83}, @samp{thunderx2t99}, @samp{thunderx3t110},
 @samp{cortex-a57.cortex-a53}, @samp{cortex-a72.cortex-a53},
 @samp{cortex-a73.cortex-a35}, @samp{cortex-a73.cortex-a53},
 @samp{cortex-a75.cortex-a55}, @samp{cortex-a76.cortex-a55}
@@ -18665,6 +18691,10 @@ The single- and double-precision floating-point instructions.
 
 @item +nofp
 Disable the floating-point extension.
+
+@item +cdecp0, +cdecp1, ... , +cdecp7
+Enable the Custom Datapath Extension (CDE) on selected coprocessors according
+to the numbers given in the options in the range 0 to 7.
 @end table
 
 @item  armv8-m.main
@@ -18683,6 +18713,10 @@ The single- and double-precision floating-point instructions.
 
 @item +nofp
 Disable the floating-point extension.
+
+@item +cdecp0, +cdecp1, ... , +cdecp7
+Enable the Custom Datapath Extension (CDE) on selected coprocessors according
+to the numbers given in the options in the range 0 to 7.
 @end table
 
 @item armv8-r
@@ -18732,7 +18766,7 @@ Permissible names are: @samp{arm7tdmi}, @samp{arm7tdmi-s}, @samp{arm710t},
 @samp{cortex-r5}, @samp{cortex-r7}, @samp{cortex-r8}, @samp{cortex-r52},
 @samp{cortex-m0}, @samp{cortex-m0plus}, @samp{cortex-m1}, @samp{cortex-m3},
 @samp{cortex-m4}, @samp{cortex-m7}, @samp{cortex-m23}, @samp{cortex-m33},
-@samp{cortex-m35p},
+@samp{cortex-m35p}, @samp{cortex-m55},
 @samp{cortex-m1.small-multiply}, @samp{cortex-m0.small-multiply},
 @samp{cortex-m0plus.small-multiply}, @samp{exynos-m1}, @samp{marvell-pj4},
 @samp{neoverse-n1}, @samp{xscale}, @samp{iwmmxt}, @samp{iwmmxt2},
@@ -29434,6 +29468,9 @@ preferred alignment to @option{-mpreferred-stack-boundary=2}.
 @itemx -menqcmd
 @opindex menqcmd
 @need 200
+@itemx -mtsxldtrk
+@opindex mtsxldtrk
+@need 200
 @itemx -mavx512vpopcntdq
 @opindex mavx512vpopcntdq
 @need 200
@@ -29451,6 +29488,9 @@ preferred alignment to @option{-mpreferred-stack-boundary=2}.
 @need 200
 @itemx -mcldemote
 @opindex mcldemote
+@need 200
+@itemx -mserialize
+@opindex mserialize
 These switches enable the use of instructions in the MMX, SSE,
 SSE2, SSE3, SSSE3, SSE4, SSE4A, SSE4.1, SSE4.2, AVX, AVX2, AVX512F, AVX512PF,
 AVX512ER, AVX512CD, AVX512VL, AVX512BW, AVX512DQ, AVX512IFMA, AVX512VBMI, SHA,
@@ -29459,9 +29499,9 @@ WBNOINVD, FMA4, PREFETCHW, RDPID, PREFETCHWT1, RDSEED, SGX, XOP, LWP,
 3DNow!@:, enhanced 3DNow!@:, POPCNT, ABM, ADX, BMI, BMI2, LZCNT, FXSR, XSAVE,
 XSAVEOPT, XSAVEC, XSAVES, RTM, HLE, TBM, MWAITX, CLZERO, PKU, AVX512VBMI2,
 GFNI, VAES, WAITPKG, VPCLMULQDQ, AVX512BITALG, MOVDIRI, MOVDIR64B, AVX512BF16,
-ENQCMD, AVX512VPOPCNTDQ, AVX5124FMAPS, AVX512VNNI, AVX5124VNNIW, or CLDEMOTE
-extended instruction sets.  Each has a corresponding @option{-mno-} option to
-disable use of these instructions.
+ENQCMD, AVX512VPOPCNTDQ, AVX5124FMAPS, AVX512VNNI, AVX5124VNNIW, SERIALIZE
+or CLDEMOTE extended instruction sets.  Each has a corresponding
+@option{-mno-} option to disable use of these instructions.
 
 These extensions are also available as built-in functions: see
 @ref{x86 Built-in Functions}, for details of the functions enabled and
@@ -30065,9 +30105,9 @@ Note that @option{-mcmodel=large} is incompatible with
 @option{-mindirect-branch=thunk-extern} since the thunk function may
 not be reachable in the large code model.
 
-Note that @option{-mindirect-branch=thunk-extern} is incompatible with
-@option{-fcf-protection=branch} since the external thunk cannot be modified
-to disable control-flow check.
+Note that @option{-mindirect-branch=thunk-extern} is compatible with
+@option{-fcf-protection=branch} since the external thunk can be made
+to enable control-flow check.
 
 @item -mfunction-return=@var{choice}
 @opindex mfunction-return
@@ -30079,6 +30119,10 @@ function return to external call and return thunk provided in a separate
 object file.  You can control this behavior for a specific function by
 using the function attribute @code{function_return}.
 @xref{Function Attributes}.
+
+Note that @option{-mindirect-return=thunk-extern} is compatible with
+@option{-fcf-protection=branch} since the external thunk can be made
+to enable control-flow check.
 
 Note that @option{-mcmodel=large} is incompatible with
 @option{-mfunction-return=thunk} and

@@ -11148,11 +11148,11 @@ fold_binary_loc (location_t loc, enum tree_code code, tree type,
 
       /* Convert -A / -B to A / B when the type is signed and overflow is
 	 undefined.  */
-      if ((!INTEGRAL_TYPE_P (type) || TYPE_OVERFLOW_UNDEFINED (type))
+      if ((!ANY_INTEGRAL_TYPE_P (type) || TYPE_OVERFLOW_UNDEFINED (type))
 	  && TREE_CODE (op0) == NEGATE_EXPR
 	  && negate_expr_p (op1))
 	{
-	  if (INTEGRAL_TYPE_P (type))
+	  if (ANY_INTEGRAL_TYPE_P (type))
 	    fold_overflow_warning (("assuming signed overflow does not occur "
 				    "when distributing negation across "
 				    "division"),
@@ -11162,11 +11162,11 @@ fold_binary_loc (location_t loc, enum tree_code code, tree type,
 						    TREE_OPERAND (arg0, 0)),
 				  negate_expr (op1));
 	}
-      if ((!INTEGRAL_TYPE_P (type) || TYPE_OVERFLOW_UNDEFINED (type))
+      if ((!ANY_INTEGRAL_TYPE_P (type) || TYPE_OVERFLOW_UNDEFINED (type))
 	  && TREE_CODE (arg1) == NEGATE_EXPR
 	  && negate_expr_p (op0))
 	{
-	  if (INTEGRAL_TYPE_P (type))
+	  if (ANY_INTEGRAL_TYPE_P (type))
 	    fold_overflow_warning (("assuming signed overflow does not occur "
 				    "when distributing negation across "
 				    "division"),
@@ -11629,50 +11629,6 @@ fold_binary_loc (location_t loc, enum tree_code code, tree type,
         {
 	  tree res = constant_boolean_node (code==NE_EXPR, type);
 	  return omit_one_operand_loc (loc, type, res, arg0);
-	}
-
-      /* Fold (X & C) op (Y & C) as (X ^ Y) & C op 0", and symmetries.  */
-      if (TREE_CODE (arg0) == BIT_AND_EXPR
-	  && TREE_CODE (arg1) == BIT_AND_EXPR)
-	{
-	  tree arg00 = TREE_OPERAND (arg0, 0);
-	  tree arg01 = TREE_OPERAND (arg0, 1);
-	  tree arg10 = TREE_OPERAND (arg1, 0);
-	  tree arg11 = TREE_OPERAND (arg1, 1);
-	  tree itype = TREE_TYPE (arg0);
-
-	  if (operand_equal_p (arg01, arg11, 0))
-	    {
-	      tem = fold_convert_loc (loc, itype, arg10);
-	      tem = fold_build2_loc (loc, BIT_XOR_EXPR, itype, arg00, tem);
-	      tem = fold_build2_loc (loc, BIT_AND_EXPR, itype, tem, arg01);
-	      return fold_build2_loc (loc, code, type, tem,
-				      build_zero_cst (itype));
-	    }
-	  if (operand_equal_p (arg01, arg10, 0))
-	    {
-	      tem = fold_convert_loc (loc, itype, arg11);
-	      tem = fold_build2_loc (loc, BIT_XOR_EXPR, itype, arg00, tem);
-	      tem = fold_build2_loc (loc, BIT_AND_EXPR, itype, tem, arg01);
-	      return fold_build2_loc (loc, code, type, tem,
-				      build_zero_cst (itype));
-	    }
-	  if (operand_equal_p (arg00, arg11, 0))
-	    {
-	      tem = fold_convert_loc (loc, itype, arg10);
-	      tem = fold_build2_loc (loc, BIT_XOR_EXPR, itype, arg01, tem);
-	      tem = fold_build2_loc (loc, BIT_AND_EXPR, itype, tem, arg00);
-	      return fold_build2_loc (loc, code, type, tem,
-				      build_zero_cst (itype));
-	    }
-	  if (operand_equal_p (arg00, arg10, 0))
-	    {
-	      tem = fold_convert_loc (loc, itype, arg11);
-	      tem = fold_build2_loc (loc, BIT_XOR_EXPR, itype, arg01, tem);
-	      tem = fold_build2_loc (loc, BIT_AND_EXPR, itype, tem, arg00);
-	      return fold_build2_loc (loc, code, type, tem,
-				      build_zero_cst (itype));
-	    }
 	}
 
       if (TREE_CODE (arg0) == BIT_XOR_EXPR

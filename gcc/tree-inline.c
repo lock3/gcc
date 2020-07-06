@@ -557,8 +557,9 @@ remap_type_1 (tree type, copy_body_data *id)
 	  /* For array bounds where we have decided not to copy over the bounds
 	     variable which isn't used in OpenMP/OpenACC region, change them to
 	     an uninitialized VAR_DECL temporary.  */
-	  if (TYPE_MAX_VALUE (TYPE_DOMAIN (new_tree)) == error_mark_node
-	      && id->adjust_array_error_bounds
+	  if (id->adjust_array_error_bounds
+	      && TYPE_DOMAIN (new_tree)
+	      && TYPE_MAX_VALUE (TYPE_DOMAIN (new_tree)) == error_mark_node
 	      && TYPE_MAX_VALUE (TYPE_DOMAIN (type)) != error_mark_node)
 	    {
 	      tree v = create_tmp_var (TREE_TYPE (TYPE_DOMAIN (new_tree)));
@@ -5469,6 +5470,7 @@ optimize_inline_calls (tree fn)
   number_blocks (fn);
 
   delete_unreachable_blocks_update_callgraph (id.dst_node, false);
+  id.dst_node->calls_comdat_local = id.dst_node->check_calls_comdat_local_p ();
 
   if (flag_checking)
     id.dst_node->verify ();
@@ -6260,46 +6262,14 @@ tree_function_versioning (tree old_decl, tree new_decl,
 	  p = new_param_indices[p];
 
 	tree parm;
-	tree req_type, new_type;
-
 	for (parm = DECL_ARGUMENTS (old_decl); p;
 	     parm = DECL_CHAIN (parm))
 	  p--;
-	tree old_tree = parm;
-	req_type = TREE_TYPE (parm);
-	new_type = TREE_TYPE (replace_info->new_tree);
-	if (!useless_type_conversion_p (req_type, new_type))
-	  {
-	    if (fold_convertible_p (req_type, replace_info->new_tree))
-	      replace_info->new_tree
-		= fold_build1 (NOP_EXPR, req_type, replace_info->new_tree);
-	    else if (TYPE_SIZE (req_type) == TYPE_SIZE (new_type))
-	      replace_info->new_tree
-		= fold_build1 (VIEW_CONVERT_EXPR, req_type,
-			       replace_info->new_tree);
-	    else
-	      {
-		if (dump_file)
-		  {
-		    fprintf (dump_file, "    const ");
-		    print_generic_expr (dump_file,
-					replace_info->new_tree);
-		    fprintf (dump_file,
-			     "  can't be converted to param ");
-		    print_generic_expr (dump_file, parm);
-		    fprintf (dump_file, "\n");
-		  }
-		old_tree = NULL;
-	      }
-	  }
-
-	if (old_tree)
-	  {
-	    init = setup_one_parameter (&id, old_tree, replace_info->new_tree,
-					id.src_fn, NULL, &vars);
-	    if (init)
-	      init_stmts.safe_push (init);
-	  }
+	gcc_assert (parm);
+	init = setup_one_parameter (&id, parm, replace_info->new_tree,
+				    id.src_fn, NULL, &vars);
+	if (init)
+	  init_stmts.safe_push (init);
       }
 
   ipa_param_body_adjustments *param_body_adjs = NULL;

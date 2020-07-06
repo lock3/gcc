@@ -672,10 +672,10 @@ convert_for_argument (tree expr, Parameter *arg)
       if (!POINTER_TYPE_P (TREE_TYPE (expr)))
 	return build_address (expr);
     }
-  else if (argument_reference_p (arg))
+  else if (parameter_reference_p (arg))
     {
       /* Front-end shouldn't automatically take the address.  */
-      return convert (type_passed_as (arg), build_address (expr));
+      return convert (parameter_type (arg), build_address (expr));
     }
 
   return expr;

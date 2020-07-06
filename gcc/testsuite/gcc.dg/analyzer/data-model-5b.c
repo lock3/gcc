@@ -76,8 +76,7 @@ void unref (string_obj *obj)
   if (--obj->str_base.ob_refcnt == 0)
     {
       //__analyzer_dump();
-      obj->str_base.ob_type->tp_dealloc ((base_obj *)obj); /* { dg-bogus "use of uninitialized value '<unknown>'" "" { xfail *-*-* } } */
-      // TODO (xfail): not sure what's going on here
+      obj->str_base.ob_type->tp_dealloc ((base_obj *)obj);
     }
 }
 
@@ -87,4 +86,8 @@ void test_1 (const char *str)
   //__analyzer_dump();
   if (obj)
     unref (obj);
-}
+} /* { dg-bogus "leak of 'obj'" "" { xfail *-*-* } } */
+/* TODO(xfail): the false leak report involves the base_obj.ob_refcnt
+   being 1, but the string_obj.str_base.ob_refcnt being unknown (when
+   they ought to be the same region), thus allowing for a path in which
+   the object is allocated but not freed.  */

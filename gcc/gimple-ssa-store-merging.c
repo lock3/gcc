@@ -315,7 +315,8 @@ verify_symbolic_number_p (struct symbolic_number *n, gimple *stmt)
 
   lhs_type = gimple_expr_type (stmt);
 
-  if (TREE_CODE (lhs_type) != INTEGER_TYPE)
+  if (TREE_CODE (lhs_type) != INTEGER_TYPE
+      && TREE_CODE (lhs_type) != ENUMERAL_TYPE)
     return false;
 
   if (TYPE_PRECISION (lhs_type) != TYPE_PRECISION (n->type))
@@ -2434,6 +2435,7 @@ imm_store_chain_info::try_coalesce_bswap (merged_store_group *merged_store,
   for (unsigned int i = first + 1; i < len; ++i)
     {
       if (m_store_info[i]->bitpos != m_store_info[first]->bitpos + width
+	  || m_store_info[i]->lp_nr != merged_store->lp_nr
 	  || m_store_info[i]->ins_stmt == NULL)
 	return false;
       width += m_store_info[i]->bitsize;
@@ -2681,6 +2683,7 @@ imm_store_chain_info::coalesce_immediate_stores ()
       if (info->bitpos == merged_store->start + merged_store->width
 	  && merged_store->stores.length () == 1
 	  && merged_store->stores[0]->ins_stmt != NULL
+	  && info->lp_nr == merged_store->lp_nr
 	  && info->ins_stmt != NULL)
 	{
 	  unsigned int try_size;

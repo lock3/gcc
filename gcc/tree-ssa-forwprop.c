@@ -1562,18 +1562,33 @@ simplify_rotate (gimple_stmt_iterator *gsi)
   for (i = 0; i < 2; i++)
     defcodefor_name (arg[i], &def_code[i], &def_arg1[i], &def_arg2[i]);
 
-  /* Look through narrowing conversions.  */
+  /* Look through narrowing (or same precision) conversions.  */
   if (CONVERT_EXPR_CODE_P (def_code[0])
       && CONVERT_EXPR_CODE_P (def_code[1])
       && INTEGRAL_TYPE_P (TREE_TYPE (def_arg1[0]))
       && INTEGRAL_TYPE_P (TREE_TYPE (def_arg1[1]))
       && TYPE_PRECISION (TREE_TYPE (def_arg1[0]))
 	 == TYPE_PRECISION (TREE_TYPE (def_arg1[1]))
-      && TYPE_PRECISION (TREE_TYPE (def_arg1[0])) > TYPE_PRECISION (rtype)
+      && TYPE_PRECISION (TREE_TYPE (def_arg1[0])) >= TYPE_PRECISION (rtype)
       && has_single_use (arg[0])
       && has_single_use (arg[1]))
     {
       for (i = 0; i < 2; i++)
+	{
+	  arg[i] = def_arg1[i];
+	  defcodefor_name (arg[i], &def_code[i], &def_arg1[i], &def_arg2[i]);
+	}
+    }
+  else
+    {
+      /* Handle signed rotate; the RSHIFT_EXPR has to be done
+	 in unsigned type but LSHIFT_EXPR could be signed.  */
+      i = (def_code[0] == LSHIFT_EXPR || def_code[0] == RSHIFT_EXPR);
+      if (CONVERT_EXPR_CODE_P (def_code[i])
+	  && (def_code[1 - i] == LSHIFT_EXPR || def_code[1 - i] == RSHIFT_EXPR)
+	  && INTEGRAL_TYPE_P (TREE_TYPE (def_arg1[i]))
+	  && TYPE_PRECISION (rtype) == TYPE_PRECISION (TREE_TYPE (def_arg1[i]))
+	  && has_single_use (arg[i]))
 	{
 	  arg[i] = def_arg1[i];
 	  defcodefor_name (arg[i], &def_code[i], &def_arg1[i], &def_arg2[i]);
@@ -1608,8 +1623,33 @@ simplify_rotate (gimple_stmt_iterator *gsi)
   if (!operand_equal_for_phi_arg_p (def_arg1[0], def_arg1[1])
       || !types_compatible_p (TREE_TYPE (def_arg1[0]),
 			      TREE_TYPE (def_arg1[1])))
-    return false;
-  if (!TYPE_UNSIGNED (TREE_TYPE (def_arg1[0])))
+    {
+      if ((TYPE_PRECISION (TREE_TYPE (def_arg1[0]))
+	   != TYPE_PRECISION (TREE_TYPE (def_arg1[1])))
+	  || (TYPE_UNSIGNED (TREE_TYPE (def_arg1[0]))
+	      == TYPE_UNSIGNED (TREE_TYPE (def_arg1[1]))))
+	return false;
+
+      /* Handle signed rotate; the RSHIFT_EXPR has to be done
+	 in unsigned type but LSHIFT_EXPR could be signed.  */
+      i = def_code[0] != RSHIFT_EXPR;
+      if (!TYPE_UNSIGNED (TREE_TYPE (def_arg1[i])))
+	return false;
+
+      tree tem;
+      enum tree_code code;
+      defcodefor_name (def_arg1[i], &code, &tem, NULL);
+      if (!CONVERT_EXPR_CODE_P (code)
+	  || !INTEGRAL_TYPE_P (TREE_TYPE (tem))
+	  || TYPE_PRECISION (TREE_TYPE (tem)) != TYPE_PRECISION (rtype))
+	return false;
+      def_arg1[i] = tem;
+      if (!operand_equal_for_phi_arg_p (def_arg1[0], def_arg1[1])
+	  || !types_compatible_p (TREE_TYPE (def_arg1[0]),
+				  TREE_TYPE (def_arg1[1])))
+	return false;
+    }
+  else if (!TYPE_UNSIGNED (TREE_TYPE (def_arg1[0])))
     return false;
 
   /* CNT1 + CNT2 == B case above.  */
@@ -2435,7 +2475,21 @@ simplify_vector_constructor (gimple_stmt_iterator *gsi)
 	  orig[0] = gimple_assign_lhs (lowpart);
 	}
       if (conv_code == ERROR_MARK)
-	gimple_assign_set_rhs_from_tree (gsi, orig[0]);
+	{
+	  tree src_type = TREE_TYPE (orig[0]);
+	  if (!useless_type_conversion_p (type, src_type))
+	    {
+	      gcc_assert (known_eq (TYPE_VECTOR_SUBPARTS (type),
+				    TYPE_VECTOR_SUBPARTS (src_type))
+			  && useless_type_conversion_p (TREE_TYPE (type),
+							TREE_TYPE (src_type)));
+	      tree rhs = build1 (VIEW_CONVERT_EXPR, type, orig[0]);
+	      orig[0] = make_ssa_name (type);
+	      gassign *assign = gimple_build_assign (orig[0], rhs);
+	      gsi_insert_before (gsi, assign, GSI_SAME_STMT);
+	    }
+	  gimple_assign_set_rhs_from_tree (gsi, orig[0]);
+	}
       else
 	gimple_assign_set_rhs_with_ops (gsi, conv_code, orig[0],
 					NULL_TREE, NULL_TREE);
@@ -2558,6 +2612,14 @@ simplify_vector_constructor (gimple_stmt_iterator *gsi)
 			    res, TYPE_SIZE (type), bitsize_zero_node);
       if (conv_code != ERROR_MARK)
 	res = gimple_build (&stmts, conv_code, type, res);
+      else if (!useless_type_conversion_p (type, TREE_TYPE (res)))
+	{
+	  gcc_assert (known_eq (TYPE_VECTOR_SUBPARTS (type),
+				TYPE_VECTOR_SUBPARTS (perm_type))
+		      && useless_type_conversion_p (TREE_TYPE (type),
+						    TREE_TYPE (perm_type)));
+	  res = gimple_build (&stmts, VIEW_CONVERT_EXPR, type, res);
+	}
       /* Blend in the actual constant.  */
       if (converted_orig1)
 	res = gimple_build (&stmts, VEC_PERM_EXPR, type,
@@ -2775,7 +2837,8 @@ pass_forwprop::execute (function *fun)
 		    continue;
 		  if (!is_gimple_assign (use_stmt)
 		      || (gimple_assign_rhs_code (use_stmt) != REALPART_EXPR
-			  && gimple_assign_rhs_code (use_stmt) != IMAGPART_EXPR))
+			  && gimple_assign_rhs_code (use_stmt) != IMAGPART_EXPR)
+		      || TREE_OPERAND (gimple_assign_rhs1 (use_stmt), 0) != lhs)
 		    {
 		      rewrite = false;
 		      break;
@@ -2837,7 +2900,8 @@ pass_forwprop::execute (function *fun)
 		  if (is_gimple_debug (use_stmt))
 		    continue;
 		  if (!is_gimple_assign (use_stmt)
-		      || gimple_assign_rhs_code (use_stmt) != BIT_FIELD_REF)
+		      || gimple_assign_rhs_code (use_stmt) != BIT_FIELD_REF
+		      || TREE_OPERAND (gimple_assign_rhs1 (use_stmt), 0) != lhs)
 		    {
 		      rewrite = false;
 		      break;

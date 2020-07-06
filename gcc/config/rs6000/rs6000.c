@@ -98,6 +98,11 @@
 #endif
 #endif
 
+/* Don't enable PC-relative addressing if the target does not support it.  */
+#ifndef PCREL_SUPPORTED_BY_OS
+#define PCREL_SUPPORTED_BY_OS	0
+#endif
+
 /* Support targetm.vectorize.builtin_mask_for_load.  */
 tree altivec_builtin_mask_for_load;
 
@@ -1734,6 +1739,10 @@ static const struct attribute_spec rs6000_attribute_table[] =
 
 #undef TARGET_MANGLE_DECL_ASSEMBLER_NAME
 #define TARGET_MANGLE_DECL_ASSEMBLER_NAME rs6000_mangle_decl_assembler_name
+
+#undef TARGET_CANNOT_SUBSTITUTE_MEM_EQUIV_P
+#define TARGET_CANNOT_SUBSTITUTE_MEM_EQUIV_P \
+  rs6000_cannot_substitute_mem_equiv_p
 
 
 /* Processor table.  */
@@ -4020,15 +4029,17 @@ rs6000_option_override_internal (bool global_init_p)
       rs6000_isa_flags &= ~OPTION_MASK_FLOAT128_HW;
     }
 
-  /* -mprefixed (and hence -mpcrel) requires -mcpu=future.  */
-  if (TARGET_PREFIXED && !TARGET_FUTURE)
+  /* Enable -mprefixed by default on 'future' systems.  */
+  if (TARGET_FUTURE && (rs6000_isa_flags_explicit & OPTION_MASK_PREFIXED) == 0)
+    rs6000_isa_flags |= OPTION_MASK_PREFIXED;
+
+  /* -mprefixed requires -mcpu=future.  */
+  else if (TARGET_PREFIXED && !TARGET_FUTURE)
     {
-      if ((rs6000_isa_flags_explicit & OPTION_MASK_PCREL) != 0)
-	error ("%qs requires %qs", "-mpcrel", "-mcpu=future");
-      else if ((rs6000_isa_flags_explicit & OPTION_MASK_PREFIXED) != 0)
+      if ((rs6000_isa_flags_explicit & OPTION_MASK_PREFIXED) != 0)
 	error ("%qs requires %qs", "-mprefixed", "-mcpu=future");
 
-      rs6000_isa_flags &= ~(OPTION_MASK_PCREL | OPTION_MASK_PREFIXED);
+      rs6000_isa_flags &= ~OPTION_MASK_PREFIXED;
     }
 
   /* -mpcrel requires prefixed load/store addressing.  */
@@ -4171,9 +4182,16 @@ rs6000_option_override_internal (bool global_init_p)
   SUB3TARGET_OVERRIDE_OPTIONS;
 #endif
 
+  /* If the ABI has support for PC-relative relocations, enable it by default.
+     This test depends on the sub-target tests above setting the code model to
+     medium for ELF v2 systems.  */
+  if (PCREL_SUPPORTED_BY_OS
+      && (rs6000_isa_flags_explicit & OPTION_MASK_PCREL) == 0)
+    rs6000_isa_flags |= OPTION_MASK_PCREL;
+
   /* -mpcrel requires -mcmodel=medium, but we can't check TARGET_CMODEL until
       after the subtarget override options are done.  */
-  if (TARGET_PCREL && TARGET_CMODEL != CMODEL_MEDIUM)
+  else if (TARGET_PCREL && TARGET_CMODEL != CMODEL_MEDIUM)
     {
       if ((rs6000_isa_flags_explicit & OPTION_MASK_PCREL) != 0)
 	error ("%qs requires %qs", "-mpcrel", "-mcmodel=medium");
@@ -4539,7 +4557,7 @@ rs6000_option_override_internal (bool global_init_p)
 			   SCHED_PRESSURE_MODEL);
 
       /* Explicit -funroll-loops turns -munroll-only-small-loops off, and
-	 turns -fweb and -frename-registers on.  */
+	 turns -frename-registers on.  */
       if ((global_options_set.x_flag_unroll_loops && flag_unroll_loops)
 	   || (global_options_set.x_flag_unroll_all_loops
 	       && flag_unroll_all_loops))
@@ -4548,8 +4566,6 @@ rs6000_option_override_internal (bool global_init_p)
 	    unroll_only_small_loops = 0;
 	  if (!global_options_set.x_flag_rename_registers)
 	    flag_rename_registers = 1;
-	  if (!global_options_set.x_flag_web)
-	    flag_web = 1;
 	}
 
       /* If using typedef char *va_list, signal that
@@ -5030,7 +5046,8 @@ adjust_vectorization_cost (enum vect_cost_for_stmt kind,
 /* Implement targetm.vectorize.add_stmt_cost.  */
 
 static unsigned
-rs6000_add_stmt_cost (void *data, int count, enum vect_cost_for_stmt kind,
+rs6000_add_stmt_cost (class vec_info *vinfo, void *data, int count,
+		      enum vect_cost_for_stmt kind,
 		      struct _stmt_vec_info *stmt_info, int misalign,
 		      enum vect_cost_model_location where)
 {
@@ -5046,7 +5063,8 @@ rs6000_add_stmt_cost (void *data, int count, enum vect_cost_for_stmt kind,
       /* Statements in an inner loop relative to the loop being
 	 vectorized are weighted more heavily.  The value here is
 	 arbitrary and could potentially be improved with analysis.  */
-      if (where == vect_body && stmt_info && stmt_in_inner_loop_p (stmt_info))
+      if (where == vect_body && stmt_info
+	  && stmt_in_inner_loop_p (vinfo, stmt_info))
 	count *= 50;  /* FIXME.  */
 
       retval = (unsigned) (count * stmt_cost);
@@ -7188,7 +7206,9 @@ rs6000_special_round_type_align (tree type, unsigned int computed,
   tree field = TYPE_FIELDS (type);
 
   /* Skip all non field decls */
-  while (field != NULL && TREE_CODE (field) != FIELD_DECL)
+  while (field != NULL
+	 && (TREE_CODE (field) != FIELD_DECL
+	     || DECL_FIELD_ABI_IGNORED (field)))
     field = DECL_CHAIN (field);
 
   if (field != NULL && field != type)
@@ -7220,7 +7240,9 @@ darwin_rs6000_special_round_type_align (tree type, unsigned int computed,
   do {
     tree field = TYPE_FIELDS (type);
     /* Skip all non field decls */
-    while (field != NULL && TREE_CODE (field) != FIELD_DECL)
+    while (field != NULL
+	   && (TREE_CODE (field) != FIELD_DECL
+	       || DECL_FIELD_ABI_IGNORED (field)))
       field = DECL_CHAIN (field);
     if (! field)
       break;
@@ -12307,6 +12329,15 @@ rs6000_can_change_mode_class (machine_mode from,
 	  if (!BYTES_BIG_ENDIAN && (to == TDmode || from == TDmode))
 	    return false;
 
+	  /* Allow SD<->DD changes, since SDmode values are stored in
+	     the low half of the DDmode, just like target-independent
+	     code expects.  We need to allow at least SD->DD since
+	     rs6000_secondary_memory_needed_mode asks for that change
+	     to be made for SD reloads.  */
+	  if ((to == DDmode && from == SDmode)
+	      || (to == SDmode && from == DDmode))
+	    return true;
+
 	  if (from_size < 8 || to_size < 8)
 	    return false;
 
@@ -13612,7 +13643,7 @@ rs6000_indirect_call_template_1 (rtx *operands, unsigned int funop,
   if (DEFAULT_ABI == ABI_AIX)
     s += sprintf (s,
 		  "l%s 2,%%%u\n\t",
-		  ptrload, funop + 2);
+		  ptrload, funop + 3);
 
   /* We don't need the extra code to stop indirect call speculation if
      calling via LR.  */
@@ -13666,12 +13697,12 @@ rs6000_indirect_call_template_1 (rtx *operands, unsigned int funop,
 	sprintf (s,
 		 "b%%T%ul\n\t"
 		 "l%s 2,%%%u(1)",
-		 funop, ptrload, funop + 3);
+		 funop, ptrload, funop + 4);
       else
 	sprintf (s,
 		 "beq%%T%ul-\n\t"
 		 "l%s 2,%%%u(1)",
-		 funop, ptrload, funop + 3);
+		 funop, ptrload, funop + 4);
     }
   else if (DEFAULT_ABI == ABI_ELFv2)
     {
@@ -13679,12 +13710,12 @@ rs6000_indirect_call_template_1 (rtx *operands, unsigned int funop,
 	sprintf (s,
 		 "b%%T%ul\n\t"
 		 "l%s 2,%%%u(1)",
-		 funop, ptrload, funop + 2);
+		 funop, ptrload, funop + 3);
       else
 	sprintf (s,
 		 "beq%%T%ul-\n\t"
 		 "l%s 2,%%%u(1)",
-		 funop, ptrload, funop + 2);
+		 funop, ptrload, funop + 3);
     }
   else
     {
@@ -19274,8 +19305,9 @@ rs6000_longcall_ref (rtx call_ref, rtx arg)
       if (rs6000_pcrel_p (cfun))
 	{
 	  rtx reg = gen_rtx_REG (Pmode, regno);
-	  rtx u = gen_rtx_UNSPEC (Pmode, gen_rtvec (3, base, call_ref, arg),
-				  UNSPEC_PLT_PCREL);
+	  rtx u = gen_rtx_UNSPEC_VOLATILE (Pmode,
+					   gen_rtvec (3, base, call_ref, arg),
+					   UNSPECV_PLT_PCREL);
 	  emit_insn (gen_rtx_SET (reg, u));
 	  return reg;
 	}
@@ -19294,8 +19326,9 @@ rs6000_longcall_ref (rtx call_ref, rtx arg)
       rtx reg = gen_rtx_REG (Pmode, regno);
       rtx hi = gen_rtx_UNSPEC (Pmode, gen_rtvec (3, base, call_ref, arg),
 			       UNSPEC_PLT16_HA);
-      rtx lo = gen_rtx_UNSPEC (Pmode, gen_rtvec (3, reg, call_ref, arg),
-			       UNSPEC_PLT16_LO);
+      rtx lo = gen_rtx_UNSPEC_VOLATILE (Pmode,
+					gen_rtvec (3, reg, call_ref, arg),
+					UNSPECV_PLT16_LO);
       emit_insn (gen_rtx_SET (reg, hi));
       emit_insn (gen_rtx_SET (reg, lo));
       return reg;
@@ -23894,6 +23927,18 @@ make_resolver_func (const tree default_decl,
   DECL_INITIAL (decl) = make_node (BLOCK);
   DECL_STATIC_CONSTRUCTOR (decl) = 0;
 
+  if (DECL_COMDAT_GROUP (default_decl)
+      || TREE_PUBLIC (default_decl))
+    {
+      /* In this case, each translation unit with a call to this
+	 versioned function will put out a resolver.  Ensure it
+	 is comdat to keep just one copy.  */
+      DECL_COMDAT (decl) = 1;
+      make_decl_one_only (decl, DECL_ASSEMBLER_NAME (decl));
+    }
+  else
+    TREE_PUBLIC (dispatch_decl) = 0;
+
   /* Build result decl and add to function_decl.  */
   tree t = build_decl (UNKNOWN_LOCATION, RESULT_DECL, NULL_TREE, ptr_type_node);
   DECL_CONTEXT (t) = decl;
@@ -24281,7 +24326,7 @@ rs6000_call_aix (rtx value, rtx func_desc, rtx tlsarg, rtx cookie)
   rtx toc_restore = NULL_RTX;
   rtx func_addr;
   rtx abi_reg = NULL_RTX;
-  rtx call[4];
+  rtx call[5];
   int n_call;
   rtx insn;
   bool is_pltseq_longcall;
@@ -24422,7 +24467,8 @@ rs6000_call_aix (rtx value, rtx func_desc, rtx tlsarg, rtx cookie)
   call[0] = gen_rtx_CALL (VOIDmode, gen_rtx_MEM (SImode, func_addr), tlsarg);
   if (value != NULL_RTX)
     call[0] = gen_rtx_SET (value, call[0]);
-  n_call = 1;
+  call[1] = gen_rtx_USE (VOIDmode, cookie);
+  n_call = 2;
 
   if (toc_load)
     call[n_call++] = toc_load;
@@ -24800,15 +24846,21 @@ address_to_insn_form (rtx addr,
   if (GET_RTX_CLASS (GET_CODE (addr)) == RTX_AUTOINC)
     return INSN_FORM_UPDATE;
 
-  /* Handle PC-relative symbols and labels.  Check for both local and external
-     symbols.  Assume labels are always local.  */
+  /* Handle PC-relative symbols and labels.  Check for both local and
+     external symbols.  Assume labels are always local.  TLS symbols
+     are not PC-relative for rs6000.  */
   if (TARGET_PCREL)
     {
-      if (SYMBOL_REF_P (addr) && !SYMBOL_REF_LOCAL_P (addr))
-	return INSN_FORM_PCREL_EXTERNAL;
-
-      if (SYMBOL_REF_P (addr) || LABEL_REF_P (addr))
+      if (LABEL_REF_P (addr))
 	return INSN_FORM_PCREL_LOCAL;
+
+      if (SYMBOL_REF_P (addr) && !SYMBOL_REF_TLS_MODEL (addr))
+	{
+	  if (!SYMBOL_REF_LOCAL_P (addr))
+	    return INSN_FORM_PCREL_EXTERNAL;
+	  else
+	    return INSN_FORM_PCREL_LOCAL;
+	}
     }
 
   if (GET_CODE (addr) == CONST)
@@ -24842,14 +24894,19 @@ address_to_insn_form (rtx addr,
     return INSN_FORM_BAD;
 
   /* Check for local and external PC-relative addresses.  Labels are always
-     local.  */
+     local.  TLS symbols are not PC-relative for rs6000.  */
   if (TARGET_PCREL)
     {
-      if (SYMBOL_REF_P (op0) && !SYMBOL_REF_LOCAL_P (op0))
-	return INSN_FORM_PCREL_EXTERNAL;
-
-      if (SYMBOL_REF_P (op0) || LABEL_REF_P (op0))
+      if (LABEL_REF_P (op0))
 	return INSN_FORM_PCREL_LOCAL;
+
+      if (SYMBOL_REF_P (op0) && !SYMBOL_REF_TLS_MODEL (op0))
+	{
+	  if (!SYMBOL_REF_LOCAL_P (op0))
+	    return INSN_FORM_PCREL_EXTERNAL;
+	  else
+	    return INSN_FORM_PCREL_LOCAL;
+	}
     }
 
   /* If it isn't PC-relative, the address must use a base register.  */
@@ -25957,7 +26014,9 @@ rs6000_atomic_assign_expand_fenv (tree *hold, tree *clear, tree *update)
 
       tree fenv_var = create_tmp_var_raw (double_type_node);
       TREE_ADDRESSABLE (fenv_var) = 1;
-      tree fenv_addr = build1 (ADDR_EXPR, double_ptr_type_node, fenv_var);
+      tree fenv_addr = build1 (ADDR_EXPR, double_ptr_type_node,
+			       build4 (TARGET_EXPR, double_type_node, fenv_var,
+				       void_node, NULL_TREE, NULL_TREE));
 
       *hold = build_call_expr (atomic_hold_decl, 1, fenv_addr);
       *clear = build_call_expr (atomic_clear_decl, 0);
@@ -25980,12 +26039,13 @@ rs6000_atomic_assign_expand_fenv (tree *hold, tree *clear, tree *update)
 
   /* Mask to clear everything except for the rounding modes and non-IEEE
      arithmetic flag.  */
-  const unsigned HOST_WIDE_INT hold_exception_mask =
-    HOST_WIDE_INT_C (0xffffffff00000007);
+  const unsigned HOST_WIDE_INT hold_exception_mask
+    = HOST_WIDE_INT_C (0xffffffff00000007);
 
   tree fenv_var = create_tmp_var_raw (double_type_node);
 
-  tree hold_mffs = build2 (MODIFY_EXPR, void_type_node, fenv_var, call_mffs);
+  tree hold_mffs = build4 (TARGET_EXPR, double_type_node, fenv_var, call_mffs,
+			   NULL_TREE, NULL_TREE);
 
   tree fenv_llu = build1 (VIEW_CONVERT_EXPR, uint64_type_node, fenv_var);
   tree fenv_llu_and = build2 (BIT_AND_EXPR, uint64_type_node, fenv_llu,
@@ -26009,12 +26069,13 @@ rs6000_atomic_assign_expand_fenv (tree *hold, tree *clear, tree *update)
 
   /* Mask to clear everything except for the rounding modes and non-IEEE
      arithmetic flag.  */
-  const unsigned HOST_WIDE_INT clear_exception_mask =
-    HOST_WIDE_INT_C (0xffffffff00000000);
+  const unsigned HOST_WIDE_INT clear_exception_mask
+    = HOST_WIDE_INT_C (0xffffffff00000000);
 
   tree fenv_clear = create_tmp_var_raw (double_type_node);
 
-  tree clear_mffs = build2 (MODIFY_EXPR, void_type_node, fenv_clear, call_mffs);
+  tree clear_mffs = build4 (TARGET_EXPR, double_type_node, fenv_clear,
+			    call_mffs, NULL_TREE, NULL_TREE);
 
   tree fenv_clean_llu = build1 (VIEW_CONVERT_EXPR, uint64_type_node, fenv_clear);
   tree fenv_clear_llu_and = build2 (BIT_AND_EXPR, uint64_type_node,
@@ -26039,13 +26100,14 @@ rs6000_atomic_assign_expand_fenv (tree *hold, tree *clear, tree *update)
                                 (*(uint64_t*)fenv_var 0x1ff80fff);
      __builtin_mtfsf (0xff, fenv_update);  */
 
-  const unsigned HOST_WIDE_INT update_exception_mask =
-    HOST_WIDE_INT_C (0xffffffff1fffff00);
-  const unsigned HOST_WIDE_INT new_exception_mask =
-    HOST_WIDE_INT_C (0x1ff80fff);
+  const unsigned HOST_WIDE_INT update_exception_mask
+    = HOST_WIDE_INT_C (0xffffffff1fffff00);
+  const unsigned HOST_WIDE_INT new_exception_mask
+    = HOST_WIDE_INT_C (0x1ff80fff);
 
   tree old_fenv = create_tmp_var_raw (double_type_node);
-  tree update_mffs = build2 (MODIFY_EXPR, void_type_node, old_fenv, call_mffs);
+  tree update_mffs = build4 (TARGET_EXPR, double_type_node, old_fenv,
+			     call_mffs, NULL_TREE, NULL_TREE);
 
   tree old_llu = build1 (VIEW_CONVERT_EXPR, uint64_type_node, old_fenv);
   tree old_llu_and = build2 (BIT_AND_EXPR, uint64_type_node, old_llu,
@@ -26338,6 +26400,22 @@ rs6000_predict_doloop_p (struct loop *loop)
     }
 
   return true;
+}
+
+/* Implement TARGET_CANNOT_SUBSTITUTE_MEM_EQUIV_P.  */
+
+static bool
+rs6000_cannot_substitute_mem_equiv_p (rtx mem)
+{
+  gcc_assert (MEM_P (mem));
+
+  /* curr_insn_transform()'s handling of subregs cannot handle altivec AND:
+     type addresses, so don't allow MEMs with those address types to be
+     substituted as an equivalent expression.  See PR93974 for details.  */
+  if (GET_CODE (XEXP (mem, 0)) == AND)
+    return true;
+
+  return false;
 }
 
 struct gcc_target targetm = TARGET_INITIALIZER;

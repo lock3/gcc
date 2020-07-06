@@ -1857,34 +1857,8 @@ assemble_start_function (tree decl, const char *fnname)
   if (DECL_PRESERVE_P (decl))
     targetm.asm_out.mark_decl_preserved (fnname);
 
-  unsigned HOST_WIDE_INT patch_area_size = function_entry_patch_area_size;
-  unsigned HOST_WIDE_INT patch_area_entry = function_entry_patch_area_start;
-
-  tree patchable_function_entry_attr
-    = lookup_attribute ("patchable_function_entry", DECL_ATTRIBUTES (decl));
-  if (patchable_function_entry_attr)
-    {
-      tree pp_val = TREE_VALUE (patchable_function_entry_attr);
-      tree patchable_function_entry_value1 = TREE_VALUE (pp_val);
-
-      patch_area_size = tree_to_uhwi (patchable_function_entry_value1);
-      patch_area_entry = 0;
-      if (TREE_CHAIN (pp_val) != NULL_TREE)
-	{
-	  tree patchable_function_entry_value2
-	    = TREE_VALUE (TREE_CHAIN (pp_val));
-	  patch_area_entry = tree_to_uhwi (patchable_function_entry_value2);
-	}
-    }
-
-  if (patch_area_entry > patch_area_size)
-    {
-      if (patch_area_size > 0)
-	warning (OPT_Wattributes,
-		 "patchable function entry %wu exceeds size %wu",
-		 patch_area_entry, patch_area_size);
-      patch_area_entry = 0;
-    }
+  unsigned short patch_area_size = crtl->patch_area_size;
+  unsigned short patch_area_entry = crtl->patch_area_entry;
 
   /* Emit the patching area before the entry label, if any.  */
   if (patch_area_entry > 0)
@@ -5152,6 +5126,26 @@ struct oc_local_state {
 static void
 output_constructor_array_range (oc_local_state *local)
 {
+  /* Perform the index calculation in modulo arithmetic but
+     sign-extend the result because Ada has negative DECL_FIELD_OFFSETs
+     but we are using an unsigned sizetype.  */
+  unsigned prec = TYPE_PRECISION (sizetype);
+  offset_int idx = wi::sext (wi::to_offset (TREE_OPERAND (local->index, 0))
+			     - wi::to_offset (local->min_index), prec);
+  tree valtype = TREE_TYPE (local->val);
+  HOST_WIDE_INT fieldpos
+    = (idx * wi::to_offset (TYPE_SIZE_UNIT (valtype))).to_short_addr ();
+
+  /* Advance to offset of this element.  */
+  if (fieldpos > local->total_bytes)
+    {
+      assemble_zeros (fieldpos - local->total_bytes);
+      local->total_bytes = fieldpos;
+    }
+  else
+    /* Must not go backwards.  */
+    gcc_assert (fieldpos == local->total_bytes);
+
   unsigned HOST_WIDE_INT fieldsize
     = int_size_in_bytes (TREE_TYPE (local->type));
 

@@ -1080,6 +1080,7 @@ hash_tree (struct streamer_tree_cache_d *cache, hash_map<tree, hashval_t> *map, 
 	  hstate.add_flag (DECL_PACKED (t));
 	  hstate.add_flag (DECL_NONADDRESSABLE_P (t));
 	  hstate.add_flag (DECL_PADDING_P (t));
+	  hstate.add_flag (DECL_FIELD_ABI_IGNORED (t));
 	  hstate.add_int (DECL_OFFSET_ALIGN (t));
 	}
       else if (code == VAR_DECL)
@@ -1950,6 +1951,7 @@ output_cfg (struct output_block *ob, struct function *fn)
       streamer_write_hwi (ob, loop->owned_clique);
       streamer_write_hwi (ob, loop->dont_vectorize);
       streamer_write_hwi (ob, loop->force_vectorize);
+      streamer_write_hwi (ob, loop->finite_p);
       stream_write_tree (ob, loop->simduid, true);
     }
 

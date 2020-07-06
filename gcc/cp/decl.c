@@ -1758,9 +1758,10 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 
   /* Check for redeclaration and other discrepancies.  */
   if (TREE_CODE (olddecl) == FUNCTION_DECL
-      && DECL_ARTIFICIAL (olddecl))
+      && DECL_ARTIFICIAL (olddecl)
+      /* A C++20 implicit friend operator== uses the normal path (94462).  */
+      && !DECL_HIDDEN_FRIEND_P (olddecl))
     {
-      gcc_assert (!DECL_HIDDEN_FRIEND_P (olddecl));
       if (TREE_CODE (newdecl) != FUNCTION_DECL)
 	{
 	  /* Avoid warnings redeclaring built-ins which have not been
@@ -2682,6 +2683,8 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 	    DECL_SET_IS_OPERATOR_NEW (newdecl, true);
 	  DECL_LOOPING_CONST_OR_PURE_P (newdecl)
 	    |= DECL_LOOPING_CONST_OR_PURE_P (olddecl);
+	  DECL_IS_REPLACEABLE_OPERATOR (newdecl)
+	    |= DECL_IS_REPLACEABLE_OPERATOR (olddecl);
 
 	  if (merge_attr)
 	    merge_attribute_bits (newdecl, olddecl);
@@ -3302,6 +3305,14 @@ redeclaration_error_message (tree newdecl, tree olddecl)
 			  "%<gnu_inline%> attribute");
 	    }
 	}
+
+      /* [class.compare.default]: A definition of a comparison operator as
+	 defaulted that appears in a class shall be the first declaration of
+	 that function.  */
+      special_function_kind sfk = special_function_p (olddecl);
+      if (sfk == sfk_comparison && DECL_DEFAULTED_FN (newdecl))
+	return G_("comparison operator %q+D defaulted after "
+		  "its first declaration");
 
       check_abi_tag_redeclaration
 	(olddecl, lookup_attribute ("abi_tag", DECL_ATTRIBUTES (olddecl)),
@@ -4771,13 +4782,17 @@ cxx_init_decl_processing (void)
     tree opnew = push_cp_library_fn (NEW_EXPR, newtype, 0);
     DECL_IS_MALLOC (opnew) = 1;
     DECL_SET_IS_OPERATOR_NEW (opnew, true);
+    DECL_IS_REPLACEABLE_OPERATOR (opnew) = 1;
     opnew = push_cp_library_fn (VEC_NEW_EXPR, newtype, 0);
     DECL_IS_MALLOC (opnew) = 1;
     DECL_SET_IS_OPERATOR_NEW (opnew, true);
+    DECL_IS_REPLACEABLE_OPERATOR (opnew) = 1;
     tree opdel = push_cp_library_fn (DELETE_EXPR, deltype, ECF_NOTHROW);
     DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+    DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
     opdel = push_cp_library_fn (VEC_DELETE_EXPR, deltype, ECF_NOTHROW);
     DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+    DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
     if (flag_sized_deallocation)
       {
 	/* Also push the sized deallocation variants:
@@ -4791,8 +4806,10 @@ cxx_init_decl_processing (void)
 	deltype = build_exception_variant (deltype, empty_except_spec);
 	opdel = push_cp_library_fn (DELETE_EXPR, deltype, ECF_NOTHROW);
 	DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+	DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
 	opdel = push_cp_library_fn (VEC_DELETE_EXPR, deltype, ECF_NOTHROW);
 	DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+	DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
       }
 
     if (aligned_new_threshold)
@@ -4811,9 +4828,11 @@ cxx_init_decl_processing (void)
 	opnew = push_cp_library_fn (NEW_EXPR, newtype, 0);
 	DECL_IS_MALLOC (opnew) = 1;
 	DECL_SET_IS_OPERATOR_NEW (opnew, true);
+	DECL_IS_REPLACEABLE_OPERATOR (opnew) = 1;
 	opnew = push_cp_library_fn (VEC_NEW_EXPR, newtype, 0);
 	DECL_IS_MALLOC (opnew) = 1;
 	DECL_SET_IS_OPERATOR_NEW (opnew, true);
+	DECL_IS_REPLACEABLE_OPERATOR (opnew) = 1;
 
 	/* operator delete (void *, align_val_t); */
 	deltype = build_function_type_list (void_type_node, ptr_type_node,
@@ -4822,8 +4841,10 @@ cxx_init_decl_processing (void)
 	deltype = build_exception_variant (deltype, empty_except_spec);
 	opdel = push_cp_library_fn (DELETE_EXPR, deltype, ECF_NOTHROW);
 	DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+	DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
 	opdel = push_cp_library_fn (VEC_DELETE_EXPR, deltype, ECF_NOTHROW);
 	DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+	DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
 
 	if (flag_sized_deallocation)
 	  {
@@ -4835,8 +4856,10 @@ cxx_init_decl_processing (void)
 	    deltype = build_exception_variant (deltype, empty_except_spec);
 	    opdel = push_cp_library_fn (DELETE_EXPR, deltype, ECF_NOTHROW);
 	    DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+	    DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
 	    opdel = push_cp_library_fn (VEC_DELETE_EXPR, deltype, ECF_NOTHROW);
 	    DECL_SET_IS_OPERATOR_DELETE (opdel, true);
+	    DECL_IS_REPLACEABLE_OPERATOR (opdel) = 1;
 	  }
       }
 
@@ -5900,9 +5923,22 @@ grok_reference_init (tree decl, tree type, tree init, int flags)
 	  && !DECL_DECOMPOSITION_P (decl)
 	  && (cxx_dialect >= cxx2a))
 	{
-	  init = build_constructor_from_list (init_list_type_node, init);
-	  CONSTRUCTOR_IS_DIRECT_INIT (init) = true;
-	  CONSTRUCTOR_IS_PAREN_INIT (init) = true;
+	  /* We don't know yet if we should treat const A& r(1) as
+	     const A& r{1}.  */
+	  if (list_length (init) == 1)
+	    {
+	      flags |= LOOKUP_AGGREGATE_PAREN_INIT;
+	      init = build_x_compound_expr_from_list (init, ELK_INIT,
+						      tf_warning_or_error);
+	    }
+	  /* If the list had more than one element, the code is ill-formed
+	     pre-C++20, so we can build a constructor right away.  */
+	  else
+	    {
+	      init = build_constructor_from_list (init_list_type_node, init);
+	      CONSTRUCTOR_IS_DIRECT_INIT (init) = true;
+	      CONSTRUCTOR_IS_PAREN_INIT (init) = true;
+	    }
 	}
       else
 	init = build_x_compound_expr_from_list (init, ELK_INIT,
@@ -6357,9 +6393,6 @@ reshape_init_array_1 (tree elt_type, tree max_index, reshape_iter *d,
 	max_index_cst = tree_to_uhwi (fold_convert (size_type_node, max_index));
     }
 
-  /* Set to the index of the last element with a non-zero initializer.
-     Zero initializers for elements past this one can be dropped.  */
-  unsigned HOST_WIDE_INT last_nonzero = -1;
   /* Loop until there are no more initializers.  */
   for (index = 0;
        d->cur != d->end && (!sized_array_p || index <= max_index_cst);
@@ -6386,48 +6419,9 @@ reshape_init_array_1 (tree elt_type, tree max_index, reshape_iter *d,
       if (!TREE_CONSTANT (elt_init))
 	TREE_CONSTANT (new_init) = false;
 
-      /* Pointers initialized to strings must be treated as non-zero
-	 even if the string is empty.  */
-      tree init_type = TREE_TYPE (elt_init);
-      if (POINTER_TYPE_P (elt_type) != POINTER_TYPE_P (init_type)
-	  || !type_initializer_zero_p (elt_type, elt_init))
-	last_nonzero = index;
-
       /* This can happen with an invalid initializer (c++/54501).  */
       if (d->cur == old_cur && !sized_array_p)
 	break;
-    }
-
-  if (sized_array_p && trivial_type_p (elt_type))
-    {
-      /* Strip trailing zero-initializers from an array of a trivial
-	 type of known size.  They are redundant and get in the way
-	 of telling them apart from those with implicit zero value.  */
-      unsigned HOST_WIDE_INT nelts = CONSTRUCTOR_NELTS (new_init);
-      if (last_nonzero > nelts)
-	nelts = 0;
-      else if (last_nonzero < nelts - 1)
-	nelts = last_nonzero + 1;
-
-      /* Sharing a stripped constructor can get in the way of
-	 overload resolution.  E.g., initializing a class from
-	 {{0}} might be invalid while initializing the same class
-	 from {{}} might be valid.  */
-      if (reuse && nelts < CONSTRUCTOR_NELTS (new_init))
-	{
-	  vec<constructor_elt, va_gc> *v;
-	  vec_alloc (v, nelts);
-	  for (unsigned int i = 0; i < nelts; i++)
-	    {
-	      constructor_elt elt = *CONSTRUCTOR_ELT (new_init, i);
-	      if (TREE_CODE (elt.value) == CONSTRUCTOR)
-		elt.value = unshare_constructor (elt.value);
-	      v->quick_push (elt);
-	    }
-	  new_init = build_constructor (TREE_TYPE (new_init), v);
-	}
-      else
-	vec_safe_truncate (CONSTRUCTOR_ELTS (new_init), nelts);
     }
 
   return new_init;
@@ -8186,7 +8180,10 @@ cp_finish_decl (tree decl, tree init, bool init_const_expr_p,
 	    maybe_commonize_var (decl);
 	}
 
-      if (var_definition_p && TREE_STATIC (decl))
+      if (var_definition_p
+	  /* With -fmerge-all-constants, gimplify_init_constructor
+	     might add TREE_STATIC to the variable.  */
+	  && (TREE_STATIC (decl) || flag_merge_constants >= 2))
 	{
 	  /* If a TREE_READONLY variable needs initialization
 	     at runtime, it is no longer readonly and we need to
@@ -10685,8 +10682,7 @@ compute_array_index_type_loc (location_t name_loc, tree name, tree size,
   /* We can only call value_dependent_expression_p on integral constant
      expressions; treat non-constant expressions as dependent, too.  */
   if (processing_template_decl
-      && (type_dependent_expression_p (size)
-	  || !TREE_CONSTANT (size) || value_dependent_expression_p (size)))
+      && (!TREE_CONSTANT (size) || value_dependent_expression_p (size)))
     {
       /* We cannot do any checking for a SIZE that isn't known to be
 	 constant. Just build the index type and mark that it requires
@@ -12295,9 +12291,13 @@ grokdeclarator (const cp_declarator *declarator,
 	    attr_flags |= (int) ATTR_FLAG_FUNCTION_NEXT;
 	  if (declarator->kind == cdk_array)
 	    attr_flags |= (int) ATTR_FLAG_ARRAY_NEXT;
+	  /* Assume that any attributes that get applied late to templates will
+	     DTRT when applied to the declaration as a whole.  */
+	  tree late_attrs = splice_template_attributes (&attrs, type);
 	  returned_attrs = decl_attributes (&type,
 					    chainon (returned_attrs, attrs),
 					    attr_flags);
+	  returned_attrs = chainon (late_attrs, returned_attrs);
 	}
 
       inner_declarator = declarator->declarator;
@@ -16861,7 +16861,6 @@ use_eh_spec_block (tree fn)
 {
   return (flag_exceptions && flag_enforce_eh_specs
 	  && !processing_template_decl
-	  && !type_throw_all_p (TREE_TYPE (fn))
 	  /* We insert the EH_SPEC_BLOCK only in the original
 	     function; then, it is copied automatically to the
 	     clones.  */
@@ -16874,7 +16873,8 @@ use_eh_spec_block (tree fn)
 	     not creating the EH_SPEC_BLOCK we save a little memory,
 	     and we avoid spurious warnings about unreachable
 	     code.  */
-	  && !DECL_DEFAULTED_FN (fn));
+	  && !DECL_DEFAULTED_FN (fn)
+	  && !type_throw_all_p (TREE_TYPE (fn)));
 }
 
 /* Helper function to push ARGS into the current lexical scope.  DECL
@@ -17021,14 +17021,20 @@ begin_destructor_body (void)
 	    /* If the vptr is shared with some virtual nearly empty base,
 	       don't clear it if not in charge, the dtor of the virtual
 	       nearly empty base will do that later.  */
-	    if (CLASSTYPE_VBASECLASSES (current_class_type)
-		&& CLASSTYPE_PRIMARY_BINFO (current_class_type)
-		&& BINFO_VIRTUAL_P
-			  (CLASSTYPE_PRIMARY_BINFO (current_class_type)))
+	    if (CLASSTYPE_VBASECLASSES (current_class_type))
 	      {
-		stmt = convert_to_void (stmt, ICV_STATEMENT,
-					tf_warning_or_error);
-		stmt = build_if_in_charge (stmt);
+		tree c = current_class_type;
+		while (CLASSTYPE_PRIMARY_BINFO (c))
+		  {
+		    if (BINFO_VIRTUAL_P (CLASSTYPE_PRIMARY_BINFO (c)))
+		      {
+			stmt = convert_to_void (stmt, ICV_STATEMENT,
+						tf_warning_or_error);
+			stmt = build_if_in_charge (stmt);
+			break;
+		      }
+		    c = BINFO_TYPE (CLASSTYPE_PRIMARY_BINFO (c));
+		  }
 	      }
 	    finish_decl_cleanup (NULL_TREE, stmt);
 	  }

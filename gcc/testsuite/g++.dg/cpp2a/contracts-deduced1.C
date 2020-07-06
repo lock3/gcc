@@ -67,13 +67,23 @@ S g7(S s) [[ post q: q == s ]]
 }
 
 template<typename T>
-auto g8(T t) [[ post r: r == t && sizeof(decltype(g8(t))) > 2 ]];
+auto g8(T t) [[ post r: r == t && sizeof(decltype(::g8(t))) > 2 ]];
 
 template<typename S>
-auto g8(S s) [[ post q: q == s && sizeof(decltype(g8(s))) > 2 ]]
+auto g8(S s) [[ post q: q == s && sizeof(decltype(::g8(s))) > 2 ]]
 {
   return s;
 }
+
+// FIXME: is this a parser issue, a semantic issue introduced by the fix for
+// PR90711, or a bug in thinking this should be valid?
+#if 0
+template<typename T>
+auto g8(T t) [[ pre: g8(t) ]];
+
+template<typename T>
+auto g8(T t) [[ pre: g8(t) ]] { return t; }
+#endif
 
 // non defining pre, bad
 auto f0(int z)

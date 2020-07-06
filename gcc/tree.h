@@ -1203,6 +1203,7 @@ get_expr_source_range (tree expr)
 }
 
 extern void protected_set_expr_location (tree, location_t);
+extern void protected_set_expr_location_if_unset (tree, location_t);
 
 extern tree maybe_wrap_with_location (tree, location_t);
 
@@ -2749,6 +2750,13 @@ extern void decl_value_expr_insert (tree, tree);
 /* In a FIELD_DECL, indicates this field should be bit-packed.  */
 #define DECL_PACKED(NODE) (FIELD_DECL_CHECK (NODE)->base.u.bits.packed_flag)
 
+/* In a FIELD_DECL, indicates this field should be ignored for ABI decisions
+   like passing/returning containing struct by value.
+   Set for C++17 empty base artificial FIELD_DECLs as well as
+   empty [[no_unique_address]] non-static data members.  */
+#define DECL_FIELD_ABI_IGNORED(NODE) \
+  (FIELD_DECL_CHECK (NODE)->decl_common.decl_flag_0)
+
 /* Nonzero in a FIELD_DECL means it is a bit field, and must be accessed
    specially.  */
 #define DECL_BIT_FIELD(NODE) (FIELD_DECL_CHECK (NODE)->decl_common.decl_flag_1)
@@ -3036,6 +3044,11 @@ set_function_decl_type (tree decl, function_decl_type t, bool set)
     FUNCTION_DECL_DECL_TYPE (decl) = NONE;
 }
 
+/* Nonzero in a FUNCTION_DECL means this function is a replaceable
+   function (like replaceable operators new or delete).  */
+#define DECL_IS_REPLACEABLE_OPERATOR(NODE)\
+   (FUNCTION_DECL_CHECK (NODE)->function_decl.replaceable_operator)
+
 /* Nonzero in a FUNCTION_DECL means this function should be treated as
    C++ operator new, meaning that it returns a pointer for which we
    should not use type based aliasing.  */
@@ -3043,7 +3056,7 @@ set_function_decl_type (tree decl, function_decl_type t, bool set)
   (FUNCTION_DECL_CHECK (NODE)->function_decl.decl_type == OPERATOR_NEW)
 
 #define DECL_IS_REPLACEABLE_OPERATOR_NEW_P(NODE) \
-  (DECL_IS_OPERATOR_NEW_P (NODE) && DECL_IS_MALLOC (NODE))
+  (DECL_IS_OPERATOR_NEW_P (NODE) && DECL_IS_REPLACEABLE_OPERATOR (NODE))
 
 #define DECL_SET_IS_OPERATOR_NEW(NODE, VAL) \
   set_function_decl_type (FUNCTION_DECL_CHECK (NODE), OPERATOR_NEW, VAL)
@@ -3052,6 +3065,9 @@ set_function_decl_type (tree decl, function_decl_type t, bool set)
    C++ operator delete.  */
 #define DECL_IS_OPERATOR_DELETE_P(NODE) \
   (FUNCTION_DECL_CHECK (NODE)->function_decl.decl_type == OPERATOR_DELETE)
+
+#define DECL_IS_REPLACEABLE_OPERATOR_DELETE_P(NODE) \
+  (DECL_IS_OPERATOR_DELETE_P (NODE) && DECL_IS_REPLACEABLE_OPERATOR (NODE))
 
 #define DECL_SET_IS_OPERATOR_DELETE(NODE, VAL) \
   set_function_decl_type (FUNCTION_DECL_CHECK (NODE), OPERATOR_DELETE, VAL)

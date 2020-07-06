@@ -1792,6 +1792,7 @@ ix86_add_reg_usage_to_vzeroupper (rtx_insn *insn, bitmap live_regs)
       RTVEC_ELT (vec, j) = gen_rtx_SET (reg, reg);
     }
   XVEC (pattern, 0) = vec;
+  INSN_CODE (insn) = -1;
   df_insn_rescan (insn);
 }
 
@@ -1962,7 +1963,12 @@ rest_of_insert_endbranch (void)
       && (!flag_manual_endbr
 	  || lookup_attribute ("cf_check",
 			       DECL_ATTRIBUTES (cfun->decl)))
-      && !cgraph_node::get (cfun->decl)->only_called_directly_p ())
+      && (!cgraph_node::get (cfun->decl)->only_called_directly_p ()
+	  || ix86_cmodel == CM_LARGE
+	  || ix86_cmodel == CM_LARGE_PIC
+	  || flag_force_indirect_call
+	  || (TARGET_DLLIMPORT_DECL_ATTRIBUTES
+	      && DECL_DLLIMPORT_P (cfun->decl))))
     {
       /* Queue ENDBR insertion to x86_function_profiler.  */
       if (crtl->profile && flag_fentry)
@@ -2777,6 +2783,9 @@ make_resolver_func (const tree default_decl,
       DECL_COMDAT (decl) = 1;
       make_decl_one_only (decl, DECL_ASSEMBLER_NAME (decl));
     }
+  else
+    TREE_PUBLIC (ifunc_alias_decl) = 0;
+
   /* Build result decl and add to function_decl. */
   t = build_decl (UNKNOWN_LOCATION, RESULT_DECL, NULL_TREE, ptr_type_node);
   DECL_CONTEXT (t) = decl;

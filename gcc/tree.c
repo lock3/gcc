@@ -5146,6 +5146,23 @@ protected_set_expr_location (tree t, location_t loc)
 {
   if (CAN_HAVE_LOCATION_P (t))
     SET_EXPR_LOCATION (t, loc);
+  else if (t && TREE_CODE (t) == STATEMENT_LIST)
+    {
+      t = expr_single (t);
+      if (t && CAN_HAVE_LOCATION_P (t))
+	SET_EXPR_LOCATION (t, loc);
+    }
+}
+
+/* Like PROTECTED_SET_EXPR_LOCATION, but only do that if T has
+   UNKNOWN_LOCATION.  */
+
+void
+protected_set_expr_location_if_unset (tree t, location_t loc)
+{
+  t = expr_single (t);
+  if (t && !EXPR_HAS_LOCATION (t))
+    protected_set_expr_location (t, loc);
 }
 
 /* Data used when collecting DECLs and TYPEs for language data removal.  */
@@ -8864,18 +8881,22 @@ get_narrower (tree op, int *unsignedp_ptr)
 
   if (TREE_CODE (op) == COMPOUND_EXPR)
     {
-      while (TREE_CODE (op) == COMPOUND_EXPR)
+      do
 	op = TREE_OPERAND (op, 1);
+      while (TREE_CODE (op) == COMPOUND_EXPR);
       tree ret = get_narrower (op, unsignedp_ptr);
       if (ret == op)
 	return win;
-      op = win;
-      for (tree *p = &win; TREE_CODE (op) == COMPOUND_EXPR;
-	   op = TREE_OPERAND (op, 1), p = &TREE_OPERAND (*p, 1))
-	*p = build2_loc (EXPR_LOCATION (op), COMPOUND_EXPR,
-			 TREE_TYPE (ret), TREE_OPERAND (op, 0),
-			 ret);
-      return win;
+      auto_vec <tree, 16> v;
+      unsigned int i;
+      for (tree op = win; TREE_CODE (op) == COMPOUND_EXPR;
+	   op = TREE_OPERAND (op, 1))
+	v.safe_push (op);
+      FOR_EACH_VEC_ELT_REVERSE (v, i, op)
+	ret = build2_loc (EXPR_LOCATION (op), COMPOUND_EXPR,
+			  TREE_TYPE (win), TREE_OPERAND (op, 0),
+			  ret);
+      return ret;
     }
   while (TREE_CODE (op) == NOP_EXPR)
     {
@@ -11502,6 +11523,7 @@ build_call_expr_internal_loc_array (location_t loc, internal_fn ifn,
     CALL_EXPR_ARG (t, i) = args[i];
   SET_EXPR_LOCATION (t, loc);
   CALL_EXPR_IFN (t) = ifn;
+  process_call_operands (t);
   return t;
 }
 
@@ -13399,7 +13421,9 @@ array_ref_low_bound (tree exp)
     return SUBSTITUTE_PLACEHOLDER_IN_EXPR (TYPE_MIN_VALUE (domain_type), exp);
 
   /* Otherwise, return a zero of the appropriate type.  */
-  return build_int_cst (TREE_TYPE (TREE_OPERAND (exp, 1)), 0);
+  tree idxtype = TREE_TYPE (TREE_OPERAND (exp, 1));
+  return (idxtype == error_mark_node
+	  ? integer_zero_node : build_int_cst (idxtype, 0));
 }
 
 /* Return a tree representing the upper bound of the array mentioned in
@@ -13699,24 +13723,25 @@ component_ref_size (tree ref, bool *interior_zero_length /* = NULL */)
     /* MEMBER is a true flexible array member.  Compute its size from
        the initializer of the BASE object if it has one.  */
     if (tree init = DECL_P (base) ? DECL_INITIAL (base) : NULL_TREE)
-      {
-	init = get_initializer_for (init, member);
-	if (init)
-	  {
-	    memsize = TYPE_SIZE_UNIT (TREE_TYPE (init));
-	    if (tree refsize = TYPE_SIZE_UNIT (reftype))
-	      {
-		/* Use the larger of the initializer size and the tail
-		   padding in the enclosing struct.  */
-		poly_int64 rsz = tree_to_poly_int64 (refsize);
-		rsz -= baseoff;
-		if (known_lt (tree_to_poly_int64 (memsize), rsz))
-		  memsize = wide_int_to_tree (TREE_TYPE (memsize), rsz);
-	      }
+      if (init != error_mark_node)
+	{
+	  init = get_initializer_for (init, member);
+	  if (init)
+	    {
+	      memsize = TYPE_SIZE_UNIT (TREE_TYPE (init));
+	      if (tree refsize = TYPE_SIZE_UNIT (reftype))
+		{
+		  /* Use the larger of the initializer size and the tail
+		     padding in the enclosing struct.  */
+		  poly_int64 rsz = tree_to_poly_int64 (refsize);
+		  rsz -= baseoff;
+		  if (known_lt (tree_to_poly_int64 (memsize), rsz))
+		    memsize = wide_int_to_tree (TREE_TYPE (memsize), rsz);
+		}
 
-	    baseoff = 0;
-	  }
-      }
+	      baseoff = 0;
+	    }
+	}
 
   if (!memsize)
     {

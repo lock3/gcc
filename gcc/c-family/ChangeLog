@@ -1,3 +1,33 @@
+2020-05-05  Stefan Schulze Frielinghaus  <stefansf@linux.ibm.com>
+
+	* c-attribs.c (handle_vector_size_attribute): Add attribute
+	nonnull for argument args in order to silence warning of
+	uninitialized variable usage.  Since this is local to the
+	compilation unit and thus cannot be checked at call sides by the
+	compiler, added an assert statement in order to verify this.
+
+2020-05-01  H.J. Lu  <hongjiu.lu@intel.com>
+
+	PR target/93492
+	* c-attribs.c (handle_patchable_function_entry_attribute): Limit
+	value to USHRT_MAX (65535).
+
+2020-04-29  Jakub Jelinek  <jakub@redhat.com>
+
+	* c-format.c (PP_FORMAT_CHAR_TABLE): Add %{ and %}.
+
+2020-04-27  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/94755
+	* c-common.c (resolve_overloaded_builtin): Return error_mark_node for
+	fncode == BUILT_IN_NONE before initialization of first_param.
+
+2020-04-23  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/94733
+	* c-attribs.c (find_tm_attribute): Use get_attribute_name instead of
+	TREE_PURPOSE.
+
 2020-04-22  Jeff Chapman II  <jchapman@lock3software.com>
 
 	Move contract related option handling code from c-opts to
@@ -12,6 +42,23 @@
 2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
 
 	* cxx-contracts.c (get_contract_role): Fix style.
+
+2020-04-14  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/85278
+	* c-pretty-print.c (pp_c_pointer) <case REFERENCE_TYPE>: Print a double
+	ampersand if it's an rvalue reference type.
+
+2020-04-13  Martin Sebor  <msebor@redhat.com>
+
+	PR c/92326
+	* c-pretty-print.c (c_pretty_printer::direct_abstract_declarator): Avoid
+	printing array bound for flexible array members.
+
+2020-04-13  Iain Sandoe  <iain@sandoe.co.uk>
+
+	* c-cppbuiltin.c (c_cpp_builtins): Update coroutines builtin
+	define, per n4861.
 
 2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
 
@@ -32,9 +79,28 @@
 	* contract.h: Rename to:
 	* cxx-contracts.h: Fix copyright block.
 
-2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
+2020-04-02  Richard Biener  <rguenther@suse.de>
 
-	* contract.h (cxx23_contract_attribute_p): Make global extern.
+	PR c/94392
+	* c-opts.c (c_common_post_options): Enable -ffinite-loops
+	for -O2 and C++11 or newer.
+
+2020-03-28  Patrick Palka  <ppalka@redhat.com>
+
+	* c.opt: Add -fconcepts-diagnostics-depth.
+
+2020-03-27  Martin Sebor  <msebor@redhat.com>
+
+	PR c++/94346
+	* c-attribs.c (handle_copy_attribute): Avoid passing expressions
+	to decl_attributes.  Make handling of different kinds of entities
+	more robust.
+
+2020-03-27  Martin Sebor  <msebor@redhat.com>
+
+	PR c++/94098
+	* c-attribs.c (handle_access_attribute): Avoid setting TYPE_ATTRIBUTES
+	here.
 
 2020-03-23  Jakub Jelinek  <jakub@redhat.com>
 
@@ -72,6 +138,10 @@
 2020-03-15  Lewis Hyatt  <lhyatt@gmail.com>
 
 	* c.opt: Avoid redundancy in the help text.
+
+2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* contract.h (cxx23_contract_attribute_p): Make global extern.
 
 2020-03-02  Marek Polacek  <polacek@redhat.com>
 

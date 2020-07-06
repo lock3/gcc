@@ -4995,8 +4995,8 @@ gimplify_init_constructor (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 	   all-zero initializers (which aren't big enough to merit
 	   clearing), and don't try to make bitwise copies of
 	   TREE_ADDRESSABLE types.  */
-
 	if (valid_const_initializer
+	    && complete_p
 	    && !(cleared || num_nonzero_elements == 0)
 	    && !TREE_ADDRESSABLE (type))
 	  {
@@ -6181,7 +6181,9 @@ gimplify_addr_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p)
 
       /* For various reasons, the gimplification of the expression
 	 may have made a new INDIRECT_REF.  */
-      if (TREE_CODE (op0) == INDIRECT_REF)
+      if (TREE_CODE (op0) == INDIRECT_REF
+	  || (TREE_CODE (op0) == MEM_REF
+	      && integer_zerop (TREE_OPERAND (op0, 1))))
 	goto do_indirect_ref;
 
       mark_addressable (TREE_OPERAND (expr, 0));
@@ -8783,10 +8785,14 @@ gimplify_scan_omp_clauses (tree *list_p, gimple_seq *pre_p,
 	     'exit data' - and in particular for 'delete:' - having an 'alloc:'
 	     does not make sense.  Likewise, for 'update' only transferring the
 	     data itself is needed as the rest has been handled in previous
-	     directives.  */
-	  if ((code == OMP_TARGET_EXIT_DATA || code == OMP_TARGET_UPDATE)
-	      && (OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_POINTER
-		  || OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_TO_PSET))
+	     directives.  However, for 'exit data', the array descriptor needs
+	     to be delete; hence, we turn the MAP_TO_PSET into a MAP_DELETE.  */
+	  if (code == OMP_TARGET_EXIT_DATA
+	      && OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_TO_PSET)
+	    OMP_CLAUSE_SET_MAP_KIND (c, GOMP_MAP_DELETE);
+	  else if ((code == OMP_TARGET_EXIT_DATA || code == OMP_TARGET_UPDATE)
+		   && (OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_POINTER
+		       || OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_TO_PSET))
 	    remove = true;
 
 	  if (remove)
@@ -14849,7 +14855,7 @@ gimplify_body (tree fndecl, bool do_parms)
   /* Gimplify the function's body.  */
   seq = NULL;
   gimplify_stmt (&DECL_SAVED_TREE (fndecl), &seq);
-  outer_stmt = gimple_seq_first_stmt (seq);
+  outer_stmt = gimple_seq_first_nondebug_stmt (seq);
   if (!outer_stmt)
     {
       outer_stmt = gimple_build_nop ();
@@ -14859,8 +14865,37 @@ gimplify_body (tree fndecl, bool do_parms)
   /* The body must contain exactly one statement, a GIMPLE_BIND.  If this is
      not the case, wrap everything in a GIMPLE_BIND to make it so.  */
   if (gimple_code (outer_stmt) == GIMPLE_BIND
-      && gimple_seq_first (seq) == gimple_seq_last (seq))
-    outer_bind = as_a <gbind *> (outer_stmt);
+      && (gimple_seq_first_nondebug_stmt (seq)
+	  == gimple_seq_last_nondebug_stmt (seq)))
+    {
+      outer_bind = as_a <gbind *> (outer_stmt);
+      if (gimple_seq_first_stmt (seq) != outer_stmt
+	  || gimple_seq_last_stmt (seq) != outer_stmt)
+	{
+	  /* If there are debug stmts before or after outer_stmt, move them
+	     inside of outer_bind body.  */
+	  gimple_stmt_iterator gsi = gsi_for_stmt (outer_stmt, &seq);
+	  gimple_seq second_seq = NULL;
+	  if (gimple_seq_first_stmt (seq) != outer_stmt
+	      && gimple_seq_last_stmt (seq) != outer_stmt)
+	    {
+	      second_seq = gsi_split_seq_after (gsi);
+	      gsi_remove (&gsi, false);
+	    }
+	  else if (gimple_seq_first_stmt (seq) != outer_stmt)
+	    gsi_remove (&gsi, false);
+	  else
+	    {
+	      gsi_remove (&gsi, false);
+	      second_seq = seq;
+	      seq = NULL;
+	    }
+	  gimple_seq_add_seq_without_update (&seq,
+					     gimple_bind_body (outer_bind));
+	  gimple_seq_add_seq_without_update (&seq, second_seq);
+	  gimple_bind_set_body (outer_bind, seq);
+	}
+    }
   else
     outer_bind = gimple_build_bind (NULL_TREE, seq, NULL);
 

@@ -2670,8 +2670,8 @@ check_local_shadow (tree decl)
 	}
       /* Don't complain if it's from an enclosing function.  */
       else if (DECL_CONTEXT (old) == current_function_decl
-	  && TREE_CODE (decl) != PARM_DECL
-	  && TREE_CODE (old) == PARM_DECL)
+	       && TREE_CODE (decl) != PARM_DECL
+	       && TREE_CODE (old) == PARM_DECL)
 	{
 	  /* Go to where the parms should be and see if we find
 	     them there.  */
@@ -2681,11 +2681,14 @@ check_local_shadow (tree decl)
 	    /* Skip the ctor/dtor cleanup level.  */
 	    b = b->level_chain;
 
-	  /* ARM $8.3 */
+	  /* [basic.scope.param] A parameter name shall not be redeclared
+	     in the outermost block of the function definition.  */
 	  if (b->kind == sk_function_parms)
 	    {
 	      error_at (DECL_SOURCE_LOCATION (decl),
 			"declaration of %q#D shadows a parameter", decl);
+	      inform (DECL_SOURCE_LOCATION (old),
+		      "%q#D previously declared here", old);
 	      return;
 	    }
 	}
@@ -2998,7 +3001,8 @@ do_pushdecl (tree decl, bool is_friend)
   /* The binding level we will be pushing into.  During local class
      pushing, we want to push to the containing scope.  */
   cp_binding_level *level = current_binding_level;
-  while (level->kind == sk_class)
+  while (level->kind == sk_class
+	 || level->kind == sk_cleanup)
     level = level->level_chain;
 
   /* An anonymous namespace has a NULL DECL_NAME, but we still want to
@@ -7372,23 +7376,59 @@ push_namespace (tree name, bool make_inline)
     name_lookup lookup (name, 0);
     if (!lookup.search_qualified (current_namespace, /*usings=*/false))
       ;
-    else if (TREE_CODE (lookup.value) != NAMESPACE_DECL)
-      ;
-    else if (tree dna = DECL_NAMESPACE_ALIAS (lookup.value))
+    else if (TREE_CODE (lookup.value) == TREE_LIST)
       {
-	/* A namespace alias is not allowed here, but if the alias
-	   is for a namespace also inside the current scope,
-	   accept it with a diagnostic.  That's better than dying
-	   horribly.  */
-	if (is_nested_namespace (current_namespace, CP_DECL_CONTEXT (dna)))
+	/* An ambiguous lookup.  If exactly one is a namespace, we
+	   want that.  If more than one is a namespace, error, but
+	   pick one of them.  */
+	/* DR2061 can cause us to find multiple namespaces of the same
+	   name.  We must treat that carefully and avoid thinking we
+	   need to push a new (possibly) duplicate namespace.  Hey,
+	   if you want to use the same identifier within an inline
+	   nest, knock yourself out.  */
+	for (tree *chain = &lookup.value, next; (next = *chain);)
 	  {
-	    error ("namespace alias %qD not allowed here, "
-		   "assuming %qD", lookup.value, dna);
-	    ns = dna;
+	    tree decl = TREE_VALUE (next);
+	    if (TREE_CODE (decl) == NAMESPACE_DECL)
+	      {
+		if (!ns)
+		  ns = decl;
+		else if (SCOPE_DEPTH (ns) >= SCOPE_DEPTH (decl))
+		  ns = decl;
+
+		/* Advance.  */
+		chain = &TREE_CHAIN (next);
+	      }
+	    else
+	      /* Stitch out.  */
+	      *chain = TREE_CHAIN (next);
+	  }
+
+	if (TREE_CHAIN (lookup.value))
+	  {
+	    error ("%<namespace %E%> is ambiguous", name);
+	    print_candidates (lookup.value);
 	  }
       }
-    else
+    else if (TREE_CODE (lookup.value) == NAMESPACE_DECL)
       ns = lookup.value;
+
+    if (ns)
+      if (tree dna = DECL_NAMESPACE_ALIAS (ns))
+	{
+	  /* A namespace alias is not allowed here, but if the alias
+	     is for a namespace also inside the current scope,
+	     accept it with a diagnostic.  That's better than dying
+	     horribly.  */
+	  if (is_nested_namespace (current_namespace, CP_DECL_CONTEXT (dna)))
+	    {
+	      error ("namespace alias %qD not allowed here, "
+		     "assuming %qD", ns, dna);
+	      ns = dna;
+	    }
+	  else
+	    ns = NULL_TREE;
+	}
   }
 
   bool new_ns = false;

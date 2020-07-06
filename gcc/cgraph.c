@@ -63,6 +63,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "attribs.h"
 #include "selftest.h"
 #include "tree-into-ssa.h"
+#include "ipa-inline.h"
 
 /* FIXME: Only for PROP_loops, but cgraph shouldn't have to know about this.  */
 #include "tree-pass.h"
@@ -1470,6 +1471,16 @@ cgraph_edge::redirect_call_stmt_to_callee (cgraph_edge *e)
       || decl == e->callee->decl)
     return e->call_stmt;
 
+  if (decl && ipa_saved_clone_sources)
+    {
+      tree *p = ipa_saved_clone_sources->get (e->callee);
+      if (p && decl == *p)
+	{
+	  gimple_call_set_fndecl (e->call_stmt, e->callee->decl);
+	  return e->call_stmt;
+	}
+    }
+
   if (flag_checking && decl)
     {
       cgraph_node *node = cgraph_node::get (decl);
@@ -2157,10 +2168,11 @@ cgraph_node::dump (FILE *f)
   if (parallelized_function)
     fprintf (f, " parallelized_function");
   if (DECL_IS_OPERATOR_NEW_P (decl))
-    fprintf (f, " operator_new");
+    fprintf (f, " %soperator_new",
+	     DECL_IS_REPLACEABLE_OPERATOR (decl) ? "replaceable_" : "");
   if (DECL_IS_OPERATOR_DELETE_P (decl))
-    fprintf (f, " operator_delete");
-
+    fprintf (f, " %soperator_delete",
+	     DECL_IS_REPLACEABLE_OPERATOR (decl) ? "replaceable_" : "");
 
   fprintf (f, "\n");
 
@@ -3092,15 +3104,17 @@ clone_of_p (cgraph_node *node, cgraph_node *node2)
 	return false;
       /* In case of instrumented expanded thunks, which can have multiple calls
 	 in them, we do not know how to continue and just have to be
-	 optimistic.  */
-      if (node->callees->next_callee)
+	 optimistic.  The same applies if all calls have already been inlined
+	 into the thunk.  */
+      if (!node->callees || node->callees->next_callee)
 	return true;
       node = node->callees->callee->ultimate_alias_target ();
 
       if (!node2->clone.param_adjustments
 	  || node2->clone.param_adjustments->first_param_intact_p ())
 	return false;
-      if (node2->former_clone_of == node->decl)
+      if (node2->former_clone_of == node->decl
+	  || node2->former_clone_of == node->former_clone_of)
 	return true;
 
       cgraph_node *n2 = node2;

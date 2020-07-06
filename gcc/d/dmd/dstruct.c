@@ -22,9 +22,9 @@
 #include "statement.h"
 #include "template.h"
 #include "tokens.h"
+#include "target.h"
 
 Type *getTypeInfoType(Loc loc, Type *t, Scope *sc);
-TypeTuple *toArgTypes(Type *t);
 void unSpeculative(Scope *sc, RootObject *o);
 bool MODimplicitConv(MOD modfrom, MOD modto);
 Expression *resolve(Loc loc, Scope *sc, Dsymbol *s, bool hasOverloads);
@@ -194,6 +194,7 @@ AggregateDeclaration::AggregateDeclaration(Loc loc, Identifier *id)
     sizeok = SIZEOKnone;        // size not determined yet
     deferred = NULL;
     isdeprecated = false;
+    classKind = ClassKind::d;
     inv = NULL;
     aggNew = NULL;
     aggDelete = NULL;
@@ -1071,6 +1072,9 @@ void StructDeclaration::semantic(Scope *sc)
         if (storage_class & STCabstract)
             error("structs, unions cannot be abstract");
         userAttribDecl = sc->userAttribDecl;
+
+        if (sc->linkage == LINKcpp)
+            classKind = ClassKind::cpp;
     }
     else if (symtab && !scx)
     {
@@ -1303,8 +1307,8 @@ void StructDeclaration::finalizeSize()
         }
     }
 
-    TypeTuple *tt = toArgTypes(type);
-    size_t dim = tt->arguments->dim;
+    TypeTuple *tt = Target::toArgTypes(type);
+    size_t dim = tt ? tt->arguments->dim : 0;
     if (dim >= 1)
     {
         assert(dim <= 2);
