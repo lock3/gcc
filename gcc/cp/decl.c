@@ -3026,19 +3026,25 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
       else if (types_match)
 	{
 	  DECL_RESULT (newdecl) = DECL_RESULT (olddecl);
-	  /* Don't clear out the arguments if we're just redeclaring a
-	     function.  */
-	  if (DECL_ARGUMENTS (olddecl))
+
+	  /* Save new argument names for use in contracts parsing, unless
+	     we've already started parsing the body of olddecl (particular
+	     issues arise when newdecl is from a prior friend decl with no
+	     argument names, see modules/contracts-tpl-friend-1).  */
+	  if (flag_contracts && DECL_ARGUMENTS (olddecl)
+	      && DECL_INITIAL (olddecl) != error_mark_node)
 	    {
-	      /* Save new argument names for use in contracts parsing.  */
 	      for (tree o = DECL_ARGUMENTS (olddecl),
 		  n = DECL_ARGUMENTS (newdecl);
 		  o && n;
 		  o = TREE_CHAIN (o), n = TREE_CHAIN (n))
 		DECL_NAME (o) = DECL_NAME (n);
-
-	      DECL_ARGUMENTS (newdecl) = DECL_ARGUMENTS (olddecl);
 	    }
+
+	  /* Don't clear out the arguments if we're just redeclaring a
+	     function.  */
+	  if (DECL_ARGUMENTS (olddecl))
+	    DECL_ARGUMENTS (newdecl) = DECL_ARGUMENTS (olddecl);
 	}
     }
   else if (TREE_CODE (newdecl) == NAMESPACE_DECL)

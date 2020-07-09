@@ -137,3 +137,12 @@ int p0(int z)
   return z;
 }
 
+int f4(int n);
+int f4(int) [[ pre: n > 0 ]]; // { dg-error "not declared in this scope" }
+
+int f5(int a) [[ pre: a < 0 ]] { return a; }
+int f5(int b) [[ pre: b > 0 ]]; // { dg-error "mismatched contract predicate" }
+
+int g3(int a) [[ pre: a < 0 ]] { return a; }
+int g3(int b) [[ pre: b < 0 ]];
+
