@@ -4,7 +4,7 @@
 
 struct X {
   friend void fn0(X x) [[ pre: x.a > 0 ]] { }
-  friend void fn1(X x) [[ pre: x.a > 0 ]];
+
   friend void fn2(X x);
   static void fns0(X x) [[ pre: x.a > 0 ]] { }
   static void fns1(X x) [[ pre: x.a > 0 ]];
@@ -14,7 +14,7 @@ private:
   int a{10};
 };
 
-void fn1(X x) { }
+
 void fn2(X x) [[ pre: x.a > 0 ]] { }
 void X::fns1(X x) { }
 void X::fns2(X x) [[ pre: x.a > 0 ]] { }
@@ -24,7 +24,6 @@ int main(int, char**) {
   fn(x);
 
   fn0(x);
-  fn1(x);
   fn2(x);
 
   X::fns0(x);
@@ -34,7 +33,6 @@ int main(int, char**) {
 }
 
 // { dg-output "default std::handle_contract_violation called: .*.C 6 fn0 .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 7 fn1 .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 18 fn2 .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 9 X::fns0 .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 10 X::fns1 .*(\n|\r\n|\r)*" }

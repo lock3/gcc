@@ -25746,7 +25746,20 @@ cp_parser_member_declaration (cp_parser* parser)
 		 body to parse at that time.  */
 	      if (DECL_DECLARES_FUNCTION_P (decl)
 		  && DECL_HAS_CONTRACTS_P (decl))
-		vec_safe_push (unparsed_funs_with_definitions, decl);
+		{
+		  const cp_declarator *fn
+		    = find_innermost_function_declarator (declarator);
+		  /* Emit an error if this is a (non-defining) friend decl with
+		     contract attributes. */
+		  if (friend_p && fn->contracts)
+		    {
+		      error_at (fn->id_loc,
+				"non-defining friend declaration %qD "
+				"cannot use contract attributes", decl);
+		      remove_contract_attributes (decl);
+		    }
+		  vec_safe_push (unparsed_funs_with_definitions, decl);
+		}
 
 	      if (parser->fully_implicit_function_template_p)
 		{
@@ -30535,8 +30548,8 @@ cp_parser_late_parsing_for_contract (cp_parser *parser, tree checked,
   tree return_var = DECL_UNCHECKED_RESULT (checked);
   if (!pre && POSTCONDITION_IDENTIFIER (contract) && return_var)
     {
-      tree name =
-	STRIP_ANY_LOCATION_WRAPPER (POSTCONDITION_IDENTIFIER (contract));
+      tree name
+        = STRIP_ANY_LOCATION_WRAPPER (POSTCONDITION_IDENTIFIER (contract));
       gcc_assert (name);
       DECL_NAME (return_var) = name;
     }
@@ -30650,7 +30663,6 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function)
       && TYPE_BEING_DEFINED (DECL_CONTEXT (function)))
     return; /* Defer further.  */
 
-  /* FIXME we need to check that this works correctly for nested classes...  */
   /* Similar to member functions, we cannot parse the contracts friend
      functions when we're inside the befriending type or otherwise
      incomplete.  */
