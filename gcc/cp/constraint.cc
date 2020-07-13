@@ -2340,10 +2340,46 @@ save_satisfaction (tree constr, tree args, tree result)
 void
 clear_satisfaction_cache ()
 {
-  if (sat_cache)
-    sat_cache->empty ();
-  if (decl_satisfied_cache)
-    decl_satisfied_cache->empty ();
+/* Don't clear the cache. If you need to, your program is already ill-formed.
+
+   if (sat_cache)
+     sat_cache->empty ();
+   if (decl_satisfied_cache)
+     decl_satisfied_cache->empty ();
+*/     
+}
+
+/* Calls CB for each entry in the decl satisfaction cache when DECL_P is true 
+   or the atomic satisfaction cache otherwise.  */
+
+void
+walk_constraint_cache (bool decl_p,
+                       void (*cb) (bool, tree, tree, tree, void *), void *ctx)
+{
+  if (decl_p)
+    {
+      if (!decl_satisfied_cache)
+        return;
+
+      hash_map<tree, tree>::iterator end = decl_satisfied_cache->end ();
+      for (hash_map<tree, tree>::iterator i = decl_satisfied_cache->begin ();
+           i != end; ++i)
+        {
+          cb (decl_p, (*i).first, NULL, (*i).second, ctx);
+        }
+    }
+  else
+    {
+      if (!sat_cache)
+        return;
+
+      hash_table<sat_hasher>::iterator end = sat_cache->end ();
+      for (hash_table<sat_hasher>::iterator i = sat_cache->begin(); i != end; ++i)
+      {
+              sat_entry *e = *i;
+              cb(decl_p, e->constr, e->args, e->result, ctx);
+      }
+    }
 }
 
 /* A tool to help manage satisfaction caching in satisfy_constraint_r.
