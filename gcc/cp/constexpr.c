@@ -8502,8 +8502,10 @@ is_nondependent_static_init_expression (tree t)
    For preconditions FN is the function to which the contract belongs.  */
 
 static void
-checK_constant_contract (tree contract, tree fn)
+check_constant_contract (tree contract, tree fn)
 {
+  if (!flag_contracts || !(flag_constexpr_contract_checking & ccc_trivial))
+    return;
   tree condition = CONTRACT_CONDITION (contract);
   if (type_dependent_expression_p (condition))
     return;
@@ -8521,8 +8523,8 @@ checK_constant_contract (tree contract, tree fn)
   /* The contract is always false.  */
   if (value == boolean_false_node)
     {
-      /* FIXME: Control diagnostics with -Wcontract-always-false. */
-      warning_at (loc, 0, "%s is always %<false%>", kind);
+      warning_at (loc, OPT_Wconstexpr_contract_checking_,
+		  "%s is always %<false%>", kind);
 
       /* Check for the special case of '[[asert: false]]' and issue a fixit
 	 suggesting the something else for unreachable code.  */
@@ -8535,8 +8537,8 @@ checK_constant_contract (tree contract, tree fn)
     }
   else if (value == boolean_true_node)
     {
-      /* FIXME: Control diagnotics with -Wcontract-always-true. */
-      warning_at (loc, 0, "%s is always %<true%>", kind);
+      warning_at (loc, OPT_Wconstexpr_contract_checking_,
+		  "%s is always %<true%>", kind);
 
       /* FIXME: Mark the contract for ellision.  */
       return;
@@ -8546,7 +8548,7 @@ checK_constant_contract (tree contract, tree fn)
 void
 check_constant_assertion (tree contract)
 {
-  return checK_constant_contract (contract, NULL_TREE);
+  return check_constant_contract (contract, NULL_TREE);
 }
 
 static tree substitute_values (tree, tree, int);
@@ -8623,7 +8625,7 @@ check_constant_precondition (tree fn, tree contract, tree call)
 
   /* Contracts on nullary functions are checked against non-local state.  */
   if (nargs == 0)
-    return checK_constant_contract (contract, fn);
+    return check_constant_contract (contract, fn);
 
   /* Try evaluating the arguments of each call.  If the argument is not
      constant, save the value as ERROR_MARK_NODE indicating that the
@@ -8637,14 +8639,16 @@ check_constant_precondition (tree fn, tree contract, tree call)
         return;
       tree value = maybe_constant_value (arg);
       if (!TREE_CONSTANT (value))
-      	value = error_mark_node;
+	value = error_mark_node;
       TREE_VEC_ELT (args, i) = value;
     }
 
   int depth = DECL_PARM_LEVEL (DECL_ARGUMENTS (fn));
 
   /* Rewrite the condition, substituting computed arguments. */
-  tree condition = CONTRACT_CONDITION(contract);
+  tree condition = CONTRACT_CONDITION (contract);
+  if (condition == error_mark_node)
+    return;
   tree result = substitute_values (condition, args, depth);
   if (result == error_mark_node)
     return;
@@ -8660,11 +8664,10 @@ check_constant_precondition (tree fn, tree contract, tree call)
 
   if (value == boolean_false_node)
     {
-      /* FIXME: Option flags.  */
       /* TODO: If we multiple contract violations, it might be useful to
          aggregate those and diagnose them in one shot rather than emit
          multiple diagnostics.  */
-      warning_at (loc, 0, 
+      warning_at (loc, OPT_Wconstexpr_contract_checking_,
 		  "precondition %qE is never satisfied here", condition);
       /* TODO: Mark CALL for immediate termination?  */
     }
@@ -8682,6 +8685,8 @@ check_constant_precondition (tree fn, tree contract, tree call)
 void
 check_constant_preconditions (tree call)
 {
+  if (!flag_contracts || !(flag_constexpr_contract_checking & ccc_pre))
+    return;
   /* Dig out the function being called. Note that this folds the expression
      so we can see through trivially indirect calls.  */
   tree fn = cp_get_callee_fndecl (call);
@@ -8692,7 +8697,8 @@ check_constant_preconditions (tree call)
     {
       do
 	{
-	  check_constant_precondition (fn, TREE_VALUE (attribute), call);
+	  if (TREE_CODE (TREE_VALUE (attribute)) == PRECONDITION_STMT)
+	    check_constant_precondition (fn, TREE_VALUE (attribute), call);
 	  attribute = CONTRACT_CHAIN (attribute);
 	} while (attribute);
     }
