@@ -227,6 +227,7 @@ static tree canonicalize_expr_argument (tree, tsubst_flags_t);
 static tree make_argument_pack (tree);
 static void register_parameter_specializations (tree, tree);
 static tree enclosing_instantiation_of (tree tctx);
+static void tsubst_contract_conditions (tree, tree, tsubst_flags_t, tree);
 
 /* Make the current scope suitable for access checking when we are
    processing T.  T can be FUNCTION_DECL for instantiated function
@@ -14020,7 +14021,15 @@ tsubst_function_decl (tree t, tree args, tsubst_flags_t complain,
 				tf_warning_or_error);
       tree r_post = tsubst_decl (DECL_POST_FN (t), args,
 				 tf_warning_or_error);
+
       set_contract_functions (r, r_pre, r_post);
+      /* FIXME we should always sub contracts here when we can (r is not a
+	 template itself?)  */
+      /* FIXME at the time of substituting through a function decl in a class
+	 with a dependent base, we cannot build conversions to the base.
+	 See contracts-access1.C */
+      if (!DECL_NONSTATIC_MEMBER_FUNCTION_P (r))
+	tsubst_contract_conditions (r, args, tf_none, t);
     }
   return r;
 }
@@ -17906,8 +17915,9 @@ tsubst_contract (tree t, tree args, tsubst_flags_t complain, tree in_decl)
   tree r = copy_node (t);
   push_deferring_access_checks (dk_no_check);
   ++cp_contract_operand;
-  tree cond = tsubst_expr (CONTRACT_CONDITION (t), args, complain,
-			   in_decl, false);
+  tree cond = CONTRACT_CONDITION (t);
+  if (cond != error_mark_node)
+    cond = tsubst_expr (cond, args, complain, in_decl, false);
   if (cond != error_mark_node)
     SET_EXPR_LOCATION (cond, EXPR_LOCATION (CONTRACT_CONDITION (t)));
   --cp_contract_operand;
@@ -20727,17 +20737,21 @@ recheck_decl_substitution (tree d, tree tmpl, tree args)
 
 static tree
 tsubst_contract_conditions_r (tree t, tree args, tsubst_flags_t complain,
-			      tree in_decl)
+			      tree in_decl, bool skip_post)
 {
   if (!t)
     return NULL_TREE;
   tree id = TREE_PURPOSE (t);
-  tree contract = tsubst_contract (TREE_VALUE (t), args, tf_warning_or_error,
-				   in_decl);
+  tree contract = TREE_VALUE (t);
+  /* We may be substituting just the decl without having the fully deduced
+     return type for postcondition substitution (handled by a second call into
+     tsubst_contract_conditions later).  */
+  if (TREE_CODE (contract) != POSTCONDITION_STMT || !skip_post)
+    contract = tsubst_contract (contract, args, tf_warning_or_error, in_decl);
   if (contract == error_mark_node)
     return error_mark_node;
   tree chain = tsubst_contract_conditions_r (TREE_CHAIN (t), args, complain,
-					     in_decl);
+					     in_decl, skip_post);
   if (chain == error_mark_node)
     return error_mark_node;
   return tree_cons (id, contract, chain);
@@ -20768,8 +20782,9 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
 					  DECL_POST_FN (t));
     }
   tree contract_attrs = DECL_CONTRACTS (t);
+  bool skip_post = DECL_POST_FN (t) && undeduced_auto_decl (DECL_POST_FN (t));
   contract_attrs = tsubst_contract_conditions_r (contract_attrs, args,
-						 complain, in_decl);
+						 complain, in_decl, skip_post);
   set_decl_contracts (t, contract_attrs);
 }
 
