@@ -3540,6 +3540,10 @@ find_contract (tree attrs)
 #define CONTRACT_SOURCE_LOCATION(NODE) \
   (EXPR_LOCATION (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
 
+/* The original decl a list of contracts was declared on.  */
+#define CONTRACT_ORIGINAL_DECL(NODE) \
+  (tree_strip_any_location_wrapper (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
+
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */
 #define DECL_UNCHECKED_RESULT(NODE) \
