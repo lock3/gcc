@@ -3,14 +3,20 @@
 
 int fun(int n)
   [[ pre: n != 0 ]]
-  [[ pre: false ]] // FIXME should pre that don't use args fall under trivial?
 {
   [[ assert: false ]]; // { dg-warning "assertion is always .false." }
+  return n;
+}
+
+int fun2(int n)
+  [[ pre: false ]] // { dg-warning "always .false." }
+{
   return n;
 }
 
 int main(int, char**)
 {
   fun(0);
+  fun2(0); // { dg-warning "never satisfied here" }
 }
 
