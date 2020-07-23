@@ -34,3 +34,41 @@ void f5()
 void f6()
   [[post r: true]] // { dg-error "function does not return a value" }
 { }
+
+int f7(int n)
+  [[post: n > 0]]
+{
+  return x; // { dg-error "not declared" }
+}
+
+void f8(int n)
+  [[post: n > 0]]
+{
+  return;
+}
+
+void f9(int n)
+  [[post: n > 0]]
+{
+  return n; // { dg-error "return-statement with a value" }
+}
+
+int f10(int n)
+  [[post: n > 0]]
+{
+  return; // { dg-error "return-statement with no value" }
+}
+
+void f11()
+  [[post: true]]
+{
+  constexpr int n = 0;
+  return n; // { dg-error "return-statement with a value" }
+}
+
+int f12()
+  [[post: true]]
+{
+  return; // { dg-error "return-statement with no value" }
+}
+

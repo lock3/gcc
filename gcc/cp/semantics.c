@@ -1000,7 +1000,7 @@ build_contract_functor_declaration (tree fndecl, bool pre)
       tree name = get_identifier ("__r");
       tree parm = build_lang_decl (PARM_DECL, name, value_type);
       DECL_CONTEXT (parm) = fn;
-      chainon (DECL_ARGUMENTS (fn), parm);
+      DECL_ARGUMENTS (fn) = chainon (DECL_ARGUMENTS (fn), parm);
 
       *last = build_tree_list (NULL_TREE, value_type);
       TREE_CHAIN (*last) = void_list_node;
@@ -1793,10 +1793,21 @@ finish_return_stmt (tree expr)
       && !DECL_CONSTRUCTOR_P (current_function_decl)
       && !DECL_DESTRUCTOR_P (current_function_decl)
       && contract_any_active_p (DECL_CONTRACTS (current_function_decl));
+  /* We should not wrap the returned value in a call to the post fn if
+     there's no value (or an error) when we expect a value, or if there's a
+     value when we expect none.  */
+  if (DECL_UNCHECKED_RESULT (current_function_decl))
+    needs_post &= (expr != NULL_TREE)
+	&& (expr != error_mark_node)
+	&& (TREE_TYPE (expr) != error_mark_node);
+  else
+    needs_post &= (expr == NULL_TREE);
+
   if (needs_post && DECL_POST_FN (current_function_decl) != error_mark_node)
     {
       vec<tree, va_gc> *args = build_arg_list (current_function_decl);
-      vec_safe_push (args, expr); // FIXME do we need forward_parm or similar?
+      if (DECL_UNCHECKED_RESULT (current_function_decl))
+	vec_safe_push (args, expr); // FIXME do we need forward_parm or similar?
 
       if (undeduced_auto_decl (DECL_POST_FN (current_function_decl)))
 	apply_post_deduced_return_type (current_function_decl,
