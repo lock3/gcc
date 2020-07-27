@@ -729,7 +729,7 @@ package body Sem_Ch8 is
          --  For subprograms, propagate the Intrinsic flag, to allow, e.g.
          --  renamings and subsequent instantiations of Unchecked_Conversion.
 
-         if Ekind_In (Old_P, E_Generic_Function, E_Generic_Procedure) then
+         if Is_Generic_Subprogram (Old_P) then
             Set_Is_Intrinsic_Subprogram
               (New_P, Is_Intrinsic_Subprogram (Old_P));
          end if;
@@ -1040,8 +1040,8 @@ package body Sem_Ch8 is
 
          if Nkind (Nam) = N_Type_Conversion
            and then not Comes_From_Source (Nam)
-           and then Ekind (Etype (Expression (Nam))) in Anonymous_Access_Kind
-           and then Ekind (T) not in Anonymous_Access_Kind
+           and then Is_Anonymous_Access_Type (Etype (Expression (Nam)))
+           and then not Is_Anonymous_Access_Type (T)
          then
             Wrong_Type (Expression (Nam), T); -- Should we give better error???
          end if;
@@ -2004,15 +2004,14 @@ package body Sem_Ch8 is
       --  Ada 2005 (AI-423): Given renaming Ren of subprogram Sub, check the
       --  following AI rules:
       --
-      --    If Ren is a renaming of a formal subprogram and one of its
-      --    parameters has a null exclusion, then the corresponding formal
-      --    in Sub must also have one. Otherwise the subtype of the Sub's
-      --    formal parameter must exclude null.
+      --    If Ren denotes a generic formal object of a generic unit G, and the
+      --    renaming (or instantiation containing the actual) occurs within the
+      --    body of G or within the body of a generic unit declared within the
+      --    declarative region of G, then the corresponding parameter of G
+      --    shall have a null_exclusion; Otherwise the subtype of the Sub's
+      --    formal parameter shall exclude null.
       --
-      --    If Ren is a renaming of a formal function and its return
-      --    profile has a null exclusion, then Sub's return profile must
-      --    have one. Otherwise the subtype of Sub's return profile must
-      --    exclude null.
+      --    Similarly for its return profile.
 
       procedure Check_SPARK_Primitive_Operation (Subp_Id : Entity_Id);
       --  Ensure that a SPARK renaming denoted by its entity Subp_Id does not
@@ -2579,20 +2578,38 @@ package body Sem_Ch8 is
          Ren_Formal : Entity_Id;
          Sub_Formal : Entity_Id;
 
+         function Null_Exclusion_Mismatch
+           (Renaming : Entity_Id; Renamed : Entity_Id) return Boolean;
+         --  Return True if there is a null exclusion mismatch between
+         --  Renaming and Renamed, False otherwise.
+
+         -----------------------------
+         -- Null_Exclusion_Mismatch --
+         -----------------------------
+
+         function Null_Exclusion_Mismatch
+           (Renaming : Entity_Id; Renamed : Entity_Id) return Boolean is
+         begin
+            return Has_Null_Exclusion (Parent (Renaming))
+              and then
+                not (Has_Null_Exclusion (Parent (Renamed))
+                      or else (Can_Never_Be_Null (Etype (Renamed))
+                                and then not
+                                  (Is_Formal_Subprogram (Sub)
+                                   and then In_Generic_Body (Current_Scope))));
+         end Null_Exclusion_Mismatch;
+
       begin
          --  Parameter check
 
          Ren_Formal := First_Formal (Ren);
          Sub_Formal := First_Formal (Sub);
          while Present (Ren_Formal) and then Present (Sub_Formal) loop
-            if Has_Null_Exclusion (Parent (Ren_Formal))
-              and then
-                not (Has_Null_Exclusion (Parent (Sub_Formal))
-                      or else Can_Never_Be_Null (Etype (Sub_Formal)))
-            then
+            if Null_Exclusion_Mismatch (Ren_Formal, Sub_Formal) then
+               Error_Msg_Sloc := Sloc (Sub_Formal);
                Error_Msg_NE
-                 ("`NOT NULL` required for parameter &",
-                  Parent (Sub_Formal), Sub_Formal);
+                 ("`NOT NULL` required for parameter &#",
+                  Ren_Formal, Sub_Formal);
             end if;
 
             Next_Formal (Ren_Formal);
@@ -2603,13 +2620,10 @@ package body Sem_Ch8 is
 
          if Nkind (Parent (Ren)) = N_Function_Specification
            and then Nkind (Parent (Sub)) = N_Function_Specification
-           and then Has_Null_Exclusion (Parent (Ren))
-           and then not (Has_Null_Exclusion (Parent (Sub))
-                          or else Can_Never_Be_Null (Etype (Sub)))
+           and then Null_Exclusion_Mismatch (Ren, Sub)
          then
-            Error_Msg_N
-              ("return must specify `NOT NULL`",
-               Result_Definition (Parent (Sub)));
+            Error_Msg_Sloc := Sloc (Sub);
+            Error_Msg_N ("return must specify `NOT NULL`#", Ren);
          end if;
       end Check_Null_Exclusion;
 
@@ -3146,6 +3160,22 @@ package body Sem_Ch8 is
             Error_Msg_NE ("subprogram& is not overriding", N, Rename_Spec);
          end if;
 
+         --  AI12-0132: a renames-as-body freezes the expression of any
+         --  expression function that it renames.
+
+         if Is_Entity_Name (Nam)
+           and then Is_Expression_Function (Entity (Nam))
+           and then not Inside_A_Generic
+         then
+            Freeze_Expr_Types
+              (Def_Id => Entity (Nam),
+               Typ    => Etype (Entity (Nam)),
+               Expr   =>
+                 Expression
+                   (Original_Node (Unit_Declaration_Node (Entity (Nam)))),
+               N      => N);
+         end if;
+
       --  Normal subprogram renaming (not renaming as body)
 
       else
@@ -3453,10 +3483,6 @@ package body Sem_Ch8 is
                or else Is_Compilation_Unit (Current_Scope)
             then
                Check_Mode_Conformant (New_S, Old_S);
-            end if;
-
-            if Is_Actual and then Error_Posted (New_S) then
-               Error_Msg_NE ("invalid actual subprogram: & #!", N, Old_S);
             end if;
          end if;
 
@@ -3971,20 +3997,19 @@ package body Sem_Ch8 is
          Set_Prev_Use_Clause (N, Current_Use_Clause (Pack));
       end if;
 
-      --  Mark all entities as potentially use visible.
+      --  Mark all entities as potentially use visible
 
       if Ekind (Pack) /= E_Package and then Etype (Pack) /= Any_Type then
          if Ekind (Pack) = E_Generic_Package then
             Error_Msg_N  -- CODEFIX
               ("a generic package is not allowed in a use clause", Name (N));
 
-         elsif Ekind_In (Pack, E_Generic_Function, E_Generic_Package)
-         then
+         elsif Is_Generic_Subprogram (Pack) then
             Error_Msg_N  -- CODEFIX
               ("a generic subprogram is not allowed in a use clause",
                Name (N));
 
-         elsif Ekind_In (Pack, E_Function, E_Procedure, E_Operator) then
+         elsif Is_Subprogram (Pack) then
             Error_Msg_N  -- CODEFIX
               ("a subprogram is not allowed in a use clause", Name (N));
 
@@ -5011,7 +5036,12 @@ package body Sem_Ch8 is
       --  not know what procedure is being called if the procedure might be
       --  overloaded, so it is premature to go setting referenced flags or
       --  making calls to Generate_Reference. We will wait till Resolve_Actuals
-      --  for that processing
+      --  for that processing.
+      --  Note: there is a similar routine Sem_Util.Is_Actual_Parameter, but
+      --  it works for both function and procedure calls, while here we are
+      --  only concerned with procedure calls (and with entry calls as well,
+      --  but they are parsed as procedure calls and only later rewritten to
+      --  entry calls).
 
       function Known_But_Invisible (E : Entity_Id) return Boolean;
       --  This function determines whether a reference to the entity E, which
@@ -5132,15 +5162,24 @@ package body Sem_Ch8 is
 
       function Is_Actual_Parameter return Boolean is
       begin
-         return
-           Nkind (N) = N_Identifier
-             and then
-               (Nkind (Parent (N)) = N_Procedure_Call_Statement
-                 or else
-                   (Nkind (Parent (N)) = N_Parameter_Association
-                     and then N = Explicit_Actual_Parameter (Parent (N))
-                     and then Nkind (Parent (Parent (N))) =
-                                          N_Procedure_Call_Statement));
+         if Nkind (N) = N_Identifier then
+            case Nkind (Parent (N)) is
+               when N_Procedure_Call_Statement =>
+                  return Is_List_Member (N)
+                    and then List_Containing (N) =
+                      Parameter_Associations (Parent (N));
+
+               when N_Parameter_Association =>
+                  return N = Explicit_Actual_Parameter (Parent (N))
+                    and then Nkind (Parent (Parent (N))) =
+                               N_Procedure_Call_Statement;
+
+               when others =>
+                  return False;
+            end case;
+         else
+            return False;
+         end if;
       end Is_Actual_Parameter;
 
       -------------------------
@@ -6024,9 +6063,9 @@ package body Sem_Ch8 is
 
                begin
                   --  Generate reference unless this is an actual parameter
-                  --  (see comment below)
+                  --  (see comment below).
 
-                  if Reference_OK and then Is_Actual_Parameter then
+                  if Reference_OK and then not Is_Actual_Parameter then
                      Generate_Reference (E, N);
                      Set_Referenced (E, R);
                   end if;
@@ -9438,9 +9477,14 @@ package body Sem_Ch8 is
 
          Set_Redundant_Use (Clause, True);
 
+         --  Do not check for redundant use if clause is generated, or in an
+         --  instance, or in a predefined unit to avoid misleading warnings
+         --  that may occur as part of a rtsfind load.
+
          if not Comes_From_Source (Clause)
            or else In_Instance
            or else not Warn_On_Redundant_Constructs
+           or else Is_Predefined_Unit (Current_Sem_Unit)
          then
             return;
          end if;
@@ -9573,10 +9617,12 @@ package body Sem_Ch8 is
                          Private_Declarations (Parent (Decl))
             then
                declare
-                  Par : constant Entity_Id := Defining_Entity (Parent (Decl));
-                  Spec : constant Node_Id  :=
-                           Specification (Unit (Cunit (Current_Sem_Unit)));
+                  Par      : constant Entity_Id :=
+                    Defining_Entity (Parent (Decl));
+                  Spec     : constant Node_Id  :=
+                    Specification (Unit (Cunit (Current_Sem_Unit)));
                   Cur_List : constant List_Id := List_Containing (Cur_Use);
+
                begin
                   if Is_Compilation_Unit (Par)
                     and then Par /= Cunit_Entity (Current_Sem_Unit)
@@ -9618,7 +9664,7 @@ package body Sem_Ch8 is
 
             Error_Msg_Sloc := Sloc (Prev_Use);
             Error_Msg_NE -- CODEFIX
-              ("& is already use-visible through previous use_clause #??",
+              ("& is already use-visible through previous use_clause #?r?",
                Redundant, Pack_Name);
          end if;
       end Note_Redundant_Use;

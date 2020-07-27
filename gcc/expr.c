@@ -696,12 +696,12 @@ convert_modes (machine_mode mode, machine_mode oldmode, rtx x, int unsignedp)
     return x;
 
   if (CONST_SCALAR_INT_P (x)
-      && is_int_mode (mode, &int_mode))
+      && is_a <scalar_int_mode> (mode, &int_mode))
     {
       /* If the caller did not tell us the old mode, then there is not
 	 much to do with respect to canonicalization.  We have to
 	 assume that all the bits are significant.  */
-      if (GET_MODE_CLASS (oldmode) != MODE_INT)
+      if (!is_a <scalar_int_mode> (oldmode))
 	oldmode = MAX_MODE_INT;
       wide_int w = wide_int::from (rtx_mode_t (x, oldmode),
 				   GET_MODE_PRECISION (int_mode),
@@ -8379,7 +8379,12 @@ expand_constructor (tree exp, rtx target, enum expand_modifier modifier,
   /* Handle calls that pass values in multiple non-contiguous
      locations.  The Irix 6 ABI has examples of this.  */
   if (target == 0 || ! safe_from_p (target, exp, 1)
-      || GET_CODE (target) == PARALLEL || modifier == EXPAND_STACK_PARM)
+      || GET_CODE (target) == PARALLEL || modifier == EXPAND_STACK_PARM
+      /* Also make a temporary if the store is to volatile memory, to
+	 avoid individual accesses to aggregate members.  */
+      || (GET_CODE (target) == MEM
+	  && MEM_VOLATILE_P (target)
+	  && !TREE_ADDRESSABLE (TREE_TYPE (exp))))
     {
       if (avoid_temp_mem)
 	return NULL_RTX;
@@ -8664,7 +8669,9 @@ expand_expr_real_2 (sepops ops, rtx target, machine_mode tmode,
   reduce_bit_field = (INTEGRAL_TYPE_P (type)
 		      && !type_has_mode_precision_p (type));
 
-  if (reduce_bit_field && modifier == EXPAND_STACK_PARM)
+  if (reduce_bit_field
+      && (modifier == EXPAND_STACK_PARM
+	  || (target && GET_MODE (target) != mode)))
     target = 0;
 
   /* Use subtarget as the target for operand 0 of a binary operation.  */
@@ -11525,26 +11532,26 @@ expand_expr_real_1 (tree exp, rtx target, machine_mode tmode,
 static rtx
 reduce_to_bit_field_precision (rtx exp, rtx target, tree type)
 {
+  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (type);
   HOST_WIDE_INT prec = TYPE_PRECISION (type);
-  if (target && GET_MODE (target) != GET_MODE (exp))
-    target = 0;
-  /* For constant values, reduce using build_int_cst_type. */
-  poly_int64 const_exp;
-  if (poly_int_rtx_p (exp, &const_exp))
+  gcc_assert ((GET_MODE (exp) == VOIDmode || GET_MODE (exp) == mode)
+	      && (!target || GET_MODE (target) == mode));
+
+  /* For constant values, reduce using wide_int_to_tree. */
+  if (poly_int_rtx_p (exp))
     {
-      tree t = build_int_cst_type (type, const_exp);
+      auto value = wi::to_poly_wide (exp, mode);
+      tree t = wide_int_to_tree (type, value);
       return expand_expr (t, target, VOIDmode, EXPAND_NORMAL);
     }
   else if (TYPE_UNSIGNED (type))
     {
-      scalar_int_mode mode = as_a <scalar_int_mode> (GET_MODE (exp));
       rtx mask = immed_wide_int_const
 	(wi::mask (prec, false, GET_MODE_PRECISION (mode)), mode);
       return expand_and (mode, exp, mask, target);
     }
   else
     {
-      scalar_int_mode mode = as_a <scalar_int_mode> (GET_MODE (exp));
       int count = GET_MODE_PRECISION (mode) - prec;
       exp = expand_shift (LSHIFT_EXPR, mode, exp, count, target, 0);
       return expand_shift (RSHIFT_EXPR, mode, exp, count, target, 0);
@@ -11822,12 +11829,12 @@ string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
       while (TREE_CODE (chartype) == ARRAY_TYPE)
 	chartype = TREE_TYPE (chartype);
       /* Convert a char array to an empty STRING_CST having an array
-	 of the expected type.  */
+	 of the expected type and size.  */
       if (!initsize)
 	  initsize = integer_zero_node;
 
       unsigned HOST_WIDE_INT size = tree_to_uhwi (initsize);
-      init = build_string_literal (size ? 1 : 0, "", chartype, size);
+      init = build_string_literal (size, NULL, chartype, size);
       init = TREE_OPERAND (init, 0);
       init = TREE_OPERAND (init, 0);
 

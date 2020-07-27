@@ -1,3 +1,274 @@
+2020-07-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	* acinclude.m4 (libtool_VERSION): Bump version.
+	* config.h.in: Regenerate.
+	* config/abi/pre/gnu.ver: Add GLIBCXX_3.4.29 version and new
+	exports.
+	* config/os/gnu-linux/ldbl-extra.ver: Add _GLIBCXX_LDBL_3.4.29
+	version and new export.
+	* configure: Regenerate.
+	* configure.ac: Check for <xlocale.h> and uselocale.
+	* crossconfig.m4: Add macro or checks for uselocale.
+	* include/std/charconv (from_chars): Declare overloads for
+	float, double, and long double.
+	* src/c++17/Makefile.am: Add new file.
+	* src/c++17/Makefile.in: Regenerate.
+	* src/c++17/floating_from_chars.cc: New file.
+	(from_chars): Define for float, double, and long double.
+	* testsuite/20_util/from_chars/1_c++20_neg.cc: Prune extra
+	diagnostics caused by new overloads.
+	* testsuite/20_util/from_chars/1_neg.cc: Likewise.
+	* testsuite/20_util/from_chars/2.cc: Check leading '+'.
+	* testsuite/20_util/from_chars/4.cc: New test.
+	* testsuite/20_util/from_chars/5.cc: New test.
+	* testsuite/util/testsuite_abi.cc: Add new symbol versions.
+
+2020-07-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/istream.tcc
+	(basic_istream::get(__streambuf_type&, char_type): Use unsigned
+	long long for counter and check if it would overflow _M_gcount.
+	* testsuite/27_io/basic_istream/get/char/lwg3464.cc: New test.
+	* testsuite/27_io/basic_istream/get/wchar_t/lwg3464.cc: New test.
+
+2020-07-17  Iain Sandoe  <iain@sandoe.co.uk>
+
+	* include/std/coroutine: Mark the methods of the
+	trivial awaitables as constexpr.
+
+2020-07-14  David Edelsohn  <dje.gcc@gmail.com>
+
+	* config/os/aix/t-aix: Set BITS from compiler cpp macro.
+
+2020-07-13  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/94749
+	PR libstdc++/96161
+	* include/bits/istream.tcc (basic_istream::ignore(streamsize))
+	[n == max]: Check overflow conditions on _M_gcount. Rely on
+	the fact that either EOF or the delimiter was reached.
+	[n < max]: Check _M_gcount < n before checking for EOF or
+	delimiter.
+	(basic_istream::ignore(streamsize, char_type): Likewise.
+	* src/c++98/compatibility.cc (istream::ignore(streamsize))
+	(wistream::ignore(streamsize)): Likewise.
+	* src/c++98/istream.cc (istream::ignore(streamsize, char_type))
+	(wistream::ignore(streamsize, char_type)): Likewise.
+	* testsuite/27_io/basic_istream/ignore/char/94749.cc: Check that
+	delimiter is discarded if the number of characters ignored
+	doesn't fit in streamsize.
+	* testsuite/27_io/basic_istream/ignore/wchar_t/94749.cc:
+	Likewise.
+	* testsuite/27_io/basic_istream/ignore/char/96161.cc: New test.
+	* testsuite/27_io/basic_istream/ignore/wchar_t/96161.cc: New test.
+
+2020-07-08  François Dumont  <fdumont@gcc.gnu.org>
+
+	* include/bits/stl_tree.h (_Rb_tree_impl(_Rb_tree_impl&&)): Add noexcept
+	qualification based only on _Compare one.
+	* testsuite/23_containers/map/cons/noexcept_move_construct.cc: Add
+	static asserts.
+	* testsuite/23_containers/multimap/cons/noexcept_move_construct.cc:
+	Likewise.
+	* testsuite/23_containers/multiset/cons/noexcept_move_construct.cc:
+	Likewise.
+	* testsuite/23_containers/set/cons/noexcept_move_construct.cc: Likewise.
+
+2020-07-07  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/limits: Whitespace changes.
+
+2020-07-07  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/Makefile.am: Remove bits/int_limits.h.
+	* include/Makefile.in: Regenerate.
+	* include/bits/int_limits.h: Removed.
+	* include/bits/parse_numbers.h (_Select_int_base): Replace
+	__int_limits with __int_traits.
+	* include/bits/range_access.h (_SSize::operator()): Likewise.
+	* include/ext/numeric_traits.h (__numeric_traits_integer): Add
+	static assertion.
+	(__int_traits): New alias template.
+	* include/std/bit (__rotl, __rotr, __countl_zero, __countl_one)
+	(__countr_zero, __countr_one, __popcount, __bit_ceil)
+	(__bit_floor, __bit_width) Replace __int_limits with
+	__int_traits.
+	* include/std/charconv (__to_chars_8, __from_chars_binary)
+	(__from_chars_alpha_to_num, from_chars): Likewise.
+	* include/std/memory_resource (polymorphic_allocator::allocate)
+	(polymorphic_allocator::allocate_object): Likewise.
+	* include/std/string_view (basic_string_view::_S_compare):
+	Likewise.
+	* include/std/utility (cmp_equal, cmp_less, in_range): Likewise.
+
+2020-07-07  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/limits: Whitespace changes.
+
+2020-07-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/optional (_Optional_payload_base, _Optional_base)
+	(optional, __optional_hash_call_base): Adjust whitespace and
+	other formatting. Remove redundant && tokens on template
+	arguments to type traits.
+
+2020-07-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/optional (make_optional): Add enable_if
+	constraints and noexcept-specifier to each overload.
+	* testsuite/20_util/optional/make_optional-2.cc: New test.
+
+2020-07-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/96036
+	* include/std/optional (optional): Add noexcept-specifier to
+	every constructor, assignment operator, emplace function and
+	dereference operator.
+	* testsuite/20_util/optional/assignment/noexcept.cc: New test.
+	* testsuite/20_util/optional/cons/noexcept.cc: New test.
+
+2020-07-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/96063
+	* include/bits/fs_dir.h: Use consistent tag in class-head.
+	* include/bits/localefwd.h: Likewise.
+	* include/bits/regex.h: Likewise.
+	* include/bits/stl_map.h: Likewise.
+	* include/bits/stl_multimap.h: Likewise.
+	* include/bits/stl_multiset.h: Likewise.
+	* include/bits/stl_set.h: Likewise.
+	* include/std/complex: Likewise.
+	* include/std/functional: Likewise.
+	* include/std/future: Likewise.
+	* include/std/system_error: Likewise.
+	* include/std/thread: Likewise.
+	* include/std/tuple: Likewise.
+	* include/std/type_traits: Likewise.
+	* include/std/valarray: Likewise.
+
+2020-07-02  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/27_io/basic_ios/conv/voidptr.cc: Add c++98_only
+	target selector.
+
+2020-07-02  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/18_support/headers/cstdalign/std_c++0x_neg.cc: Add
+	c++98_only target selector.
+	* testsuite/18_support/headers/cstdbool/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/18_support/headers/cstdint/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/18_support/headers/new/synopsis_cxx98.cc: Likewise.
+	* testsuite/19_diagnostics/headers/system_error/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/20_util/headers/type_traits/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/23_containers/headers/array/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/23_containers/headers/tuple/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/23_containers/headers/unordered_map/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/23_containers/headers/unordered_set/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/26_numerics/headers/ccomplex/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/26_numerics/headers/cfenv/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/26_numerics/headers/cmath/c99_classification_macros_c++98.cc:
+	Likewise.
+	* testsuite/26_numerics/headers/ctgmath/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/26_numerics/headers/random/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/27_io/headers/cinttypes/std_c++0x_neg.cc: Likewise.
+	* testsuite/28_regex/headers/regex/std_c++0x_neg.cc: Likewise.
+	* testsuite/29_atomics/headers/atomic/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/30_threads/headers/condition_variable/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/30_threads/headers/future/std_c++0x_neg.cc:
+	Likewise.
+	* testsuite/30_threads/headers/mutex/std_c++0x_neg.cc: Likewise.
+	* testsuite/30_threads/headers/thread/std_c++0x_neg.cc:
+	Likewise.
+
+2020-07-02  Ville Voutilainen  <ville.voutilainen@gmail.com>
+
+	PR libstdc++/91807
+	* include/std/variant
+	(_Copy_assign_base::operator=(const _Copy_assign_base&):
+	Do the move-assignment from a temporary so that the temporary
+	is constructed with an explicit index.
+	* testsuite/20_util/variant/91807.cc: New.
+
+2020-07-02  Jonathan Wakely  <jwakely.gcc@gmail.com>
+
+	PR libstdc++/91153
+	PR target/93224
+	* testsuite/29_atomics/atomic_float/1.cc: Use different values
+	for tests.
+	* testsuite/29_atomics/atomic_ref/float.cc: Likewise.
+
+2020-07-01  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/94627
+	* include/bits/regex.h (operator==, operator!=): Remove noexcept
+	equality comparisons for match_results.
+	* testsuite/28_regex/match_results/94627.cc: New test.
+
+2020-07-01  Martin Sebor  <msebor@redhat.com>
+
+	* testsuite/21_strings/basic_string_view/cons/char/nonnull.cc: Adjust
+	text of expected warning.
+	* testsuite/21_strings/basic_string_view/cons/wchar_t/nonnull.cc: Same.
+	* testsuite/21_strings/basic_string_view/operations/compare/char/nonnull.cc: Same.
+	* testsuite/21_strings/basic_string_view/operations/find/char/nonnull.cc: Same.
+	* testsuite/21_strings/basic_string_view/operations/rfind/char/nonnull.cc: Same.
+
+2020-06-29  Ville Voutilainen  <ville.voutilainen@gmail.com>
+
+	Revert:
+	2020-06-28  Ville Voutilainen  <ville.voutilainen@gmail.com>
+
+	* include/bits/basic_string.h (string(_CharT*, const _Alloc&)):
+	Add a __nonnull__ attribute.
+	* testsuite/21_strings/basic_string/cons/char/nonnull.cc: New.
+	* testsuite/21_strings/basic_string/cons/wchar_t/nonnull.cc: Likewise.
+
+2020-06-28  Ville Voutilainen  <ville.voutilainen@gmail.com>
+
+	* include/bits/basic_string.h (string(_CharT*, const _Alloc&)):
+	Add a __nonnull__ attribute.
+	* testsuite/21_strings/basic_string/cons/char/nonnull.cc: New.
+	* testsuite/21_strings/basic_string/cons/wchar_t/nonnull.cc: Likewise.
+
+2020-06-28  Ville Voutilainen  <ville.voutilainen@gmail.com>
+
+	PR libstdc++/95915
+	* include/std/type_traits (is_literal_type, is_literal_type_v):
+	Deprecate in C++17.
+	* include/std/variant (_Uninitialized):
+	Adjust the condition and the comment.
+	* testsuite/20_util/is_literal_type/deprecated-1z.cc: New.
+	* testsuite/20_util/is_literal_type/requirements/explicit_instantiation.cc:
+	Adjust.
+	* testsuite/20_util/is_literal_type/requirements/typedefs.cc: Likewise.
+	* testsuite/20_util/is_literal_type/value.cc: Likewise.
+	* testsuite/20_util/optional/constexpr/nullopt.cc:
+	Use __is_literal_type directly.
+	* testsuite/20_util/optional/nullopt.cc: Likewise.
+	* testsuite/20_util/variable_templates_for_traits.cc: Adjust.
+	* testsuite/20_util/variant/95915.cc: New.
+	* testsuite/20_util/variant/compile.cc: Add new test.
+	* testsuite/experimental/optional/constexpr/nullopt.cc:
+	Use __is_literal_type directly.
+	* testsuite/experimental/optional/nullopt.cc: Likewise.
+	* testsuite/experimental/type_traits/value.cc: Adjust.
+	* testsuite/util/testsuite_common_types.h:
+	Use __is_literal_type directly.
+
 2020-06-24  Jonathan Wakely  <jwakely@redhat.com>
 
 	* include/std/charconv (__from_chars_binary): Ignore leading zeros.

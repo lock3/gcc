@@ -15,7 +15,7 @@ export struct X
   }
 };
 
-int frob (int x)
+export int frob (int x)
 {
   return x;
 }

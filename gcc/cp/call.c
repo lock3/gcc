@@ -161,16 +161,9 @@ static int compare_ics (conversion *, conversion *);
 static void maybe_warn_class_memaccess (location_t, tree,
 					const vec<tree, va_gc> *);
 static tree build_over_call (struct z_candidate *, int, tsubst_flags_t);
-#define convert_like(CONV, EXPR, COMPLAIN)			\
-  convert_like_real ((CONV), (EXPR), NULL_TREE, 0,		\
-		     /*issue_conversion_warnings=*/true,	\
-		     /*c_cast_p=*/false, (COMPLAIN))
-#define convert_like_with_context(CONV, EXPR, FN, ARGNO, COMPLAIN )	\
-  convert_like_real ((CONV), (EXPR), (FN), (ARGNO),			\
-		     /*issue_conversion_warnings=*/true,		\
-		     /*c_cast_p=*/false, (COMPLAIN))
-static tree convert_like_real (conversion *, tree, tree, int, bool,
-			       bool, tsubst_flags_t);
+static tree convert_like (conversion *, tree, tsubst_flags_t);
+static tree convert_like_with_context (conversion *, tree, tree, int,
+				       tsubst_flags_t);
 static void op_error (const op_location_t &, enum tree_code, enum tree_code,
 		      tree, tree, tree, bool);
 static struct z_candidate *build_user_type_conversion_1 (tree, tree, int,
@@ -1233,7 +1226,7 @@ standard_conversion (tree to, tree from, tree expr, bool c_cast_p,
     {
       from = type_decays_to (from);
       fcode = TREE_CODE (from);
-      /* Tell convert_like_real that we're using the address.  */
+      /* Tell convert_like that we're using the address.  */
       conv->rvaluedness_matches_p = true;
       conv = build_conv (ck_lvalue, from, conv);
     }
@@ -1254,7 +1247,7 @@ standard_conversion (tree to, tree from, tree expr, bool c_cast_p,
 	}
       conv = build_conv (ck_rvalue, from, conv);
       if (flags & LOOKUP_PREFER_RVALUE)
-	/* Tell convert_like_real to set LOOKUP_PREFER_RVALUE.  */
+	/* Tell convert_like to set LOOKUP_PREFER_RVALUE.  */
 	conv->rvaluedness_matches_p = true;
       /* If we're performing copy-initialization, remember to skip
 	 explicit constructors.  */
@@ -1534,7 +1527,7 @@ standard_conversion (tree to, tree from, tree expr, bool c_cast_p,
 	 the conversion unless we're binding directly to a reference.  */
       conv->need_temporary_p = !(flags & LOOKUP_NO_TEMP_BIND);
       if (flags & LOOKUP_PREFER_RVALUE)
-	/* Tell convert_like_real to set LOOKUP_PREFER_RVALUE.  */
+	/* Tell convert_like to set LOOKUP_PREFER_RVALUE.  */
 	conv->rvaluedness_matches_p = true;
       /* If we're performing copy-initialization, remember to skip
 	 explicit constructors.  */
@@ -2497,7 +2490,7 @@ add_conv_candidate (struct z_candidate **candidates, tree fn, tree obj,
 	  t = build_identity_conv (argtype, NULL_TREE);
 	  t = build_conv (ck_user, totype, t);
 	  /* Leave the 'cand' field null; we'll figure out the conversion in
-	     convert_like_real if this candidate is chosen.  */
+	     convert_like if this candidate is chosen.  */
 	  convert_type = totype;
 	}
       else if (parmnode == void_list_node)
@@ -7309,6 +7302,10 @@ maybe_warn_array_conv (location_t loc, conversion *c, tree expr)
 	     "are only available with %<-std=c++20%> or %<-std=gnu++20%>");
 }
 
+/* We call this recursively in convert_like_internal.  */
+static tree convert_like (conversion *, tree, tree, int, bool, bool,
+			  tsubst_flags_t);
+
 /* Perform the conversions in CONVS on the expression EXPR.  FN and
    ARGNUM are used for diagnostics.  ARGNUM is zero based, -1
    indicates the `this' argument of a method.  INNER is nonzero when
@@ -7320,9 +7317,9 @@ maybe_warn_array_conv (location_t loc, conversion *c, tree expr)
    conversions to inaccessible bases are permitted.  */
 
 static tree
-convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
-		   bool issue_conversion_warnings,
-		   bool c_cast_p, tsubst_flags_t complain)
+convert_like_internal (conversion *convs, tree expr, tree fn, int argnum,
+		       bool issue_conversion_warnings, bool c_cast_p,
+		       tsubst_flags_t complain)
 {
   tree totype = convs->type;
   diagnostic_t diag_kind;
@@ -7376,10 +7373,9 @@ convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
 				      totype);
 	      if (complained)
 		print_z_candidate (loc, N_("candidate is:"), t->cand);
-	      expr = convert_like_real (t, expr, fn, argnum,
-					/*issue_conversion_warnings=*/false,
-					/*c_cast_p=*/false,
-					complain);
+	      expr = convert_like (t, expr, fn, argnum,
+				   /*issue_conversion_warnings=*/false,
+				   /*c_cast_p=*/false, complain);
 	      if (convs->kind == ck_ref_bind)
 		expr = convert_to_reference (totype, expr, CONV_IMPLICIT,
 					     LOOKUP_NORMAL, NULL_TREE,
@@ -7392,17 +7388,15 @@ convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
 	    }
 	  else if (t->kind == ck_user || !t->bad_p)
 	    {
-	      expr = convert_like_real (t, expr, fn, argnum,
-					/*issue_conversion_warnings=*/false,
-					/*c_cast_p=*/false,
-					complain);
+	      expr = convert_like (t, expr, fn, argnum,
+				   /*issue_conversion_warnings=*/false,
+				   /*c_cast_p=*/false, complain);
 	      break;
 	    }
 	  else if (t->kind == ck_ambig)
-	    return convert_like_real (t, expr, fn, argnum,
-				      /*issue_conversion_warnings=*/false,
-				      /*c_cast_p=*/false,
-				      complain);
+	    return convert_like (t, expr, fn, argnum,
+				 /*issue_conversion_warnings=*/false,
+				 /*c_cast_p=*/false, complain);
 	  else if (t->kind == ck_identity)
 	    break;
 	}
@@ -7422,19 +7416,6 @@ convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
 
   if (issue_conversion_warnings && (complain & tf_warning))
     conversion_null_warnings (totype, expr, fn, argnum);
-
-  /* Creating &TARGET_EXPR<> in a template breaks when substituting,
-     and creating a CALL_EXPR in a template breaks in finish_call_expr
-     so use an IMPLICIT_CONV_EXPR for this conversion.  We would have
-     created such codes e.g. when calling a user-defined conversion
-     function.  */
-  if (processing_template_decl
-      && convs->kind != ck_identity
-      && (CLASS_TYPE_P (totype) || CLASS_TYPE_P (TREE_TYPE (expr))))
-    {
-      expr = build1 (IMPLICIT_CONV_EXPR, totype, expr);
-      return convs->kind == ck_ref_bind ? expr : convert_from_reference (expr);
-    }
 
   switch (convs->kind)
     {
@@ -7573,8 +7554,8 @@ convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
 	    /* Convert all the elements.  */
 	    FOR_EACH_CONSTRUCTOR_VALUE (CONSTRUCTOR_ELTS (expr), ix, val)
 	      {
-		tree sub = convert_like_real (convs->u.list[ix], val, fn,
-					      argnum, false, false, complain);
+		tree sub = convert_like (convs->u.list[ix], val, fn,
+					 argnum, false, false, complain);
 		if (sub == error_mark_node)
 		  return sub;
 		if (!BRACE_ENCLOSED_INITIALIZER_P (val)
@@ -7639,10 +7620,10 @@ convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
       break;
     };
 
-  expr = convert_like_real (next_conversion (convs), expr, fn, argnum,
-			    convs->kind == ck_ref_bind
-			    ? issue_conversion_warnings : false, 
-			    c_cast_p, complain);
+  expr = convert_like (next_conversion (convs), expr, fn, argnum,
+		       convs->kind == ck_ref_bind
+		       ? issue_conversion_warnings : false,
+		       c_cast_p, complain);
   if (expr == error_mark_node)
     return error_mark_node;
 
@@ -7895,6 +7876,61 @@ convert_like_real (conversion *convs, tree expr, tree fn, int argnum,
     expr = cp_convert (totype, expr, complain);
 
   return expr;
+}
+
+/* Wrapper for convert_like_internal that handles creating
+   IMPLICIT_CONV_EXPR.  */
+
+static tree
+convert_like (conversion *convs, tree expr, tree fn, int argnum,
+	      bool issue_conversion_warnings, bool c_cast_p,
+	      tsubst_flags_t complain)
+{
+  /* Creating &TARGET_EXPR<> in a template breaks when substituting,
+     and creating a CALL_EXPR in a template breaks in finish_call_expr
+     so use an IMPLICIT_CONV_EXPR for this conversion.  We would have
+     created such codes e.g. when calling a user-defined conversion
+     function.  */
+  tree conv_expr = NULL_TREE;
+  if (processing_template_decl
+      && convs->kind != ck_identity
+      && (CLASS_TYPE_P (convs->type) || CLASS_TYPE_P (TREE_TYPE (expr))))
+    {
+      conv_expr = build1 (IMPLICIT_CONV_EXPR, convs->type, expr);
+      if (convs->kind != ck_ref_bind)
+	conv_expr = convert_from_reference (conv_expr);
+      if (!convs->bad_p)
+	return conv_expr;
+      /* Do the normal processing to give the bad_p errors.  But we still
+	 need to return the IMPLICIT_CONV_EXPR, unless we're returning
+	 error_mark_node.  */
+    }
+  expr = convert_like_internal (convs, expr, fn, argnum,
+				issue_conversion_warnings, c_cast_p, complain);
+  if (expr == error_mark_node)
+    return error_mark_node;
+  return conv_expr ? conv_expr : expr;
+}
+
+/* Convenience wrapper for convert_like.  */
+
+static inline tree
+convert_like (conversion *convs, tree expr, tsubst_flags_t complain)
+{
+  return convert_like (convs, expr, NULL_TREE, 0,
+		       /*issue_conversion_warnings=*/true,
+		       /*c_cast_p=*/false, complain);
+}
+
+/* Convenience wrapper for convert_like.  */
+
+static inline tree
+convert_like_with_context (conversion *convs, tree expr, tree fn, int argnum,
+			   tsubst_flags_t complain)
+{
+  return convert_like (convs, expr, fn, argnum,
+		       /*issue_conversion_warnings=*/true,
+		       /*c_cast_p=*/false, complain);
 }
 
 /* ARG is being passed to a varargs function.  Perform any conversions
@@ -8870,15 +8906,16 @@ build_over_call (struct z_candidate *cand, int flags, tsubst_flags_t complain)
   gcc_assert (j <= nargs);
   nargs = j;
 
-  /* Avoid to do argument-transformation, if warnings for format, and for
-     nonnull are disabled.  Just in case that at least one of them is active
+  /* Avoid performing argument transformation if warnings are disabled.
+     When tf_warning is set and at least one of the warnings is active
      the check_function_arguments function might warn about something.  */
 
   bool warned_p = false;
-  if (warn_nonnull
-      || warn_format
-      || warn_suggest_attribute_format
-      || warn_restrict)
+  if ((complain & tf_warning)
+      && (warn_nonnull
+	  || warn_format
+	  || warn_suggest_attribute_format
+	  || warn_restrict))
     {
       tree *fargs = (!nargs ? argarray
 			    : (tree *) alloca (nargs * sizeof (tree)));
@@ -11971,10 +12008,9 @@ perform_direct_initialization_if_possible (tree type,
       IMPLICIT_CONV_EXPR_DIRECT_INIT (expr) = true;
     }
   else
-    expr = convert_like_real (conv, expr, NULL_TREE, 0,
-			      /*issue_conversion_warnings=*/false,
-			      c_cast_p,
-			      complain);
+    expr = convert_like (conv, expr, NULL_TREE, 0,
+			 /*issue_conversion_warnings=*/false,
+			 c_cast_p, complain);
 
   /* Free all the conversions we allocated.  */
   obstack_free (&conversion_obstack, p);

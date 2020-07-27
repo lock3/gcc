@@ -1948,10 +1948,19 @@ package body Sem_Ch12 is
                   end if;
 
                when N_Formal_Package_Declaration =>
-                  Match :=
-                    Matching_Actual
-                      (Defining_Identifier (Formal),
-                       Defining_Identifier (Original_Node (Analyzed_Formal)));
+                  --  The name of the formal package may be hidden by the
+                  --  formal parameter itself.
+
+                  if Error_Posted (Analyzed_Formal) then
+                     Abandon_Instantiation (Instantiation_Node);
+
+                  else
+                     Match :=
+                       Matching_Actual
+                         (Defining_Identifier (Formal),
+                          Defining_Identifier
+                            (Original_Node (Analyzed_Formal)));
+                  end if;
 
                   if No (Match) then
                      if Partial_Parameterization then
@@ -3851,13 +3860,6 @@ package body Sem_Ch12 is
       Enter_Name (Id);
       Set_Scope_Depth_Value (Id, Scope_Depth (Current_Scope) + 1);
 
-      --  Analyze the aspects of the generic copy to ensure that all generated
-      --  pragmas (if any) perform their semantic effects.
-
-      if Has_Aspects (N) then
-         Analyze_Aspect_Specifications (N, Id);
-      end if;
-
       Push_Scope (Id);
       Enter_Generic_Scope (Id);
       Set_Inner_Instances (Id, New_Elmt_List);
@@ -3940,6 +3942,13 @@ package body Sem_Ch12 is
 
       else
          Set_Etype (Id, Standard_Void_Type);
+      end if;
+
+      --  Analyze the aspects of the generic copy to ensure that all generated
+      --  pragmas (if any) perform their semantic effects.
+
+      if Has_Aspects (N) then
+         Analyze_Aspect_Specifications (N, Id);
       end if;
 
       --  For a library unit, we have reconstructed the entity for the unit,
@@ -5655,8 +5664,7 @@ package body Sem_Ch12 is
          --  If renaming, get original unit
 
          if Present (Renamed_Object (Gen_Unit))
-           and then Ekind_In (Renamed_Object (Gen_Unit), E_Generic_Procedure,
-                                                         E_Generic_Function)
+           and then Is_Generic_Subprogram (Renamed_Object (Gen_Unit))
          then
             Gen_Unit := Renamed_Object (Gen_Unit);
             Set_Is_Instantiated (Gen_Unit);
@@ -11330,9 +11338,8 @@ package body Sem_Ch12 is
             --  access type.
 
             if Ada_Version < Ada_2005
-              or else Ekind (Base_Type (Ftyp)) not in Anonymous_Access_Kind
-              or else Ekind (Base_Type (Etype (Actual)))
-                        not in Anonymous_Access_Kind
+              or else not Is_Anonymous_Access_Type (Base_Type (Ftyp))
+              or else not Is_Anonymous_Access_Type (Base_Type (Etype (Actual)))
             then
                Error_Msg_NE
                  ("type of actual does not match type of&", Actual, Gen_Obj);
@@ -14284,6 +14291,21 @@ package body Sem_Ch12 is
                end if;
 
                exit;
+
+            --  If an ancestor of the generic comes from a formal package
+            --  there is no source for the ancestor body. This is detected
+            --  by examining the scope of the ancestor and its declaration.
+            --  The body, if any is needed, will be available when the
+            --  current unit (containing a formal package) is instantiated.
+
+            elsif Nkind (True_Parent) = N_Package_Specification
+              and then Present (Generic_Parent (True_Parent))
+              and then Nkind
+                (Original_Node (Unit_Declaration_Node
+                  (Scope (Generic_Parent (True_Parent)))))
+                     = N_Formal_Package_Declaration
+            then
+               return;
 
             else
                True_Parent := Parent (True_Parent);

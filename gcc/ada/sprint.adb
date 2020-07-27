@@ -1325,6 +1325,22 @@ package body Sprint is
             Write_Str (" => ");
             Sprint_Node (Expression (Node));
 
+         when N_Iterated_Element_Association =>
+            Set_Debug_Sloc;
+            if Present (Iterator_Specification (Node)) then
+               Sprint_Node (Iterator_Specification (Node));
+            else
+               Sprint_Node (Loop_Parameter_Specification (Node));
+            end if;
+
+            if Present (Key_Expression (Node)) then
+               Write_Str (" use ");
+               Sprint_Node (Key_Expression (Node));
+            end if;
+
+            Write_Str (" => ");
+            Sprint_Node (Expression (Node));
+
          when N_Component_Clause =>
             Write_Indent;
             Sprint_Node (Component_Name (Node));
@@ -2391,6 +2407,7 @@ package body Sprint is
 
                   if Present (Expression (Node))
                     and then Expression (Node) /= Error
+                    and then not No_Initialization (Node)
                   then
                      Write_Str (" := ");
                      Sprint_Node (Expression (Node));

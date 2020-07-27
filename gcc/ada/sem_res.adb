@@ -178,6 +178,7 @@ package body Sem_Res is
    procedure Resolve_Case_Expression           (N : Node_Id; Typ : Entity_Id);
    procedure Resolve_Character_Literal         (N : Node_Id; Typ : Entity_Id);
    procedure Resolve_Comparison_Op             (N : Node_Id; Typ : Entity_Id);
+   procedure Resolve_Declare_Expression        (N : Node_Id; Typ : Entity_Id);
    procedure Resolve_Entity_Name               (N : Node_Id; Typ : Entity_Id);
    procedure Resolve_Equality_Op               (N : Node_Id; Typ : Entity_Id);
    procedure Resolve_Explicit_Dereference      (N : Node_Id; Typ : Entity_Id);
@@ -2285,10 +2286,18 @@ package body Sem_Res is
       Check_Parameterless_Call (N);
 
       --  The resolution of an Expression_With_Actions is determined by
-      --  its Expression.
+      --  its Expression, but if the node comes from source it is a
+      --  Declare_Expression and requires scope management.
 
       if Nkind (N) = N_Expression_With_Actions then
-         Resolve (Expression (N), Typ);
+         if Comes_From_Source (N)
+            and then N = Original_Node (N)
+         then
+            Resolve_Declare_Expression (N, Typ);
+
+         else
+            Resolve (Expression (N), Typ);
+         end if;
 
          Found := True;
          Expr_Type := Etype (Expression (N));
@@ -2767,6 +2776,17 @@ package body Sem_Res is
             elsif Nkind (N) = N_Aggregate
               and then Etype (N) = Any_Composite
             then
+               if Ada_Version >= Ada_2020
+                 and then Has_Aspect (Typ, Aspect_Aggregate)
+               then
+                  Resolve_Container_Aggregate (N, Typ);
+
+                  if Expander_Active then
+                     Expand (N);
+                  end if;
+                  return;
+               end if;
+
                --  Disable expansion in any case. If there is a type mismatch
                --  it may be fatal to try to expand the aggregate. The flag
                --  would otherwise be set to false when the error is posted.
@@ -3015,7 +3035,7 @@ package body Sem_Res is
          Resolution_Failed;
          return;
 
-      --  Only one intepretation
+      --  Only one interpretation
 
       else
          --  In Ada 2005, if we have something like "X : T := 2 + 2;", where
@@ -4621,6 +4641,7 @@ package body Sem_Res is
                      --  This is for Starlet only though, so long obsolete.
 
                      if Mechanism (F) = By_Reference
+                       and then Ekind (Nam) = E_Procedure
                        and then Is_Valued_Procedure (Nam)
                      then
                         null;
@@ -6552,7 +6573,7 @@ package body Sem_Res is
 
          if Same_Or_Aliased_Subprograms (Nam, Scop)
            and then not Restriction_Active (No_Recursion)
-           and then not Is_Static_Expression_Function (Scop)
+           and then not Is_Static_Function (Scop)
            and then Check_Infinite_Recursion (N)
          then
             --  Here we detected and flagged an infinite recursion, so we do
@@ -6570,11 +6591,10 @@ package body Sem_Res is
             Scope_Loop : while Scop /= Standard_Standard loop
                if Same_Or_Aliased_Subprograms (Nam, Scop) then
 
-                  --  Ada 202x (AI12-0075): Static expression function are
-                  --  never allowed to make a recursive call, as specified
-                  --  by 6.8(5.4/5).
+                  --  Ada 202x (AI12-0075): Static functions are never allowed
+                  --  to make a recursive call, as specified by 6.8(5.4/5).
 
-                  if Is_Static_Expression_Function (Scop) then
+                  if Is_Static_Function (Scop) then
                      Error_Msg_N
                        ("recursive call not allowed in static expression "
                           & "function", N);
@@ -6737,7 +6757,7 @@ package body Sem_Res is
         or else Is_Build_In_Place_Function (Nam)
         or else Is_Intrinsic_Subprogram (Nam)
         or else Is_Inlinable_Expression_Function (Nam)
-        or else Is_Static_Expression_Function_Call (N)
+        or else Is_Static_Function_Call (N)
       then
          null;
 
@@ -7011,10 +7031,10 @@ package body Sem_Res is
       --  when doing the inlining).
 
       if not Checking_Potentially_Static_Expression
-        and then Is_Static_Expression_Function_Call (N)
+        and then Is_Static_Function_Call (N)
         and then not Error_Posted (Ultimate_Alias (Nam))
       then
-         Inline_Static_Expression_Function_Call (N, Ultimate_Alias (Nam));
+         Inline_Static_Function_Call (N, Ultimate_Alias (Nam));
 
       --  In GNATprove mode, expansion is disabled, but we want to inline some
       --  subprograms to facilitate formal verification. Indirect calls through
@@ -7398,6 +7418,49 @@ package body Sem_Res is
          Eval_Relational_Op (N);
       end if;
    end Resolve_Comparison_Op;
+
+   --------------------------------
+   -- Resolve_Declare_Expression --
+   --------------------------------
+
+   procedure Resolve_Declare_Expression
+     (N   : Node_Id;
+      Typ : Entity_Id)
+   is
+      Decl : Node_Id;
+   begin
+      --  Install the scope created for local declarations, if
+      --  any. The syntax allows a Declare_Expression with no
+      --  declarations, in analogy with block statements.
+
+      Decl := First (Actions (N));
+
+      while Present (Decl) loop
+         exit when Nkind (Decl) = N_Object_Declaration;
+         Next (Decl);
+      end loop;
+
+      if Present (Decl) then
+         Push_Scope (Scope (Defining_Identifier (Decl)));
+
+         declare
+            E : Entity_Id := First_Entity (Current_Scope);
+
+         begin
+            while Present (E) loop
+               Set_Current_Entity (E);
+               Set_Is_Immediately_Visible (E);
+               Next_Entity (E);
+            end loop;
+         end;
+
+         Resolve (Expression (N), Typ);
+         End_Scope;
+
+      else
+         Resolve (Expression (N), Typ);
+      end if;
+   end Resolve_Declare_Expression;
 
    -----------------------------------------
    -- Resolve_Discrete_Subtype_Indication --
@@ -7784,7 +7847,7 @@ package body Sem_Res is
          --  to the discriminant of the same name in the target task. If the
          --  entry name is the target of a requeue statement and the entry is
          --  in the current protected object, the bound to be used is the
-         --  discriminal of the object (see Apply_Range_Checks for details of
+         --  discriminal of the object (see Apply_Range_Check for details of
          --  the transformation).
 
          -----------------------------
@@ -7950,6 +8013,17 @@ package body Sem_Res is
          Nam := Entity (Selector_Name (Prefix (Entry_Name)));
          Resolve (Prefix (Prefix (Entry_Name)));
          Resolve_Implicit_Dereference (Prefix (Prefix (Entry_Name)));
+
+         --  We do not resolve the prefix because an Entry_Family has no type,
+         --  although it has the semantics of an array since it can be indexed.
+         --  In order to perform the associated range check, we would need to
+         --  build an array type on the fly and set it on the prefix, but this
+         --  would be wasteful since only the index type matters. Therefore we
+         --  attach this index type directly, so that Actual_Index_Expression
+         --  can pick it up later in order to generate the range check.
+
+         Set_Etype (Prefix (Entry_Name), Actual_Index_Type (Nam));
+
          Index := First (Expressions (Entry_Name));
          Resolve (Index, Entry_Index_Type (Nam));
 
@@ -7965,7 +8039,7 @@ package body Sem_Res is
          if Nkind (Index) = N_Parameter_Association then
             Error_Msg_N ("expect expression for entry index", Index);
          else
-            Apply_Range_Check (Index, Actual_Index_Type (Nam));
+            Apply_Scalar_Range_Check (Index, Etype (Prefix (Entry_Name)));
          end if;
       end if;
    end Resolve_Entry;
@@ -8743,18 +8817,102 @@ package body Sem_Res is
    -------------------------------------
 
    procedure Resolve_Expression_With_Actions (N : Node_Id; Typ : Entity_Id) is
+
+      function OK_For_Static (Act : Node_Id) return Boolean;
+      --  True if Act is an action of a declare_expression that is allowed in a
+      --  static declare_expression.
+
+      function All_OK_For_Static return Boolean;
+      --  True if all actions of N are allowed in a static declare_expression.
+
+      function Get_Literal (Expr : Node_Id) return Node_Id;
+      --  Expr is an expression with compile-time-known value. This returns the
+      --  literal node that reprsents that value.
+
+      function OK_For_Static (Act : Node_Id) return Boolean is
+      begin
+         case Nkind (Act) is
+            when N_Object_Declaration =>
+               if Constant_Present (Act)
+                 and then Is_Static_Expression (Expression (Act))
+               then
+                  return True;
+               end if;
+
+            when N_Object_Renaming_Declaration =>
+               if Statically_Names_Object (Name (Act)) then
+                  return True;
+               end if;
+
+            when others =>
+               --  No other declarations, nor even pragmas, are allowed in a
+               --  declare expression, so if we see something else, it must be
+               --  an internally generated expression_with_actions.
+               null;
+         end case;
+
+         return False;
+      end OK_For_Static;
+
+      function All_OK_For_Static return Boolean is
+         Act : Node_Id := First (Actions (N));
+      begin
+         while Present (Act) loop
+            if not OK_For_Static (Act) then
+               return False;
+            end if;
+
+            Next (Act);
+         end loop;
+
+         return True;
+      end All_OK_For_Static;
+
+      function Get_Literal (Expr : Node_Id) return Node_Id is
+         pragma Assert (Compile_Time_Known_Value (Expr));
+         Result : Node_Id;
+      begin
+         case Nkind (Expr) is
+            when N_Has_Entity =>
+               if Ekind (Entity (Expr)) = E_Enumeration_Literal then
+                  Result := Expr;
+               else
+                  Result := Constant_Value (Entity (Expr));
+               end if;
+            when N_Numeric_Or_String_Literal =>
+               Result := Expr;
+            when others =>
+               raise Program_Error;
+         end case;
+
+         pragma Assert
+           (Nkind (Result) in N_Numeric_Or_String_Literal
+              or else Ekind (Entity (Result)) = E_Enumeration_Literal);
+         return Result;
+      end Get_Literal;
+
+      Loc : constant Source_Ptr := Sloc (N);
+
    begin
       Set_Etype (N, Typ);
 
-      --  If N has no actions, and its expression has been constant folded,
-      --  then rewrite N as just its expression. Note, we can't do this in
-      --  the general case of Is_Empty_List (Actions (N)) as this would cause
-      --  Expression (N) to be expanded again.
+      if Is_Empty_List (Actions (N)) then
+         pragma Assert (All_OK_For_Static); null;
+      end if;
 
-      if Is_Empty_List (Actions (N))
-        and then Compile_Time_Known_Value (Expression (N))
-      then
-         Rewrite (N, Expression (N));
+      --  If the value of the expression is known at compile time, and all
+      --  of the actions (if any) are suitable, then replace the declare
+      --  expression with its expression. This allows the declare expression
+      --  as a whole to be static if appropriate. See AI12-0368.
+
+      if Compile_Time_Known_Value (Expression (N)) then
+         if Is_Empty_List (Actions (N)) then
+            Rewrite (N, Expression (N));
+         elsif All_OK_For_Static then
+            Rewrite
+              (N, New_Copy_Tree
+                    (Get_Literal (Expression (N)), New_Sloc => Loc));
+         end if;
       end if;
    end Resolve_Expression_With_Actions;
 
@@ -8997,7 +9155,7 @@ package body Sem_Res is
          Array_Type := Implicitly_Designated_Type (Array_Type);
       end if;
 
-      --  If name was overloaded, set component type correctly now
+      --  If name was overloaded, set component type correctly now.
       --  If a misplaced call to an entry family (which has no index types)
       --  return. Error will be diagnosed from calling context.
 
@@ -9019,15 +9177,11 @@ package body Sem_Res is
          Resolve (Expr, Standard_Positive);
 
       else
-         while Present (Index) and Present (Expr) loop
+         while Present (Index) and then Present (Expr) loop
             Resolve (Expr, Etype (Index));
             Check_Unset_Reference (Expr);
 
-            if Is_Scalar_Type (Etype (Expr)) then
-               Apply_Scalar_Range_Check (Expr, Etype (Index));
-            else
-               Apply_Range_Check (Expr, Get_Actual_Subtype (Index));
-            end if;
+            Apply_Scalar_Range_Check (Expr, Etype (Index));
 
             Next_Index (Index);
             Next (Expr);
@@ -10257,13 +10411,8 @@ package body Sem_Res is
    begin
       Set_Etype (N, Typ);
 
-      --  The lower bound should be in Typ. The higher bound can be in Typ's
-      --  base type if the range is null. It may still be invalid if it is
-      --  higher than the lower bound. This is checked later in the context in
-      --  which the range appears.
-
       Resolve (L, Typ);
-      Resolve (H, Base_Type (Typ));
+      Resolve (H, Typ);
 
       --  Reanalyze the lower bound after both bounds have been analyzed, so
       --  that the range is known to be static or not by now. This may trigger
@@ -11530,6 +11679,7 @@ package body Sem_Res is
          --  odd subtype coming from the bounds).
 
          if (Is_Entity_Name (Orig_N)
+              and then Present (Entity (Orig_N))
               and then
                 (Etype (Entity (Orig_N)) = Orig_T
                   or else
@@ -11584,17 +11734,15 @@ package body Sem_Res is
             --  entity, give the name of the entity in the message. If not,
             --  just mention the expression.
 
-            --  Shoudn't we test Warn_On_Redundant_Constructs here ???
-
             else
                if Is_Entity_Name (Orig_N) then
                   Error_Msg_Node_2 := Orig_T;
                   Error_Msg_NE -- CODEFIX
-                    ("??redundant conversion, & is of type &!",
+                    ("?r?redundant conversion, & is of type &!",
                      N, Entity (Orig_N));
                else
                   Error_Msg_NE
-                    ("??redundant conversion, expression is of type&!",
+                    ("?r?redundant conversion, expression is of type&!",
                      N, Orig_T);
                end if;
             end if;

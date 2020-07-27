@@ -1,4 +1,216 @@
+2020-07-22  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/c-family/
+	* c-ada-spec.c (decl_sloc): Revert to trunk.
+
+	Merge trunk 6e1e0decc9e.
+
+	Unbreak Ada
+	gcc/
+	* gcc.c (execute): Disable argv[0] munging.
+
+2020-07-21  Nathan Sidwell  <nathan@acm.org>
+
+	Sadly Ada still broken :(
+	gcc/c-family/
+	* c-ada-spec.c (decl_sloc): Actually return the field's loc.
+
+2020-07-20  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* rtti.c (init_rtti_processing): Unbreak bootstrap.
+
+	Merge trunk a926eeedf43.
+
+2020-07-17  Nathan Sidwell  <nathan@acm.org>
+
+	libcpp/
+	* files.c (_cpp_stack_file): Remove FIXME.
+	* include/cpplib.h (cpp_main_loc): Declare.
+	* init.c (cpp_read_main_file): Set main loc.
+	(cpp_main_loc): New.
+	* internal.h (struct cpp_reader): Add main_loc.
+	gcc/cp/
+	* module.cc (main_source_loc): Delete.
+	(module_translate_include): Use cpp_main_loc.
+	(begin_header_unit, preprocess_module, preprocessed_module)
+	(init_modules, finish_module_processing): Likewise.
+	(fini_modules): Adjust.
+
+2020-07-16  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* module.cc (module_may_redeclare): Deal with declaring a builtin
+	in a header unit.
+	* rtti.c (init_rtti_processing): The type is not exported.
+
+	libcpp/
+	* directives.c (do_include_common): Drop FIXME question.
+	* lex.c (cpp_maybe_module_directive): C++ keywords are not a thing
+	here.
+	(cpp_directive_only_process): Add assert.
+
+	libcpp/
+	* include/cpplib.h (struct cpp_callbacks): Adjust
+	translate_include's return type.
+	* files.c (_cpp_stack_file): Push the buffer returned by the hook.
+	* lex.c (_cpp_clean_line): Fix buffer overrun.
+	gcc/
+	* langhooks.h (struct lang_hooks): Change
+	preprocess_translate_include's return type.
+	gcc/cp/
+	* cp-tree.h (module_translate_include): Change return type.
+	* module.cc (module_translate_include): Return a buffer, don't
+	push it.
+
+	libcpp/
+	* include/cpplib.h (enum cpp_main_search): New.
+	(struct cpp_options): Adjust.
+	* init.c (cpp_read_main_file): Adjust.
+	* macro.c (cpp_get_token_1): Remove FIXME.
+	gcc/cp/
+	* module.cc (handle_module_option): Adjust.
+
+	gcc/cp/
+	* pt.c (tsubst_expr): Do not process using decls again.
+	gcc/testsuite/
+	* g++.dg/modules/using-6_a.C: Enable elided code.
+	* g++.dg/modules/using-8_[ab].C: New.
+
+2020-07-15  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 765fbbf9bb3.
+
+2020-07-14  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 5f809982e8e.
+
+2020-07-13  Nathan Sidwell  <nathan@acm.org>
+
+	Delete now-unused new pieces.
+	gcc/
+	* toplev.h (original_argc, original_argv): Delete.
+	* toplev.c (original_argc, original_argv): Delete.
+	gcc/cp/
+	* cp-tree.h (DECL_CHECK): Delete.
+	gcc/c-family
+	* c-pragma.h (C_LEX_STRING_IS_HEADER): Delete.
+
+	gcc/cp/
+	* module.cc (module_state::set_filename): New.
+	(module_state::do_import): Drop fname arg.
+	(module_state::read_imports): Set filename here.
+	(module_state::write_locations): Drop duplicate FIXME.
+	(module_state::read_macros): Drop out of date FIXME.
+	(direct_import): Adjust.
+	(module_translate): Set filename if we're told it.
+	(preprocess_module): Copy if filename already known.
+	(preprocessed_module, init_modules): Adjust.
+
+	gcc/cp/
+	* module.cc (module_state::read_cluster): Add FIXME about
+	unnecessary deduping.
+	* name-lookup.c (name_lookup::process_module_binding): Remove
+	FIXME.
+	(name_lookup::adl_namespace_fns): Likewise.
+	(name_lookup::search_adl): Likewise.
+	(do_push_nested_namespace): Likewise.
+
+	gcc/testsuite/
+	* lib/scanlang.exp (scan-lang-dump-not): Fix 3-arg case.
+	* g++.dg/modules/builtin-3_a.C: Remove unnecessary bracing.
+
+	Merge trunk a1faa8e2470.
+
+	Fix polymorphic type info emission and key-function confusion
+	gcc/cp/
+	* module.cc (trees_out::core_bools): Calculate externalness from
+	POV of importer.
+	(trees_{in,out{::lang_decl_bools): Do not stream
+	not_really_extern.
+	(trees_in::read_{var,function}_def): Recalculate
+	not_really_extern.
+	(trees_in::read_class_def): The key_method might become non-key.
+	gcc/testsuite/
+	* g++.dg/modules/sym-subst-3_a.C: Adjust regexp.
+	* g++.dg/modules/virt-1_[ab].C: Adjust.
+	* g++.dg/modules/virt-2_[abc].C: New.
+
+2020-07-09  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* modules.cc (trees_out::type_node [VECTOR_TYPE]): poly_int's
+	to_constant already does the checking we need.
+
+	gcc/testsuite/
+	* g++.dg/modules/sym-subst-3_a.C: Adjust scan for other ABIs
+
+	gcc/testuite/
+	* g++.dg/modules/builtin-3_[ab].C: Add va_list scans for
+	aarch64 and powerpc ABIs.
+
+2020-07-08  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/testsuite/
+	* g++.dg/modules/module.exp: Remove tcl 8.6ism
+
+	Merge trunk 6bf2ff0d52a.
+
+2020-07-03  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk ce0f842492c
+
+2020-07-03  Iain Sandoe  <iain@sandoe.co.uk>
+
+	gcc/cp/
+	* name-lookup.c (name_lookup::adl_namespace_fns): Last param is
+	unused, and bootstrap complains :( [Nathan left it like that so
+	he'd be reminded to remove it if it really turned out not needed]
+
+2020-07-02  Nathan Sidwell  <nathan@acm.org>
+
+	p1779 ABI isolation
+	gcc/cp/
+	* cp-tree.h (named_module_purview_p): New.
+	* decl.c (grokmethod): Don't always implicitly inline.
+	* module.cc (module_state_config::get_dialect): Add
+	module_implicit_inline.
+	gcc/
+	* doc/invoke.texi (fmodule-implicit-inline): Document.
+	gcc/c-family/
+	* c.opt (-fmodule-implicit-inline): New.
+	gcc/testsuite/
+	* g++.dg/modules/imp-member-[12]_b.C: Add some inlines.
+	* g++.dg/modules/vmort-1_a.C: Likewise.
+	* g++.dg/modules/imp-inline-1_[ab].C: New.
+
+2020-07-01  Nathan Sidwell  <nathan@acm.org>
+
+	GMF entities are not findable by name
+	gcc/cp/
+	* modules.cc (enum depset::disc_bits): Remove DB_GLOBAL_BIT.
+	(depset::is_global): Delete
+	(depset::hash::make_dependency): Drop reachable GMF binding
+	insertion.
+	gcc/testsuite/
+	* g++.dg/modules/builtin-[13]_[ab].C: Adjust scans.
+	* g++.dg/modules/mod-sym-2.C: Adjust scans.
+
+	Implement FR039 -- dependent ADL and friend fns
+	gcc/cp/
+	* name-lookup.c (name_lookup::adl_namespace): Instantiation path
+	is not important here.
+	(name_lookup::search_adl): Reimplement dependent adl for modules.
+	gcc/testsuite/
+	* g++.dg/modules/adl-[12]_b.C: export.
+	* g++.dg/modules/adl-[45]_[abcd].C: New.
+
 2020-06-30  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* class.c (copyfndecl_with_name): Drop inadvertent
+	DECL_CLONED_FUNCTION setting.  Pass 0 for top_level to
+	rest_of_decl_compiulation.
 
 	gcc/cp/
 	* class.c (copy_fndecl_with_name): Add tree code parm.  Adjust
@@ -170,6 +382,8 @@
 	* mapper-server2.cc: New stub.
 
 2020-05-21  Nathan Sidwell  <nathan@acm.org>
+
+	FR39 ...
 
 	Merge master 149c8c7c27a
 

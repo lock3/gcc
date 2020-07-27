@@ -308,13 +308,17 @@ enum cpp_normalize_level {
   normalized_none
 };
 
+enum cpp_main_search 
+{
+  CMS_none,
+  CMS_user,
+  CMS_system
+};
+
 /* This structure is nested inside struct cpp_reader, and
    carries all the options visible to the command line.  */
 struct cpp_options
 {
-  /* Characters between tab stops.  */
-  unsigned int tabstop;
-
   /* The language we're preprocessing.  */
   enum c_lang lang;
 
@@ -570,7 +574,7 @@ struct cpp_options
   /* The maximum depth of the nested #include.  */
   unsigned int max_include_depth;
 
-  unsigned char main_search;
+  cpp_main_search main_search : 8;
 };
 
 /* Diagnostic levels.  To get a diagnostic without associating a
@@ -713,11 +717,10 @@ struct cpp_callbacks
      expansions.  */
   const char *(*remap_filename) (const char*);
 
-  /* Maybe translate a #include into something else.  Push a
-     cpp_buffer containing the translation and return true if
-     translating.  */
-  bool (*translate_include) (cpp_reader *, line_maps *, location_t,
-			     const char *path);
+  /* Maybe translate a #include into something else.  Return a
+     cpp_buffer containing the translation if translating.  */
+  char *(*translate_include) (cpp_reader *, line_maps *, location_t,
+			      const char *path);
 };
 
 #ifdef VMS
@@ -1008,7 +1011,8 @@ extern const char *cpp_find_header_unit (cpp_reader *, const char *file,
    least one file change callback, and possibly a line change callback
    too.  If there was an error opening the file, it returns NULL.  */
 extern const char *cpp_read_main_file (cpp_reader *, const char *,
-				       bool has_preamble = false);
+				       bool injecting = false);
+extern location_t cpp_main_loc (const cpp_reader *);
 
 /* Adjust for the main file to be an include.  */
 extern void cpp_retrofit_as_include (cpp_reader *);
@@ -1386,14 +1390,43 @@ extern const char * cpp_get_userdef_suffix
   (const cpp_token *);
 
 /* In charset.c */
+
+/* A class to manage the state while converting a UTF-8 sequence to cppchar_t
+   and computing the display width one character at a time.  */
+class cpp_display_width_computation {
+ public:
+  cpp_display_width_computation (const char *data, int data_length,
+				 int tabstop);
+  const char *next_byte () const { return m_next; }
+  int bytes_processed () const { return m_next - m_begin; }
+  int bytes_left () const { return m_bytes_left; }
+  bool done () const { return !bytes_left (); }
+  int display_cols_processed () const { return m_display_cols; }
+
+  int process_next_codepoint ();
+  int advance_display_cols (int n);
+
+ private:
+  const char *const m_begin;
+  const char *m_next;
+  size_t m_bytes_left;
+  const int m_tabstop;
+  int m_display_cols;
+};
+
+/* Convenience functions that are simple use cases for class
+   cpp_display_width_computation.  Tab characters will be expanded to spaces
+   as determined by TABSTOP.  */
 int cpp_byte_column_to_display_column (const char *data, int data_length,
-				       int column);
-inline int cpp_display_width (const char *data, int data_length)
+				       int column, int tabstop);
+inline int cpp_display_width (const char *data, int data_length,
+			      int tabstop)
 {
-    return cpp_byte_column_to_display_column (data, data_length, data_length);
+  return cpp_byte_column_to_display_column (data, data_length, data_length,
+					    tabstop);
 }
 int cpp_display_column_to_byte_column (const char *data, int data_length,
-				       int display_col);
+				       int display_col, int tabstop);
 int cpp_wcwidth (cppchar_t c);
 
 #endif /* ! LIBCPP_CPPLIB_H */

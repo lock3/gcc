@@ -3540,12 +3540,16 @@ finish_call_expr (tree fn, vec<tree, va_gc> **args, bool disallow_virtual,
     {
       if (!vec_safe_is_empty (*args))
 	error ("arguments to destructor are not allowed");
-      /* Mark the pseudo-destructor call as having side-effects so
-	 that we do not issue warnings about its use.  */
-      result = build1 (NOP_EXPR,
-		       void_type_node,
-		       TREE_OPERAND (fn, 0));
-      TREE_SIDE_EFFECTS (result) = 1;
+      /* C++20/DR: If the postfix-expression names a pseudo-destructor (in
+	 which case the postfix-expression is a possibly-parenthesized class
+	 member access), the function call destroys the object of scalar type
+	 denoted by the object expression of the class member access.  */
+      tree ob = TREE_OPERAND (fn, 0);
+      if (obvalue_p (ob))
+	result = build_trivial_dtor_call (ob);
+      else
+	/* No location to clobber.  */
+	result = convert_to_void (ob, ICV_STATEMENT, complain);
     }
   else if (CLASS_TYPE_P (TREE_TYPE (fn)))
     /* If the "function" is really an object of class type, it might
@@ -3682,7 +3686,10 @@ finish_pseudo_destructor_expr (tree object, tree scope, tree destructor,
 	}
     }
 
-  return build3_loc (loc, PSEUDO_DTOR_EXPR, void_type_node, object,
+  tree type = (type_dependent_expression_p (object)
+	       ? NULL_TREE : void_type_node);
+
+  return build3_loc (loc, PSEUDO_DTOR_EXPR, type, object,
 		     scope, destructor);
 }
 
@@ -8221,6 +8228,15 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 		}
 	      if (cp_oacc_check_attachments (c))
 		remove = true;
+	      if (OMP_CLAUSE_CODE (c) == OMP_CLAUSE_MAP
+		  && (OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_ATTACH
+		      || OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_DETACH))
+		/* In this case, we have a single array element which is a
+		   pointer, and we already set OMP_CLAUSE_SIZE in
+		   handle_omp_array_sections above.  For attach/detach clauses,
+		   reset the OMP_CLAUSE_SIZE (representing a bias) to zero
+		   here.  */
+		OMP_CLAUSE_SIZE (c) = size_zero_node;
 	      break;
 	    }
 	  if (t == error_mark_node)
@@ -8234,6 +8250,13 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 	      remove = true;
 	      break;
 	    }
+	  if (OMP_CLAUSE_CODE (c) == OMP_CLAUSE_MAP
+	      && (OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_ATTACH
+		  || OMP_CLAUSE_MAP_KIND (c) == GOMP_MAP_DETACH))
+	    /* For attach/detach clauses, set OMP_CLAUSE_SIZE (representing a
+	       bias) to zero here, so it is not set erroneously to the pointer
+	       size later on in gimplify.c.  */
+	    OMP_CLAUSE_SIZE (c) = size_zero_node;
 	  if (REFERENCE_REF_P (t)
 	      && TREE_CODE (TREE_OPERAND (t, 0)) == COMPONENT_REF)
 	    {

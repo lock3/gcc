@@ -1521,7 +1521,7 @@ package body Exp_Ch5 is
       --  be assigned.
 
       elsif Possible_Bit_Aligned_Component (Lhs)
-              or
+              or else
             Possible_Bit_Aligned_Component (Rhs)
       then
          null;
@@ -1593,6 +1593,18 @@ package body Exp_Ch5 is
             C := First_Entity (Utyp);
             while Present (C) loop
                if Chars (C) = Chars (Comp) then
+                  return C;
+
+               --  The component may be a renamed discriminant, in
+               --  which case check against the name of the original
+               --  discriminant of the parent type.
+
+               elsif Is_Derived_Type (Scope (Comp))
+                 and then Ekind (Comp) = E_Discriminant
+                 and then Present (Corresponding_Discriminant (Comp))
+                 and then
+                   Chars (C) = Chars (Corresponding_Discriminant (Comp))
+               then
                   return C;
                end if;
 
@@ -3731,9 +3743,9 @@ package body Exp_Ch5 is
       --  Another optimization, special cases that can be simplified
 
       --     if expression then
-      --        return true;
+      --        return [standard.]true;
       --     else
-      --        return false;
+      --        return [standard.]false;
       --     end if;
 
       --  can be changed to:
@@ -3743,9 +3755,9 @@ package body Exp_Ch5 is
       --  and
 
       --     if expression then
-      --        return false;
+      --        return [standard.]false;
       --     else
-      --        return true;
+      --        return [standard.]true;
       --     end if;
 
       --  can be changed to:
@@ -3778,9 +3790,9 @@ package body Exp_Ch5 is
                      Else_Expr : constant Node_Id := Expression (Else_Stm);
 
                   begin
-                     if Nkind (Then_Expr) = N_Identifier
+                     if Nkind_In (Then_Expr, N_Expanded_Name, N_Identifier)
                           and then
-                        Nkind (Else_Expr) = N_Identifier
+                        Nkind_In (Else_Expr, N_Expanded_Name, N_Identifier)
                      then
                         if Entity (Then_Expr) = Standard_True
                           and then Entity (Else_Expr) = Standard_False
@@ -3856,13 +3868,20 @@ package body Exp_Ch5 is
       Array_Dim  : constant Pos        := Number_Dimensions (Array_Typ);
       Id         : constant Entity_Id  := Defining_Identifier (I_Spec);
       Loc        : constant Source_Ptr := Sloc (Isc);
-      Stats      : constant List_Id    := Statements (N);
+      Stats      : List_Id    := Statements (N);
       Core_Loop  : Node_Id;
       Dim1       : Int;
       Ind_Comp   : Node_Id;
       Iterator   : Entity_Id;
 
    begin
+      if Present (Iterator_Filter (I_Spec)) then
+         pragma Assert (Ada_Version >= Ada_2020);
+         Stats := New_List (Make_If_Statement (Loc,
+            Condition => Iterator_Filter (I_Spec),
+            Then_Statements => Stats));
+      end if;
+
       --  for Element of Array loop
 
       --  It requires an internally generated cursor to iterate over the array
@@ -4133,7 +4152,9 @@ package body Exp_Ch5 is
       Elem_Typ : constant Entity_Id   := Etype (Id);
       Id_Kind  : constant Entity_Kind := Ekind (Id);
       Loc      : constant Source_Ptr  := Sloc (N);
-      Stats    : constant List_Id     := Statements (N);
+
+      Stats    : List_Id     := Statements (N);
+      --  Maybe wrapped in a conditional if a filter is present
 
       Cursor    : Entity_Id;
       Decl      : Node_Id;
@@ -4155,6 +4176,13 @@ package body Exp_Ch5 is
       --  The package in which the container type is declared
 
    begin
+      if Present (Iterator_Filter (I_Spec)) then
+         pragma Assert (Ada_Version >= Ada_2020);
+         Stats := New_List (Make_If_Statement (Loc,
+            Condition => Iterator_Filter (I_Spec),
+            Then_Statements => Stats));
+      end if;
+
       --  Determine the advancement and initialization steps for the cursor.
       --  Analysis of the expanded loop will verify that the container has a
       --  reverse iterator.
@@ -4628,11 +4656,20 @@ package body Exp_Ch5 is
             Loop_Id : constant Entity_Id := Defining_Identifier (LPS);
             Ltype   : constant Entity_Id := Etype (Loop_Id);
             Btype   : constant Entity_Id := Base_Type (Ltype);
+            Stats   : constant List_Id   := Statements (N);
             Expr    : Node_Id;
             Decls   : List_Id;
             New_Id  : Entity_Id;
 
          begin
+            if Present (Iterator_Filter (LPS)) then
+               pragma Assert (Ada_Version >= Ada_2020);
+               Set_Statements (N,
+                  New_List (Make_If_Statement (Loc,
+                    Condition => Iterator_Filter (LPS),
+                    Then_Statements => Stats)));
+            end if;
+
             --  Deal with loop over predicates
 
             if Is_Discrete_Type (Ltype)
@@ -4749,7 +4786,7 @@ package body Exp_Ch5 is
                        Declarations => Decls,
                        Handled_Statement_Sequence =>
                          Make_Handled_Sequence_Of_Statements (Loc,
-                           Statements => Statements (N)))),
+                           Statements => Stats))),
 
                    End_Label => End_Label (N)));
 
@@ -4851,7 +4888,7 @@ package body Exp_Ch5 is
          end if;
       end if;
 
-      --  When the iteration scheme mentiones attribute 'Loop_Entry, the loop
+      --  When the iteration scheme mentions attribute 'Loop_Entry, the loop
       --  is transformed into a conditional block where the original loop is
       --  the sole statement. Inspect the statements of the nested loop for
       --  controlled objects.

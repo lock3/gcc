@@ -2122,7 +2122,9 @@ package body Sem_Prag is
       if Prag_Id /= Pragma_No_Caching
         and then not Is_Effectively_Volatile (Obj_Id)
       then
-         if No_Caching_Enabled (Obj_Id) then
+         if Ekind (Obj_Id) = E_Variable
+           and then No_Caching_Enabled (Obj_Id)
+         then
             SPARK_Msg_N
               ("illegal combination of external property % and property "
                & """No_Caching"" (SPARK RM 7.1.2(6))", N);
@@ -5905,7 +5907,18 @@ package body Sem_Prag is
             then
                Error_Msg_NE ("aspect% for & previously given#", N, Id);
             else
-               Error_Msg_NE ("pragma% for & duplicates pragma#", N, Id);
+               --  If -gnatwr is set, warn in case of a duplicate pragma
+               --  [No_]Inline which is suspicious but not an error, generate
+               --  an error for other pragmas.
+
+               if Nam_In (Pragma_Name (N), Name_Inline, Name_No_Inline) then
+                  if Warn_On_Redundant_Constructs then
+                     Error_Msg_NE
+                       ("?r?pragma% for & duplicates pragma#", N, Id);
+                  end if;
+               else
+                  Error_Msg_NE ("pragma% for & duplicates pragma#", N, Id);
+               end if;
             end if;
 
             raise Pragma_Exit;
@@ -10127,6 +10140,18 @@ package body Sem_Prag is
                   Applies := True;
 
                else
+                  --  Check for RM 13.1(9.2/4): If a [...] aspect_specification
+                  --  is given that directly specifies an aspect of an entity,
+                  --  then it is illegal to give another [...]
+                  --  aspect_specification that directly specifies the same
+                  --  aspect of the entity.
+                  --  We only check Subp directly as per "directly specifies"
+                  --  above and because the case of pragma Inline is really
+                  --  special given its pre aspect usage.
+
+                  Check_Duplicate_Pragma (Subp);
+                  Record_Rep_Item (Subp, N);
+
                   Make_Inline (Subp);
 
                   --  For the pragma case, climb homonym chain. This is
@@ -10138,8 +10163,8 @@ package body Sem_Prag is
                      while Present (Homonym (Subp))
                        and then Scope (Homonym (Subp)) = Current_Scope
                      loop
-                        Make_Inline (Homonym (Subp));
                         Subp := Homonym (Subp);
+                        Make_Inline (Subp);
                      end loop;
                   end if;
                end if;
@@ -10517,23 +10542,28 @@ package body Sem_Prag is
                   Set_Global_No_Tasking;
                end if;
 
-               --  If this is a warning, then set the warning unless we already
-               --  have a real restriction active (we never want a warning to
-               --  override a real restriction).
+               Set_Restriction (R_Id, N, Warn);
 
-               if Warn then
-                  if not Restriction_Active (R_Id) then
-                     Set_Restriction (R_Id, N);
-                     Restriction_Warnings (R_Id) := True;
-                  end if;
+               if R_Id = No_Dynamic_CPU_Assignment
+                 or else R_Id = No_Tasks_Unassigned_To_CPU
+               then
+                  --  These imply No_Dependence =>
+                  --     "System.Multiprocessors.Dispatching_Domains".
+                  --  This is not strictly what the AI says, but it eliminates
+                  --  the need for run-time checks, which are undesirable in
+                  --  this context.
 
-               --  If real restriction case, then set it and make sure that the
-               --  restriction warning flag is off, since a real restriction
-               --  always overrides a warning.
+                  Set_Restriction_No_Dependence
+                    (Sel_Comp
+                       (Sel_Comp ("system", "multiprocessors", Loc),
+                        "dispatching_domains"),
+                     Warn);
+               end if;
 
-               else
-                  Set_Restriction (R_Id, N);
-                  Restriction_Warnings (R_Id) := False;
+               if R_Id = No_Tasks_Unassigned_To_CPU then
+                  --  Likewise, imply No_Dynamic_CPU_Assignment
+
+                  Set_Restriction (No_Dynamic_CPU_Assignment, N, Warn);
                end if;
 
                --  Check for obsolescent restrictions in Ada 2005 mode
@@ -10677,26 +10707,7 @@ package body Sem_Prag is
                     ("pragma ignored, value too large??", Arg);
                end if;
 
-               --  Warning case. If the real restriction is active, then we
-               --  ignore the request, since warning never overrides a real
-               --  restriction. Otherwise we set the proper warning. Note that
-               --  this circuit sets the warning again if it is already set,
-               --  which is what we want, since the constant may have changed.
-
-               if Warn then
-                  if not Restriction_Active (R_Id) then
-                     Set_Restriction
-                       (R_Id, N, Integer (UI_To_Int (Val)));
-                     Restriction_Warnings (R_Id) := True;
-                  end if;
-
-               --  Real restriction case, set restriction and make sure warning
-               --  flag is off since real restriction always overrides warning.
-
-               else
-                  Set_Restriction (R_Id, N, Integer (UI_To_Int (Val)));
-                  Restriction_Warnings (R_Id) := False;
-               end if;
+               Set_Restriction (R_Id, N, Warn, Integer (UI_To_Int (Val)));
             end if;
 
             Next (Arg);
@@ -11288,13 +11299,6 @@ package body Sem_Prag is
             Error_Msg_String (1 .. Name_Len) := Name_Buffer (1 .. Name_Len);
          end Set_Error_Msg_To_Profile_Name;
 
-         --  Local variables
-
-         Nod     : Node_Id;
-         Pref    : Node_Id;
-         Pref_Id : Node_Id;
-         Sel_Id  : Node_Id;
-
          Profile_Dispatching_Policy : Character;
 
       --  Start of processing for Set_Ravenscar_Profile
@@ -11366,46 +11370,30 @@ package body Sem_Prag is
          --    No_Dependence => Ada.Calendar
          --    No_Dependence => Ada.Task_Attributes
          --  are already set by previous call to Set_Profile_Restrictions.
+         --  Really???
 
          --  Set the following restrictions which were added to Ada 2005:
          --    No_Dependence => Ada.Execution_Time.Group_Budget
          --    No_Dependence => Ada.Execution_Time.Timers
 
          if Ada_Version >= Ada_2005 then
-            Pref_Id := Make_Identifier (Loc, Name_Find ("ada"));
-            Sel_Id  := Make_Identifier (Loc, Name_Find ("execution_time"));
-
-            Pref :=
-              Make_Selected_Component
-                (Sloc          => Loc,
-                 Prefix        => Pref_Id,
-                 Selector_Name => Sel_Id);
-
-            Sel_Id := Make_Identifier (Loc, Name_Find ("group_budgets"));
-
-            Nod :=
-              Make_Selected_Component
-                (Sloc          => Loc,
-                 Prefix        => Pref,
-                 Selector_Name => Sel_Id);
-
-            Set_Restriction_No_Dependence
-              (Unit    => Nod,
-               Warn    => Treat_Restrictions_As_Warnings,
-               Profile => Ravenscar);
-
-            Sel_Id := Make_Identifier (Loc, Name_Find ("timers"));
-
-            Nod :=
-              Make_Selected_Component
-                (Sloc          => Loc,
-                 Prefix        => Pref,
-                 Selector_Name => Sel_Id);
-
-            Set_Restriction_No_Dependence
-              (Unit    => Nod,
-               Warn    => Treat_Restrictions_As_Warnings,
-               Profile => Ravenscar);
+            declare
+               Execution_Time : constant Node_Id :=
+                 Sel_Comp ("ada", "execution_time", Loc);
+               Group_Budgets : constant Node_Id :=
+                 Sel_Comp (Execution_Time, "group_budgets");
+               Timers : constant Node_Id :=
+                 Sel_Comp (Execution_Time, "timers");
+            begin
+               Set_Restriction_No_Dependence
+                 (Unit    => Group_Budgets,
+                  Warn    => Treat_Restrictions_As_Warnings,
+                  Profile => Ravenscar);
+               Set_Restriction_No_Dependence
+                 (Unit    => Timers,
+                  Warn    => Treat_Restrictions_As_Warnings,
+                  Profile => Ravenscar);
+            end;
          end if;
 
          --  Set the following restriction which was added to Ada 2012 (see
@@ -11413,25 +11401,10 @@ package body Sem_Prag is
          --    No_Dependence => System.Multiprocessors.Dispatching_Domains
 
          if Ada_Version >= Ada_2012 then
-            Pref_Id := Make_Identifier (Loc, Name_Find ("system"));
-            Sel_Id  := Make_Identifier (Loc, Name_Find ("multiprocessors"));
-
-            Pref :=
-              Make_Selected_Component
-                (Sloc          => Loc,
-                 Prefix        => Pref_Id,
-                 Selector_Name => Sel_Id);
-
-            Sel_Id := Make_Identifier (Loc, Name_Find ("dispatching_domains"));
-
-            Nod :=
-              Make_Selected_Component
-                (Sloc          => Loc,
-                 Prefix        => Pref,
-                 Selector_Name => Sel_Id);
-
             Set_Restriction_No_Dependence
-              (Unit    => Nod,
+              (Sel_Comp
+                 (Sel_Comp ("system", "multiprocessors", Loc),
+                  "dispatching_domains"),
                Warn    => Treat_Restrictions_As_Warnings,
                Profile => Ravenscar);
 
@@ -11443,18 +11416,8 @@ package body Sem_Prag is
             --  in Ada2012 (AI05-0174).
 
             if Profile /= Jorvik then
-               Pref_Id := Make_Identifier (Loc, Name_Find ("ada"));
-               Sel_Id  := Make_Identifier (Loc, Name_Find
-                                                  ("synchronous_barriers"));
-
-               Nod :=
-                 Make_Selected_Component
-                   (Sloc          => Loc,
-                    Prefix        => Pref_Id,
-                    Selector_Name => Sel_Id);
-
                Set_Restriction_No_Dependence
-                 (Unit    => Nod,
+                 (Sel_Comp ("ada", "synchronous_barriers", Loc),
                   Warn    => Treat_Restrictions_As_Warnings,
                   Profile => Ravenscar);
             end if;
@@ -11476,6 +11439,13 @@ package body Sem_Prag is
       end if;
 
       Check_Restriction_No_Use_Of_Pragma (N);
+
+      if Get_Aspect_Id (Chars (Pragma_Identifier (N))) /= No_Aspect then
+         --  6.1/3 No_Specification_of_Aspect: Identifies an aspect for which
+         --    no aspect_specification, attribute_definition_clause, or pragma
+         --    is given.
+         Check_Restriction_No_Specification_Of_Aspect (N);
+      end if;
 
       --  Ignore pragma if Ignore_Pragma applies. Also ignore pragma
       --  Default_Scalar_Storage_Order if the -gnatI switch was given.
@@ -13333,7 +13303,7 @@ package body Sem_Prag is
             --  respective root types.
 
             if Nkind (Obj_Or_Type_Decl) /= N_Object_Declaration then
-               if (Prag_Id = Pragma_No_Caching)
+               if Prag_Id = Pragma_No_Caching
                   or not Nkind_In (Original_Node (Obj_Or_Type_Decl),
                                    N_Full_Type_Declaration,
                                    N_Private_Type_Declaration,
@@ -13353,7 +13323,8 @@ package body Sem_Prag is
             --  will be done at the end of the declarative region that
             --  contains the pragma.
 
-            if Ekind (Obj_Or_Type_Id) = E_Variable or Is_Type (Obj_Or_Type_Id)
+            if Ekind (Obj_Or_Type_Id) = E_Variable
+              or else Is_Type (Obj_Or_Type_Id)
             then
 
                --  In the case of a type, pragma is a type-related
@@ -13593,9 +13564,7 @@ package body Sem_Prag is
             if (Nkind (D) = N_Full_Type_Declaration and then Is_Array_Type (E))
               or else
                 (Nkind (D) = N_Object_Declaration
-                   and then (Ekind (E) = E_Constant
-                              or else
-                             Ekind (E) = E_Variable)
+                   and then Ekind_In (E, E_Constant, E_Variable)
                    and then Nkind (Object_Definition (D)) =
                                        N_Constrained_Array_Definition)
               or else
@@ -14225,7 +14194,7 @@ package body Sem_Prag is
          --  pragma Complex_Representation ([Entity =>] LOCAL_NAME);
 
          when Pragma_Complex_Representation => Complex_Representation : declare
-            E_Id : Entity_Id;
+            E_Id : Node_Id;
             E    : Entity_Id;
             Ent  : Entity_Id;
 
@@ -14824,13 +14793,13 @@ package body Sem_Prag is
             Ada_2012_Pragma;
             Check_No_Identifiers;
             Check_Arg_Count (1);
+            Arg := Get_Pragma_Arg (Arg1);
 
             --  Subprogram case
 
             if Nkind (P) = N_Subprogram_Body then
                Check_In_Main_Program;
 
-               Arg := Get_Pragma_Arg (Arg1);
                Analyze_And_Resolve (Arg, Any_Integer);
 
                Ent := Defining_Unit_Name (Specification (P));
@@ -14877,7 +14846,6 @@ package body Sem_Prag is
             --  Task case
 
             elsif Nkind (P) = N_Task_Definition then
-               Arg := Get_Pragma_Arg (Arg1);
                Ent := Defining_Identifier (Parent (P));
 
                --  The expression must be analyzed in the special manner
@@ -14885,6 +14853,16 @@ package body Sem_Prag is
                --  Expressions" in sem.ads.
 
                Preanalyze_Spec_Expression (Arg, RTE (RE_CPU_Range));
+
+               --  See comment in Sem_Ch13 about the following restrictions
+
+               if Is_OK_Static_Expression (Arg) then
+                  if Expr_Value (Arg) = Uint_0 then
+                     Check_Restriction (No_Tasks_Unassigned_To_CPU, N);
+                  end if;
+               else
+                  Check_Restriction (No_Dynamic_CPU_Assignment, N);
+               end if;
 
             --  Anything else is incorrect
 

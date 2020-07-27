@@ -2269,7 +2269,6 @@ private:
     DB_IS_INTERNAL_BIT,		/* It is an internal-linkage entity.  */
     DB_REFS_INTERNAL_BIT,	/* Refers to an internal-linkage
 				   entity. */
-    DB_GLOBAL_BIT,		/* Global module entity.  */
     DB_IMPORTED_BIT,		/* An imported entity.  */
     DB_UNREACHED_BIT,		/* A yet-to-be reached entity.  */
     DB_HIDDEN_BIT,		/* A hidden binding.  */
@@ -2359,10 +2358,6 @@ public:
   bool refs_internal () const
   {
     return get_flag_bit<DB_REFS_INTERNAL_BIT> ();
-  }
-  bool is_global () const
-  {
-    return get_flag_bit<DB_GLOBAL_BIT> ();
   }
   bool is_import () const
   {
@@ -3680,7 +3675,8 @@ private:
   location_t imported_from () const;
 
  public:
-  bool do_import (const char *filename, cpp_reader *, bool outermost);
+  void set_filename (const Cody::Packet &);
+  bool do_import (cpp_reader *, bool outermost);
 };
 
 /* Hash module state by name.  This cannot be a member of
@@ -3800,9 +3796,6 @@ module_state_hash::equal (const value_type existing,
 
 /********************************************************************/
 /* Global state */
-
-// FIXME: Put in header somewhere, and maybe verify value
-static const location_t main_source_loc = 32;
 
 /* Mapper name.  */
 static const char *module_mapper_name;
@@ -5251,13 +5244,33 @@ trees_out::core_bools (tree t)
       WB (t->decl_common.lang_flag_8);
       WB (t->decl_common.decl_flag_0);
 
-      // FIXME: This heuristic is not correct.  We should be fiddling
-      // with this during the dependency walk
-      /* static variables become external.  */
-      WB (t->decl_common.decl_flag_1
-	  || (code == VAR_DECL && TREE_STATIC (t)
-	      && !header_module_p ()
-	      && !DECL_WEAK (t) && !DECL_VTABLE_OR_VTT_P (t)));
+      {
+	bool is_external = t->decl_common.decl_flag_1;
+	if (!is_external)
+	  /* decl_flag_1 is DECL_EXTERNAL. Things we emit here, might
+	     well be external from the POV of an importer.  */
+	  // FIXME: p1815? static variables become external.
+	  // We might need to know if this is a TEMPLATE_RESULT -- a
+	  // flag from the caller?
+	  switch (code)
+	    {
+	    default:
+	      break;
+
+	    case VAR_DECL:
+	      if (TREE_STATIC (t)
+		  && !header_module_p ()
+		  && !DECL_VAR_DECLARED_INLINE_P (t))
+		is_external = true;
+	      break;
+
+	    case FUNCTION_DECL:
+	      if (!DECL_DECLARED_INLINE_P (t))
+		is_external = true;
+	      break;
+	    }
+	WB (is_external);
+      }
 
       WB (t->decl_common.decl_flag_2);
       WB (t->decl_common.decl_flag_3);
@@ -5473,10 +5486,8 @@ trees_out::lang_decl_bools (tree t)
   WB (lang->u.base.language == lang_cplusplus);
   WB ((lang->u.base.use_template >> 0) & 1);
   WB ((lang->u.base.use_template >> 1) & 1);
-  /* Vars stop being not really extern */
-  WB (lang->u.base.not_really_extern
-      && (TREE_CODE (t) != VAR_DECL
-	  || DECL_VTABLE_OR_VTT_P (t) || DECL_WEAK (t)));
+  /* Do not write u.base.not_really_extern, importer will set when
+     reading the definition (if any).  */
   WB (lang->u.base.initialized_in_class);
   WB (lang->u.base.threadprivate_or_deleted_p);
   WB (lang->u.base.anticipated_p);
@@ -5545,7 +5556,7 @@ trees_in::lang_decl_bools (tree t)
   v = b () << 0;
   v |= b () << 1;
   lang->u.base.use_template = v;
-  RB (lang->u.base.not_really_extern);
+  /* lang->u.base.not_really_extern is not streamed.  */
   RB (lang->u.base.initialized_in_class);
   RB (lang->u.base.threadprivate_or_deleted_p);
   RB (lang->u.base.anticipated_p);
@@ -5627,6 +5638,7 @@ trees_out::lang_type_bools (tree t)
   WB ((lang->gets_delete >> 0) & 1);
   WB ((lang->gets_delete >> 1) & 1);
   // Interfaceness is recalculated upon reading.  May have to revisit?
+  // How do dllexport and dllimport interact across a module?
   // lang->interface_only
   // lang->interface_unknown
   WB (lang->contains_empty_class_p);
@@ -8601,8 +8613,8 @@ trees_out::type_node (tree type)
     case VECTOR_TYPE:
       if (streaming_p ())
 	{
-	  gcc_checking_assert(NUM_POLY_INT_COEFFS == 1);
 	  poly_uint64 nunits = TYPE_VECTOR_SUBPARTS (type);
+	  /* to_constant asserts that only coeff[0] is of interest.  */
 	  wu (static_cast<unsigned HOST_WIDE_INT> (nunits.to_constant ()));
 	}
       break;
@@ -11114,6 +11126,8 @@ trees_in::read_function_def (tree decl, tree maybe_template)
 
   if (installing)
     {
+      if (DECL_EXTERNAL (decl))
+	DECL_NOT_REALLY_EXTERN (decl) = true;
       DECL_RESULT (decl) = result;
       DECL_INITIAL (decl) = initial;
       DECL_SAVED_TREE (decl) = saved;
@@ -11160,6 +11174,8 @@ trees_in::read_var_def (tree decl, tree maybe_template)
   bool installing = maybe_dup && !DECL_INITIAL (decl);
   if (installing)
     {
+      if (DECL_EXTERNAL (decl))
+	DECL_NOT_REALLY_EXTERN (decl) = true;
       DECL_INITIAL (decl) = init;
     }
   else if (maybe_dup)
@@ -11585,7 +11601,10 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 
 	  if (vtables)
 	    {
-	      if (!CLASSTYPE_KEY_METHOD (type))
+	      if (!CLASSTYPE_KEY_METHOD (type)
+		  /* Sneaky user may have defined it inline
+		     out-of-class.  */
+		  || DECL_DECLARED_INLINE_P (CLASSTYPE_KEY_METHOD (type)))
 		vec_safe_push (keyed_classes, type);
 	      unsigned len = vtables->length ();
 	      tree *chain = &CLASSTYPE_VTABLES (type);
@@ -12051,32 +12070,7 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 			&& true)))
 		dep->set_flag_bit<DB_IS_INTERNAL_BIT> ();
 	    }
-	  else if (DECL_IMPLICIT_TYPEDEF_P (not_tmpl)
-		   && IDENTIFIER_ANON_P (DECL_NAME (not_tmpl)))
-	    /* No linkage or linkage from typedef name (which
-	       cannot be internal, because that's from the linkage
-	       of the context.  */;
-	  else if (!for_binding)
-	    {
-	      // FIXME: We have to walk the non-emitted entities
-	      // in the module's purview too.  Discussing this in
-	      // CWG, it is weird.
-	      /* A reachable global module fragment entity.  Add
-		 it to its scope's binding depset.  */
-	      depset **bslot = binding_slot (ctx, DECL_NAME (decl), true);
-	      depset *bdep = *bslot;
-	      if (!bdep)
-		{
-		  *bslot = bdep = make_binding (ctx, DECL_NAME (decl));
-		  add_namespace_context (bdep, ctx);
-		}
 
-	      bdep->deps.safe_push (dep);
-	      dep->deps.safe_push (bdep);
-	      dep->set_flag_bit<DB_GLOBAL_BIT> ();
-	      dump (dumper::DEPEND)
-		&& dump ("Reachable GMF %N added", decl);
-	    }
 	}
 
       if (!dep->is_import ())
@@ -13742,13 +13736,13 @@ module_state::read_imports (bytes_in &sec, cpp_reader *reader, line_maps *lmaps)
 
 	      unsigned n = dump.push (imp);
 
-	      if (imp->filename)
-		fname = NULL;
+	      if (!imp->filename && fname)
+		imp->filename = xstrdup (fname);
 
 	      if (imp->is_partition ())
 		dump () && dump ("Importing elided partition %M", imp);
 
-	      if (!imp->do_import (fname, reader, false))
+	      if (!imp->do_import (reader, false))
 		imp = NULL;
 	      dump.pop (n);
 	      if (!imp)
@@ -13964,6 +13958,7 @@ module_state_config::get_dialect ()
 		      /* C++ 20 implies concepts.  */
 		      cxx_dialect < cxx20 && flag_concepts ? "/concepts" : "",
 		      flag_coroutines ? "/coroutines" : "",
+		      flag_module_implicit_inline ? "/implicit-inline" : "",
 		      flag_contracts ? "/contracts" : "",
 		      NULL);
 
@@ -14254,6 +14249,13 @@ module_state::read_cluster (unsigned snum)
 	    tree decls = NULL_TREE;
 	    tree visible = NULL_TREE;
 	    tree type = NULL_TREE;
+
+	    // FIXME: It would be better to mark the vector containing
+	    // this binding as containing actual duplicates in the
+	    // MODULE_SLOT_GLOBAL or MODULE_SLOT_PARTITION overloads.
+	    // Then deduping only need be engaged when duplicates are
+	    // in play, rather than when just looking at a global or
+	    // partition slot.
 	    bool dedup = (TREE_PUBLIC (ns)
 			  && (is_module ()
 			      || is_partition ()
@@ -15021,7 +15023,8 @@ void
 module_state::write_location (bytes_out &sec, location_t loc)
 {
   if (!sec.streaming_p ())
-    // FIXME: Implement location pruning optimization
+    /* This is where we should note we use this location.  See comment
+       about write_ordinary_maps.  */
     return;
 
   if (IS_ADHOC_LOC (loc))
@@ -16266,10 +16269,6 @@ module_state::write_macros (elf_out *to, cpp_reader *reader, unsigned *crc_p)
   return count;
 }
 
-// FIXME: Once we have importing phases done, we probably don't need
-// this so early.  Remember, with mmap, all this is doing is setting
-// pointers.
-
 bool
 module_state::read_macros ()
 {
@@ -17188,7 +17187,6 @@ module_state::read_initial (cpp_reader *reader)
     }
 
   /* Read the elided partition table, if we're the primary partition.  */
-  // FIXME: Likewise as with imports
   if (ok && config.num_partitions && is_module ()
       && !read_partitions (config.num_partitions))
     ok = false;
@@ -17806,9 +17804,18 @@ module_may_redeclare (tree decl)
     }
 
   if (them->is_header ())
-    /* If it came from a header, it's in the global module.  */
-    return (me->is_header ()
-	    || !module_purview_p ());
+    {
+      if (!header_module_p ())
+	return !module_purview_p ();
+
+      if (DECL_SOURCE_LOCATION (decl) == BUILTINS_LOCATION)
+	/* This is a builtin, being declared in header-unit.  We
+	   now need to mark it as an export.  */
+	DECL_MODULE_EXPORT_P (decl) = true;
+
+      /* If it came from a header, it's in the global module.  */
+      return true;
+    }
 
   if (me == them)
     return ((DECL_LANG_SPECIFIC (decl) && DECL_MODULE_PURVIEW_P (decl))
@@ -18026,11 +18033,10 @@ module_state::set_flatname ()
     flatname = IDENTIFIER_POINTER (name);
 }
 
-/* Read the CMI file for a module.  FNAME, if not NULL, is the name we
-   know it as.  */
+/* Read the CMI file for a module.  */
 
 bool
-module_state::do_import (char const *fname, cpp_reader *reader, bool outermost)
+module_state::do_import (cpp_reader *reader, bool outermost)
 {
   gcc_assert (global_namespace == current_scope () && loadedness == ML_NONE);
 
@@ -18038,12 +18044,6 @@ module_state::do_import (char const *fname, cpp_reader *reader, bool outermost)
 
   if (lazy_open >= lazy_limit)
     freeze_an_elf ();
-
-  if (fname)
-    {
-      gcc_assert (!filename);
-      filename = xstrdup (fname);
-    }
 
   int fd = -1;
   int e = ENOENT;
@@ -18297,7 +18297,7 @@ direct_import (module_state *import, cpp_reader *reader)
 
   gcc_checking_assert (import->is_direct () && import->is_rooted ());
   if (import->loadedness == ML_NONE)
-    if (!import->do_import (NULL, reader, true))
+    if (!import->do_import (reader, true))
       gcc_unreachable ();
 
   if (import->loadedness < ML_LANGUAGE)
@@ -18396,7 +18396,7 @@ declare_module (module_state *module, location_t from_loc, bool exporting_p,
 
       /* Copy the importing information we may have already done.  */
       // FIXME: We have to separate out the imports that only happen
-      // in the GMF
+      // in the GMF.  Unless 2191 succeeds (which it better)
       module->imports = current->imports;
 
       module->mod = 0;
@@ -18563,9 +18563,25 @@ canonicalize_header_name (cpp_reader *reader, location_t loc, bool unquoted,
   return str;
 }
 
+/* Set the CMI name from a cody packet.  Issue an error if
+   ill-formed.  */
+
+void module_state::set_filename (const Cody::Packet &packet)
+{
+  gcc_checking_assert (!filename);
+  if (packet.GetCode () == Cody::Client::PC_MODULE_CMI)
+    filename = xstrdup (packet.GetString ().c_str ());
+  else
+    {
+      gcc_checking_assert (packet.GetCode () == Cody::Client::PC_ERROR);
+      error_at (loc, "unknown Compiled Module Interface: %s",
+		packet.GetString ().c_str ());
+    }
+}
+
 /* Figure out whether to treat HEADER as an include or an import.  */
 
-bool
+char *
 module_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
 			  const char *path)
 {
@@ -18573,33 +18589,42 @@ module_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
     {
       /* Turn off.  */
       cpp_get_callbacks (reader)->translate_include = NULL;
-      return false;
+      return nullptr;
     }
 
   if (!spans.init_p ())
     /* Before the main file, don't divert.  */
-    return false;
+    return nullptr;
 
   dump.push (NULL);
 
   dump () && dump ("Checking include translation '%s'", path);
-  auto *mapper = get_mapper (main_source_loc);
+  auto *mapper = get_mapper (cpp_main_loc (reader));
 
   size_t len = strlen (path);
   path = canonicalize_header_name (NULL, loc, true, path, len);
   auto packet = mapper->IncludeTranslate (path, len);
-  int res = false;
-  if (packet.GetCode () == Cody::Client::PC_MODULE_CMI)
-    res = true;
-  else if (packet.GetCode () == Cody::Client::PC_INCLUDE_TRANSLATE)
-    res = packet.GetInteger ();
+  int xlate = false;
+  if (packet.GetCode () == Cody::Client::PC_INCLUDE_TRANSLATE)
+    xlate = packet.GetInteger ();
+  else if (packet.GetCode () == Cody::Client::PC_MODULE_CMI)
+    {
+      /* Record the CMI name for when we do the import.  */
+      module_state *import = get_module (build_string (len, path));
+      import->set_filename (packet);
+      xlate = true;
+    }
   else
-    {} // FIXME: ERROR
+    {
+      gcc_checking_assert (packet.GetCode () == Cody::Client::PC_ERROR);
+      error_at (loc, "cannot determine %<#include%> translation of %s: %s",
+		path, packet.GetString ().c_str ());
+    }
 
   bool note = false;
   if (note_include_translate < 0)
     note = true;
-  else if (note_include_translate > 0 && res)
+  else if (note_include_translate > 0 && xlate)
     note = true;
   else if (note_includes)
     {
@@ -18614,46 +18639,42 @@ module_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
     }
 
   if (note)
-    inform (loc, res
+    inform (loc, xlate
 	    ? G_("include %qs translated to import")
 	    : G_("include %qs processed textually") , path);
 
-  dump () && dump (res ? "Translating include to import"
+  dump () && dump (xlate ? "Translating include to import"
 		   : "Keeping include as include");
-
-  if (res)
-    {
-      /* Push the translation text.  */
-      loc = ordinary_loc_of (lmaps, loc);
-      const line_map_ordinary *map
-	= linemap_check_ordinary (linemap_lookup (lmaps, loc));
-      unsigned col = SOURCE_COLUMN (map, loc);
-      col -= (col != 0); /* Columns are 1-based.  */
-
-      unsigned len = strlen (path);
-      unsigned alloc = len + col + 60;
-      char *res = XNEWVEC (char, alloc);
-
-      strcpy (res, "__import");
-      unsigned actual = 8;
-      if (col > actual)
-	{
-	  memset (res + actual, ' ', col - actual);
-	  actual = col;
-	}
-      /* No need to encode characters, that's not how header names are
-	 handled.  */
-      actual += snprintf (res + actual, alloc - actual,
-			  "\"%.*s\" [[__translated]];\n\n",
-			  len, path);
-      gcc_checking_assert (actual < alloc);
-
-      /* cpplib will delete the buffer.  */
-      cpp_push_buffer (reader, reinterpret_cast<unsigned char *> (res),
-		       actual, false);
-    }
   dump.pop (0);
 
+  if (!xlate)
+    return nullptr;
+  
+  /* Create the translation text.  */
+  loc = ordinary_loc_of (lmaps, loc);
+  const line_map_ordinary *map
+    = linemap_check_ordinary (linemap_lookup (lmaps, loc));
+  unsigned col = SOURCE_COLUMN (map, loc);
+  col -= (col != 0); /* Columns are 1-based.  */
+
+  unsigned alloc = len + col + 60;
+  char *res = XNEWVEC (char, alloc);
+
+  strcpy (res, "__import");
+  unsigned actual = 8;
+  if (col > actual)
+    {
+      /* Pad out so the filename appears at the same position.  */
+      memset (res + actual, ' ', col - actual);
+      actual = col;
+    }
+  /* No need to encode characters, that's not how header names are
+     handled.  */
+  actual += snprintf (res + actual, alloc - actual,
+		      "\"%s\" [[__translated]];\n", path);
+  gcc_checking_assert (actual < alloc);
+
+  /* cpplib will delete the buffer.  */
   return res;
 }
 
@@ -18666,7 +18687,7 @@ begin_header_unit (cpp_reader *reader)
   main = canonicalize_header_name (NULL, 0, true, main, len);
   module_state *module = get_module (build_string (len, main));
 
-  preprocess_module (module, main_source_loc, false, false, true, reader);
+  preprocess_module (module, cpp_main_loc (reader), false, false, true, reader);
 }
 
 /* We've just properly entered the main source file.  I.e. after the
@@ -18697,6 +18718,9 @@ module_begin_main_file (cpp_reader *reader, line_maps *lmaps,
    the module as a direct import, and possibly load up its macro
    state.  Returns the primary module, if this is a module
    declaration.  */
+/* Perhaps we should offer a preprocessing mode where we read the
+   directives from the header unit, rather than require the header's
+   CMI.  */
 
 module_state *
 preprocess_module (module_state *module, location_t from_loc,
@@ -18753,12 +18777,13 @@ preprocess_module (module_state *module, location_t from_loc,
 	     our module state flags are inadequate.  */
 	  spans.close ();
 
-	  auto *mapper = get_mapper (main_source_loc);
-	  auto packet = mapper->ModuleImport (module->get_flatname ());
-	  if (packet.GetCode () == Cody::Client::PC_MODULE_CMI)
-	    module->do_import (packet.GetString ().c_str (), reader, true);
-	  else
-	    {} // FIXME: Error
+	  if (!module->filename)
+	    {
+	      auto *mapper = get_mapper (cpp_main_loc (reader));
+	      auto packet = mapper->ModuleImport (module->get_flatname ());
+	      module->set_filename (packet);
+	    }
+	  module->do_import (reader, true);
 
 	  /* Restore the line-map state.  */
 	  linemap_module_restore (line_table, pre_hwm);
@@ -18782,7 +18807,7 @@ preprocess_module (module_state *module, location_t from_loc,
 void
 preprocessed_module (cpp_reader *reader)
 {
-  auto *mapper = get_mapper (main_source_loc);
+  auto *mapper = get_mapper (cpp_main_loc (reader));
 
   spans.close ();
 
@@ -18805,8 +18830,8 @@ preprocessed_module (cpp_reader *reader)
       module_state *module = *iter;
       if (module->is_direct () && !module->filename)
 	{
-	  if (module->module_p && (module->is_partition ()
-				   || module->exported_p))
+	  if (module->module_p
+	      && (module->is_partition () || module->exported_p))
 	    mapper->ModuleExport (module->get_flatname ());
 	  else
 	    mapper->ModuleImport (module->get_flatname ());
@@ -18824,10 +18849,7 @@ preprocessed_module (cpp_reader *reader)
 	  Cody::Packet const &p = *r_iter;
 	  ++r_iter;
 
-	  if (p.GetCode () == Cody::Client::PC_MODULE_CMI)
-	    module->filename = xstrdup (p.GetString ().c_str ());
-	  else
-	    {} // FIXME:ERROR
+	  module->set_filename (p);
 	}
     }
 
@@ -18863,7 +18885,7 @@ preprocessed_module (cpp_reader *reader)
 	  module_state *module = *iter;
 	  if (module->is_module ())
 	    {
-	      declare_module (module, main_source_loc, true, NULL, reader);
+	      declare_module (module, cpp_main_loc (reader), true, NULL, reader);
 	      break;
 	    }
 	}
@@ -18955,10 +18977,14 @@ init_modules (cpp_reader *reader)
 
 	bool system = hdr[0] == '<';
 	bool user = hdr[0] == '"';
-	// FIXME: Check terminator matches
+	bool delimed = system || user;
 
-	hdr = canonicalize_header_name (system || user ? reader : NULL,
-					0, !(system || user), hdr, len);
+	if (len <= (delimed ? 2 : 0)
+	    || (delimed && hdr[len-1] != (system ? '>' : '"')))
+	  error ("invalid header name %qs", hdr);
+
+	hdr = canonicalize_header_name (delimed ? reader : NULL,
+					0, !delimed, hdr, len);
 	char *path = XNEWVEC (char, len + 1);
 	memcpy (path, hdr, len);
 	path[len+1] = 0;
@@ -19062,7 +19088,7 @@ init_modules (cpp_reader *reader)
 
   if (!flag_module_lazy)
     /* Get the mapper now, if we're not being lazy.  */
-    get_mapper (main_source_loc);
+    get_mapper (cpp_main_loc (reader));
 
   if (!flag_preprocess_only)
     {
@@ -19187,7 +19213,7 @@ finish_module_processing (cpp_reader *reader)
 
       if (!errorcount)
 	{
-	  auto *mapper = get_mapper (main_source_loc);
+	  auto *mapper = get_mapper (cpp_main_loc (reader));
 
 	  mapper->ModuleCompiled (state->get_flatname ());
 	}
@@ -19259,7 +19285,7 @@ fini_modules ()
   if (mapper)
     {
       timevar_start (TV_MODULE_MAPPER);
-      module_client::close_module_client (main_source_loc, mapper);
+      module_client::close_module_client (0, mapper);
       mapper = nullptr;
       timevar_stop (TV_MODULE_MAPPER);
     }
@@ -19312,9 +19338,9 @@ handle_module_option (unsigned code, const char *str, int)
 	/* Look away.  Look away now.  */
 	extern cpp_options *cpp_opts;
 	if (!strcmp (str, "user"))
-	  cpp_opts->main_search = 1;
+	  cpp_opts->main_search = CMS_user;
 	else if (!strcmp (str, "system"))
-	  cpp_opts->main_search = 2;
+	  cpp_opts->main_search = CMS_system;
 	else
 	  error ("unknown header kind %qs", str);
       }

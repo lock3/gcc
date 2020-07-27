@@ -6932,7 +6932,9 @@ template_parm_object_p (const_tree t)
 }
 
 /* Subroutine of convert_nontype_argument, to check whether EXPR, as an
-   argument for TYPE, points to an unsuitable object.  */
+   argument for TYPE, points to an unsuitable object.
+
+   Also adjust the type of the index in C++20 array subobject references.  */
 
 static bool
 invalid_tparm_referent_p (tree type, tree expr, tsubst_flags_t complain)
@@ -6959,6 +6961,19 @@ invalid_tparm_referent_p (tree type, tree expr, tsubst_flags_t complain)
     case ADDR_EXPR:
       {
 	tree decl = TREE_OPERAND (expr, 0);
+
+	if (cxx_dialect >= cxx20)
+	  while (TREE_CODE (decl) == COMPONENT_REF
+		 || TREE_CODE (decl) == ARRAY_REF)
+	    {
+	      tree &op = TREE_OPERAND (decl, 1);
+	      if (TREE_CODE (decl) == ARRAY_REF
+		  && TREE_CODE (op) == INTEGER_CST)
+		/* Canonicalize array offsets to ptrdiff_t; how they were
+		   written doesn't matter for subobject identity.  */
+		op = fold_convert (ptrdiff_type_node, op);
+	      decl = TREE_OPERAND (decl, 0);
+	    }
 
 	if (!VAR_P (decl))
 	  {
@@ -7001,9 +7016,10 @@ invalid_tparm_referent_p (tree type, tree expr, tsubst_flags_t complain)
 		     decl);
 	    return true;
 	  }
-	else if (!same_type_ignoring_top_level_qualifiers_p
-		 (strip_array_types (TREE_TYPE (type)),
-		  strip_array_types (TREE_TYPE (decl))))
+	else if (cxx_dialect < cxx20
+		 && !(same_type_ignoring_top_level_qualifiers_p
+		      (strip_array_types (TREE_TYPE (type)),
+		       strip_array_types (TREE_TYPE (decl)))))
 	  {
 	    if (complain & tf_error)
 	      error ("the address of the %qT subobject of %qD is not a "
@@ -7281,7 +7297,8 @@ convert_nontype_argument (tree type, tree expr, tsubst_flags_t complain)
      For a non-type template-parameter of integral or enumeration type,
      integral promotions (_conv.prom_) and integral conversions
      (_conv.integral_) are applied.  */
-  if (INTEGRAL_OR_ENUMERATION_TYPE_P (type))
+  if (INTEGRAL_OR_ENUMERATION_TYPE_P (type)
+      || TREE_CODE (type) == REAL_TYPE)
     {
       if (cxx_dialect < cxx11)
 	{
@@ -7296,7 +7313,7 @@ convert_nontype_argument (tree type, tree expr, tsubst_flags_t complain)
 
       /* Notice that there are constant expressions like '4 % 0' which
 	 do not fold into integer constants.  */
-      if (TREE_CODE (expr) != INTEGER_CST && !val_dep_p)
+      if (!CONSTANT_CLASS_P (expr) && !val_dep_p)
 	{
 	  if (complain & tf_error)
 	    {
@@ -7311,7 +7328,7 @@ convert_nontype_argument (tree type, tree expr, tsubst_flags_t complain)
 		return NULL_TREE;
 	      /* else cxx_constant_value complained but gave us
 		 a real constant, so go ahead.  */
-	      if (TREE_CODE (expr) != INTEGER_CST)
+	      if (!CONSTANT_CLASS_P (expr))
 		{
 		  /* Some assemble time constant expressions like
 		     (intptr_t)&&lab1 - (intptr_t)&&lab2 or
@@ -7321,7 +7338,7 @@ convert_nontype_argument (tree type, tree expr, tsubst_flags_t complain)
 		     compile time.  Refuse them here.  */
 		  gcc_checking_assert (reduced_constant_expression_p (expr));
 		  error_at (loc, "template argument %qE for type %qT not "
-				 "a constant integer", expr, type);
+				 "a compile-time constant", expr, type);
 		  return NULL_TREE;
 		}
 	    }
@@ -18068,12 +18085,18 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
 	  finish_label_decl (DECL_NAME (decl));
 	else if (TREE_CODE (decl) == USING_DECL)
 	  {
-	    tree scope = USING_DECL_SCOPE (decl);
-	    tree name = DECL_NAME (decl);
+	    /* We cannot have a member-using decl here (until 'using
+	       enum T' is a thing).  */
+	    gcc_checking_assert (!DECL_DEPENDENT_P (decl));
 
-	    scope = tsubst (scope, args, complain, in_decl);
-	    if (scope != error_mark_node)
-	      finish_nonmember_using_decl (scope, name);
+	    /* This must be a non-dependent using-decl, and we'll have
+	       used the names it found during template parsing.  We do
+	       not want to do the lookup again, because we might not
+	       find the things we found then.  (Again, using enum T
+	       might mean we have to do things here.)  */
+	    tree scope = USING_DECL_SCOPE (decl);
+	    gcc_checking_assert (scope
+				 == tsubst (scope, args, complain, in_decl));
 	  }
 	else if (is_capture_proxy (decl)
 		 && !DECL_TEMPLATE_INSTANTIATION (current_function_decl))
@@ -18676,6 +18699,15 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
 	  stmt = pop_stmt_list (stmt);
 	}
 
+      if (TREE_CODE (t) == OMP_CRITICAL
+	  && tmp != NULL_TREE
+	  && integer_nonzerop (OMP_CLAUSE_HINT_EXPR (tmp)))
+	{
+	  error_at (OMP_CLAUSE_LOCATION (tmp),
+		    "%<#pragma omp critical%> with %<hint%> clause requires "
+		    "a name, except when %<omp_sync_hint_none%> is used");
+	  RETURN (error_mark_node);
+	}
       t = copy_node (t);
       OMP_BODY (t) = stmt;
       OMP_CLAUSES (t) = tmp;
@@ -26377,31 +26409,31 @@ invalid_nontype_parm_type_p (tree type, tsubst_flags_t complain)
   else if (cxx_dialect >= cxx11
 	   && TREE_CODE (type) == BOUND_TEMPLATE_TEMPLATE_PARM)
     return false;
-  else if (CLASS_TYPE_P (type))
+  else if (VOID_TYPE_P (type))
+    /* Fall through.  */;
+  else if (cxx_dialect >= cxx20)
     {
-      if (cxx_dialect < cxx20)
-	{
-	  if (complain & tf_error)
-	    error ("non-type template parameters of class type only available "
-		   "with %<-std=c++20%> or %<-std=gnu++20%>");
-	  return true;
-	}
       if (dependent_type_p (type))
 	return false;
-      if (!complete_type_or_else (type, NULL_TREE))
+      if (!complete_type_or_maybe_complain (type, NULL_TREE, complain))
 	return true;
-      if (!structural_type_p (type))
+      if (structural_type_p (type))
+	return false;
+      if (complain & tf_error)
 	{
-	  if (complain & tf_error)
-	    {
-	      auto_diagnostic_group d;
-	      error ("%qT is not a valid type for a template non-type "
-		     "parameter because it is not structural", type);
-	      structural_type_p (type, true);
-	    }
-	  return true;
+	  auto_diagnostic_group d;
+	  error ("%qT is not a valid type for a template non-type "
+		 "parameter because it is not structural", type);
+	  structural_type_p (type, true);
 	}
-      return false;
+      return true;
+    }
+  else if (CLASS_TYPE_P (type))
+    {
+      if (complain & tf_error)
+	error ("non-type template parameters of class type only available "
+	       "with %<-std=c++20%> or %<-std=gnu++20%>");
+      return true;
     }
 
   if (complain & tf_error)
@@ -26963,8 +26995,7 @@ type_dependent_expression_p (tree expression)
     return true;
 
   /* Some expression forms are never type-dependent.  */
-  if (TREE_CODE (expression) == PSEUDO_DTOR_EXPR
-      || TREE_CODE (expression) == SIZEOF_EXPR
+  if (TREE_CODE (expression) == SIZEOF_EXPR
       || TREE_CODE (expression) == ALIGNOF_EXPR
       || TREE_CODE (expression) == AT_ENCODE_EXPR
       || TREE_CODE (expression) == NOEXCEPT_EXPR
@@ -28581,7 +28612,7 @@ collect_ctor_idx_types (tree ctor, tree list, tree elt = NULL_TREE)
   tree idx, val; unsigned i;
   FOR_EACH_CONSTRUCTOR_ELT (v, i, idx, val)
     {
-      tree ftype = elt ? elt : finish_decltype_type (idx, true, tf_none);
+      tree ftype = elt ? elt : TREE_TYPE (idx);
       if (BRACE_ENCLOSED_INITIALIZER_P (val)
 	  && CONSTRUCTOR_NELTS (val)
 	  /* As in reshape_init_r, a non-aggregate or array-of-dependent-bound
@@ -28609,8 +28640,13 @@ collect_ctor_idx_types (tree ctor, tree list, tree elt = NULL_TREE)
       if (TREE_CODE (ftype) == ARRAY_TYPE
 	  && (BRACE_ENCLOSED_INITIALIZER_P (val)
 	      || TREE_CODE (val) == STRING_CST))
-	ftype = (cp_build_reference_type
-		 (ftype, BRACE_ENCLOSED_INITIALIZER_P (val)));
+	{
+	  if (TREE_CODE (val) == STRING_CST)
+	    ftype = cp_build_qualified_type
+	      (ftype, cp_type_quals (ftype) | TYPE_QUAL_CONST);
+	  ftype = (cp_build_reference_type
+		   (ftype, BRACE_ENCLOSED_INITIALIZER_P (val)));
+	}
       list = tree_cons (arg, ftype, list);
     }
 
@@ -29243,6 +29279,12 @@ do_auto_deduction (tree type, tree init, tree auto_node,
 	{
           if (complain & tf_error)
 	    error ("%qT as type rather than plain %<decltype(auto)%>", type);
+	  return error_mark_node;
+	}
+      else if (TYPE_QUALS (type) != TYPE_UNQUALIFIED)
+	{
+	  if (complain & tf_error)
+	    error ("%<decltype(auto)%> cannot be cv-qualified");
 	  return error_mark_node;
 	}
     }

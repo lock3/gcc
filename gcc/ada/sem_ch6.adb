@@ -152,6 +152,16 @@ package body Sem_Ch6 is
    --  against a formal access-to-subprogram type so Get_Instance_Of must
    --  be called.
 
+   procedure Check_Formal_Subprogram_Conformance
+     (New_Id   : Entity_Id;
+      Old_Id   : Entity_Id;
+      Err_Loc  : Node_Id;
+      Errmsg   : Boolean;
+      Conforms : out Boolean);
+   --  Core implementation of Check_Formal_Subprogram_Conformance from spec.
+   --  Errmsg can be set to False to not emit error messages.
+   --  Conforms is set to True if there is conformance, False otherwise.
+
    procedure Check_Limited_Return
      (N      : Node_Id;
       Expr   : Node_Id;
@@ -570,7 +580,7 @@ package body Sem_Ch6 is
                --  requirements of the Ada 202x RM in 4.9(3.2/5-3.4/5) and
                --  we flag an error.
 
-               if Is_Static_Expression_Function (Def_Id) then
+               if Is_Static_Function (Def_Id) then
                   if not Is_Static_Expression (Expr) then
                      declare
                         Exp_Copy : constant Node_Id := New_Copy_Tree (Expr);
@@ -588,6 +598,19 @@ package body Sem_Ch6 is
                         Set_Checking_Potentially_Static_Expression (False);
                      end;
                   end if;
+
+                  --  We also make an additional copy of the expression and
+                  --  replace the expression of the expression function with
+                  --  this copy, because the currently present expression is
+                  --  now associated with the body created for the static
+                  --  expression function, which will later be analyzed and
+                  --  possibly rewritten, and we need to have the separate
+                  --  unanalyzed copy available for use with later static
+                  --  calls.
+
+                  Set_Expression
+                    (Original_Node (Subprogram_Spec (Def_Id)),
+                     New_Copy_Tree (Expr));
                end if;
             end if;
          end;
@@ -881,6 +904,11 @@ package body Sem_Ch6 is
                   --  named access types and renamed objects within the
                   --  expression.
 
+                  --  Note, this loop duplicates some of the logic in
+                  --  Object_Access_Level since we have to check special rules
+                  --  based on the context we are in (a return aggregate)
+                  --  relating to formals of the current function.
+
                   Obj := Original_Node (Prefix (Expr));
                   loop
                      while Nkind_In (Obj, N_Explicit_Dereference,
@@ -920,15 +948,20 @@ package body Sem_Ch6 is
                      end if;
                   end loop;
 
-                  --  Do not check aliased formals or function calls. A
-                  --  run-time check may still be needed ???
+                  --  Do not check aliased formals statically
 
                   if Is_Formal (Entity (Obj))
-                    and then Is_Aliased (Entity (Obj))
+                    and then (Is_Aliased (Entity (Obj))
+                               or else Ekind (Etype (Entity (Obj))) =
+                                         E_Anonymous_Access_Type)
                   then
                      null;
 
-                  elsif Object_Access_Level (Obj) >
+                  --  Otherwise, handle the expression normally, avoiding the
+                  --  special logic above, and call Object_Access_Level with
+                  --  the original expression.
+
+                  elsif Object_Access_Level (Expr) >
                           Scope_Depth (Scope (Scope_Id))
                   then
                      Error_Msg_N
@@ -1991,6 +2024,10 @@ package body Sem_Ch6 is
            and then Comes_From_Source (N)
          then
             Error_Msg_N ("missing explicit dereference in call", N);
+
+         elsif Ekind (Entity (P)) = E_Operator then
+            Error_Msg_Name_1 := Chars (P);
+            Error_Msg_N ("operator % cannot be used as a procedure", N);
          end if;
 
          Analyze_Call_And_Resolve;
@@ -4661,7 +4698,7 @@ package body Sem_Ch6 is
                   then
                      --  Generate the minimum accessibility level object
 
-                     --    A60b : integer := integer'min(2, paramL);
+                     --    A60b : natural := natural'min(1, paramL);
 
                      declare
                         Loc      : constant Source_Ptr := Sloc (Body_Nod);
@@ -4671,11 +4708,11 @@ package body Sem_Ch6 is
                               Make_Temporary
                                 (Loc, 'A', Extra_Accessibility (Form)),
                             Object_Definition   => New_Occurrence_Of
-                                                     (Standard_Integer, Loc),
+                                                     (Standard_Natural, Loc),
                             Expression          =>
                               Make_Attribute_Reference (Loc,
                                 Prefix         => New_Occurrence_Of
-                                                    (Standard_Integer, Loc),
+                                                    (Standard_Natural, Loc),
                                 Attribute_Name => Name_Min,
                                 Expressions    => New_List (
                                   Make_Integer_Literal (Loc,
@@ -5568,10 +5605,11 @@ package body Sem_Ch6 is
       --  in the message, and also provides the location for posting the
       --  message in the absence of a specified Err_Loc location.
 
-      function Conventions_Match
-        (Id1 : Entity_Id;
-         Id2 : Entity_Id) return Boolean;
-      --  Determine whether the conventions of arbitrary entities Id1 and Id2
+      function Conventions_Match (Id1, Id2 : Entity_Id) return Boolean;
+      --  True if the conventions of entities Id1 and Id2 match.
+
+      function Null_Exclusions_Match (F1, F2 : Entity_Id) return Boolean;
+      --  True if the null exclusions of two formals of anonymous access type
       --  match.
 
       -----------------------
@@ -5662,13 +5700,56 @@ package body Sem_Ch6 is
          end if;
       end Conventions_Match;
 
+      ---------------------------
+      -- Null_Exclusions_Match --
+      ---------------------------
+
+      function Null_Exclusions_Match (F1, F2 : Entity_Id) return Boolean is
+      begin
+         if not Is_Anonymous_Access_Type (Etype (F1))
+           or else not Is_Anonymous_Access_Type (Etype (F2))
+         then
+            return True;
+         end if;
+
+         --  AI12-0289-1: Case of controlling access parameter; False if the
+         --  partial view is untagged, the full view is tagged, and no explicit
+         --  "not null". Note that at this point, we're processing the package
+         --  body, so private/full types have been swapped. The Sloc test below
+         --  is to detect the (legal) case where F1 comes after the full type
+         --  declaration. This part is disabled pre-2005, because "not null" is
+         --  not allowed on those language versions.
+
+         if Ada_Version >= Ada_2005
+           and then Is_Controlling_Formal (F1)
+           and then not Null_Exclusion_Present (Parent (F1))
+           and then not Null_Exclusion_Present (Parent (F2))
+         then
+            declare
+               D : constant Entity_Id := Directly_Designated_Type (Etype (F1));
+               Partial_View_Of_Desig : constant Entity_Id :=
+                 Incomplete_Or_Partial_View (D);
+            begin
+               return No (Partial_View_Of_Desig)
+                 or else Is_Tagged_Type (Partial_View_Of_Desig)
+                 or else Sloc (D) < Sloc (F1);
+            end;
+
+         --  Not a controlling parameter, or one or both views have an explicit
+         --  "not null".
+
+         else
+            return Null_Exclusion_Present (Parent (F1)) =
+                   Null_Exclusion_Present (Parent (F2));
+         end if;
+      end Null_Exclusions_Match;
+
       --  Local Variables
 
       Old_Type           : constant Entity_Id := Etype (Old_Id);
       New_Type           : constant Entity_Id := Etype (New_Id);
       Old_Formal         : Entity_Id;
       New_Formal         : Entity_Id;
-      Access_Types_Match : Boolean;
       Old_Formal_Base    : Entity_Id;
       New_Formal_Base    : Entity_Id;
 
@@ -5760,14 +5841,19 @@ package body Sem_Ch6 is
                Error_Msg_Name_2 :=
                  Name_Ada + Convention_Id'Pos (Convention (New_Id));
                Conformance_Error ("\prior declaration for% has convention %!");
+               return;
 
             else
                Conformance_Error ("\calling conventions do not match!");
+               return;
             end if;
-
-            return;
          else
-            Check_Formal_Subprogram_Conformance (New_Id, Old_Id, Err_Loc);
+            Check_Formal_Subprogram_Conformance
+              (New_Id, Old_Id, Err_Loc, Errmsg, Conforms);
+
+            if not Conforms then
+               return;
+            end if;
          end if;
       end if;
 
@@ -5827,25 +5913,14 @@ package body Sem_Ch6 is
 
             --  Null exclusion must match
 
-            if Null_Exclusion_Present (Parent (Old_Formal))
-                 /=
-               Null_Exclusion_Present (Parent (New_Formal))
-            then
-               --  Only give error if both come from source. This should be
-               --  investigated some time, since it should not be needed ???
+            if not Null_Exclusions_Match (Old_Formal, New_Formal) then
+               Conformance_Error
+                 ("\null exclusion for& does not match", New_Formal);
 
-               if Comes_From_Source (Old_Formal)
-                    and then
-                  Comes_From_Source (New_Formal)
-               then
-                  Conformance_Error
-                    ("\null exclusion for& does not match", New_Formal);
+               --  Mark error posted on the new formal to avoid duplicated
+               --  complaint about types not matching.
 
-                  --  Mark error posted on the new formal to avoid duplicated
-                  --  complaint about types not matching.
-
-                  Set_Error_Posted (New_Formal);
-               end if;
+               Set_Error_Posted (New_Formal);
             end if;
          end if;
 
@@ -5869,57 +5944,6 @@ package body Sem_Ch6 is
             New_Formal_Base := Get_Instance_Of (New_Formal_Base);
          end if;
 
-         Access_Types_Match := Ada_Version >= Ada_2005
-
-           --  Ensure that this rule is only applied when New_Id is a
-           --  renaming of Old_Id.
-
-           and then Nkind (Parent (Parent (New_Id))) =
-                      N_Subprogram_Renaming_Declaration
-           and then Nkind (Name (Parent (Parent (New_Id)))) in N_Has_Entity
-           and then Present (Entity (Name (Parent (Parent (New_Id)))))
-           and then Entity (Name (Parent (Parent (New_Id)))) = Old_Id
-
-           --  Now handle the allowed access-type case
-
-           and then Is_Access_Type (Old_Formal_Base)
-           and then Is_Access_Type (New_Formal_Base)
-
-           --  The type kinds must match. The only exception occurs with
-           --  multiple generics of the form:
-
-           --   generic                    generic
-           --     type F is private;         type A is private;
-           --     type F_Ptr is access F;    type A_Ptr is access A;
-           --     with proc F_P (X : F_Ptr); with proc A_P (X : A_Ptr);
-           --   package F_Pack is ...      package A_Pack is
-           --                                package F_Inst is
-           --                                  new F_Pack (A, A_Ptr, A_P);
-
-           --  When checking for conformance between the parameters of A_P
-           --  and F_P, the type kinds of F_Ptr and A_Ptr will not match
-           --  because the compiler has transformed A_Ptr into a subtype of
-           --  F_Ptr. We catch this case in the code below.
-
-           and then (Ekind (Old_Formal_Base) = Ekind (New_Formal_Base)
-                      or else
-                        (Is_Generic_Type (Old_Formal_Base)
-                          and then Is_Generic_Type (New_Formal_Base)
-                          and then Is_Internal (New_Formal_Base)
-                          and then Etype (Etype (New_Formal_Base)) =
-                                                          Old_Formal_Base))
-               and then Directly_Designated_Type (Old_Formal_Base) =
-                                    Directly_Designated_Type (New_Formal_Base)
-           and then ((Is_Itype (Old_Formal_Base)
-                       and then (Can_Never_Be_Null (Old_Formal_Base)
-                                  or else Is_Access_Constant
-                                            (Old_Formal_Base)))
-                     or else
-                      (Is_Itype (New_Formal_Base)
-                        and then (Can_Never_Be_Null (New_Formal_Base)
-                                   or else Is_Access_Constant
-                                             (New_Formal_Base))));
-
          --  Types must always match. In the visible part of an instance,
          --  usual overloading rules for dispatching operations apply, and
          --  we check base types (not the actual subtypes).
@@ -5932,7 +5956,6 @@ package body Sem_Ch6 is
                       T2       => Base_Type (Etype (New_Formal)),
                       Ctype    => Ctype,
                       Get_Inst => Get_Inst)
-               and then not Access_Types_Match
             then
                Conformance_Error ("\type of & does not match!", New_Formal);
                return;
@@ -5943,7 +5966,6 @@ package body Sem_Ch6 is
                       T2       => New_Formal_Base,
                       Ctype    => Ctype,
                       Get_Inst => Get_Inst)
-           and then not Access_Types_Match
          then
             --  Don't give error message if old type is Any_Type. This test
             --  avoids some cascaded errors, e.g. in case of a bad spec.
@@ -5986,7 +6008,11 @@ package body Sem_Ch6 is
                   begin
                      if Is_Protected_Type (Corresponding_Concurrent_Type (T))
                      then
-                        Error_Msg_PT (New_Id, Ultimate_Alias (Old_Id));
+                        Conforms := False;
+
+                        if Errmsg then
+                           Error_Msg_PT (New_Id, Ultimate_Alias (Old_Id));
+                        end if;
                      else
                         Conformance_Error
                           ("\mode of & does not match!", New_Formal);
@@ -5996,10 +6022,8 @@ package body Sem_Ch6 is
 
                return;
 
-            --  Part of mode conformance for access types is having the same
-            --  constant modifier.
-
-            elsif Access_Types_Match
+            elsif Is_Access_Type (Old_Formal_Base)
+              and then Is_Access_Type (New_Formal_Base)
               and then Is_Access_Constant (Old_Formal_Base) /=
                        Is_Access_Constant (New_Formal_Base)
             then
@@ -6021,8 +6045,8 @@ package body Sem_Ch6 is
             --  (access formals in the bodies aren't marked Can_Never_Be_Null).
 
             if Ada_Version >= Ada_2005
-              and then Ekind (Etype (Old_Formal)) = E_Anonymous_Access_Type
-              and then Ekind (Etype (New_Formal)) = E_Anonymous_Access_Type
+              and then Is_Anonymous_Access_Type (Etype (Old_Formal))
+              and then Is_Anonymous_Access_Type (Etype (New_Formal))
               and then
                 ((Can_Never_Be_Null (Etype (Old_Formal)) /=
                   Can_Never_Be_Null (Etype (New_Formal))
@@ -6545,12 +6569,16 @@ package body Sem_Ch6 is
    -----------------------------------------
 
    procedure Check_Formal_Subprogram_Conformance
-     (New_Id  : Entity_Id;
-      Old_Id  : Entity_Id;
-      Err_Loc : Node_Id := Empty)
+     (New_Id   : Entity_Id;
+      Old_Id   : Entity_Id;
+      Err_Loc  : Node_Id;
+      Errmsg   : Boolean;
+      Conforms : out Boolean)
    is
       N : Node_Id;
    begin
+      Conforms := True;
+
       if Is_Formal_Subprogram (Old_Id)
         or else Is_Formal_Subprogram (New_Id)
         or else (Is_Subprogram (New_Id)
@@ -6563,12 +6591,27 @@ package body Sem_Ch6 is
             N := New_Id;
          end if;
 
-         Error_Msg_Sloc := Sloc (Old_Id);
-         Error_Msg_N ("not subtype conformant with declaration#!", N);
-         Error_Msg_NE
-           ("\formal subprograms are not subtype conformant "
-            & "(RM 6.3.1 (17/3))", N, New_Id);
+         Conforms := False;
+
+         if Errmsg then
+            Error_Msg_Sloc := Sloc (Old_Id);
+            Error_Msg_N ("not subtype conformant with declaration#!", N);
+            Error_Msg_NE
+              ("\formal subprograms are not subtype conformant "
+               & "(RM 6.3.1 (17/3))", N, New_Id);
+         end if;
       end if;
+   end Check_Formal_Subprogram_Conformance;
+
+   procedure Check_Formal_Subprogram_Conformance
+     (New_Id  : Entity_Id;
+      Old_Id  : Entity_Id;
+      Err_Loc : Node_Id := Empty)
+   is
+      Ignore : Boolean;
+   begin
+      Check_Formal_Subprogram_Conformance
+        (New_Id, Old_Id, Err_Loc, True, Ignore);
    end Check_Formal_Subprogram_Conformance;
 
    ----------------------------
@@ -8904,7 +8947,7 @@ package body Sem_Ch6 is
 
             --  Warn unless genuine overloading. Do not emit warning on
             --  hiding predefined operators in Standard (these are either an
-            --  (artifact of our implicit declarations, or simple noise) but
+            --  artifact of our implicit declarations, or simple noise) but
             --  keep warning on a operator defined on a local subtype, because
             --  of the real danger that different operators may be applied in
             --  various parts of the program.

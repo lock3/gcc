@@ -202,6 +202,8 @@ public:
 
 /* Prototypes.  */
 
+static cp_lexer *cp_lexer_new_main
+  (void);
 static cp_lexer *cp_lexer_new_from_tokens
   (cp_token_cache *tokens);
 static void cp_lexer_destroy
@@ -252,6 +254,7 @@ static void noexcept_override_late_checks
 
 static void cp_parser_initial_pragma
   (cp_token *);
+
 static bool cp_parser_omp_declare_reduction_exprs
   (tree, cp_parser *);
 static void cp_finalize_oacc_routine
@@ -1131,8 +1134,6 @@ static cp_token *
 cp_lexer_consume_token (cp_lexer* lexer)
 {
   cp_token *token = lexer->next_token;
-
-  gcc_assert (!lexer->in_pragma || token->type != CPP_PRAGMA_EOL);
 
   do
     {
@@ -2289,7 +2290,8 @@ static void cp_parser_import_declaration
 
 /* Declarations [gram.dcl.dcl] */
 
-static void cp_parser_declaration_seq_opt (cp_parser *);
+static void cp_parser_declaration_seq_opt
+  (cp_parser *);
 static void cp_parser_declaration
   (cp_parser *);
 static void cp_parser_toplevel_declaration
@@ -3834,8 +3836,8 @@ cp_parser_skip_to_closing_parenthesis_1 (cp_parser *parser,
 
 	case CPP_PRAGMA:
 	  /* We fell into a pragma.  Skip it, and continue. */
-	  cp_parser_skip_to_pragma_eol (parser, token);
-	  break;
+	  cp_parser_skip_to_pragma_eol (parser, recovering ? token : nullptr);
+	  continue;
 
 	default:
 	  break;
@@ -3936,7 +3938,7 @@ cp_parser_skip_to_end_of_statement (cp_parser* parser)
 	  /* FALLTHROUGH  */
 
 	case CPP_PRAGMA:
-	  /* We fell into a pragma.  Skip it, and continue. */
+	  /* We fell into a pragma.  Skip it, and continue or return. */
 	  cp_parser_skip_to_pragma_eol (parser, token);
 	  if (!nesting_depth)
 	    return;
@@ -4087,25 +4089,31 @@ cp_parser_skip_to_closing_brace (cp_parser *parser)
 
 /* Consume tokens until we reach the end of the pragma.  The PRAGMA_TOK
    parameter is the PRAGMA token, allowing us to purge the entire pragma
-   sequence.  */
+   sequence.  PRAGMA_TOK can be NULL, if we're speculatively scanning
+   forwards (not error recovery).  */
 
 static void
 cp_parser_skip_to_pragma_eol (cp_parser* parser, cp_token *pragma_tok)
 {
   cp_token *token;
 
-  parser->lexer->in_pragma = false;
-
   do
     {
-      if (cp_lexer_next_token_is (parser->lexer, CPP_EOF))
-	break;
+      /* The preprocessor makes sure that a PRAGMA_EOL token appears
+         before an EOF token, even when the EOF is on the pragma line.
+         We should never get here without being inside a deferred
+         pragma.  */
+      gcc_checking_assert (cp_lexer_next_token_is_not (parser->lexer, CPP_EOF));
       token = cp_lexer_consume_token (parser->lexer);
     }
   while (token->type != CPP_PRAGMA_EOL);
 
-  /* Ensure that the pragma is not parsed again.  */
-  cp_lexer_purge_tokens_after (parser->lexer, pragma_tok);
+  if (pragma_tok)
+    {
+      /* Ensure that the pragma is not parsed again.  */
+      cp_lexer_purge_tokens_after (parser->lexer, pragma_tok);
+      parser->lexer->in_pragma = false;
+    }
 }
 
 /* Require pragma end of line, resyncing with it as necessary.  The
@@ -13734,7 +13742,7 @@ cp_parser_import_declaration (cp_parser *parser, module_preamble preamble,
 		  " must not be include-translated");
       else if (preamble == MP_PREAMBLE && !token->main_source_p)
 	error_at (token->location, "post-module-declaration imports"
-		  " must not be from header inclusion ");
+		  " must not be from header inclusion");
 
       import_module (mod, token->location, exporting, attrs, parse_in);
     }
@@ -14159,7 +14167,7 @@ cp_parser_declaration_seq_opt (cp_parser* parser)
 
       if (token->type == CPP_CLOSE_BRACE
 	  || token->type == CPP_EOF)
- 	break;
+	break;
       else
 	cp_parser_toplevel_declaration (parser);
     }
@@ -14326,10 +14334,11 @@ cp_parser_toplevel_declaration (cp_parser* parser)
     cp_parser_pragma (parser, pragma_external, NULL);
   else if (token->type == CPP_SEMICOLON)
     {
-      /* A declaration consisting of a single semicolon is
-	 invalid.  Allow it unless we're being pedantic.  */
       cp_lexer_consume_token (parser->lexer);
-      pedwarn (input_location, OPT_Wpedantic, "extra %<;%>");
+      /* A declaration consisting of a single semicolon is invalid
+       * before C++11.  Allow it unless we're being pedantic.  */
+      if (cxx_dialect < cxx11)
+	pedwarn (input_location, OPT_Wpedantic, "extra %<;%>");
     }
   else
     /* Parse the declaration itself.  */
@@ -15721,11 +15730,11 @@ cp_parser_decltype_expr (cp_parser *parser,
   return expr;
 }
 
-/* Parse a `decltype' type. Returns the type.
+/* Parse a `decltype' type.  Returns the type.
 
-   simple-type-specifier:
+   decltype-specifier:
      decltype ( expression )
-   C++14 proposal:
+   C++14:
      decltype ( auto )  */
 
 static tree
@@ -15765,10 +15774,19 @@ cp_parser_decltype (cp_parser *parser)
 
   tree expr = NULL_TREE;
 
-  if (cxx_dialect >= cxx14
-      && cp_lexer_next_token_is_keyword (parser->lexer, RID_AUTO))
-    /* decltype (auto) */
-    cp_lexer_consume_token (parser->lexer);
+  if (cp_lexer_next_token_is_keyword (parser->lexer, RID_AUTO)
+      && cp_lexer_nth_token_is (parser->lexer, 2, CPP_CLOSE_PAREN))
+    {
+      /* decltype (auto) */
+      cp_lexer_consume_token (parser->lexer);
+      if (cxx_dialect < cxx14)
+	{
+	  error_at (start_token->location,
+		    "%<decltype(auto)%> type specifier only available with "
+		    "%<-std=c++14%> or %<-std=gnu++14%>");
+	  expr = error_mark_node;
+	}
+    }
   else
     {
       /* decltype (expression)  */
@@ -20391,7 +20409,12 @@ cp_parser_enum_specifier (cp_parser* parser)
 		     "ISO C++ forbids empty unnamed enum");
 	}
       else
-	cp_parser_enumerator_list (parser, type);
+	{
+	  /* We've seen a '{' so we know we're in an enum-specifier.
+	     Commit to any tentative parse to get syntax errors.  */
+	  cp_parser_commit_to_tentative_parse (parser);
+	  cp_parser_enumerator_list (parser, type);
+	}
 
       /* Consume the final '}'.  */
       braces.require_close (parser);
@@ -32862,25 +32885,26 @@ class_decl_loc_t::diag_mismatched_tags (tree type_decl)
   /* Issue a warning for the first mismatched declaration.
      Avoid using "%#qT" since the class-key for the same type will
      be the same regardless of which one was used in the declaraion.  */
-  warning_at (loc, OPT_Wmismatched_tags,
-	      "%qT declared with a mismatched class-key %qs",
-	      type_decl, xmatchkstr);
+  if (warning_at (loc, OPT_Wmismatched_tags,
+		  "%qT declared with a mismatched class-key %qs",
+		  type_decl, xmatchkstr))
+    {
+      /* Suggest how to avoid the warning for each instance since
+	 the guidance may be different depending on context.  */
+      inform (loc,
+	      (key_redundant_p
+	       ? G_("remove the class-key or replace it with %qs")
+	       : G_("replace the class-key with %qs")),
+	      xpectkstr);
 
-  /* Suggest how to avoid the warning for each instance since
-     the guidance may be different depending on context.  */
-  inform (loc,
-	  (key_redundant_p
-	   ? G_("remove the class-key or replace it with %qs")
-	   : G_("replace the class-key with %qs")),
-	  xpectkstr);
-
-  /* Also point to the first declaration or definition that guided
-     the decision to issue the warning above.  */
-  inform (cdlguide->location (idxguide),
-	  (def_p
-	   ? G_("%qT defined as %qs here")
-	   : G_("%qT first declared as %qs here")),
-	  type_decl, xpectkstr);
+      /* Also point to the first declaration or definition that guided
+	 the decision to issue the warning above.  */
+      inform (cdlguide->location (idxguide),
+	      (def_p
+	       ? G_("%qT defined as %qs here")
+	       : G_("%qT first declared as %qs here")),
+	      type_decl, xpectkstr);
+    }
 
   /* Issue warnings for the remaining inconsistent declarations.  */
   for (unsigned i = idx + 1; i != ndecls; ++i)
@@ -32895,16 +32919,16 @@ class_decl_loc_t::diag_mismatched_tags (tree type_decl)
       key_redundant_p = key_redundant (i);
       /* Set the function declaration to print in diagnostic context.  */
       current_function_decl = function (i);
-      warning_at (loc, OPT_Wmismatched_tags,
-		  "%qT declared with a mismatched class-key %qs",
-		  type_decl, xmatchkstr);
-      /* Suggest how to avoid the warning for each instance since
-	 the guidance may be different depending on context.  */
-      inform (loc,
-	      (key_redundant_p
-	       ? G_("remove the class-key or replace it with %qs")
-	       : G_("replace the class-key with %qs")),
-	      xpectkstr);
+      if (warning_at (loc, OPT_Wmismatched_tags,
+		      "%qT declared with a mismatched class-key %qs",
+		      type_decl, xmatchkstr))
+	/* Suggest how to avoid the warning for each instance since
+	   the guidance may be different depending on context.  */
+	inform (loc,
+		(key_redundant_p
+		 ? G_("remove the class-key or replace it with %qs")
+		 : G_("replace the class-key with %qs")),
+		xpectkstr);
     }
 
   /* Restore the current function in case it was replaced above.  */
@@ -36802,12 +36826,21 @@ cp_parser_omp_clause_hint (cp_parser *parser, tree list, location_t location)
 
   t = cp_parser_assignment_expression (parser);
 
+  if (t != error_mark_node)
+    {
+      t = fold_non_dependent_expr (t);
+      if (!value_dependent_expression_p (t)
+	  && (!INTEGRAL_TYPE_P (TREE_TYPE (t))
+	      || !tree_fits_shwi_p (t)
+	      || tree_int_cst_sgn (t) == -1))
+	error_at (location, "expected constant integer expression with "
+			    "valid sync-hint value");
+    }
   if (t == error_mark_node
       || !parens.require_close (parser))
     cp_parser_skip_to_closing_parenthesis (parser, /*recovering=*/true,
 					   /*or_comma=*/false,
 					   /*consume_paren=*/true);
-
   check_no_duplicate_clause (list, OMP_CLAUSE_HINT, "hint", location);
 
   c = build_omp_clause (location, OMP_CLAUSE_HINT);
@@ -39629,13 +39662,10 @@ cp_parser_omp_critical (cp_parser *parser, cp_token *pragma_tok, bool *if_p)
       if (cp_lexer_next_token_is (parser->lexer, CPP_COMMA)
 	  && cp_lexer_nth_token_is (parser->lexer, 2, CPP_NAME))
 	cp_lexer_consume_token (parser->lexer);
-
-      clauses = cp_parser_omp_all_clauses (parser,
-					   OMP_CRITICAL_CLAUSE_MASK,
-					   "#pragma omp critical", pragma_tok);
     }
-  else
-    cp_parser_require_pragma_eol (parser, pragma_tok);
+
+  clauses = cp_parser_omp_all_clauses (parser, OMP_CRITICAL_CLAUSE_MASK,
+				       "#pragma omp critical", pragma_tok);
 
   stmt = cp_parser_omp_structured_block (parser, if_p);
   return c_finish_omp_critical (input_location, stmt, name, clauses);
@@ -45458,6 +45488,7 @@ pragma_lex (tree *value, location_t *loc)
   return ret;
 }
 
+
 /* External interface.  */
 
 /* Parse one entire translation unit.  */

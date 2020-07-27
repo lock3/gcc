@@ -528,7 +528,8 @@ package body Exp_Ch3 is
       Type_Def  : constant Node_Id    := Type_Definition (Decl);
       Type_Id   : constant Entity_Id  := Defining_Identifier (Decl);
       Spec_Node : constant Node_Id    :=
-                    New_Copy_Tree (Specification (New_Decl));
+                    Copy_Subprogram_Spec (Specification (New_Decl));
+      --  This copy creates new identifiers for formals and subprogram.
 
       Act       : Node_Id;
       Body_Node : Node_Id;
@@ -540,25 +541,21 @@ package body Exp_Ch3 is
          return;
       end if;
 
-      Set_Defining_Unit_Name (Spec_Node,
-        Make_Defining_Identifier
-          (Loc, Chars (Defining_Unit_Name (Spec_Node))));
-
       --  Create List of actuals for indirect call. The last parameter of the
-      --  subprogram is the access value itself.
+      --  subprogram declaration is the access value for the indirect call.
 
       Act := First (Parameter_Specifications (Spec_Node));
 
       while Present (Act) loop
+         exit when Act = Last (Parameter_Specifications (Spec_Node));
          Append_To (Actuals,
            Make_Identifier (Loc, Chars (Defining_Identifier (Act))));
          Next (Act);
-         exit when Act = Last (Parameter_Specifications (Spec_Node));
       end loop;
 
       Ptr :=
         Defining_Identifier
-          (Last (Parameter_Specifications (Spec_Node)));
+          (Last (Parameter_Specifications (Specification (New_Decl))));
 
       if Nkind (Type_Def) = N_Access_Procedure_Definition then
          Call_Stmt := Make_Procedure_Call_Statement (Loc,
@@ -2064,25 +2061,9 @@ package body Exp_Ch3 is
          --  which provides for a better error message.
 
          if Comes_From_Source (Exp)
-           and then Has_Predicates (Typ)
-           and then not Predicate_Checks_Suppressed (Empty)
-           and then not Predicates_Ignored (Typ)
+           and then Predicate_Enabled (Typ)
          then
             Append (Make_Predicate_Check (Typ, Exp), Res);
-         end if;
-
-         if Nkind (Exp) = N_Allocator
-            and then Nkind (Expression (Exp)) = N_Qualified_Expression
-         then
-            declare
-               Subtype_Entity : constant Entity_Id
-                  := Entity (Subtype_Mark (Expression (Exp)));
-            begin
-               if Has_Predicates (Subtype_Entity) then
-                  Append (Make_Predicate_Check
-                     (Subtype_Entity, Expression (Expression (Exp))), Res);
-               end if;
-            end;
          end if;
 
          return Res;
@@ -5917,7 +5898,10 @@ package body Exp_Ch3 is
                Typ := Etype (Comp);
 
                if Ekind (Typ) = E_Anonymous_Access_Type
-                 and then Has_Task (Available_View (Designated_Type (Typ)))
+                 and then
+                   (Has_Task (Available_View (Designated_Type (Typ)))
+                      or else
+                    Might_Have_Tasks (Available_View (Designated_Type (Typ))))
                  and then No (Master_Id (Typ))
                then
                   --  Ensure that the record or array type have a _master
@@ -8167,61 +8151,44 @@ package body Exp_Ch3 is
 
             elsif Ada_Version >= Ada_2012
               and then Present (Associated_Storage_Pool (Def_Id))
-
-              --  Omit this check for the case of a configurable run-time that
-              --  does not provide package System.Storage_Pools.Subpools.
-
-              and then RTE_Available (RE_Root_Storage_Pool_With_Subpools)
+              and then RTU_Loaded (System_Storage_Pools_Subpools)
             then
                declare
                   Loc   : constant Source_Ptr := Sloc (Def_Id);
                   Pool  : constant Entity_Id :=
                             Associated_Storage_Pool (Def_Id);
-                  RSPWS : constant Entity_Id :=
-                            RTE (RE_Root_Storage_Pool_With_Subpools);
 
                begin
                   --  It is known that the accessibility level of the access
                   --  type is deeper than that of the pool.
 
                   if Type_Access_Level (Def_Id) > Object_Access_Level (Pool)
+                    and then Is_Class_Wide_Type (Etype (Pool))
                     and then not Accessibility_Checks_Suppressed (Def_Id)
                     and then not Accessibility_Checks_Suppressed (Pool)
                   then
-                     --  Static case: the pool is known to be a descendant of
-                     --  Root_Storage_Pool_With_Subpools.
-
-                     if Is_Ancestor (RSPWS, Etype (Pool)) then
-                        Error_Msg_N
-                          ("??subpool access type has deeper accessibility "
-                           & "level than pool", Def_Id);
-
-                        Append_Freeze_Action (Def_Id,
-                          Make_Raise_Program_Error (Loc,
-                            Reason => PE_Accessibility_Check_Failed));
-
-                     --  Dynamic case: when the pool is of a class-wide type,
-                     --  it may or may not support subpools depending on the
-                     --  path of derivation. Generate:
+                     --  When the pool is of a class-wide type, it may or may
+                     --  not support subpools depending on the path of
+                     --  derivation. Generate:
 
                      --    if Def_Id in RSPWS'Class then
                      --       raise Program_Error;
                      --    end if;
 
-                     elsif Is_Class_Wide_Type (Etype (Pool)) then
-                        Append_Freeze_Action (Def_Id,
-                          Make_If_Statement (Loc,
-                            Condition       =>
-                              Make_In (Loc,
-                                Left_Opnd  => New_Occurrence_Of (Pool, Loc),
-                                Right_Opnd =>
-                                  New_Occurrence_Of
-                                    (Class_Wide_Type (RSPWS), Loc)),
-
-                            Then_Statements => New_List (
-                              Make_Raise_Program_Error (Loc,
-                                Reason => PE_Accessibility_Check_Failed))));
-                     end if;
+                     Append_Freeze_Action (Def_Id,
+                       Make_If_Statement (Loc,
+                         Condition       =>
+                           Make_In (Loc,
+                             Left_Opnd  => New_Occurrence_Of (Pool, Loc),
+                             Right_Opnd =>
+                               New_Occurrence_Of
+                                 (Class_Wide_Type
+                                   (RTE
+                                     (RE_Root_Storage_Pool_With_Subpools)),
+                                  Loc)),
+                         Then_Statements => New_List (
+                           Make_Raise_Program_Error (Loc,
+                             Reason => PE_Accessibility_Check_Failed))));
                   end if;
                end;
             end if;
@@ -8353,7 +8320,7 @@ package body Exp_Ch3 is
       --  subtypes to which these checks do not apply.
 
       elsif Has_Invariants (Def_Id) then
-         if Within_Internal_Subprogram
+         if not Predicate_Check_In_Scope (Def_Id)
            or else (Ekind (Current_Scope) = E_Function
                      and then Is_Predicate_Function (Current_Scope))
          then

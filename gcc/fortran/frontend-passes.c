@@ -5441,6 +5441,7 @@ check_externals_procedure (gfc_symbol *sym, locus *loc,
   gfc_current_ns = gsym->ns;
 
   gfc_get_formal_from_actual_arglist (new_sym, actual);
+  new_sym->declared_at = *loc;
   gfc_current_ns = save_ns;
 
   return 0;
@@ -5493,12 +5494,66 @@ check_externals_expr (gfc_expr **ep, int *walk_subtrees ATTRIBUTE_UNUSED,
   return check_externals_procedure (sym, loc, actual);
 }
 
+/* Function to check if any interface clashes with a global
+   identifier, to be invoked via gfc_traverse_ns.  */
+
+static void
+check_against_globals (gfc_symbol *sym)
+{
+  gfc_gsymbol *gsym;
+  gfc_symbol *def_sym = NULL;
+  const char *sym_name;
+  char buf  [200];
+
+  if (sym->attr.if_source != IFSRC_IFBODY || sym->attr.flavor != FL_PROCEDURE
+      || sym->attr.generic || sym->error)
+    return;
+
+  if (sym->binding_label)
+    sym_name = sym->binding_label;
+  else
+    sym_name = sym->name;
+
+  gsym = gfc_find_gsymbol (gfc_gsym_root, sym_name);
+  if (gsym && gsym->ns)
+    gfc_find_symbol (sym->name, gsym->ns, 0, &def_sym);
+
+  if (!def_sym || def_sym->error || def_sym->attr.generic)
+    return;
+
+  buf[0] = 0;
+  gfc_compare_interfaces (sym, def_sym, sym->name, 0, 1, buf, sizeof(buf),
+			  NULL, NULL, NULL);
+  if (buf[0] != 0)
+    {
+      gfc_warning (0, "%s between %L and %L", buf, &def_sym->declared_at,
+		   &sym->declared_at);
+      sym->error = 1;
+      def_sym->error = 1;
+    }
+
+}
+
+/* Do the code-walkling part for gfc_check_externals.  */
+
+static void
+gfc_check_externals0 (gfc_namespace *ns)
+{
+  gfc_code_walker (&ns->code, check_externals_code, check_externals_expr, NULL);
+
+  for (ns = ns->contained; ns; ns = ns->sibling)
+    {
+      if (ns->code == NULL || ns->code->op != EXEC_BLOCK)
+	gfc_check_externals0 (ns);
+    }
+
+}
+
 /* Called routine.  */
 
 void
 gfc_check_externals (gfc_namespace *ns)
 {
-
   gfc_clear_error ();
 
   /* Turn errors into warnings if the user indicated this.  */
@@ -5506,13 +5561,82 @@ gfc_check_externals (gfc_namespace *ns)
   if (!pedantic && flag_allow_argument_mismatch)
     gfc_errors_to_warnings (true);
 
-  gfc_code_walker (&ns->code, check_externals_code, check_externals_expr, NULL);
+  gfc_check_externals0 (ns);
+  gfc_traverse_ns (ns, check_against_globals);
+
+  gfc_errors_to_warnings (false);
+}
+
+/* Callback function. If there is a call to a subroutine which is
+   neither pure nor implicit_pure, unset the implicit_pure flag for
+   the caller and return -1.  */
+
+static int
+implicit_pure_call (gfc_code **c, int *walk_subtrees ATTRIBUTE_UNUSED,
+		    void *sym_data)
+{
+  gfc_code *co = *c;
+  gfc_symbol *caller_sym;
+  symbol_attribute *a;
+
+  if (co->op != EXEC_CALL || co->resolved_sym == NULL)
+    return 0;
+
+  a = &co->resolved_sym->attr;
+  if (a->intrinsic || a->pure || a->implicit_pure)
+    return 0;
+
+  caller_sym = (gfc_symbol *) sym_data;
+  gfc_unset_implicit_pure (caller_sym);
+  return 1;
+}
+
+/* Callback function. If there is a call to a function which is
+   neither pure nor implicit_pure, unset the implicit_pure flag for
+   the caller and return 1.  */
+
+static int
+implicit_pure_expr (gfc_expr **e, int *walk ATTRIBUTE_UNUSED, void *sym_data)
+{
+  gfc_expr *expr = *e;
+  gfc_symbol *caller_sym;
+  gfc_symbol *sym;
+  symbol_attribute *a;
+
+  if (expr->expr_type != EXPR_FUNCTION || expr->value.function.isym)
+    return 0;
+
+  sym = expr->symtree->n.sym;
+  a = &sym->attr;
+  if (a->pure || a->implicit_pure)
+    return 0;
+
+  caller_sym = (gfc_symbol *) sym_data;
+  gfc_unset_implicit_pure (caller_sym);
+  return 1;
+}
+
+/* Go through all procedures in the namespace and unset the
+   implicit_pure attribute for any procedure that calls something not
+   pure or implicit pure.  */
+
+bool
+gfc_fix_implicit_pure (gfc_namespace *ns)
+{
+  bool changed = false;
+  gfc_symbol *proc = ns->proc_name;
+
+  if (proc && proc->attr.flavor == FL_PROCEDURE && proc->attr.implicit_pure
+      && ns->code
+      && gfc_code_walker (&ns->code, implicit_pure_call, implicit_pure_expr,
+			  (void *) ns->proc_name))
+    changed = true;
 
   for (ns = ns->contained; ns; ns = ns->sibling)
     {
-      if (ns->code == NULL || ns->code->op != EXEC_BLOCK)
-	gfc_check_externals (ns);
+      if (gfc_fix_implicit_pure (ns))
+	changed = true;
     }
 
-  gfc_errors_to_warnings (false);
+  return changed;
 }

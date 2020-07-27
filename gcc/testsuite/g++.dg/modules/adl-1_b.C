@@ -5,7 +5,7 @@ export module inter;
 import worker;
 
 namespace hidden {
-int fn (int x)
+export int fn (int x)
 {
   return -x;
 }

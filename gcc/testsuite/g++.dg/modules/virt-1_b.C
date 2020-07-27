@@ -16,3 +16,8 @@ int main ()
 
   return !(Visit (&me) == 1);
 }
+
+// We do not emit Visitor vtable or rtti here
+// { dg-final { scan-assembler-not {_ZTV7Visitor:} } }
+// { dg-final { scan-assembler-not {_ZTI7Visitor:} } }
+// { dg-final { scan-assembler-not {_ZTS7Visitor:} } }

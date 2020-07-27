@@ -1989,6 +1989,16 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
       else if (DECL_TYPE_TEMPLATE_P (olddecl)
 	       || DECL_TYPE_TEMPLATE_P (newdecl))
 	/* Class template conflicts.  */;
+      else if ((TREE_CODE (olddecl) == TEMPLATE_DECL
+		&& DECL_TEMPLATE_RESULT (olddecl)
+		&& TREE_CODE (DECL_TEMPLATE_RESULT (olddecl)) == VAR_DECL)
+	       || (TREE_CODE (newdecl) == TEMPLATE_DECL
+		   && DECL_TEMPLATE_RESULT (newdecl)
+		   && TREE_CODE (DECL_TEMPLATE_RESULT (newdecl)) == VAR_DECL))
+	/* Variable template conflicts.  */;
+      else if (concept_definition_p (olddecl)
+	       || concept_definition_p (newdecl))
+	/* Concept conflicts.  */;
       else if ((TREE_CODE (newdecl) == FUNCTION_DECL
 		&& DECL_FUNCTION_TEMPLATE_P (olddecl))
 	       || (TREE_CODE (olddecl) == FUNCTION_DECL
@@ -2011,7 +2021,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool newdecl_is_friend)
 		      " literal operator template", newdecl);
 	  else
 	    return NULL_TREE;
-	  
+
 	  inform (olddecl_loc, "previous declaration %q#D", olddecl);
 	  return error_mark_node;
 	}
@@ -8407,6 +8417,13 @@ cp_finish_decl (tree decl, tree init, bool init_const_expr_p,
 		       NULL_TREE, DECL_ATTRIBUTES (decl));
     }
 
+  /* This is the last point we can lower alignment so give the target the
+     chance to do so.  */
+  if (VAR_P (decl)
+      && !is_global_var (decl)
+      && !DECL_HARD_REGISTER (decl))
+    targetm.lower_local_decl_alignment (decl);
+
   invoke_plugin_callbacks (PLUGIN_FINISH_DECL, decl);
 }
 
@@ -9965,15 +9982,6 @@ grokfndecl (tree ctype,
 		       "arguments and isn%'t a definition", decl);
 	    break;
 	  }
-    }
-
-  /* FIXME: For now.  */
-  if (virtualp && (inlinep & 8) != 0)
-    {
-      sorry_at (DECL_SOURCE_LOCATION (decl),
-		"%<virtual%> %<consteval%> method %qD not supported yet",
-		decl);
-      inlinep &= ~8;
     }
 
   /* If this decl has namespace scope, set that up.  */
@@ -12542,105 +12550,99 @@ grokdeclarator (const cp_declarator *declarator,
 
 	    /* Handle a late-specified return type.  */
 	    tree late_return_type = declarator->u.function.late_return_type;
-	    if (funcdecl_p
-		/* This is the case e.g. for
-		   using T = auto () -> int.  */
-		|| inner_declarator == NULL)
+	    if (tree auto_node = type_uses_auto (type))
 	      {
-		if (tree auto_node = type_uses_auto (type))
+		if (!late_return_type && funcdecl_p)
 		  {
-		    if (!late_return_type)
+		    if (current_class_type
+			&& LAMBDA_TYPE_P (current_class_type))
+		      /* OK for C++11 lambdas.  */;
+		    else if (cxx_dialect < cxx14)
 		      {
-			if (current_class_type
-			    && LAMBDA_TYPE_P (current_class_type))
-			  /* OK for C++11 lambdas.  */;
-			else if (cxx_dialect < cxx14)
-			  {
-			    error_at (typespec_loc, "%qs function uses "
-				      "%<auto%> type specifier without "
-				      "trailing return type", name);
-			    inform (typespec_loc,
-				    "deduced return type only available "
-				    "with %<-std=c++14%> or %<-std=gnu++14%>");
-			  }
-			else if (virtualp)
-			  {
-			    error_at (typespec_loc, "virtual function "
-				      "cannot have deduced return type");
-			    virtualp = false;
-			  }
+			error_at (typespec_loc, "%qs function uses "
+				  "%<auto%> type specifier without "
+				  "trailing return type", name);
+			inform (typespec_loc,
+				"deduced return type only available "
+				"with %<-std=c++14%> or %<-std=gnu++14%>");
 		      }
-		    else if (!is_auto (type) && sfk != sfk_conversion)
+		    else if (virtualp)
 		      {
-			error_at (typespec_loc, "%qs function with trailing "
-				  "return type has %qT as its type rather "
-				  "than plain %<auto%>", name, type);
-			return error_mark_node;
-		      }
-		    else if (is_auto (type) && AUTO_IS_DECLTYPE (type))
-		      {
-			if (funcdecl_p)
-			  error_at (typespec_loc,
-				    "%qs function with trailing return type "
-				    "has %<decltype(auto)%> as its type "
-				    "rather than plain %<auto%>", name);
-			else
-			  error_at (typespec_loc,
-				    "invalid use of %<decltype(auto)%>");
-			return error_mark_node;
-		      }
-		    tree tmpl = CLASS_PLACEHOLDER_TEMPLATE (auto_node);
-		    if (!tmpl)
-		      if (tree late_auto = type_uses_auto (late_return_type))
-			tmpl = CLASS_PLACEHOLDER_TEMPLATE (late_auto);
-		    if (tmpl && funcdecl_p)
-		      {
-			if (!dguide_name_p (unqualified_id))
-			  {
-			    error_at (declarator->id_loc, "deduced class "
-				      "type %qD in function return type",
-				      DECL_NAME (tmpl));
-			    inform (DECL_SOURCE_LOCATION (tmpl),
-				    "%qD declared here", tmpl);
-			    return error_mark_node;
-			  }
-			else if (!late_return_type)
-			  {
-			    error_at (declarator->id_loc, "deduction guide "
-				      "for %qT must have trailing return "
-				      "type", TREE_TYPE (tmpl));
-			    inform (DECL_SOURCE_LOCATION (tmpl),
-				    "%qD declared here", tmpl);
-			    return error_mark_node;
-			  }
-			else if (CLASS_TYPE_P (late_return_type)
-				 && CLASSTYPE_TEMPLATE_INFO (late_return_type)
-				 && (CLASSTYPE_TI_TEMPLATE (late_return_type)
-				     == tmpl))
-			  /* OK */;
-			else
-			  error ("trailing return type %qT of deduction guide "
-				 "is not a specialization of %qT",
-				 late_return_type, TREE_TYPE (tmpl));
+			error_at (typespec_loc, "virtual function "
+				  "cannot have deduced return type");
+			virtualp = false;
 		      }
 		  }
-		else if (late_return_type
-			 && sfk != sfk_conversion)
+		else if (!is_auto (type) && sfk != sfk_conversion)
 		  {
-		    if (late_return_type == error_mark_node)
-		      return error_mark_node;
-		    if (cxx_dialect < cxx11)
-		      /* Not using maybe_warn_cpp0x because this should
-			 always be an error.  */
-		      error_at (typespec_loc,
-				"trailing return type only available "
-				"with %<-std=c++11%> or %<-std=gnu++11%>");
-		    else
-		      error_at (typespec_loc, "%qs function with trailing "
-				"return type not declared with %<auto%> "
-				"type specifier", name);
+		    error_at (typespec_loc, "%qs function with trailing "
+			      "return type has %qT as its type rather "
+			      "than plain %<auto%>", name, type);
 		    return error_mark_node;
 		  }
+		else if (is_auto (type) && AUTO_IS_DECLTYPE (type))
+		  {
+		    if (funcdecl_p)
+		      error_at (typespec_loc,
+				"%qs function with trailing return type "
+				"has %<decltype(auto)%> as its type "
+				"rather than plain %<auto%>", name);
+		    else
+		      error_at (typespec_loc,
+				"invalid use of %<decltype(auto)%>");
+		    return error_mark_node;
+		  }
+		tree tmpl = CLASS_PLACEHOLDER_TEMPLATE (auto_node);
+		if (!tmpl)
+		  if (tree late_auto = type_uses_auto (late_return_type))
+		    tmpl = CLASS_PLACEHOLDER_TEMPLATE (late_auto);
+		if (tmpl && funcdecl_p)
+		  {
+		    if (!dguide_name_p (unqualified_id))
+		      {
+			error_at (declarator->id_loc, "deduced class "
+				  "type %qD in function return type",
+				  DECL_NAME (tmpl));
+			inform (DECL_SOURCE_LOCATION (tmpl),
+				"%qD declared here", tmpl);
+			return error_mark_node;
+		      }
+		    else if (!late_return_type)
+		      {
+			error_at (declarator->id_loc, "deduction guide "
+				  "for %qT must have trailing return "
+				  "type", TREE_TYPE (tmpl));
+			inform (DECL_SOURCE_LOCATION (tmpl),
+				"%qD declared here", tmpl);
+			return error_mark_node;
+		      }
+		    else if (CLASS_TYPE_P (late_return_type)
+			      && CLASSTYPE_TEMPLATE_INFO (late_return_type)
+			      && (CLASSTYPE_TI_TEMPLATE (late_return_type)
+				  == tmpl))
+		      /* OK */;
+		    else
+		      error ("trailing return type %qT of deduction guide "
+			      "is not a specialization of %qT",
+			      late_return_type, TREE_TYPE (tmpl));
+		  }
+	      }
+	    else if (late_return_type
+		     && sfk != sfk_conversion)
+	      {
+		if (late_return_type == error_mark_node)
+		  return error_mark_node;
+		if (cxx_dialect < cxx11)
+		  /* Not using maybe_warn_cpp0x because this should
+		     always be an error.  */
+		  error_at (typespec_loc,
+			    "trailing return type only available "
+			    "with %<-std=c++11%> or %<-std=gnu++11%>");
+		else
+		  error_at (typespec_loc, "%qs function with trailing "
+			    "return type not declared with %<auto%> "
+			    "type specifier", name);
+		return error_mark_node;
 	      }
 	    type = splice_late_return_type (type, late_return_type);
 	    if (type == error_mark_node)
@@ -12693,11 +12695,20 @@ grokdeclarator (const cp_declarator *declarator,
 	    /* Only plain decltype(auto) is allowed.  */
 	    if (tree a = type_uses_auto (type))
 	      {
-		if (AUTO_IS_DECLTYPE (a) && a != type)
+		if (AUTO_IS_DECLTYPE (a))
 		  {
-		    error_at (typespec_loc, "%qT as type rather than "
-			      "plain %<decltype(auto)%>", type);
-		    return error_mark_node;
+		    if (a != type)
+		      {
+			error_at (typespec_loc, "%qT as type rather than "
+				  "plain %<decltype(auto)%>", type);
+			return error_mark_node;
+		      }
+		    else if (TYPE_QUALS (type) != TYPE_UNQUALIFIED)
+		      {
+			error_at (typespec_loc, "%<decltype(auto)%> cannot be "
+				  "cv-qualified");
+			return error_mark_node;
+		      }
 		  }
 	      }
 
@@ -17858,10 +17869,26 @@ grokmethod (cp_decl_specifier_seq *declspecs,
 
   check_template_shadow (fndecl);
 
-  if (TREE_PUBLIC (fndecl))
-    DECL_COMDAT (fndecl) = 1;
-  DECL_DECLARED_INLINE_P (fndecl) = 1;
-  DECL_NO_INLINE_WARNING_P (fndecl) = 1;
+  /* p1779 ABI-Isolation makes inline not a default for in-class
+     definitions in named module purview.  If the user explicitly
+     made it inline, grokdeclarator will already have done the right
+     things.  */
+  // FIXME: Should the override flag be born deprecated?
+  if ((!named_module_purview_p ()
+       || flag_module_implicit_inline
+      /* Lambda's operator function remains inline.  */
+       || LAMBDA_TYPE_P (DECL_CONTEXT (fndecl)))
+      /* If the User explicitly asked for this to be inline, we don't
+	 need to do more, but more importantly we want to warn if we
+	 can't inline it.  */
+      && !DECL_DECLARED_INLINE_P (fndecl))
+    {
+      if (TREE_PUBLIC (fndecl))
+	DECL_COMDAT (fndecl) = 1;
+      DECL_DECLARED_INLINE_P (fndecl) = 1;
+      /* It's ok if we can't inline this.  */
+      DECL_NO_INLINE_WARNING_P (fndecl) = 1;
+    }
 
   /* We process method specializations in finish_struct_1.  */
   if (processing_template_decl && !DECL_TEMPLATE_SPECIALIZATION (fndecl))

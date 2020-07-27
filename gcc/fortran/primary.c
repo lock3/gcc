@@ -432,8 +432,8 @@ match_boz_constant (gfc_expr **result)
     goto backup;
 
   if (x_hex
-      && gfc_invalid_boz ("Hexadecimal constant at %L uses "
-			  "nonstandard X instead of Z", &gfc_current_locus))
+      && gfc_invalid_boz (G_("Hexadecimal constant at %L uses "
+			  "nonstandard X instead of Z"), &gfc_current_locus))
     return MATCH_ERROR;
 
   old_loc = gfc_current_locus;
@@ -470,8 +470,8 @@ match_boz_constant (gfc_expr **result)
 	  goto backup;
 	}
 
-      if (gfc_invalid_boz ("BOZ constant at %C uses nonstandard postfix "
-			   "syntax", &gfc_current_locus))
+      if (gfc_invalid_boz (G_("BOZ constant at %C uses nonstandard postfix "
+			   "syntax"), &gfc_current_locus))
 	return MATCH_ERROR;
     }
 
@@ -2597,7 +2597,7 @@ gfc_variable_attr (gfc_expr *expr, gfc_typespec *ts)
   sym = expr->symtree->n.sym;
   attr = sym->attr;
 
-  if (sym->ts.type == BT_CLASS && sym->attr.class_ok)
+  if (sym->ts.type == BT_CLASS && sym->attr.class_ok && sym->ts.u.derived)
     {
       dimension = CLASS_DATA (sym)->attr.dimension;
       codimension = CLASS_DATA (sym)->attr.codimension;

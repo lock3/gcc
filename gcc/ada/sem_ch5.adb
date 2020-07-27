@@ -26,6 +26,7 @@
 with Aspects;  use Aspects;
 with Atree;    use Atree;
 with Checks;   use Checks;
+with Debug;    use Debug;
 with Einfo;    use Einfo;
 with Errout;   use Errout;
 with Expander; use Expander;
@@ -821,9 +822,7 @@ package body Sem_Ch5 is
       --  that of the target mutable object.
 
       if Is_Entity_Name (Lhs)
-        and then Ekind_In (Entity (Lhs), E_In_Out_Parameter,
-                                         E_Out_Parameter,
-                                         E_Variable)
+        and then Is_Assignable (Entity (Lhs))
         and then Is_Composite_Type (T1)
         and then not Is_Constrained (Etype (Entity (Lhs)))
         and then Nkind_In (Rhs, N_If_Expression, N_Case_Expression)
@@ -1834,7 +1833,7 @@ package body Sem_Ch5 is
 
             --  If condition is False, analyze THEN with expansion off
 
-            else -- Is_False (Expr_Value (Cond))
+            else pragma Assert (Is_False (Expr_Value (Cond)));
                Expander_Mode_Save_And_Set (False);
                In_Deleted_Code := True;
                Analyze_Statements (Tstm);
@@ -2629,6 +2628,10 @@ package body Sem_Ch5 is
 
          end if;
       end if;
+
+      if Present (Iterator_Filter (N)) then
+         Analyze_And_Resolve (Iterator_Filter (N), Standard_Boolean);
+      end if;
    end Analyze_Iterator_Specification;
 
    -------------------
@@ -3302,8 +3305,18 @@ package body Sem_Ch5 is
          --  the warning is perfectly acceptable.
 
          exception
-            when others => null;
+            when others =>
+               --  With debug flag K we will get an exception unless an error
+               --  has already occurred (useful for debugging).
+
+               if Debug_Flag_K then
+                  Check_Error_Detected;
+               end if;
          end;
+      end if;
+
+      if Present (Iterator_Filter (N)) then
+         Analyze_And_Resolve (Iterator_Filter (N), Standard_Boolean);
       end if;
 
       --  A loop parameter cannot be effectively volatile (SPARK RM 7.1.3(4)).

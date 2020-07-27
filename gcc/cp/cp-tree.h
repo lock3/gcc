@@ -610,9 +610,6 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
 
 /* Language-specific tree checkers.  */
 
-#define DECL_CHECK(NODE) \
-  TREE_CLASS_CHECK (NODE,tcc_declaration)
-
 #define VAR_OR_FUNCTION_DECL_CHECK(NODE) \
   TREE_CHECK2(NODE,VAR_DECL,FUNCTION_DECL)
 
@@ -7200,7 +7197,8 @@ inline bool named_module_p ()
 }
 inline bool header_module_p ()
 { return (module_kind & (MK_MODULE | MK_GLOBAL)) == (MK_MODULE | MK_GLOBAL); }
-
+inline bool named_module_purview_p ()
+{ return (module_kind & (MK_MODULE | MK_GLOBAL)) == MK_MODULE; }
 inline bool module_interface_p ()
 { return module_kind & MK_INTERFACE; }
 inline bool module_partition_p ()
@@ -7259,8 +7257,8 @@ extern bitmap get_import_bitmap ();
 extern bitmap module_visible_instantiation_path (bitmap *);
 extern void module_begin_main_file (cpp_reader *, line_maps *,
 				    const line_map_ordinary *);
-extern bool module_translate_include (cpp_reader *, line_maps *,
-				      location_t, const char *);
+extern char *module_translate_include (cpp_reader *, line_maps *,
+				       location_t, const char *);
 extern bool handle_module_option (unsigned opt, const char *arg, int value);
 
 /* Map from DECL to set of IDENTIFIER_NODEs representing restriction sets.  */

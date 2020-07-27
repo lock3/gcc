@@ -242,6 +242,16 @@ package body Sem_Ch13 is
    --  Register a check for the address clause N. The rest of the parameters
    --  are in keeping with the components of Address_Clause_Check_Record below.
 
+   procedure Validate_Aspect_Aggregate (N : Node_Id);
+   --  Check legality of operations given in the Ada 202x Aggregate aspect for
+   --  containers.
+
+   procedure Resolve_Aspect_Aggregate
+    (Typ  : Entity_Id;
+     Expr : Node_Id);
+   --  Resolve each one of the operations specified in the specification of
+   --  Aspect_Aggregate.
+
    procedure Resolve_Iterable_Operation
      (N      : Node_Id;
       Cursor : Entity_Id;
@@ -952,7 +962,6 @@ package body Sem_Ch13 is
       procedure Check_Aspect_Too_Late (N : Node_Id) is
          Typ  : constant Entity_Id := Entity (N);
          Expr : constant Node_Id   := Expression (N);
-         A_Id : constant Aspect_Id := Get_Aspect_Id (N);
 
          function Find_Type_Reference
            (Typ : Entity_Id; Expr : Node_Id) return Boolean;
@@ -995,42 +1004,45 @@ package body Sem_Ch13 is
          Parent_Type : Entity_Id;
 
       begin
-         if A_Id /= Aspect_Default_Value then
+         --  Ensure Expr is analyzed so that e.g. all types are properly
+         --  resolved for Find_Type_Reference.
 
-            --  Ensure Expr is analyzed so that e.g. all types are properly
-            --  resolved for Find_Type_Reference.
+         Analyze (Expr);
 
-            Analyze (Expr);
+         --  A self-referential aspect is illegal if it forces freezing the
+         --  entity before the corresponding aspect has been analyzed.
 
-            --  A self-referential aspect is illegal if it forces freezing the
-            --  entity before the corresponding aspect has been analyzed.
-
-            if Find_Type_Reference (Typ, Expr) then
-               Error_Msg_NE
-                 ("aspect specification causes premature freezing of&",
-                  N, Typ);
-            end if;
+         if Find_Type_Reference (Typ, Expr) then
+            Error_Msg_NE
+              ("aspect specification causes premature freezing of&", N, Typ);
          end if;
 
          --  For representation aspects, check for case of untagged derived
-         --  type whose parent either has primitive operations, or is a by
-         --  reference type (RM 13.1(10)).
+         --  type whose parent either has primitive operations (pre Ada 202x),
+         --  or is a by-reference type (RM 13.1(10)).
+         --  Strictly speaking the check also applies to Ada 2012 but it is
+         --  really too constraining for existing code already, so relax it.
+         --  ??? Confirming aspects should be allowed here.
 
-         if Is_Representation_Aspect (A_Id)
+         if Is_Representation_Aspect (Get_Aspect_Id (N))
            and then Is_Derived_Type (Typ)
            and then not Is_Tagged_Type (Typ)
          then
             Parent_Type := Etype (Base_Type (Typ));
 
-            if Has_Primitive_Operations (Parent_Type) then
-               No_Type_Rep_Item (N);
+            if Ada_Version <= Ada_2012
+              and then Has_Primitive_Operations (Parent_Type)
+            then
+               Error_Msg_N
+                 ("|representation aspect not permitted before Ada 202x: " &
+                  "use -gnat2020!", N);
                Error_Msg_NE
                  ("\parent type & has primitive operations!", N, Parent_Type);
 
             elsif Is_By_Reference_Type (Parent_Type) then
                No_Type_Rep_Item (N);
                Error_Msg_NE
-                 ("\parent type & is a by reference type!", N, Parent_Type);
+                 ("\parent type & is a by-reference type!", N, Parent_Type);
             end if;
          end if;
       end Check_Aspect_Too_Late;
@@ -1469,6 +1481,9 @@ package body Sem_Ch13 is
 
                   when Aspect_Iterable =>
                      Validate_Iterable_Aspect (E, ASN);
+
+                  when Aspect_Aggregate =>
+                     null;
 
                   when others =>
                      null;
@@ -2275,7 +2290,9 @@ package body Sem_Ch13 is
 
                --  Annotation of a subprogram; aspect expression is required
 
-               elsif Is_Subprogram (E) then
+               elsif Is_Subprogram_Or_Entry (E)
+                 or else Is_Generic_Subprogram (E)
+               then
                   if Present (Expr) then
 
                      --  If we analyze subprogram body that acts as its own
@@ -2290,11 +2307,13 @@ package body Sem_Ch13 is
                         Restore_Scope := True;
                         Push_Scope (E);
 
-                        if Is_Generic_Subprogram (E) then
-                           Install_Generic_Formals (E);
-                        else
-                           Install_Formals (E);
-                        end if;
+                        --  Only formals of the subprogram itself can appear
+                        --  in Relaxed_Initialization aspect expression, not
+                        --  formals of the enclosing generic unit. (This is
+                        --  different than in Precondition or Depends aspects,
+                        --  where both kinds of formals are allowed.)
+
+                        Install_Formals (E);
                      end if;
 
                      --  Aspect expression is either an aggregate with list of
@@ -2303,12 +2322,48 @@ package body Sem_Ch13 is
 
                      if Nkind (Expr) = N_Aggregate then
 
-                        --  Component associations are not allowed in the
-                        --  aspect expression aggregate.
+                        --  Component associations in the aggregate must be a
+                        --  parameter name followed by a static boolean
+                        --  expression.
 
                         if Present (Component_Associations (Expr)) then
-                           Error_Msg_N ("illegal aspect % expression", Expr);
-                        else
+                           declare
+                              Assoc : Node_Id :=
+                                First (Component_Associations (Expr));
+                           begin
+                              while Present (Assoc) loop
+                                 if List_Length (Choices (Assoc)) = 1 then
+                                    Analyze_Relaxed_Parameter
+                                      (E, First (Choices (Assoc)), Seen);
+
+                                    if Inside_A_Generic then
+                                       Preanalyze_And_Resolve
+                                         (Expression (Assoc), Any_Boolean);
+                                    else
+                                       Analyze_And_Resolve
+                                         (Expression (Assoc), Any_Boolean);
+                                    end if;
+
+                                    if not Is_OK_Static_Expression
+                                      (Expression (Assoc))
+                                    then
+                                       Error_Msg_N
+                                         ("expression of aspect %" &
+                                          "must be static", Aspect);
+                                    end if;
+
+                                 else
+                                    Error_Msg_N
+                                      ("illegal aspect % expression", Expr);
+                                 end if;
+                                 Next (Assoc);
+                              end loop;
+                           end;
+                        end if;
+
+                        --  Expressions of the aggregate are parameter names
+
+                        if Present (Expressions (Expr)) then
                            declare
                               Param : Node_Id := First (Expressions (Expr));
 
@@ -2351,6 +2406,35 @@ package body Sem_Ch13 is
             ---------------------------
 
             procedure Analyze_Aspect_Static is
+               function Has_Convention_Intrinsic (L : List_Id) return Boolean;
+               --  Return True if L contains a pragma argument association
+               --  node representing a convention Intrinsic.
+
+               ------------------------------
+               -- Has_Convention_Intrinsic --
+               ------------------------------
+
+               function Has_Convention_Intrinsic
+                 (L : List_Id) return Boolean
+               is
+                  Arg : Node_Id := First (L);
+               begin
+                  while Present (Arg) loop
+                     if Nkind (Arg) = N_Pragma_Argument_Association
+                       and then Chars (Arg) = Name_Convention
+                       and then Chars (Expression (Arg)) = Name_Intrinsic
+                     then
+                        return True;
+                     end if;
+
+                     Next (Arg);
+                  end loop;
+
+                  return False;
+               end Has_Convention_Intrinsic;
+
+               Is_Imported_Intrinsic : Boolean;
+
             begin
                if Ada_Version < Ada_2020 then
                   Error_Msg_N
@@ -2358,21 +2442,44 @@ package body Sem_Ch13 is
                   Error_Msg_N ("\compile with -gnat2020", Aspect);
 
                   return;
+               end if;
+
+               Is_Imported_Intrinsic := Is_Imported (E)
+                 and then
+                   Has_Convention_Intrinsic
+                     (Pragma_Argument_Associations (Import_Pragma (E)));
 
                --  The aspect applies only to expression functions that
                --  statisfy the requirements for a static expression function
-               --  (such as having an expression that is predicate-static).
+               --  (such as having an expression that is predicate-static) as
+               --  well as Intrinsic imported functions as a -gnatX extension.
 
-               elsif not Is_Expression_Function (E) then
-                  Error_Msg_N
-                    ("aspect % requires expression function", Aspect);
+               if not Is_Expression_Function (E)
+                 and then
+                   not (Extensions_Allowed and then Is_Imported_Intrinsic)
+               then
+                  if Extensions_Allowed then
+                     Error_Msg_N
+                       ("aspect % requires intrinsic or expression function",
+                        Aspect);
+
+                  elsif Is_Imported_Intrinsic then
+                     Error_Msg_N
+                       ("aspect % on intrinsic function is an extension: " &
+                        "use -gnatX",
+                        Aspect);
+
+                  else
+                     Error_Msg_N
+                       ("aspect % requires expression function", Aspect);
+                  end if;
 
                   return;
 
                --  Ada 202x (AI12-0075): Check that the function satisfies
-               --  several requirements of static expression functions as
-               --  specified in RM 6.8(5.1-5.8). Note that some of the
-               --  requirements given there are checked elsewhere.
+               --  several requirements of static functions as specified in
+               --  RM 6.8(5.1-5.8). Note that some of the requirements given
+               --  there are checked elsewhere.
 
                else
                   --  The expression of the expression function must be a
@@ -2526,22 +2633,6 @@ package body Sem_Ch13 is
                end if;
 
                if Expr_Value then
-
-                  --  Adding minimum decoration to generic subprograms to set
-                  --  the Yield attribute (since at this stage it may not be
-                  --  set; see Analyze_Generic_Subprogram_Declaration).
-
-                  if Nkind (N) in N_Generic_Subprogram_Declaration
-                    and then Ekind (E) = E_Void
-                  then
-                     if Nkind (Specification (N)) = N_Function_Specification
-                     then
-                        Set_Ekind (E, E_Function);
-                     else
-                        Set_Ekind (E, E_Procedure);
-                     end if;
-                  end if;
-
                   Set_Has_Yield_Aspect (E);
                end if;
 
@@ -2771,14 +2862,27 @@ package body Sem_Ch13 is
                   if A_Id in Boolean_Aspects and then No (Expr) then
                      Delay_Required := False;
 
-                  --  For non-Boolean aspects, don't delay if integer literal,
-                  --  unless the aspect is Alignment, which affects the
-                  --  freezing of an initialized object.
+                  --  For non-Boolean aspects, don't delay if integer literal
 
                   elsif A_Id not in Boolean_Aspects
-                    and then A_Id /= Aspect_Alignment
                     and then Present (Expr)
                     and then Nkind (Expr) = N_Integer_Literal
+                  then
+                     Delay_Required := False;
+
+                  --  For Alignment and various Size aspects, don't delay for
+                  --  an attribute reference whose prefix is Standard, for
+                  --  example Standard'Maximum_Alignment or Standard'Word_Size.
+
+                  elsif (A_Id = Aspect_Alignment
+                          or else A_Id = Aspect_Component_Size
+                          or else A_Id = Aspect_Object_Size
+                          or else A_Id = Aspect_Size
+                          or else A_Id = Aspect_Value_Size)
+                    and then Present (Expr)
+                    and then Nkind (Expr) = N_Attribute_Reference
+                    and then Nkind (Prefix (Expr)) = N_Identifier
+                    and then Chars (Prefix (Expr)) = Name_Standard
                   then
                      Delay_Required := False;
 
@@ -3050,6 +3154,21 @@ package body Sem_Ch13 is
 
                      Set_Has_Delayed_Aspects (Full_View (E));
                      Ensure_Freeze_Node (Full_View (E));
+
+                     --  If there is an Underlying_Full_View, also create a
+                     --  freeze node for that one.
+
+                     if Is_Private_Type (Full_View (E)) then
+                        declare
+                           U_Full : constant Entity_Id :=
+                             Underlying_Full_View (Full_View (E));
+                        begin
+                           if Present (U_Full) then
+                              Set_Has_Delayed_Aspects (U_Full);
+                              Ensure_Freeze_Node (U_Full);
+                           end if;
+                        end;
+                     end if;
                   end if;
 
                --  Predicate_Failure
@@ -3068,6 +3187,12 @@ package body Sem_Ch13 is
                      Error_Msg_N
                        ("predicate cannot apply to incomplete view", Aspect);
                      goto Continue;
+
+                  elsif not Has_Predicates (E) then
+                     Error_Msg_N
+                       ("Predicate_Failure requires previous predicate" &
+                        " specification", Aspect);
+                     goto Continue;
                   end if;
 
                   --  Construct the pragma
@@ -3079,16 +3204,6 @@ package body Sem_Ch13 is
                        Make_Pragma_Argument_Association (Sloc (Expr),
                          Expression => Relocate_Node (Expr))),
                      Pragma_Name => Name_Predicate_Failure);
-
-                  --  If the type is private, indicate that its completion
-                  --  has a freeze node, because that is the one that will
-                  --  be visible at freeze time.
-
-                  if Is_Private_Type (E) and then Present (Full_View (E)) then
-                     Set_Has_Predicates (Full_View (E));
-                     Set_Has_Delayed_Aspects (Full_View (E));
-                     Ensure_Freeze_Node (Full_View (E));
-                  end if;
 
                --  Case 2b: Aspects corresponding to pragmas with two
                --  arguments, where the second argument is a local name
@@ -4006,6 +4121,11 @@ package body Sem_Ch13 is
                   end if;
 
                   Aitem := Empty;
+
+               when Aspect_Aggregate =>
+                  Validate_Aspect_Aggregate (Expr);
+                  Record_Rep_Item (E, Aspect);
+                  return;
 
                when Aspect_Integer_Literal
                   | Aspect_Real_Literal
@@ -5157,9 +5277,10 @@ package body Sem_Ch13 is
          Indexing_Found : Boolean := False;
 
          procedure Check_Inherited_Indexing;
-         --  For a derived type, check that no indexing aspect is specified
-         --  for the type if it is also inherited
-         --  AI12-0160: verify that an indexing cannot be specified for
+         --  For a derived type, check that for a derived type, a specification
+         --  of an indexing aspect can only be confirming, i.e. uses the same
+         --  name as in the parent type.
+         --  AI12-0160: Verify that an indexing cannot be specified for
          --  a derived type unless it is specified for the parent.
 
          procedure Check_One_Function (Subp : Entity_Id);
@@ -5367,7 +5488,7 @@ package body Sem_Ch13 is
                end if;
             end if;
 
-            --  All checks succeeded.
+            --  All checks succeeded
 
             Indexing_Found := True;
          end Check_One_Function;
@@ -5641,6 +5762,13 @@ package body Sem_Ch13 is
       end if;
 
       Check_Restriction_No_Use_Of_Attribute (N);
+
+      if Get_Aspect_Id (Chars (N)) /= No_Aspect then
+         --  6.1/3 No_Specification_of_Aspect: Identifies an aspect for which
+         --    no aspect_specification, attribute_definition_clause, or pragma
+         --    is given.
+         Check_Restriction_No_Specification_Of_Aspect (N);
+      end if;
 
       --  Ignore some selected attributes in CodePeer mode since they are not
       --  relevant in this context.
@@ -6013,10 +6141,10 @@ package body Sem_Ch13 is
                           (N, U_Ent, No_Uint, O_Ent, Off);
                      end if;
 
-                     --  If the overlay changes the storage order, mark the
-                     --  entity as being volatile to block any optimization
-                     --  for it since the construct is not really supported
-                     --  by the back end.
+                     --  If the overlay changes the storage order, warn since
+                     --  the construct is not really supported by the back end.
+                     --  Also mark the entity as being volatile to block the
+                     --  optimizer, even if there is no warranty on the result.
 
                      if (Is_Record_Type (Etype (U_Ent))
                           or else Is_Array_Type (Etype (U_Ent)))
@@ -6025,6 +6153,8 @@ package body Sem_Ch13 is
                        and then Reverse_Storage_Order (Etype (U_Ent)) /=
                                 Reverse_Storage_Order (Etype (O_Ent))
                      then
+                        Error_Msg_N
+                          ("??overlay changes scalar storage order", Expr);
                         Set_Treat_As_Volatile (U_Ent);
                      end if;
 
@@ -6312,37 +6442,48 @@ package body Sem_Ch13 is
          ---------
 
          when Attribute_CPU =>
+            pragma Assert (From_Aspect_Specification (N));
+            --  The parser forbids this clause in source code, so it must have
+            --  come from an aspect specification.
 
-            --  CPU attribute definition clause not allowed except from aspect
-            --  specification.
+            if not Is_Task_Type (U_Ent) then
+               Error_Msg_N ("CPU can only be defined for task", Nam);
 
-            if From_Aspect_Specification (N) then
-               if not Is_Task_Type (U_Ent) then
-                  Error_Msg_N ("CPU can only be defined for task", Nam);
-
-               elsif Duplicate_Clause then
-                  null;
-
-               else
-                  --  The expression must be analyzed in the special manner
-                  --  described in "Handling of Default and Per-Object
-                  --  Expressions" in sem.ads.
-
-                  --  The visibility to the components must be established
-                  --  and restored before and after analysis.
-
-                  Push_Type (U_Ent);
-                  Preanalyze_Spec_Expression (Expr, RTE (RE_CPU_Range));
-                  Pop_Type (U_Ent);
-
-                  if not Is_OK_Static_Expression (Expr) then
-                     Check_Restriction (Static_Priorities, Expr);
-                  end if;
-               end if;
+            elsif Duplicate_Clause then
+               null;
 
             else
-               Error_Msg_N
-                 ("attribute& cannot be set with definition clause", N);
+               --  The expression must be analyzed in the special manner
+               --  described in "Handling of Default and Per-Object
+               --  Expressions" in sem.ads.
+
+               --  The visibility to the components must be established
+               --  and restored before and after analysis.
+
+               Push_Type (U_Ent);
+               Preanalyze_Spec_Expression (Expr, RTE (RE_CPU_Range));
+               Pop_Type (U_Ent);
+
+               --  AI12-0117-1, "Restriction No_Tasks_Unassigned_To_CPU":
+               --  If the expression is static, and its value is
+               --  System.Multiprocessors.Not_A_Specific_CPU (i.e. zero) then
+               --  that's a violation of No_Tasks_Unassigned_To_CPU. It might
+               --  seem better to refer to Not_A_Specific_CPU here, but that
+               --  involves a lot of horsing around with Rtsfind, and this
+               --  value is not going to change, so it's better to hardwire
+               --  Uint_0.
+               --
+               --  AI12-0055-1, "All properties of a usage profile are defined
+               --  by pragmas": If the expression is nonstatic, that's a
+               --  violation of No_Dynamic_CPU_Assignment.
+
+               if Is_OK_Static_Expression (Expr) then
+                  if Expr_Value (Expr) = Uint_0 then
+                     Check_Restriction (No_Tasks_Unassigned_To_CPU, Expr);
+                  end if;
+               else
+                  Check_Restriction (No_Dynamic_CPU_Assignment, Expr);
+               end if;
             end if;
 
          ----------------------
@@ -6406,36 +6547,30 @@ package body Sem_Ch13 is
          ------------------------
 
          when Attribute_Dispatching_Domain =>
+            pragma Assert (From_Aspect_Specification (N));
+            --  The parser forbids this clause in source code, so it must have
+            --  come from an aspect specification.
 
-            --  Dispatching_Domain attribute definition clause not allowed
-            --  except from aspect specification.
+            if not Is_Task_Type (U_Ent) then
+               Error_Msg_N
+                 ("Dispatching_Domain can only be defined for task", Nam);
 
-            if From_Aspect_Specification (N) then
-               if not Is_Task_Type (U_Ent) then
-                  Error_Msg_N
-                    ("Dispatching_Domain can only be defined for task", Nam);
-
-               elsif Duplicate_Clause then
-                  null;
-
-               else
-                  --  The expression must be analyzed in the special manner
-                  --  described in "Handling of Default and Per-Object
-                  --  Expressions" in sem.ads.
-
-                  --  The visibility to the components must be restored
-
-                  Push_Type (U_Ent);
-
-                  Preanalyze_Spec_Expression
-                    (Expr, RTE (RE_Dispatching_Domain));
-
-                  Pop_Type (U_Ent);
-               end if;
+            elsif Duplicate_Clause then
+               null;
 
             else
-               Error_Msg_N
-                 ("attribute& cannot be set with definition clause", N);
+               --  The expression must be analyzed in the special manner
+               --  described in "Handling of Default and Per-Object
+               --  Expressions" in sem.ads.
+
+               --  The visibility to the components must be restored
+
+               Push_Type (U_Ent);
+
+               Preanalyze_Spec_Expression
+                 (Expr, RTE (RE_Dispatching_Domain));
+
+               Pop_Type (U_Ent);
             end if;
 
          ------------------
@@ -6493,43 +6628,37 @@ package body Sem_Ch13 is
          ------------------------
 
          when Attribute_Interrupt_Priority =>
+            pragma Assert (From_Aspect_Specification (N));
+            --  The parser forbids this clause in source code, so it must have
+            --  come from an aspect specification.
 
-            --  Interrupt_Priority attribute definition clause not allowed
-            --  except from aspect specification.
+            if not Is_Concurrent_Type (U_Ent) then
+               Error_Msg_N
+                 ("Interrupt_Priority can only be defined for task and "
+                  & "protected object", Nam);
 
-            if From_Aspect_Specification (N) then
-               if not Is_Concurrent_Type (U_Ent) then
-                  Error_Msg_N
-                    ("Interrupt_Priority can only be defined for task and "
-                     & "protected object", Nam);
-
-               elsif Duplicate_Clause then
-                  null;
-
-               else
-                  --  The expression must be analyzed in the special manner
-                  --  described in "Handling of Default and Per-Object
-                  --  Expressions" in sem.ads.
-
-                  --  The visibility to the components must be restored
-
-                  Push_Type (U_Ent);
-
-                  Preanalyze_Spec_Expression
-                    (Expr, RTE (RE_Interrupt_Priority));
-
-                  Pop_Type (U_Ent);
-
-                  --  Check the No_Task_At_Interrupt_Priority restriction
-
-                  if Is_Task_Type (U_Ent) then
-                     Check_Restriction (No_Task_At_Interrupt_Priority, N);
-                  end if;
-               end if;
+            elsif Duplicate_Clause then
+               null;
 
             else
-               Error_Msg_N
-                 ("attribute& cannot be set with definition clause", N);
+               --  The expression must be analyzed in the special manner
+               --  described in "Handling of Default and Per-Object
+               --  Expressions" in sem.ads.
+
+               --  The visibility to the components must be restored
+
+               Push_Type (U_Ent);
+
+               Preanalyze_Spec_Expression
+                 (Expr, RTE (RE_Interrupt_Priority));
+
+               Pop_Type (U_Ent);
+
+               --  Check the No_Task_At_Interrupt_Priority restriction
+
+               if Is_Task_Type (U_Ent) then
+                  Check_Restriction (No_Task_At_Interrupt_Priority, N);
+               end if;
             end if;
 
          --------------
@@ -6570,6 +6699,7 @@ package body Sem_Ch13 is
               or else not Is_Type (Entity (Expr))
             then
                Error_Msg_N ("aspect Iterator_Element must be a type", Expr);
+               return;
             end if;
 
          -------------------
@@ -6927,6 +7057,121 @@ package body Sem_Ch13 is
             Pool : Entity_Id;
             T    : Entity_Id;
 
+            procedure Associate_Storage_Pool
+              (Ent : Entity_Id; Pool : Entity_Id);
+            --  Associate Pool to Ent and perform legality checks on subpools
+
+            ----------------------------
+            -- Associate_Storage_Pool --
+            ----------------------------
+
+            procedure Associate_Storage_Pool
+              (Ent : Entity_Id; Pool : Entity_Id)
+            is
+               function Object_From (Pool : Entity_Id) return Entity_Id;
+               --  Return the entity of which Pool is a part of
+
+               -----------------
+               -- Object_From --
+               -----------------
+
+               function Object_From
+                 (Pool : Entity_Id) return Entity_Id
+               is
+                  N : Node_Id := Pool;
+               begin
+                  if Present (Renamed_Object (Pool)) then
+                     N := Renamed_Object (Pool);
+                  end if;
+
+                  while Present (N) loop
+                     case Nkind (N) is
+                        when N_Defining_Identifier =>
+                           return N;
+
+                        when N_Identifier | N_Expanded_Name =>
+                           return Entity (N);
+
+                        when N_Indexed_Component | N_Selected_Component |
+                             N_Explicit_Dereference
+                        =>
+                           N := Prefix (N);
+
+                        when N_Type_Conversion =>
+                           N := Expression (N);
+
+                        when others =>
+                           --  ??? we probably should handle more cases but
+                           --  this is good enough in practice for this check
+                           --  on a corner case.
+
+                           return Empty;
+                     end case;
+                  end loop;
+
+                  return Empty;
+               end Object_From;
+
+               Obj : Entity_Id;
+
+            begin
+               Set_Associated_Storage_Pool (Ent, Pool);
+
+               --  Check RM 13.11.4(22-23/3): a specification of a storage pool
+               --  is illegal if the storage pool supports subpools and:
+               --  (A) The access type is a general access type.
+               --  (B) The access type is statically deeper than the storage
+               --      pool object;
+               --  (C) The storage pool object is a part of a formal parameter;
+               --  (D) The storage pool object is a part of the dereference of
+               --      a non-library level general access type;
+
+               if Ada_Version >= Ada_2012
+                 and then RTU_Loaded (System_Storage_Pools_Subpools)
+                 and then
+                   Is_Ancestor (RTE (RE_Root_Storage_Pool_With_Subpools),
+                                Etype (Pool))
+               then
+                  --  check (A)
+
+                  if Ekind (Etype (Ent)) = E_General_Access_Type then
+                     Error_Msg_N
+                       ("subpool cannot be used on general access type", Ent);
+                  end if;
+
+                  --  check (B)
+
+                  if Type_Access_Level (Ent) > Object_Access_Level (Pool) then
+                     Error_Msg_N
+                       ("subpool access type has deeper accessibility "
+                        & "level than pool", Ent);
+                     return;
+                  end if;
+
+                  Obj := Object_From (Pool);
+
+                  --  check (C)
+
+                  if Present (Obj) and then Ekind (Obj) in Formal_Kind then
+                     Error_Msg_N
+                       ("subpool cannot be part of a parameter", Ent);
+                     return;
+                  end if;
+
+                  --  check (D)
+
+                  if Present (Obj)
+                    and then Ekind (Etype (Obj)) = E_General_Access_Type
+                    and then not Is_Library_Level_Entity (Etype (Obj))
+                  then
+                     Error_Msg_N
+                       ("subpool cannot be part of the dereference of a " &
+                        "nested general access type", Ent);
+                     return;
+                  end if;
+               end if;
+            end Associate_Storage_Pool;
+
          begin
             if Ekind (U_Ent) = E_Access_Subprogram_Type then
                Error_Msg_N
@@ -7050,7 +7295,7 @@ package body Sem_Ch13 is
                   end if;
 
                   Analyze (Rnode);
-                  Set_Associated_Storage_Pool (U_Ent, Pool);
+                  Associate_Storage_Pool (U_Ent, Pool);
                end;
 
             elsif Is_Entity_Name (Expr) then
@@ -7072,14 +7317,14 @@ package body Sem_Ch13 is
                   Pool := Entity (Expression (Renamed_Object (Pool)));
                end if;
 
-               Set_Associated_Storage_Pool (U_Ent, Pool);
+               Associate_Storage_Pool (U_Ent, Pool);
 
             elsif Nkind (Expr) = N_Type_Conversion
               and then Is_Entity_Name (Expression (Expr))
               and then Nkind (Original_Node (Expr)) = N_Attribute_Reference
             then
                Pool := Entity (Expression (Expr));
-               Set_Associated_Storage_Pool (U_Ent, Pool);
+               Associate_Storage_Pool (U_Ent, Pool);
 
             else
                Error_Msg_N ("incorrect reference to a Storage Pool", Expr);
@@ -8046,8 +8291,10 @@ package body Sem_Ch13 is
                      if Has_Size_Clause (Rectype)
                        and then RM_Size (Rectype) <= Lbit
                      then
-                        Error_Msg_N
-                          ("bit number out of range of specified size",
+                        Error_Msg_Uint_1 := RM_Size (Rectype);
+                        Error_Msg_Uint_2 := Lbit + 1;
+                        Error_Msg_N ("bit number out of range of specified "
+                           & "size (expected ^, got ^)",
                            Last_Bit (CC));
                      else
                         Set_Component_Clause     (Comp, CC);
@@ -8864,6 +9111,25 @@ package body Sem_Ch13 is
                return RList'(1 => REnt'(SLo, SHi));
             end if;
 
+         --  Others case
+
+         elsif Nkind (N) = N_Others_Choice then
+            declare
+               Choices    : constant List_Id := Others_Discrete_Choices (N);
+               Choice     : Node_Id;
+               Range_List : RList (1 .. List_Length (Choices));
+
+            begin
+               Choice := First (Choices);
+
+               for J in Range_List'Range loop
+                  Range_List (J) := REnt'(Lo_Val (Choice), Hi_Val (Choice));
+                  Next (Choice);
+               end loop;
+
+               return Range_List;
+            end;
+
          --  Static expression case
 
          elsif Is_OK_Static_Expression (N) then
@@ -9584,6 +9850,9 @@ package body Sem_Ch13 is
       --  Add predicates for ancestor if present. These must come before the
       --  ones for the current type, as required by AI12-0071-1.
 
+      --  Looks like predicates aren't added for case of inheriting from
+      --  multiple progenitors???
+
       declare
          Atyp : Entity_Id;
       begin
@@ -10268,6 +10537,8 @@ package body Sem_Ch13 is
             Preanalyze_Spec_Expression (End_Decl_Expr, T);
             Pop_Type (Ent);
 
+         elsif A_Id = Aspect_Predicate_Failure then
+            Preanalyze_Spec_Expression (End_Decl_Expr, Standard_String);
          else
             Preanalyze_Spec_Expression (End_Decl_Expr, T);
          end if;
@@ -10492,6 +10763,10 @@ package body Sem_Ch13 is
                end loop;
             end;
 
+            return;
+
+         when Aspect_Aggregate =>
+            Resolve_Aspect_Aggregate (Entity (ASN), Expr);
             return;
 
          --  Invariant/Predicate take boolean expressions
@@ -11490,8 +11765,10 @@ package body Sem_Ch13 is
             if Has_Size_Clause (Rectype)
               and then RM_Size (Rectype) <= Lbit
             then
-               Error_Msg_N
-                 ("bit number out of range of specified size",
+               Error_Msg_Uint_1 := RM_Size (Rectype);
+               Error_Msg_Uint_2 := Lbit + 1;
+               Error_Msg_N ("bit number out of range of specified "
+                  & "size (expected ^, got ^)",
                   Last_Bit (CC));
 
                --  Check for overlap with tag or parent component
@@ -12234,16 +12511,16 @@ package body Sem_Ch13 is
       Inside_Freezing_Actions := Inside_Freezing_Actions - 1;
 
       --  If we have a type with predicates, build predicate function. This is
-      --  not needed in the generic case, nor within TSS subprograms and other
-      --  predefined primitives. For a derived type, ensure that the parent
-      --  type is already frozen so that its predicate function has been
+      --  not needed in the generic case, nor within e.g. TSS subprograms and
+      --  other predefined primitives. For a derived type, ensure that the
+      --  parent type is already frozen so that its predicate function has been
       --  constructed already. This is necessary if the parent is declared
       --  in a nested package and its own freeze point has not been reached.
 
       if Is_Type (E)
         and then Nongeneric_Case
-        and then not Within_Internal_Subprogram
         and then Has_Predicates (E)
+        and then Predicate_Check_In_Scope (N)
       then
          declare
             Atyp : constant Entity_Id := Nearest_Ancestor (E);
@@ -13865,9 +14142,11 @@ package body Sem_Ch13 is
          return True;
 
       --  Check for case of untagged derived type whose parent either has
-      --  primitive operations, or is a by reference type (RM 13.1(10)). In
-      --  this case we do not output a Too_Late message, since there is no
-      --  earlier point where the rep item could be placed to make it legal.
+      --  primitive operations (pre Ada 202x), or is a by-reference type (RM
+      --  13.1(10)). In this case we do not output a Too_Late message, since
+      --  there is no earlier point where the rep item could be placed to make
+      --  it legal.
+      --  ??? Confirming representation clauses should be allowed here.
 
       elsif Is_Type (T)
         and then not FOnly
@@ -13876,24 +14155,22 @@ package body Sem_Ch13 is
       then
          Parent_Type := Etype (Base_Type (T));
 
-         if Has_Primitive_Operations (Parent_Type) then
-            No_Type_Rep_Item (N);
+         if Relaxed_RM_Semantics then
+            null;
 
-            if not Relaxed_RM_Semantics then
-               Error_Msg_NE
-                 ("\parent type & has primitive operations!", N, Parent_Type);
-            end if;
-
+         elsif Ada_Version <= Ada_2012
+           and then Has_Primitive_Operations (Parent_Type)
+         then
+            Error_Msg_N
+              ("|representation item not permitted before Ada 202x!", N);
+            Error_Msg_NE
+              ("\parent type & has primitive operations!", N, Parent_Type);
             return True;
 
          elsif Is_By_Reference_Type (Parent_Type) then
             No_Type_Rep_Item (N);
-
-            if not Relaxed_RM_Semantics then
-               Error_Msg_NE
-                 ("\parent type & is a by reference type!", N, Parent_Type);
-            end if;
-
+            Error_Msg_NE
+              ("\parent type & is a by-reference type!", N, Parent_Type);
             return True;
          end if;
       end if;
@@ -14279,6 +14556,9 @@ package body Sem_Ch13 is
             begin
                case A_Id is
 
+                  when Aspect_Aggregate =>
+                     Resolve_Aspect_Aggregate (Entity (ASN), Expr);
+
                   --  For now we only deal with aspects that do not generate
                   --  subprograms, or that may mention current instances of
                   --  types. These will require special handling (???TBD).
@@ -14592,6 +14872,92 @@ package body Sem_Ch13 is
       end if;
    end Same_Representation;
 
+   ----------------------------
+   -- Parse_Aspect_Aggregate --
+   ----------------------------
+
+   procedure Parse_Aspect_Aggregate
+     (N                   : Node_Id;
+      Empty_Subp          : in out Node_Id;
+      Add_Named_Subp      : in out Node_Id;
+      Add_Unnamed_Subp    : in out Node_Id;
+      New_Indexed_Subp    : in out Node_Id;
+      Assign_Indexed_Subp : in out Node_Id)
+   is
+      Assoc   : Node_Id := First (Component_Associations (N));
+      Op_Name : Name_Id;
+      Subp    : Node_Id;
+
+   begin
+      while Present (Assoc) loop
+         Subp := Expression (Assoc);
+         Op_Name := Chars (First (Choices (Assoc)));
+         if Op_Name = Name_Empty then
+            Empty_Subp := Subp;
+
+         elsif Op_Name = Name_Add_Named then
+            Add_Named_Subp := Subp;
+
+         elsif Op_Name = Name_Add_Unnamed then
+            Add_Unnamed_Subp := Subp;
+
+         elsif Op_Name = Name_New_Indexed then
+            New_Indexed_Subp :=  Subp;
+
+         elsif Op_Name = Name_Assign_Indexed then
+            Assign_Indexed_Subp := Subp;
+         end if;
+
+         Next (Assoc);
+      end loop;
+   end Parse_Aspect_Aggregate;
+
+   -------------------------------
+   -- Validate_Aspect_Aggregate --
+   -------------------------------
+
+   procedure Validate_Aspect_Aggregate (N : Node_Id) is
+      Empty_Subp          : Node_Id := Empty;
+      Add_Named_Subp      : Node_Id := Empty;
+      Add_Unnamed_Subp    : Node_Id := Empty;
+      New_Indexed_Subp    : Node_Id := Empty;
+      Assign_Indexed_Subp : Node_Id := Empty;
+
+   begin
+      if Ada_Version < Ada_2020 then
+         Error_Msg_N ("Aspect Aggregate is an Ada_2020 feature", N);
+
+      elsif Nkind (N) /= N_Aggregate
+        or else Present (Expressions (N))
+        or else No (Component_Associations (N))
+      then
+         Error_Msg_N ("Aspect Aggregate requires an aggregate "
+                        & "with component associations", N);
+         return;
+      end if;
+
+      Parse_Aspect_Aggregate (N,
+        Empty_Subp, Add_Named_Subp, Add_Unnamed_Subp,
+        New_Indexed_Subp, Assign_Indexed_Subp);
+
+      if No (Empty_Subp) then
+         Error_Msg_N ("missing specification for Empty in aggregate", N);
+      end if;
+
+      if Present (Add_Named_Subp) then
+         if Present (Add_Unnamed_Subp)
+           or else Present (Assign_Indexed_Subp)
+         then
+            Error_Msg_N
+             ("conflicting operations for aggregate (RM 4.3.5)", N);
+            return;
+         end if;
+
+      elsif Present (New_Indexed_Subp) /= Present (Assign_Indexed_Subp) then
+         Error_Msg_N ("incomplete specification for indexed aggregate", N);
+      end if;
+   end Validate_Aspect_Aggregate;
+
    --------------------------------
    -- Resolve_Iterable_Operation --
    --------------------------------
@@ -14752,6 +15118,189 @@ package body Sem_Ch13 is
          end;
       end if;
    end Resolve_Iterable_Operation;
+
+   ------------------------------
+   -- Resolve_Aspect_Aggregate --
+   ------------------------------
+
+   procedure Resolve_Aspect_Aggregate
+    (Typ :  Entity_Id;
+     Expr : Node_Id)
+   is
+      --  Predicates that establish the legality of each possible operation in
+      --  an Aggregate aspect.
+
+      function Valid_Empty          (E : Entity_Id) return Boolean;
+      function Valid_Add_Named      (E : Entity_Id) return Boolean;
+      function Valid_Add_Unnamed    (E : Entity_Id) return Boolean;
+      function Valid_New_Indexed    (E : Entity_Id) return Boolean;
+
+      --  Note: The legality rules for Assign_Indexed are the same as for
+      --  Add_Named.
+
+      generic
+        with function Pred (Id : Node_Id) return Boolean;
+      procedure Resolve_Operation (Subp_Id : Node_Id);
+      --  Common processing to resolve each aggregate operation.
+
+      -----------------
+      -- Valid_Emoty --
+      -----------------
+
+      function Valid_Empty (E :  Entity_Id) return Boolean is
+      begin
+         if Etype (E) /= Typ or else Scope (E) /= Scope (Typ)  then
+            return False;
+
+         elsif Ekind (E) = E_Constant then
+            return True;
+
+         elsif Ekind (E) = E_Function then
+            return No (First_Formal (E))
+              or else
+                (Is_Integer_Type (Etype (First_Formal (E)))
+                  and then No (Next_Formal (First_Formal (E))));
+         else
+            return False;
+         end if;
+      end Valid_Empty;
+
+      ---------------------
+      -- Valid_Add_Named --
+      ---------------------
+
+      function Valid_Add_Named  (E : Entity_Id) return Boolean is
+         F2, F3 : Entity_Id;
+      begin
+         if Ekind (E) = E_Procedure
+           and then Scope (E) = Scope (Typ)
+           and then Number_Formals (E) = 3
+           and then Etype (First_Formal (E)) = Typ
+           and then Ekind (First_Formal (E)) = E_In_Out_Parameter
+         then
+            F2 := Next_Formal (First_Formal (E));
+            F3 := Next_Formal (F2);
+            return Ekind (F2) = E_In_Parameter
+              and then Ekind (F3) = E_In_Parameter
+              and then not Is_Limited_Type (Etype (F2))
+              and then not Is_Limited_Type (Etype (F3));
+         else
+            return False;
+         end if;
+      end Valid_Add_Named;
+
+      -----------------------
+      -- Valid_Add_Unnamed --
+      -----------------------
+
+      function Valid_Add_Unnamed (E : Entity_Id) return Boolean is
+      begin
+         return Ekind (E) = E_Procedure
+           and then Scope (E) = Scope (Typ)
+           and then Number_Formals (E) = 2
+           and then Etype (First_Formal (E)) = Typ
+           and then Ekind (First_Formal (E)) = E_In_Out_Parameter
+           and then
+             not Is_Limited_Type (Etype (Next_Formal (First_Formal (E))));
+      end Valid_Add_Unnamed;
+
+      -----------------------
+      -- Valid_Nmw_Indexed --
+      -----------------------
+
+      function Valid_New_Indexed (E : Entity_Id) return Boolean is
+      begin
+         return Ekind (E) = E_Function
+           and then Scope (E) = Scope (Typ)
+           and then Etype (E) = Typ
+           and then Number_Formals (E) = 2
+           and then Is_Discrete_Type (Etype (First_Formal (E)))
+           and then Etype (First_Formal (E)) =
+             Etype (Next_Formal (First_Formal (E)));
+      end Valid_New_Indexed;
+
+      -----------------------
+      -- Resolve_Operation --
+      -----------------------
+
+      procedure Resolve_Operation (Subp_Id : Node_Id) is
+         Subp : Entity_Id;
+
+         I  : Interp_Index;
+         It : Interp;
+
+      begin
+         if not Is_Overloaded (Subp_Id) then
+            Subp := Entity (Subp_Id);
+            if not Pred (Subp) then
+               Error_Msg_NE
+                 ("improper aggregate operation for&", Subp_Id, Typ);
+            end if;
+
+         else
+            Set_Entity (Subp_Id, Empty);
+            Get_First_Interp (Subp_Id, I, It);
+            while Present (It.Nam) loop
+               if Pred (It.Nam) then
+                  Set_Is_Overloaded (Subp_Id, False);
+                  Set_Entity (Subp_Id, It.Nam);
+                  exit;
+               end if;
+
+               Get_Next_Interp (I, It);
+            end loop;
+
+            if No (Entity (Subp_Id)) then
+               Error_Msg_NE
+                 ("improper aggregate operation for&", Subp_Id, Typ);
+            end if;
+         end if;
+      end Resolve_Operation;
+
+      Assoc   : Node_Id;
+      Op_Name : Name_Id;
+      Subp_Id : Node_Id;
+
+      procedure Resolve_Empty   is new Resolve_Operation (Valid_Empty);
+      procedure Resolve_Unnamed is new Resolve_Operation (Valid_Add_Unnamed);
+      procedure Resolve_Named   is new Resolve_Operation (Valid_Add_Named);
+      procedure Resolve_Indexed is new Resolve_Operation (Valid_New_Indexed);
+      procedure Resolve_Assign_Indexed
+                                is new Resolve_Operation (Valid_Add_Named);
+   begin
+      Assoc := First (Component_Associations (Expr));
+
+      while Present (Assoc) loop
+         Op_Name := Chars (First (Choices (Assoc)));
+
+         --  When verifying the consistency of aspects between the freeze point
+         --  and the end of declarqtions, we use a copy which is not analyzed
+         --  yet, so do it now.
+
+         Subp_Id := Expression (Assoc);
+         if No (Etype (Subp_Id)) then
+            Analyze (Subp_Id);
+         end if;
+
+         if Op_Name = Name_Empty then
+            Resolve_Empty (Subp_Id);
+
+         elsif Op_Name = Name_Add_Named then
+            Resolve_Named (Subp_Id);
+
+         elsif Op_Name = Name_Add_Unnamed then
+            Resolve_Unnamed (Subp_Id);
+
+         elsif Op_Name = Name_New_Indexed then
+            Resolve_Indexed (Subp_Id);
+
+         elsif Op_Name = Name_Assign_Indexed then
+            Resolve_Assign_Indexed (Subp_Id);
+         end if;
+
+         Next (Assoc);
+      end loop;
+   end Resolve_Aspect_Aggregate;
 
    ----------------
    -- Set_Biased --
@@ -15466,10 +16015,12 @@ package body Sem_Ch13 is
       Match_Found : Boolean := False;
       Is_Match    : Boolean;
       Match       : Interp;
+
    begin
       if not Is_Type (Typ) then
          Error_Msg_N ("aspect can only be specified for a type", ASN);
          return;
+
       elsif not Is_First_Subtype (Typ) then
          Error_Msg_N ("aspect cannot be specified for a subtype", ASN);
          return;
@@ -15480,12 +16031,15 @@ package body Sem_Ch13 is
             Error_Msg_N ("aspect cannot be specified for a string type", ASN);
             return;
          end if;
+
          Param_Type := Standard_Wide_Wide_String;
+
       else
          if Is_Numeric_Type (Typ) then
             Error_Msg_N ("aspect cannot be specified for a numeric type", ASN);
             return;
          end if;
+
          Param_Type := Standard_String;
       end if;
 
@@ -15509,17 +16063,21 @@ package body Sem_Ch13 is
            and then Base_Type (Etype (It.Nam)) = Typ
          then
             declare
-               Params : constant List_Id :=
+               Params     : constant List_Id :=
                  Parameter_Specifications (Parent (It.Nam));
                Param_Spec : Node_Id;
                Param_Id   : Entity_Id;
+
             begin
                if List_Length (Params) = 1 then
                   Param_Spec := First (Params);
+
                   if not More_Ids (Param_Spec) then
                      Param_Id := Defining_Identifier (Param_Spec);
+
                      if Base_Type (Etype (Param_Id)) = Param_Type
-                        and then Ekind (Param_Id) = E_In_Parameter
+                       and then Ekind (Param_Id) = E_In_Parameter
+                       and then not Is_Aliased (Param_Id)
                      then
                         Is_Match := True;
                      end if;
@@ -15533,6 +16091,7 @@ package body Sem_Ch13 is
                Error_Msg_N ("aspect specification is ambiguous", ASN);
                return;
             end if;
+
             Match_Found := True;
             Match := It;
          end if;

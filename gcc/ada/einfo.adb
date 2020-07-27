@@ -2577,9 +2577,7 @@ package body Einfo is
 
    function Is_Primitive (Id : E) return B is
    begin
-      pragma Assert
-        (Is_Overloadable (Id)
-           or else Ekind_In (Id, E_Generic_Function, E_Generic_Procedure));
+      pragma Assert (Is_Overloadable (Id) or else Is_Generic_Subprogram (Id));
       return Flag218 (Id);
    end Is_Primitive;
 
@@ -3798,6 +3796,12 @@ package body Einfo is
    begin
       return Ekind (Id) in Modular_Integer_Kind;
    end Is_Modular_Integer_Type;
+
+   function Is_Named_Access_Type                (Id : E) return B is
+   begin
+      return Ekind (Id) in E_Access_Type ..
+                             E_Access_Protected_Subprogram_Type;
+   end Is_Named_Access_Type;
 
    function Is_Named_Number                     (Id : E) return B is
    begin
@@ -5822,9 +5826,7 @@ package body Einfo is
 
    procedure Set_Is_Primitive (Id : E; V : B := True) is
    begin
-      pragma Assert
-        (Is_Overloadable (Id)
-           or else Ekind_In (Id, E_Generic_Function, E_Generic_Procedure));
+      pragma Assert (Is_Overloadable (Id) or else Is_Generic_Subprogram (Id));
       Set_Flag218 (Id, V);
    end Set_Is_Primitive;
 
@@ -10973,6 +10975,7 @@ package body Einfo is
 
          when Type_Kind
             | E_Constant
+            | E_Loop_Parameter
             | E_Variable
          =>
             Write_Str ("Related_Expression");

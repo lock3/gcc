@@ -814,7 +814,6 @@ dump_aggr_type (cxx_pretty_printer *pp, tree t, int flags)
 
   dump_module_suffix (pp, decl, flags);
 
-
   if (tmplate)
     dump_template_parms (pp, TYPE_TEMPLATE_INFO (t),
 			 !CLASSTYPE_USE_TEMPLATE (t),

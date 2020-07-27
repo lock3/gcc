@@ -124,8 +124,8 @@ enum include_type
    IT_CMDLINE,  /* -include */
    IT_DEFAULT,  /* forced header  */
    IT_MAIN,     /* main, start on line 1 */
-   IT_MAIN_PREAMBLE,  /* main, but there will be a preamble before
-			 line 1  */
+   IT_MAIN_INJECT,  /* main, but there will be an injected preamble
+		       before line 1 */
 
    IT_DIRECTIVE_HWM = IT_IMPORT + 1,  /* Directives below this.  */
    IT_HEADER_HWM = IT_DEFAULT + 1     /* Header files below this.  */
@@ -595,6 +595,10 @@ struct cpp_reader
   /* If non-zero, the lexer will use this location for the next token
      instead of getting a location from the linemap.  */
   location_t forced_token_location;
+
+  /* Location identifying the main source file -- intended to be line
+     zero of said file.  */
+  location_t main_loc;
 };
 
 /* Character classes.  Based on the more primitive macros in safe-ctype.h.

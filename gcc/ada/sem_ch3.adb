@@ -579,6 +579,12 @@ package body Sem_Ch3 is
    --  Extensions_Visible with value False and has at least one controlling
    --  parameter of mode OUT.
 
+   function Is_Private_Primitive (Prim : Entity_Id) return Boolean;
+   --  Subsidiary to Check_Abstract_Overriding and Derive_Subprogram.
+   --  When applied to a primitive subprogram Prim, returns True if Prim is
+   --  declared as a private operation within a package or generic package,
+   --  and returns False otherwise.
+
    function Is_Valid_Constraint_Kind
      (T_Kind          : Type_Kind;
       Constraint_Kind : Node_Kind) return Boolean;
@@ -3668,7 +3674,7 @@ package body Sem_Ch3 is
       --  has aspects that require delayed analysis, the resolution of the
       --  aggregate must be deferred to the freeze point of the object. This
       --  special processing was created for address clauses, but it must
-      --  also apply to Alignment. This must be done before the aspect
+      --  also apply to address aspects. This must be done before the aspect
       --  specifications are analyzed because we must handle the aggregate
       --  before the analysis of the object declaration is complete.
 
@@ -3891,10 +3897,12 @@ package body Sem_Ch3 is
 
       begin
          if Present (Aspect_Specifications (N)) then
-            A    := First (Aspect_Specifications (N));
-            A_Id := Get_Aspect_Id (Chars (Identifier (A)));
+            A := First (Aspect_Specifications (N));
+
             while Present (A) loop
-               if A_Id = Aspect_Alignment or else A_Id = Aspect_Address then
+               A_Id := Get_Aspect_Id (Chars (Identifier (A)));
+
+               if A_Id = Aspect_Address then
 
                   --  Set flag on object entity, for later processing at
                   --  the freeze point.
@@ -4047,7 +4055,7 @@ package body Sem_Ch3 is
             then
                null;
 
-            else
+            elsif Comes_From_Source (Id) then
                declare
                   Save_Typ : constant Entity_Id := Etype (Id);
                begin
@@ -4418,8 +4426,7 @@ package body Sem_Ch3 is
       --  the predicate still applies.
 
       if not Suppress_Assignment_Checks (N)
-        and then Present (Predicate_Function (T))
-        and then not Predicates_Ignored (T)
+        and then Predicate_Enabled (T)
         and then
           (not No_Initialization (N)
             or else (Present (E) and then Nkind (E) = N_Aggregate))
@@ -4564,16 +4571,26 @@ package body Sem_Ch3 is
                   Set_Ekind (Id, E_Variable);
                end if;
 
-               Rewrite (N,
-                 Make_Object_Renaming_Declaration (Loc,
-                   Defining_Identifier => Id,
-                   Subtype_Mark        => New_Occurrence_Of (T, Loc),
-                   Name                => E));
+               --  If the expression is an aggregate it contains the required
+               --  discriminant values but it has not been resolved yet, so do
+               --  it now, and treat it as the initial expression of an object
+               --  declaration, rather than a renaming.
 
-               Set_Renamed_Object (Id, E);
-               Freeze_Before (N, T);
-               Set_Is_Frozen (Id);
-               goto Leave;
+               if Nkind (E) = N_Aggregate then
+                  Analyze_And_Resolve (E, T);
+
+               else
+                  Rewrite (N,
+                    Make_Object_Renaming_Declaration (Loc,
+                      Defining_Identifier => Id,
+                      Subtype_Mark        => New_Occurrence_Of (T, Loc),
+                      Name                => E));
+
+                  Set_Renamed_Object (Id, E);
+                  Freeze_Before (N, T);
+                  Set_Is_Frozen (Id);
+                  goto Leave;
+               end if;
 
             else
                --  Ensure that the generated subtype has a unique external name
@@ -10743,6 +10760,32 @@ package body Sem_Ch3 is
          elsif Present (Interface_Alias (Subp)) then
             null;
 
+         --  AI12-0042: Test for rule in 7.3.2(6.1/4), that requires overriding
+         --  of a visible private primitive inherited from an ancestor with
+         --  the aspect Type_Invariant'Class, unless the inherited primitive
+         --  is abstract. (The test for the extension occurring in a different
+         --  scope than the ancestor is to avoid requiring overriding when
+         --  extending in the same scope, because the inherited primitive will
+         --  also be private in that case, which looks like an unhelpful
+         --  restriction that may break reasonable code, though the rule
+         --  appears to apply in the same-scope case as well???)
+
+         elsif not Is_Abstract_Subprogram (Subp)
+           and then not Comes_From_Source (Subp) -- An inherited subprogram
+           and then Requires_Overriding (Subp)
+           and then Present (Alias_Subp)
+           and then Has_Invariants (Etype (T))
+           and then Present (Get_Pragma (Etype (T), Pragma_Invariant))
+           and then Class_Present (Get_Pragma (Etype (T), Pragma_Invariant))
+           and then Is_Private_Primitive (Alias_Subp)
+           and then Scope (Subp) /= Scope (Alias_Subp)
+         then
+            Error_Msg_NE
+              ("inherited private primitive & must be overridden", T, Subp);
+            Error_Msg_N
+              ("\because ancestor type has 'Type_'Invariant''Class " &
+               "(RM 7.3.2(6.1))", T);
+
          elsif (Is_Abstract_Subprogram (Subp)
                  or else Requires_Overriding (Subp)
                  or else
@@ -11667,9 +11710,8 @@ package body Sem_Ch3 is
             end if;
 
          elsif Is_Entry (E) then
-            if not Has_Completion (E) and then
-              (Ekind (Scope (E)) = E_Protected_Object
-                or else Ekind (Scope (E)) = E_Protected_Type)
+            if not Has_Completion (E)
+              and then Ekind (Scope (E)) = E_Protected_Type
             then
                Post_Error;
             end if;
@@ -11690,33 +11732,30 @@ package body Sem_Ch3 is
          --  A formal incomplete type (Ada 2012) does not require a completion;
          --  other incomplete type declarations do.
 
-         elsif Ekind (E) = E_Incomplete_Type
-           and then No (Underlying_Type (E))
-           and then not Is_Generic_Type (E)
-         then
-            Post_Error;
+         elsif Ekind (E) = E_Incomplete_Type then
+            if No (Underlying_Type (E))
+              and then not Is_Generic_Type (E)
+            then
+               Post_Error;
+            end if;
 
-         elsif Ekind_In (E, E_Task_Type, E_Protected_Type)
-           and then not Has_Completion (E)
-         then
-            Post_Error;
+         elsif Ekind_In (E, E_Task_Type, E_Protected_Type) then
+            if not Has_Completion (E) then
+               Post_Error;
+            end if;
 
          --  A single task declared in the current scope is a constant, verify
          --  that the body of its anonymous type is in the same scope. If the
          --  task is defined elsewhere, this may be a renaming declaration for
          --  which no completion is needed.
 
-         elsif Ekind (E) = E_Constant
-           and then Ekind (Etype (E)) = E_Task_Type
-           and then not Has_Completion (Etype (E))
-           and then Scope (Etype (E)) = Current_Scope
-         then
-            Post_Error;
-
-         elsif Ekind (E) = E_Protected_Object
-           and then not Has_Completion (Etype (E))
-         then
-            Post_Error;
+         elsif Ekind (E) = E_Constant then
+            if Ekind (Etype (E)) = E_Task_Type
+              and then not Has_Completion (Etype (E))
+              and then Scope (Etype (E)) = Current_Scope
+            then
+               Post_Error;
+            end if;
 
          elsif Ekind (E) = E_Record_Type then
             if Is_Tagged_Type (E) then
@@ -15669,6 +15708,9 @@ package body Sem_Ch3 is
       --  Ada 2005 (AI-228): Calculate the "require overriding" and "abstract"
       --  properties of the subprogram, as defined in RM-3.9.3(4/2-6/2).
 
+      --  Ada 202x (AI12-0042): Similarly, set those properties for
+      --  implementing the rule of RM 7.3.2(6.1/4).
+
       --  A subprogram subject to pragma Extensions_Visible with value False
       --  requires overriding if the subprogram has at least one controlling
       --  OUT parameter (SPARK RM 6.1.7(6)).
@@ -15685,7 +15727,23 @@ package body Sem_Ch3 is
                                                         Derived_Type
                              and then not Is_Null_Extension (Derived_Type))
                    or else (Comes_From_Source (Alias (New_Subp))
-                             and then Is_EVF_Procedure (Alias (New_Subp))))
+                             and then Is_EVF_Procedure (Alias (New_Subp)))
+
+                   --  AI12-0042: Set Requires_Overriding when a type extension
+                   --  inherits a private operation that is visible at the
+                   --  point of extension (Has_Private_Ancestor is False) from
+                   --  an ancestor that has Type_Invariant'Class.
+
+                   or else
+                     (not Has_Private_Ancestor (Derived_Type)
+                       and then Has_Invariants (Parent_Type)
+                       and then
+                         Present (Get_Pragma (Parent_Type, Pragma_Invariant))
+                       and then
+                         Class_Present
+                           (Get_Pragma (Parent_Type, Pragma_Invariant))
+                       and then Is_Private_Primitive (Parent_Subp)))
+
         and then No (Actual_Subp)
       then
          if not Is_Tagged_Type (Derived_Type)
@@ -18720,6 +18778,29 @@ package body Sem_Ch3 is
       end if;
    end Is_Null_Extension;
 
+   --------------------------
+   -- Is_Private_Primitive --
+   --------------------------
+
+   function Is_Private_Primitive (Prim : Entity_Id) return Boolean is
+      Prim_Scope  : constant Entity_Id := Scope (Prim);
+      Priv_Entity : Entity_Id;
+   begin
+      if Is_Package_Or_Generic_Package (Prim_Scope) then
+         Priv_Entity := First_Private_Entity (Prim_Scope);
+
+         while Present (Priv_Entity) loop
+            if Priv_Entity = Prim then
+               return True;
+            end if;
+
+            Next_Entity (Priv_Entity);
+         end loop;
+      end if;
+
+      return False;
+   end Is_Private_Primitive;
+
    ------------------------------
    -- Is_Valid_Constraint_Kind --
    ------------------------------
@@ -20025,7 +20106,7 @@ package body Sem_Ch3 is
                  (Defining_Identifier (Discr), Expression (Discr));
             end if;
 
-            --  In gnatc or gnatprove mode, make sure set Do_Range_Check flag
+            --  In gnatc or GNATprove mode, make sure set Do_Range_Check flag
             --  gets set unless we can be sure that no range check is required.
 
             if not Expander_Active
@@ -20120,10 +20201,13 @@ package body Sem_Ch3 is
 
          --  A discriminant cannot be effectively volatile (SPARK RM 7.1.3(4)).
          --  This check is relevant only when SPARK_Mode is on as it is not a
-         --  standard Ada legality rule.
+         --  standard Ada legality rule. The only way for a discriminant to be
+         --  effectively volatile is to have an effectively volatile type, so
+         --  we check this directly, because the Ekind of Discr might not be
+         --  set yet (to help preventing cascaded errors on derived types).
 
          if SPARK_Mode = On
-           and then Is_Effectively_Volatile (Defining_Identifier (Discr))
+           and then Is_Effectively_Volatile (Discr_Type)
          then
             Error_Msg_N ("discriminant cannot be volatile", Discr);
          end if;

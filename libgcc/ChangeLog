@@ -1,3 +1,46 @@
+2020-07-14  David Edelsohn  <dje.gcc@gmail.com>
+
+	* config/rs6000/t-slibgcc-aix: Set BITS from compiler cpp macro.
+
+2020-07-13  Szabolcs Nagy  <szabolcs.nagy@arm.com>
+
+	PR target/94891
+	* config/aarch64/aarch64-unwind.h (MD_POST_EXTRACT_ROOT_ADDR): Remove.
+	(MD_POST_FROB_EH_HANDLER_ADDR): Remove.
+	(MD_POST_EXTRACT_FRAME_ADDR): Rename to ...
+	(MD_DEMANGLE_RETURN_ADDR): This.
+	(aarch64_post_extract_frame_addr): Rename to ...
+	(aarch64_demangle_return_addr): This.
+	(aarch64_post_frob_eh_handler_addr): Remove.
+	* unwind-dw2.c (uw_update_context): Demangle return address.
+	(uw_frob_return_addr): Remove.
+
+2020-07-09  Szabolcs Nagy  <szabolcs.nagy@arm.com>
+
+	PR target/96001
+	* config/aarch64/lse.S: Add BTI marking and related definitions,
+	and add BTI c to function entries.
+
+2020-07-09  Szabolcs Nagy  <szabolcs.nagy@arm.com>
+
+	* config/aarch64/lse.S: Add stack note.
+
+2020-07-02  Martin Liska  <mliska@suse.cz>
+
+	PR gcov-profile/95348
+	* libgcov-driver.c (merge_one_data): Merge only profiles
+	that are not of non-zero type.
+	(write_one_data): Write counters only if there's one non-zero
+	value.
+	* libgcov-util.c (tag_function): Change signature from unsigned
+	to int.
+	(tag_blocks): Likewise.
+	(tag_arcs): Likewise.
+	(tag_counters): Likewise.
+	(tag_summary): Likewise.
+	(tag_lines): Read only if COUNTERS is non-zero.
+	(read_gcda_file): Handle negative length for COUNTERS type.
+
 2020-06-25  Martin Liska  <mliska@suse.cz>
 
 	* libgcov-driver.c (merge_summary): Remove function as its name

@@ -24,6 +24,7 @@
 ------------------------------------------------------------------------------
 
 with Atree;    use Atree;
+with Checks;   use Checks;
 with Einfo;    use Einfo;
 with Elists;   use Elists;
 with Errout;   use Errout;
@@ -434,6 +435,8 @@ package body Exp_Ch9 is
       Conctyp    : Entity_Id;
       Lo         : Node_Id;
       Hi         : Node_Id) return Boolean;
+   --  Determine whether an entry family is potentially large because one of
+   --  its bounds denotes a discrminant.
 
    function Is_Private_Primitive_Subprogram (Id : Entity_Id) return Boolean;
    --  Determine whether Id is a function or a procedure and is marked as a
@@ -585,7 +588,15 @@ package body Exp_Ch9 is
       --  structure.
 
       if Present (Index) then
-         S := Etype (Discrete_Subtype_Definition (Declaration_Node (Ent)));
+         S := Entry_Index_Type (Ent);
+
+         --  First make sure the index is in range if requested. The index type
+         --  has been directly set on the prefix, see Resolve_Entry.
+
+         if Do_Range_Check (Index) then
+            Generate_Range_Check
+              (Index, Etype (Prefix (Parent (Index))), CE_Range_Check_Failed);
+         end if;
 
          Expr :=
            Make_Op_Add (Sloc,
@@ -612,8 +623,7 @@ package body Exp_Ch9 is
             Set_Intval (Num, Intval (Num) + 1);
 
          elsif Ekind (Prev) = E_Entry_Family then
-            S :=
-              Etype (Discrete_Subtype_Definition (Declaration_Node (Prev)));
+            S := Entry_Index_Type (Prev);
 
             --  The need for the following full view retrieval stems from this
             --  complex case of nested generics and tasking:
@@ -1205,10 +1215,21 @@ package body Exp_Ch9 is
       if not Has_Master_Entity (Master_Scope)
         or else No (Current_Entity_In_Scope (Name_Id))
       then
+         declare
+            Ins_Nod : Node_Id;
+
          begin
             Set_Has_Master_Entity (Master_Scope);
             Master_Decl := Build_Master_Declaration (Loc);
-            Insert_Action (Find_Hook_Context (Related_Node), Master_Decl);
+
+            --  Ensure that the master declaration is placed before its use
+
+            Ins_Nod := Find_Hook_Context (Related_Node);
+            while not Is_List_Member (Ins_Nod) loop
+               Ins_Nod := Parent (Ins_Nod);
+            end loop;
+
+            Insert_Before (First (List_Containing (Ins_Nod)), Master_Decl);
             Analyze (Master_Decl);
 
             --  Mark the containing scope as a task master. Masters associated
@@ -1702,7 +1723,7 @@ package body Exp_Ch9 is
                Next (Comp);
             end loop;
 
-            Typ := Etype (Discrete_Subtype_Definition (Parent (Ent)));
+            Typ := Entry_Index_Type (Ent);
             Hi := Type_High_Bound (Typ);
             Lo := Type_Low_Bound  (Typ);
             Large := Is_Potentially_Large_Family
@@ -2761,7 +2782,7 @@ package body Exp_Ch9 is
                Add_If_Clause (Make_Integer_Literal (Loc, 1));
 
             elsif Ekind (Ent) = E_Entry_Family then
-               E_Typ := Etype (Discrete_Subtype_Definition (Parent (Ent)));
+               E_Typ := Entry_Index_Type (Ent);
                Hi := Convert_Discriminant_Ref (Type_High_Bound (E_Typ));
                Lo := Convert_Discriminant_Ref (Type_Low_Bound  (E_Typ));
                Add_If_Clause (Family_Size (Loc, Hi, Lo, Typ, False));
@@ -3555,8 +3576,40 @@ package body Exp_Ch9 is
 
       if Present (Ins_Nod) then
          Context := Ins_Nod;
+
       elsif Is_Itype (Ptr_Typ) then
          Context := Associated_Node_For_Itype (Ptr_Typ);
+
+         --  When the context references a discriminant or a component of a
+         --  private type and we are processing declarations in the private
+         --  part of the enclosing package, we must insert the master renaming
+         --  before the full declaration of the private type; otherwise the
+         --  master renaming would be inserted in the public part of the
+         --  package (and hence before the declaration of _master).
+
+         if In_Private_Part (Current_Scope) then
+            declare
+               Ctx : Node_Id := Context;
+
+            begin
+               if Nkind (Context) = N_Discriminant_Specification then
+                  Ctx := Parent (Ctx);
+               else
+                  while Nkind_In (Ctx, N_Component_Declaration,
+                                       N_Component_List)
+                  loop
+                     Ctx := Parent (Ctx);
+                  end loop;
+               end if;
+
+               if Nkind_In (Ctx, N_Private_Type_Declaration,
+                                 N_Private_Extension_Declaration)
+               then
+                  Context := Parent (Full_View (Defining_Identifier (Ctx)));
+               end if;
+            end;
+         end if;
+
       else
          Context := Parent (Ptr_Typ);
       end if;
@@ -5189,23 +5242,21 @@ package body Exp_Ch9 is
             Efam_Type := Make_Temporary (Loc, 'F');
 
             declare
-               Bas : Entity_Id :=
-                       Base_Type
-                         (Etype (Discrete_Subtype_Definition (Parent (Efam))));
-
-               Bas_Decl : Node_Id := Empty;
-               Lo, Hi   : Node_Id;
+               Eityp : constant Entity_Id := Entry_Index_Type (Efam);
+               Lo    : constant Node_Id   := Type_Low_Bound  (Eityp);
+               Hi    : constant Node_Id   := Type_High_Bound (Eityp);
+               Bdecl : Node_Id;
+               Bityp : Entity_Id;
 
             begin
-               Get_Index_Bounds
-                 (Discrete_Subtype_Definition (Parent (Efam)), Lo, Hi);
+               Bityp := Base_Type (Eityp);
 
-               if Is_Potentially_Large_Family (Bas, Conctyp, Lo, Hi) then
-                  Bas := Make_Temporary (Loc, 'B');
+               if Is_Potentially_Large_Family (Bityp, Conctyp, Lo, Hi) then
+                  Bityp := Make_Temporary (Loc, 'B');
 
-                  Bas_Decl :=
+                  Bdecl :=
                     Make_Subtype_Declaration (Loc,
-                       Defining_Identifier => Bas,
+                       Defining_Identifier => Bityp,
                        Subtype_Indication  =>
                          Make_Subtype_Indication (Loc,
                            Subtype_Mark =>
@@ -5218,9 +5269,9 @@ package body Exp_Ch9 is
                                  Make_Integer_Literal
                                    (Loc, Entry_Family_Bound - 1)))));
 
-                  Insert_After (Current_Node, Bas_Decl);
-                  Current_Node := Bas_Decl;
-                  Analyze (Bas_Decl);
+                  Insert_After (Current_Node, Bdecl);
+                  Current_Node := Bdecl;
+                  Analyze (Bdecl);
                end if;
 
                Efam_Decl :=
@@ -5229,7 +5280,7 @@ package body Exp_Ch9 is
                    Type_Definition =>
                      Make_Unconstrained_Array_Definition (Loc,
                        Subtype_Marks =>
-                         (New_List (New_Occurrence_Of (Bas, Loc))),
+                         (New_List (New_Occurrence_Of (Bityp, Loc))),
 
                     Component_Definition =>
                       Make_Component_Definition (Loc,
@@ -5258,10 +5309,8 @@ package body Exp_Ch9 is
                         Constraint   =>
                           Make_Index_Or_Discriminant_Constraint (Loc,
                             Constraints => New_List (
-                              New_Occurrence_Of
-                                (Etype (Discrete_Subtype_Definition
-                                          (Parent (Efam))), Loc)))))));
-
+                              New_Occurrence_Of (Entry_Index_Type (Efam),
+                                                 Loc)))))));
          end if;
 
          Next_Entity (Efam);
@@ -5625,7 +5674,14 @@ package body Exp_Ch9 is
       --  using the index subtype which may mention a discriminant.
 
       if Present (Index) then
-         S := Etype (Discrete_Subtype_Definition (Declaration_Node (Ent)));
+         S := Entry_Index_Type (Ent);
+
+         --  First make sure the index is in range if requested. The index type
+         --  is the pristine Entry_Index_Type of the entry.
+
+         if Do_Range_Check (Index) then
+            Generate_Range_Check (Index, S, CE_Range_Check_Failed);
+         end if;
 
          Expr :=
            Make_Op_Add (Sloc,
@@ -5655,7 +5711,7 @@ package body Exp_Ch9 is
             Set_Intval (Num, Intval (Num) + 1);
 
          elsif Ekind (Prev) = E_Entry_Family then
-            S := Etype (Discrete_Subtype_Definition (Declaration_Node (Prev)));
+            S := Entry_Index_Type (Prev);
             Lo := Type_Low_Bound  (S);
             Hi := Type_High_Bound (S);
 
@@ -6636,6 +6692,7 @@ package body Exp_Ch9 is
          --  must be properly set.
 
          Set_Parent (Block, Parent (N));
+         Set_Parent (Blkent, Block);
 
          --  Prepend call to Accept_Call to main statement sequence If the
          --  accept has exception handlers, the statement sequence is wrapped
@@ -12589,8 +12646,6 @@ package body Exp_Ch9 is
    --  global references if within an instantiation.
 
    procedure Expand_N_Timed_Entry_Call (N : Node_Id) is
-      Loc : constant Source_Ptr := Sloc (N);
-
       Actuals        : List_Id;
       Blk_Typ        : Entity_Id;
       Call           : Node_Id;
@@ -12613,6 +12668,7 @@ package body Exp_Ch9 is
       Index          : Node_Id;
       Is_Disp_Select : Boolean;
       Lim_Typ_Stmts  : List_Id;
+      Loc            : constant Source_Ptr := Sloc (D_Stat);
       N_Stats        : List_Id;
       Obj            : Entity_Id;
       Param          : Node_Id;

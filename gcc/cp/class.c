@@ -182,7 +182,6 @@ static void dfs_accumulate_vtbl_inits (tree, tree, tree, tree, tree,
 static void build_rtti_vtbl_entries (tree, vtbl_init_data *);
 static void build_vcall_and_vbase_vtbl_entries (tree, vtbl_init_data *);
 static void clone_constructors_and_destructors (tree);
-static tree build_clone (tree, tree, bool, bool);
 static void update_vtable_entry_for_fn (tree, tree, tree, tree *, unsigned);
 static void build_ctor_vtbl_group (tree, tree);
 static void build_vtt (tree);
@@ -3725,7 +3724,8 @@ check_field_decls (tree t, tree *access_decls,
 	/* We don't treat zero-width bitfields as making a class
 	   non-empty.  */
 	;
-      else if (field_poverlapping_p (field) && is_empty_class (type))
+      else if (field_poverlapping_p (field)
+	       && is_empty_class (TREE_TYPE (field)))
 	/* Empty data members also don't make a class non-empty.  */
 	CLASSTYPE_CONTAINS_EMPTY_CLASS_P (t) = 1;
       else
@@ -4392,15 +4392,20 @@ layout_empty_base_or_field (record_layout_info rli, tree binfo_or_decl,
 
   /* This routine should only be used for empty classes.  */
   gcc_assert (is_empty_class (type));
-  alignment = size_int (CLASSTYPE_ALIGN_UNIT (type));
+
+  if (decl && DECL_USER_ALIGN (decl))
+    alignment = size_int (DECL_ALIGN_UNIT (decl));
+  else
+    alignment = size_int (CLASSTYPE_ALIGN_UNIT (type));
 
   /* This is an empty base class.  We first try to put it at offset
      zero.  */
   tree offset = size_zero_node;
-  if (layout_conflict_p (type,
-			 offset,
-			 offsets,
-			 /*vbases_p=*/0))
+  if (TREE_CODE (rli->t) != UNION_TYPE
+      && layout_conflict_p (type,
+			    offset,
+			    offsets,
+			    /*vbases_p=*/0))
     {
       /* That didn't work.  Now, we move forward from the next
 	 available spot in the class.  */
@@ -4420,7 +4425,14 @@ layout_empty_base_or_field (record_layout_info rli, tree binfo_or_decl,
 	}
     }
 
-  if (CLASSTYPE_USER_ALIGN (type))
+  if (decl && DECL_USER_ALIGN (decl))
+    {
+      rli->record_align = MAX (rli->record_align, DECL_ALIGN (decl));
+      if (warn_packed)
+	rli->unpacked_align = MAX (rli->unpacked_align, DECL_ALIGN (decl));
+      TYPE_USER_ALIGN (rli->t) = 1;
+    }
+  else if (CLASSTYPE_USER_ALIGN (type))
     {
       rli->record_align = MAX (rli->record_align, CLASSTYPE_ALIGN (type));
       if (warn_packed)
@@ -4722,7 +4734,6 @@ copy_fndecl_with_name (tree fn, tree name, tree_code code,
       set_constraints (clone, copy_node (ci));
 
   SET_DECL_ASSEMBLER_NAME (clone, NULL_TREE);
-  DECL_CLONED_FUNCTION (clone) = fn;
   /* There's no pending inline data for this function.  */
   DECL_PENDING_INLINE_INFO (clone) = NULL;
   DECL_PENDING_INLINE_P (clone) = 0;
@@ -4733,17 +4744,16 @@ copy_fndecl_with_name (tree fn, tree name, tree_code code,
       DECL_VIRTUAL_P (clone) = 0;
       DECL_VINDEX (clone) = NULL_TREE;
     }
-
-  if (code != ERROR_MARK)
+  else if (code != ERROR_MARK)
     {
       /* Set the operator code.  */
       const ovl_op_info_t *ovl_op = OVL_OP_INFO (false, code);
       DECL_OVERLOADED_OPERATOR_CODE_RAW (clone) = ovl_op->ovl_op_code;
-    }
 
-  /* The operator could be virtual.  */
-  if (DECL_VIRTUAL_P (clone))
-    IDENTIFIER_VIRTUAL_P (name) = true;
+      /* The operator could be virtual.  */
+      if (DECL_VIRTUAL_P (clone))
+	IDENTIFIER_VIRTUAL_P (name) = true;
+   }
 
   if (omit_inherited_parms_p)
     gcc_assert (DECL_HAS_IN_CHARGE_PARM_P (clone));
@@ -4815,9 +4825,10 @@ copy_fndecl_with_name (tree fn, tree name, tree_code code,
 
   /* Create the RTL for this function.  */
   SET_DECL_RTL (clone, NULL);
-  // FIXME: Why top level here?  it is namespace_bindings on trunk,
-  // which seems equally spurious
-  rest_of_decl_compilation (clone, /*top_level=*/1, at_eof);
+
+  /* Regardless of the current scope, this is a member function, so
+     not at namespace scope.  */
+  rest_of_decl_compilation (clone, /*top_level=*/0, at_eof);
 
   return clone;
 }
@@ -4932,14 +4943,13 @@ clone_cdtor (tree fn, bool update_methods, bool via_using)
     return;
 
   /* Base cdtors need a vtt parm if there are virtual bases.  */
-  bool needs_vtt_parm_p = CLASSTYPE_VBASECLASSES (DECL_CONTEXT (fn));
+  bool vtt = CLASSTYPE_VBASECLASSES (DECL_CONTEXT (fn));
 
   /* Base ctor omits inherited parms it needs a vttparm and inherited
      from a virtual nase ctor.  */
-  bool omit_inherited_parms_p = ctor_omit_inherited_parms (fn, false);
+  bool omit_inherited = ctor_omit_inherited_parms (fn, false);
 
-  unsigned count = build_cdtor_clones (fn,
-				       needs_vtt_parm_p, omit_inherited_parms_p);
+  unsigned count = build_cdtor_clones (fn, vtt, omit_inherited);
 
   /* Note that this is an abstract function that is never emitted.  */
   DECL_ABSTRACT_P (fn) = true;

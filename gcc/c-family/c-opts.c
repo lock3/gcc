@@ -518,12 +518,6 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 	cpp_opts->track_macro_expansion = 2;
       break;
 
-    case OPT_ftabstop_:
-      /* It is documented that we silently ignore silly values.  */
-      if (value >= 1 && value <= 100)
-	cpp_opts->tabstop = value;
-      break;
-
     case OPT_fexec_charset_:
       cpp_opts->narrow_charset = arg;
       break;
@@ -1154,6 +1148,7 @@ c_common_post_options (const char **pfilename)
 			  /* We'll inject preamble pieces if this is
 			     not preprocessed.  */
 			  !cpp_opts->preprocessed);
+
   /* Don't do any compilation or preprocessing if there is no input file.  */
   if (this_input_filename == NULL)
     {
