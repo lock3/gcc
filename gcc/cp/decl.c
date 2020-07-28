@@ -1071,13 +1071,15 @@ merge_contracts (tree decl, const cp_declarator *fn)
       || TREE_CODE (decl) != FUNCTION_DECL)
     return;
 
+  tree orig = NULL_TREE;
+  if (DECL_HAS_CONTRACTS_P (decl))
+    orig = CONTRACT_ORIGINAL_DECL (DECL_CONTRACTS (decl));
+
   /* If we already have contracts from a more general template but we're a
      specialization, delete the existing contracts in favor of whatever we're
      about to merge in -- including an empty list.  */
-  if (DECL_HAS_CONTRACTS_P (decl)
-      && DECL_P (TREE_TYPE (TREE_VALUE (DECL_CONTRACTS (decl)))))
+  if (DECL_HAS_CONTRACTS_P (decl) && orig)
     {
-      tree orig = TREE_TYPE (TREE_VALUE (DECL_CONTRACTS (decl)));
       if (TREE_CODE (orig) == TEMPLATE_DECL)
 	orig = DECL_TEMPLATE_RESULT (orig);
       if (DECL_TEMPLATE_INFO (decl)
@@ -1118,20 +1120,17 @@ merge_contracts (tree decl, const cp_declarator *fn)
 
   tree original_loc = build1_loc (DECL_SOURCE_LOCATION (decl),
 				  VIEW_CONVERT_EXPR, void_type_node,
-				  NULL_TREE);
+				  decl);
   EXPR_LOCATION_WRAPPER_P (original_loc) = 1;
 
   /* Mark the owner of fn's contracts as decl.  */
   for (tree contract_attr = fn->contracts;
       contract_attr;
       contract_attr = TREE_CHAIN (contract_attr))
-  {
-    if (CONTRACT_SOURCE_LOCATION_WRAPPER (contract_attr) == NULL_TREE)
-      CONTRACT_SOURCE_LOCATION_WRAPPER (contract_attr) = original_loc;
-    tree contract = TREE_VALUE (contract_attr);
-    if (VOID_TYPE_P (TREE_TYPE (contract)))
-      TREE_TYPE (contract) = decl;
-  }
+    {
+      if (CONTRACT_SOURCE_LOCATION_WRAPPER (contract_attr) == NULL_TREE)
+	CONTRACT_SOURCE_LOCATION_WRAPPER (contract_attr) = original_loc;
+    }
 
   /* If there are not yet contracts or we need to defer checking, save the
      contracts.  */
