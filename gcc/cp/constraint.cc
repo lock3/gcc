@@ -786,10 +786,11 @@ get_normalized_constraints_from_info (tree ci, tree args, tree in_decl,
   return t;
 }
 
-/* Returns the normalized constraints for the declaration D.  */
+/* Returns the normalized constraints for the declaration D.  If NULL_OK is 
+   true, only the cached value is checked. */
 
 static tree
-get_normalized_constraints_from_decl (tree d, bool diag = false)
+get_normalized_constraints_from_decl (tree d, bool diag = false, bool null_ok = false)
 {
   tree tmpl;
   tree decl;
@@ -837,8 +838,13 @@ get_normalized_constraints_from_decl (tree d, bool diag = false)
 
   /* If we're not diagnosing errors, use cached constraints, if any.  */
   if (!diag)
-    if (tree *p = hash_map_safe_get (normalized_map, tmpl))
-      return *p;
+    {
+      tree *p = hash_map_safe_get (normalized_map, tmpl);
+      if (p)
+        return *p;
+      if (null_ok)
+        return NULL;
+    }
 
   push_nested_class_guard pncs (DECL_CONTEXT (d));
 
@@ -893,6 +899,54 @@ normalize_nontemplate_requirements (tree decl, bool diag = false)
 {
   return get_normalized_constraints_from_decl (decl, diag);
 }
+
+/* Reads the cached normal form, if one exists.  */
+
+tree
+get_normalized_constraints (tree decl)
+{
+  return get_normalized_constraints_from_decl (decl, false, true);
+}
+
+/* Writes the cached normal form, if one exists.  
+   TODO: this is mostly copied from get_normalized_constraints_from_decl. 
+   I should rectify that. */
+   
+void set_normalized_constraints(tree d, tree norm)
+{
+  tree tmpl;
+  tree decl;
+
+  /* For inherited constructors, consider the original declaration;
+     it has the correct template information attached. */
+  d = strip_inheriting_ctors (d);
+
+  if (TREE_CODE (d) == TEMPLATE_DECL)
+    {
+      tmpl = d;
+      decl = DECL_TEMPLATE_RESULT (tmpl);
+    }
+  else
+    {
+      if (tree ti = DECL_TEMPLATE_INFO (d))
+        tmpl = TI_TEMPLATE (ti);
+      else
+        tmpl = NULL_TREE;
+      decl = d;
+    }
+
+  if (tmpl)
+    {
+      if (DECL_LANG_SPECIFIC (tmpl) && !DECL_TEMPLATE_SPECIALIZATION (tmpl))
+        tmpl = most_general_template (tmpl);
+    }
+
+  if (tree *p = hash_map_safe_get (normalized_map, tmpl))
+      return;
+
+  hash_map_safe_put<hm_ggc> (normalized_map, tmpl, norm);
+}
+
 
 /* Normalize an EXPR as a constraint using ARGS.  */
 
