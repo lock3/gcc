@@ -8129,6 +8129,8 @@ extern tree maybe_substitute_reqs_for		(tree, const_tree);
 extern tree get_template_head_requirements	(tree);
 extern tree get_trailing_function_requirements	(tree);
 extern tree get_shorthand_constraints           (tree);
+extern tree get_normalized_constraints          (tree);
+extern void set_normalized_constraints          (tree, tree);
 
 extern tree build_concept_id			(tree);
 extern tree build_type_constraint		(tree, tree, tsubst_flags_t);

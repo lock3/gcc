@@ -3168,6 +3168,7 @@ private:
 
 public:
   void decl_value (tree, depset *);
+  void decl_constraints (tree);
 
 public:
   /* Serialize various definitions. */
@@ -4076,7 +4077,7 @@ public:
     if (!dumps || !dumps->stream)
       return false;
     if (mask && !(mask & flags))
-      return false;
+      return true;
     return true;
   }
   /* Dump some information.  */
@@ -4305,7 +4306,7 @@ dumper::operator () (const char *format, ...)
       /* Local indent.  */
       if (unsigned indent = dumps->indent)
 	{
-	  const char *prefix = "      ";
+	  const char *prefix = "                 ";
 	  fprintf (dumps->stream, (indent <= strlen (prefix)
 				   ? &prefix[strlen (prefix) - indent]
 				   : "  .%d.  "), indent);
@@ -7610,7 +7611,9 @@ trees_out::decl_value (tree decl, depset *dep)
     }
 
   if (!is_key_order ())
-    tree_node (get_constraints (decl));
+  {
+    decl_constraints (decl);
+  }
 
   if (streaming_p ())
     {
@@ -7672,6 +7675,15 @@ trees_out::decl_value (tree decl, depset *dep)
   if (streaming_p ())
     dump (dumper::TREE) && dump ("Written decl:%d %C:%N", tag,
 				 TREE_CODE (decl), decl);
+}
+
+void 
+trees_out::decl_constraints (tree decl)
+{
+  tree req = get_constraints (decl);
+  tree_node (req);
+  tree norm = get_normalized_constraints (decl);
+  tree_node (norm);
 }
 
 tree
@@ -7868,6 +7880,7 @@ trees_in::decl_value ()
     goto bail;
 
   tree constraints = tree_node ();
+  tree norm_constraints = tree_node ();
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
 
@@ -7933,6 +7946,8 @@ trees_in::decl_value ()
 
       if (constraints)
 	set_constraints (decl, constraints);
+      if (norm_constraints)
+        set_normalized_constraints (decl, norm_constraints);
 
       if (TREE_CODE (decl) == INTEGER_CST && !TREE_OVERFLOW (decl))
 	{
@@ -17036,6 +17051,9 @@ module_state::write (elf_out *to, cpp_reader *reader)
 
   /* Find the set of decls we must write out.  */
   depset::hash table (DECL_NAMESPACE_BINDINGS (global_namespace)->size () * 8);
+
+  dump("-----Adding Entities");
+
   /* Add the specializations before the writables, so that we can
      detect injected friend specializations.  */
   table.add_specializations (true);
@@ -17047,12 +17065,16 @@ module_state::write (elf_out *to, cpp_reader *reader)
       class_members = NULL;
     }
 
+  dump("-----Finding Dependencies");
+
   /* Now join everything up.  */
   table.find_dependencies ();
   // FIXME: Find reachable GMF entities from non-emitted pieces.  It'd
   // be nice to have a flag telling us this walk's necessary.  Even
   // better to not do it (why are we making visible implementation
   // details?) Fight the spec!
+
+  dump("-----Finalizing Dependencies");
 
   if (!table.finalize_dependencies ())
     {
@@ -17067,6 +17089,7 @@ module_state::write (elf_out *to, cpp_reader *reader)
 #endif
 
   /* Determine Strongy Connected Components.  */
+  dump("-----Connecting Dependencies");
   vec<depset *> sccs = table.connect ();
 
   unsigned crc = 0;
@@ -17175,6 +17198,7 @@ module_state::write (elf_out *to, cpp_reader *reader)
 	     out -- we don't want to start writing decls in different
 	     sections.  */
 	  table.section = base[0]->section;
+      dump("-----Writing Cluster");
 	  bytes += write_cluster (to, base, size, table, counts, &crc);
 	  table.section = 0;
 	}
