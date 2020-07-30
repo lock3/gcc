@@ -786,11 +786,10 @@ get_normalized_constraints_from_info (tree ci, tree args, tree in_decl,
   return t;
 }
 
-/* Returns the normalized constraints for the declaration D.  If NULL_OK is 
-   true, only the cached value is checked. */
+/* Returns the normalized constraints for the declaration D.  */
 
 static tree
-get_normalized_constraints_from_decl (tree d, bool diag = false, bool null_ok = false)
+get_normalized_constraints_from_decl (tree d, bool diag = false)
 {
   tree tmpl;
   tree decl;
@@ -839,11 +838,8 @@ get_normalized_constraints_from_decl (tree d, bool diag = false, bool null_ok = 
   /* If we're not diagnosing errors, use cached constraints, if any.  */
   if (!diag)
     {
-      tree *p = hash_map_safe_get (normalized_map, tmpl);
-      if (p)
+      if (tree *p = hash_map_safe_get (normalized_map, tmpl))
         return *p;
-      if (null_ok)
-        return NULL;
     }
 
   push_nested_class_guard pncs (DECL_CONTEXT (d));
@@ -905,7 +901,7 @@ normalize_nontemplate_requirements (tree decl, bool diag = false)
 tree
 get_normalized_constraints (tree decl)
 {
-  return get_normalized_constraints_from_decl (decl, false, true);
+  return get_normalized_constraints_from_decl (decl, false);
 }
 
 /* Writes the cached normal form, if one exists.  
