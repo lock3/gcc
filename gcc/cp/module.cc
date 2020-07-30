@@ -7710,8 +7710,11 @@ trees_out::decl_constraints (tree decl)
 {
   tree req = get_constraints (decl);
   tree_node (req);
-  tree norm = get_normalized_constraints (decl);
-  tree_node (norm);
+  if (req)
+    {
+      tree norm = get_normalized_constraints (decl);
+      tree_node (norm);
+    }
 }
 
 tree
@@ -7908,7 +7911,11 @@ trees_in::decl_value ()
     goto bail;
 
   tree constraints = tree_node ();
-  tree norm_constraints = tree_node ();
+  tree norm_constraints = NULL_TREE;
+  if (constraints)
+    {
+      norm_constraints = tree_node ();
+    }
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
 
