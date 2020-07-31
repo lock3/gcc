@@ -13,6 +13,12 @@ int fun2(int n)
   return n;
 }
 
+int fun3() // never called
+  [[ pre: false ]]
+{
+  return 0;
+}
+
 int main(int, char**) {
   constexpr int n = 0;
   fun(); // { dg-warning "never satisfied here" }

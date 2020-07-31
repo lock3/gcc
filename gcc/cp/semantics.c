@@ -45,7 +45,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "gomp-constants.h"
 #include "predict.h"
 #include "memmodel.h"
-#include "print-tree.h"
 #include "c-family/cxx-contracts.h"
 
 /* There routines provide a modular interface to perform many parsing

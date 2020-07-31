@@ -994,20 +994,17 @@ cp_get_fndecl_from_callee (tree fn, bool fold /* = true */)
     return fn;
   if (TREE_CODE (fn) == FUNCTION_DECL)
     return fn;
-  /* FIXME we probably want to invert this check to handling
-     BASELINK/INDIRECT_TYPE_P instead? */
-  if (TREE_CODE (fn) == CAST_EXPR
-      || TREE_CODE (fn) == VAR_DECL
-      || TREE_CODE (fn) == TARGET_EXPR)
-    return NULL_TREE;
   tree type = TREE_TYPE (fn);
   if (type == NULL_TREE)
     return NULL_TREE;
-  if (!INDIRECT_TYPE_P (type) && TREE_CODE (type) == FUNCTION_TYPE
+  if (!INDIRECT_TYPE_P (type)
+      && TREE_CODE (type) == FUNCTION_TYPE
       && TREE_CODE (fn) == BASELINK)
     /* FIXME is this correct in all baselink cases? */
     return OVL_FIRST (BASELINK_FUNCTIONS (fn));
-  gcc_assert (INDIRECT_TYPE_P (type));
+  /* TODO are there more cases we should handle as "callee"s? */
+  if (!INDIRECT_TYPE_P (type))
+    return NULL_TREE;
   if (fold)
     fn = maybe_constant_init (fn);
   STRIP_NOPS (fn);
