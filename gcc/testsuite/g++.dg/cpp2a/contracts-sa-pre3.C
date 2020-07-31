@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=trivial" }
+// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=trivial,pre" }
 
 int fun()
   [[ pre: false ]] // { dg-warning "precondition is always" }
@@ -22,6 +22,6 @@ int fun3() // never called
 int main(int, char**) {
   constexpr int n = 0;
   fun(); // { dg-warning "never satisfied here" }
-  fun2(n);
+  fun2(n); // { dg-warning "never satisfied here" }
 }
 

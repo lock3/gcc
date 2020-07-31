@@ -45,7 +45,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "gomp-constants.h"
 #include "predict.h"
 #include "memmodel.h"
-#include "print-tree.h"
 #include "c-family/cxx-contracts.h"
 
 /* There routines provide a modular interface to perform many parsing
@@ -1001,6 +1000,7 @@ build_contract_functor_declaration (tree fndecl, bool pre)
       tree name = get_identifier ("__r");
       tree parm = build_lang_decl (PARM_DECL, name, value_type);
       DECL_CONTEXT (parm) = fn;
+      DECL_PARM_LEVEL (parm) = 1;
       DECL_ARGUMENTS (fn) = chainon (DECL_ARGUMENTS (fn), parm);
 
       *last = build_tree_list (NULL_TREE, value_type);
