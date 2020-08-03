@@ -10322,7 +10322,6 @@ lower_omp_for_scan (gimple_seq *body_p, gimple_seq *dlist, gomp_for *stmt,
   gimple_seq_add_stmt (body_p, g);
 
   tree cplx = create_tmp_var (build_complex_type (unsigned_type_node, false));
-  DECL_GIMPLE_REG_P (cplx) = 1;
   g = gimple_build_call_internal (IFN_MUL_OVERFLOW, 2, thread_nump1, twok);
   gimple_call_set_lhs (g, cplx);
   gimple_seq_add_stmt (body_p, g);
@@ -10574,13 +10573,31 @@ lower_omp_for (gimple_stmt_iterator *gsi_p, omp_context *ctx)
   for (i = 0; i < gimple_omp_for_collapse (stmt); i++)
     {
       rhs_p = gimple_omp_for_initial_ptr (stmt, i);
-      if (!is_gimple_min_invariant (*rhs_p))
+      if (TREE_CODE (*rhs_p) == TREE_VEC)
+	{
+	  if (!is_gimple_min_invariant (TREE_VEC_ELT (*rhs_p, 1)))
+	    TREE_VEC_ELT (*rhs_p, 1)
+	      = get_formal_tmp_var (TREE_VEC_ELT (*rhs_p, 1), &cnt_list);
+	  if (!is_gimple_min_invariant (TREE_VEC_ELT (*rhs_p, 2)))
+	    TREE_VEC_ELT (*rhs_p, 2)
+	      = get_formal_tmp_var (TREE_VEC_ELT (*rhs_p, 2), &cnt_list);
+	}
+      else if (!is_gimple_min_invariant (*rhs_p))
 	*rhs_p = get_formal_tmp_var (*rhs_p, &cnt_list);
       else if (TREE_CODE (*rhs_p) == ADDR_EXPR)
 	recompute_tree_invariant_for_addr_expr (*rhs_p);
 
       rhs_p = gimple_omp_for_final_ptr (stmt, i);
-      if (!is_gimple_min_invariant (*rhs_p))
+      if (TREE_CODE (*rhs_p) == TREE_VEC)
+	{
+	  if (!is_gimple_min_invariant (TREE_VEC_ELT (*rhs_p, 1)))
+	    TREE_VEC_ELT (*rhs_p, 1)
+	      = get_formal_tmp_var (TREE_VEC_ELT (*rhs_p, 1), &cnt_list);
+	  if (!is_gimple_min_invariant (TREE_VEC_ELT (*rhs_p, 2)))
+	    TREE_VEC_ELT (*rhs_p, 2)
+	      = get_formal_tmp_var (TREE_VEC_ELT (*rhs_p, 2), &cnt_list);
+	}
+      else if (!is_gimple_min_invariant (*rhs_p))
 	*rhs_p = get_formal_tmp_var (*rhs_p, &cnt_list);
       else if (TREE_CODE (*rhs_p) == ADDR_EXPR)
 	recompute_tree_invariant_for_addr_expr (*rhs_p);

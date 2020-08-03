@@ -635,6 +635,7 @@ am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
 get_gcc_base_ver
+OMP_DEPEND_KIND
 OMP_NEST_LOCK_25_KIND
 OMP_LOCK_25_KIND
 OMP_NEST_LOCK_25_ALIGN
@@ -647,9 +648,11 @@ OMP_NEST_LOCK_ALIGN
 OMP_NEST_LOCK_SIZE
 OMP_LOCK_ALIGN
 OMP_LOCK_SIZE
+INTPTR_T_KIND
 USE_FORTRAN_FALSE
 USE_FORTRAN_TRUE
 link_gomp
+tmake_file
 XLDFLAGS
 XCFLAGS
 config_path
@@ -1501,7 +1504,7 @@ Optional Features:
   --enable-tls            Use thread-local storage [default=yes]
   --enable-symvers=STYLE  enables symbol versioning of the shared library
                           [default=yes]
-  --enable-cet            enable Intel CET in target libraries [default=no]
+  --enable-cet            enable Intel CET in target libraries [default=auto]
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -11432,7 +11435,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 11435 "configure"
+#line 11438 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -11538,7 +11541,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 11541 "configure"
+#line 11544 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -16740,19 +16743,22 @@ if test "${enable_cet+set}" = set; then :
                           esac
 
 else
-  enable_cet=no
+  enable_cet=auto
 fi
 
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for CET support" >&5
 $as_echo_n "checking for CET support... " >&6; }
 
+# NB: Avoid nested save_CFLAGS and save_LDFLAGS.
 case "$host" in
   i[34567]86-*-linux* | x86_64-*-linux*)
     case "$enable_cet" in
       auto)
 	# Check if target supports multi-byte NOPs
 	# and if assembler supports CET insn.
+	cet_save_CFLAGS="$CFLAGS"
+	CFLAGS="$CFLAGS -fcf-protection"
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -16776,6 +16782,7 @@ else
   enable_cet=no
 fi
 rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+	CFLAGS="$cet_save_CFLAGS"
 	;;
       yes)
 	# Check if assembler supports CET.
@@ -16817,6 +16824,18 @@ FCFLAGS="$FCFLAGS $CET_FLAGS"
 
 
 
+
+
+# Conditionalize the makefile for this target machine.
+tmake_file_=
+for f in ${tmake_file}
+do
+	if test -f ${srcdir}/config/$f
+	then
+		tmake_file_="${tmake_file_} \$(srcdir)/config/$f"
+	fi
+done
+tmake_file="${tmake_file_}"
 
 
 # Cleanup and exit.
@@ -16945,6 +16964,25 @@ for i in $config_path; do
   fi
 done
 
+if ac_fn_c_compute_int "$LINENO" "sizeof (__INTPTR_TYPE__)" "INTPTR_T_KIND"        ""; then :
+
+fi
+
+
+if ac_fn_c_compute_int "$LINENO" "sizeof (__int128)" "OMP_INT128_SIZE"        ""; then :
+
+else
+  OMP_INT128_SIZE=0
+fi
+
+
+if ac_fn_c_compute_int "$LINENO" "2*sizeof (__INTPTR_TYPE__)" "OMP_DEPEND_KIND"        ""; then :
+
+else
+  OMP_DEPEND_KIND=0
+fi
+
+
 if ac_fn_c_compute_int "$LINENO" "sizeof (omp_lock_t)" "OMP_LOCK_SIZE"        ""; then :
 
 else
@@ -17011,6 +17049,17 @@ fi
 if test $OMP_NEST_LOCK_25_SIZE -gt 8 || test $OMP_NEST_LOCK_25_ALIGN -gt $OMP_NEST_LOCK_25_SIZE; then
   OMP_NEST_LOCK_25_KIND=8
 fi
+if test $OMP_DEPEND_KIND -eq 16; then
+  if test $OMP_INT128_SIZE -ne 16; then
+    as_fn_error $? "unsupported system, cannot find Fortran int kind=16, needed for omp_depend_kind" "$LINENO" 5
+  fi
+else
+  if test $OMP_DEPEND_KIND -ne 8; then
+    as_fn_error $? "unsupported system, cannot find Fortran integer kind for omp_depend_kind" "$LINENO" 5
+  fi
+fi
+
+
 
 
 

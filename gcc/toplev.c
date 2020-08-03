@@ -796,8 +796,8 @@ print_switch_values (print_switch_fn_type print_fn)
 	case OPT_o:
 	case OPT_d:
 	case OPT_dumpbase:
+	case OPT_dumpbase_ext:
 	case OPT_dumpdir:
-	case OPT_auxbase:
 	case OPT_quiet:
 	case OPT_version:
 	  /* Ignore these.  */
@@ -1410,11 +1410,19 @@ process_options (void)
   /* Set aux_base_name if not already set.  */
   if (aux_base_name)
     ;
-  else if (main_input_filename)
+  else if (dump_base_name)
     {
-      char *name = xstrdup (lbasename (main_input_filename));
+      const char *name = dump_base_name;
+      int nlen, len;
 
-      strip_off_ending (name, strlen (name));
+      if (dump_base_ext && (len = strlen (dump_base_ext))
+	  && (nlen = strlen (name)) && nlen > len
+	  && strcmp (name + nlen - len, dump_base_ext) == 0)
+	{
+	  char *p = xstrndup (name, nlen - len);
+	  name = p;
+	}
+
       aux_base_name = name;
     }
   else
@@ -1473,6 +1481,11 @@ process_options (void)
      be done.  */
   if (flag_unroll_all_loops)
     flag_unroll_loops = 1;
+
+  /* Allow cunroll to grow size accordingly.  */
+  if (flag_cunroll_grow_size == AUTODETECT_VALUE)
+    flag_cunroll_grow_size
+      = flag_unroll_loops || flag_peel_loops || optimize >= 3;
 
   /* web and rename-registers help when run after loop unrolling.  */
   if (flag_web == AUTODETECT_VALUE)
@@ -1822,11 +1835,31 @@ process_options (void)
   /* Address Sanitizer needs porting to each target architecture.  */
 
   if ((flag_sanitize & SANITIZE_ADDRESS)
-      && (!FRAME_GROWS_DOWNWARD || targetm.asan_shadow_offset == NULL))
+      && !FRAME_GROWS_DOWNWARD)
     {
       warning_at (UNKNOWN_LOCATION, 0,
 		  "%<-fsanitize=address%> and %<-fsanitize=kernel-address%> "
 		  "are not supported for this target");
+      flag_sanitize &= ~SANITIZE_ADDRESS;
+    }
+
+  if ((flag_sanitize & SANITIZE_USER_ADDRESS)
+      && targetm.asan_shadow_offset == NULL)
+    {
+      warning_at (UNKNOWN_LOCATION, 0,
+		  "%<-fsanitize=address%> not supported for this target");
+      flag_sanitize &= ~SANITIZE_ADDRESS;
+    }
+
+  if ((flag_sanitize & SANITIZE_KERNEL_ADDRESS)
+      && (targetm.asan_shadow_offset == NULL
+	  && param_asan_stack
+	  && !asan_shadow_offset_set_p ()))
+    {
+      warning_at (UNKNOWN_LOCATION, 0,
+		  "%<-fsanitize=kernel-address%> with stack protection "
+		  "is not supported without %<-fasan-shadow-offset=%> "
+		  "for this target");
       flag_sanitize &= ~SANITIZE_ADDRESS;
     }
 
@@ -1853,6 +1886,9 @@ process_options (void)
   if (flag_checking >= 2)
     hash_table_sanitize_eq_limit
       = param_hash_table_verification_limit;
+
+  if (flag_large_source_files)
+    line_table->default_range_bits = 0;
 
   /* Please don't change global_options after this point, those changes won't
      be reflected in optimization_{default,current}_node.  */
@@ -1961,8 +1997,21 @@ static int
 lang_dependent_init (const char *name)
 {
   location_t save_loc = input_location;
-  if (dump_base_name == 0)
-    dump_base_name = name && name[0] ? name : "gccdump";
+  if (!dump_base_name)
+    {
+      dump_base_name = name && name[0] ? name : "gccdump";
+
+      /* We do not want to derive a non-empty dumpbase-ext from an
+	 explicit -dumpbase argument, only from a defaulted
+	 dumpbase.  */
+      if (!dump_base_ext)
+	{
+	  const char *base = lbasename (dump_base_name);
+	  const char *ext = strrchr (base, '.');
+	  if (ext)
+	    dump_base_ext = ext;
+	}
+    }
 
   /* Other front-end initialization.  */
   input_location = BUILTINS_LOCATION;
@@ -1974,20 +2023,25 @@ lang_dependent_init (const char *name)
     {
       init_asm_output (name);
 
-      /* If stack usage information is desired, open the output file.  */
-      if (flag_stack_usage && !flag_generate_lto)
-	stack_usage_file = open_auxiliary_file ("su");
-
-      /* If call graph information is desired, open the output file.  */
-      if (flag_callgraph_info && !flag_generate_lto)
+      if (!flag_generate_lto && !flag_compare_debug)
 	{
-	  callgraph_info_file = open_auxiliary_file ("ci");
-	  /* Write the file header.  */
-	  fprintf (callgraph_info_file,
-		   "graph: { title: \"%s\"\n", main_input_filename);
-	  bitmap_obstack_initialize (NULL);
-	  callgraph_info_external_printed = BITMAP_ALLOC (NULL);
+	  /* If stack usage information is desired, open the output file.  */
+	  if (flag_stack_usage)
+	    stack_usage_file = open_auxiliary_file ("su");
+
+	  /* If call graph information is desired, open the output file.  */
+	  if (flag_callgraph_info)
+	    {
+	      callgraph_info_file = open_auxiliary_file ("ci");
+	      /* Write the file header.  */
+	      fprintf (callgraph_info_file,
+		       "graph: { title: \"%s\"\n", main_input_filename);
+	      bitmap_obstack_initialize (NULL);
+	      callgraph_info_external_printed = BITMAP_ALLOC (NULL);
+	    }
 	}
+      else
+	flag_stack_usage = flag_callgraph_info = false;
     }
 
   /* This creates various _DECL nodes, so needs to be called after the

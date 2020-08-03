@@ -6436,11 +6436,16 @@ s390_expand_insv (rtx dest, rtx op1, rtx op2, rtx src)
       /* Emit a strict_low_part pattern if possible.  */
       if (smode_bsize == bitsize && bitpos == mode_bsize - smode_bsize)
 	{
-	  op = gen_rtx_STRICT_LOW_PART (VOIDmode, gen_lowpart (smode, dest));
-	  op = gen_rtx_SET (op, gen_lowpart (smode, src));
-	  clobber = gen_rtx_CLOBBER (VOIDmode, gen_rtx_REG (CCmode, CC_REGNUM));
-	  emit_insn (gen_rtx_PARALLEL (VOIDmode, gen_rtvec (2, op, clobber)));
-	  return true;
+	  rtx low_dest = gen_lowpart (smode, dest);
+	  rtx low_src = gen_lowpart (smode, src);
+
+	  switch (smode)
+	    {
+	    case E_QImode: emit_insn (gen_movstrictqi (low_dest, low_src)); return true;
+	    case E_HImode: emit_insn (gen_movstricthi (low_dest, low_src)); return true;
+	    case E_SImode: emit_insn (gen_movstrictsi (low_dest, low_src)); return true;
+	    default: break;
+	    }
 	}
 
       /* ??? There are more powerful versions of ICM that are not
@@ -7853,15 +7858,13 @@ print_operand (FILE *file, rtx x, int code)
   switch (code)
     {
     case 'A':
-#ifdef HAVE_AS_VECTOR_LOADSTORE_ALIGNMENT_HINTS
-      if (TARGET_Z14 && MEM_P (x))
+      if (TARGET_VECTOR_LOADSTORE_ALIGNMENT_HINTS && MEM_P (x))
 	{
 	  if (MEM_ALIGN (x) >= 128)
 	    fprintf (file, ",4");
 	  else if (MEM_ALIGN (x) == 64)
 	    fprintf (file, ",3");
 	}
-#endif
       return;
     case 'C':
       fprintf (file, s390_branch_condition_mnemonic (x, FALSE));
@@ -10946,10 +10949,9 @@ s390_prologue_plus_offset (rtx target, rtx reg, rtx offset, bool frame_related_p
 static void
 s390_emit_stack_probe (rtx addr)
 {
-  rtx tmp = gen_rtx_MEM (Pmode, addr);
-  MEM_VOLATILE_P (tmp) = 1;
-  s390_emit_compare (EQ, gen_rtx_REG (Pmode, 0), tmp);
-  emit_insn (gen_blockage ());
+  rtx mem = gen_rtx_MEM (Pmode, addr);
+  MEM_VOLATILE_P (mem) = 1;
+  emit_insn (gen_probe_stack (mem));
 }
 
 /* Use a runtime loop if we have to emit more probes than this.  */
@@ -10996,6 +10998,8 @@ allocate_stack_space (rtx size, HOST_WIDE_INT last_probe_offset,
 						       stack_pointer_rtx,
 						       offset));
 		}
+	      if (num_probes > 0)
+		last_probe_offset = INTVAL (offset);
 	      dump_stack_clash_frame_info (PROBE_INLINE, residual != 0);
 	    }
 	  else
@@ -11029,6 +11033,7 @@ allocate_stack_space (rtx size, HOST_WIDE_INT last_probe_offset,
 	      s390_prologue_plus_offset (stack_pointer_rtx, temp_reg,
 					 const0_rtx, true);
 	      temp_reg_clobbered_p = true;
+	      last_probe_offset = INTVAL (offset);
 	      dump_stack_clash_frame_info (PROBE_LOOP, residual != 0);
 	    }
 
@@ -13957,8 +13962,13 @@ s390_fix_long_loop_prediction (rtx_insn *insn)
   int distance;
 
   /* This will exclude branch on count and branch on index patterns
-     since these are correctly statically predicted.  */
-  if (!set
+     since these are correctly statically predicted.
+
+     The additional check for a PARALLEL is required here since
+     single_set might be != NULL for PARALLELs where the set of the
+     iteration variable is dead.  */
+  if (GET_CODE (PATTERN (insn)) == PARALLEL
+      || !set
       || SET_DEST (set) != pc_rtx
       || GET_CODE (SET_SRC(set)) != IF_THEN_ELSE)
     return false;

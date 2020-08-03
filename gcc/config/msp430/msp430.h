@@ -257,6 +257,11 @@ extern const char *msp430_get_linker_devices_include_path (int, const char **);
   msp430_return_addr_rtx (COUNT)
 
 #define SLOW_BYTE_ACCESS		0
+
+/* Calling a constant function address costs the same number of clock
+   cycles as calling an address stored in a register. However, in terms of
+   instruction length, calling a constant address is more expensive.  */
+#define NO_FUNCTION_CSE (optimize >= 2 && !optimize_size)
 
 
 /* Register Usage */
@@ -517,7 +522,13 @@ void msp430_register_pre_includes (const char *sysroot ATTRIBUTE_UNUSED,
 #undef  USE_SELECT_SECTION_FOR_FUNCTIONS
 #define USE_SELECT_SECTION_FOR_FUNCTIONS 1
 
+#undef ASM_OUTPUT_ALIGNED_DECL_COMMON
 #define ASM_OUTPUT_ALIGNED_DECL_COMMON(FILE, DECL, NAME, SIZE, ALIGN)	\
-  msp430_output_aligned_decl_common ((FILE), (DECL), (NAME), (SIZE), (ALIGN))
+  msp430_output_aligned_decl_common ((FILE), (DECL), (NAME), (SIZE), (ALIGN), 0)
+
+#undef  ASM_OUTPUT_ALIGNED_DECL_LOCAL
+#define ASM_OUTPUT_ALIGNED_DECL_LOCAL(FILE, DECL, NAME, SIZE, ALIGN)	\
+  msp430_output_aligned_decl_common ((FILE), (DECL), (NAME), (SIZE), (ALIGN), 1)
+
 
 #define SYMBOL_FLAG_LOW_MEM (SYMBOL_FLAG_MACH_DEP << 0)

@@ -36,6 +36,14 @@ case ${host} in
     # static hash tables crashes on AIX when libgo is built with O2
     CFLAGS="$CFLAGS -fno-section-anchors"
     GOCFLAGS="$GOCFLAGS -fno-section-anchors"
+
+    # Check default architecture for FAT library creation
+    if test -z "`$(CC) -x c -E /dev/null -g3 -o - | grep 64BIT`" ; then
+        AIX_DEFAULT_ARCH='64'
+    else
+        AIX_DEFAULT_ARCH='32'
+    fi
+    AC_SUBST(AIX_DEFAULT_ARCH)
     ;;
 esac
 
@@ -880,6 +888,17 @@ if test "x$libgo_cv_as_x86_aes" = xyes; then
   AC_DEFINE(HAVE_AS_X86_AES, 1,
 	    [Define if your assembler supports AES instructions.])
 fi
+
+dnl Test whether the linker supports the -static option.
+AC_CACHE_CHECK([whether -static is supported],
+[libgo_cv_ld_static],
+[LDFLAGS_hold=$LDFLAGS
+LDFLAGS="$LDFLAGS -static"
+AC_LINK_IFELSE([AC_LANG_PROGRAM(,)],
+[libgo_cv_ld_static=yes],
+[libgo_cv_ld_static=no])
+LDFLAGS=$LDFLAGS_hold])
+AM_CONDITIONAL(HAVE_STATIC_LINK, test "$libgo_cv_ld_static" = yes)
 
 AC_CACHE_SAVE
 

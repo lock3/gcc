@@ -967,6 +967,12 @@ endif
 # Also use -fno-inline to get better results from the memory profiler.
 runtime_pprof_check_GOCFLAGS = -static-libgo -fno-inline
 
+if HAVE_STATIC_LINK
+# Use -static for the syscall tests if possible, because otherwise when
+# running as root the re-execs ignore LD_LIBRARY_PATH.
+syscall_check_GOCFLAGS = -static
+endif
+
 extra_go_files_runtime_internal_sys = version.go
 runtime/internal/sys.lo.dep: $(extra_go_files_runtime_internal_sys)
 
@@ -1222,3 +1228,17 @@ distclean-local:
 	find . -name '*.lo.dep' -print | xargs rm -f
 
 include $(top_srcdir)/../multilib.am
+
+if LIBGO_IS_AIX
+ALL_LOCAL_DEPS = add-aix-fat-library
+else
+ALL_LOCAL_DEPS =
+endif
+all-local: $(ALL_LOCAL_DEPS)
+
+MAJOR=$(firstword $(subst :, ,$(libtool_VERSION)))
+add-aix-fat-library: all-multi
+    @if test "$(MULTIBUILDTOP)" = ""; then \
+        ${AR} -X$(AIX_DEFAULT_ARCH) rc .libs/$(PACKAGE).a ../ppc$(AIX_DEFAULT_ARCH)/$(PACKAGE)/.libs/$(PACKAGE).so.$(MAJOR); \
+        ${AR} -X$(AIX_DEFAULT_ARCH) rc ../pthread/$(PACKAGE)/.libs/$(PACKAGE).a ../pthread/ppc$(AIX_DEFAULT_ARCH)/$(PACKAGE)/.libs/$(PACKAGE).so.$(MAJOR); \
+    fi

@@ -845,30 +845,6 @@ finish_options (struct gcc_options *opts, struct gcc_options *opts_set,
 	/* We have a DUMP_DIR_NAME, prepend that.  */
 	opts->x_dump_base_name = opts_concat (opts->x_dump_dir_name,
 					      opts->x_dump_base_name, NULL);
-      else if (opts->x_aux_base_name
-	       && strcmp (opts->x_aux_base_name, HOST_BIT_BUCKET) != 0)
-	/* AUX_BASE_NAME is set and is not the bit bucket.  If it
-	   contains a directory component, prepend those directories.
-	   Typically this places things in the same directory as the
-	   object file.  */
-	{
-	  const char *aux_base;
-
-	  base_of_path (opts->x_aux_base_name, &aux_base);
-	  if (opts->x_aux_base_name != aux_base)
-	    {
-	      int dir_len = aux_base - opts->x_aux_base_name;
-	      char *new_dump_base_name
-		= XOBNEWVEC (&opts_obstack, char,
-			     strlen (opts->x_dump_base_name) + dir_len + 1);
-
-	      /* Copy directory component from OPTS->X_AUX_BASE_NAME.  */
-	      memcpy (new_dump_base_name, opts->x_aux_base_name, dir_len);
-	      /* Append existing OPTS->X_DUMP_BASE_NAME.  */
-	      strcpy (new_dump_base_name + dir_len, opts->x_dump_base_name);
-	      opts->x_dump_base_name = new_dump_base_name;
-	    }
-	}
 
       /* It is definitely prefixed now.  */
       opts->x_dump_base_name_prefixed = true;
@@ -2028,13 +2004,21 @@ parse_and_check_align_values (const char *flag,
 }
 
 /* Check that alignment value FLAG for -falign-NAME is valid at a given
-   location LOC.  */
+   location LOC. OPT_STR points to the stored -falign-NAME=argument and
+   OPT_FLAG points to the associated -falign-NAME on/off flag.  */
 
 static void
-check_alignment_argument (location_t loc, const char *flag, const char *name)
+check_alignment_argument (location_t loc, const char *flag, const char *name,
+			  int *opt_flag, const char **opt_str)
 {
   auto_vec<unsigned> align_result;
   parse_and_check_align_values (flag, name, align_result, true, loc);
+
+  if (align_result.length() >= 1 && align_result[0] == 0)
+    {
+      *opt_flag = 1;
+      *opt_str = NULL;
+    }
 }
 
 /* Print help when OPT__help_ is set.  */
@@ -2346,17 +2330,6 @@ common_handle_option (struct gcc_options *opts,
       opts->x_flag_gen_aux_info = 1;
       break;
 
-    case OPT_auxbase_strip:
-      {
-	char *tmp = xstrdup (arg);
-	strip_off_ending (tmp, strlen (tmp));
-	if (tmp[0])
-	  opts->x_aux_base_name = tmp;
-	else
-	  free (tmp);
-      }
-      break;
-
     case OPT_d:
       decode_d_option (arg, opts, loc, dc);
       break;
@@ -2437,6 +2410,14 @@ common_handle_option (struct gcc_options *opts,
 
     case OPT_fdiagnostics_parseable_fixits:
       dc->parseable_fixits_p = value;
+      break;
+
+    case OPT_fdiagnostics_column_unit_:
+      dc->column_unit = (enum diagnostics_column_unit)value;
+      break;
+
+    case OPT_fdiagnostics_column_origin_:
+      dc->column_origin = value;
       break;
 
     case OPT_fdiagnostics_show_cwe:
@@ -2812,19 +2793,33 @@ common_handle_option (struct gcc_options *opts,
       break;
 
     case OPT_falign_loops_:
-      check_alignment_argument (loc, arg, "loops");
+      check_alignment_argument (loc, arg, "loops",
+				&opts->x_flag_align_loops,
+				&opts->x_str_align_loops);
       break;
 
     case OPT_falign_jumps_:
-      check_alignment_argument (loc, arg, "jumps");
+      check_alignment_argument (loc, arg, "jumps",
+				&opts->x_flag_align_jumps,
+				&opts->x_str_align_jumps);
       break;
 
     case OPT_falign_labels_:
-      check_alignment_argument (loc, arg, "labels");
+      check_alignment_argument (loc, arg, "labels",
+				&opts->x_flag_align_labels,
+				&opts->x_str_align_labels);
       break;
 
     case OPT_falign_functions_:
-      check_alignment_argument (loc, arg, "functions");
+      check_alignment_argument (loc, arg, "functions",
+				&opts->x_flag_align_functions,
+				&opts->x_str_align_functions);
+      break;
+
+    case OPT_ftabstop_:
+      /* It is documented that we silently ignore silly values.  */
+      if (value >= 1 && value <= 100)
+	dc->tabstop = value;
       break;
 
     default:

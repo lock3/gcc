@@ -1771,6 +1771,8 @@ cache_integer_cst (tree t)
       break;
 
     case ENUMERAL_TYPE:
+      /* The slot used by TYPE_CACHED_VALUES is used for the enum
+	 members.  */
       break;
 
     default:
@@ -2204,29 +2206,29 @@ build_real_from_int_cst (tree type, const_tree i)
   return v;
 }
 
-/* Return a newly constructed STRING_CST node whose value is
-   the LEN characters at STR.
+/* Return a newly constructed STRING_CST node whose value is the LEN
+   characters at STR when STR is nonnull, or all zeros otherwise.
    Note that for a C string literal, LEN should include the trailing NUL.
    The TREE_TYPE is not initialized.  */
 
 tree
-build_string (int len, const char *str)
+build_string (unsigned len, const char *str /*= NULL */)
 {
-  tree s;
-  size_t length;
-
   /* Do not waste bytes provided by padding of struct tree_string.  */
-  length = len + offsetof (struct tree_string, str) + 1;
+  unsigned size = len + offsetof (struct tree_string, str) + 1;
 
-  record_node_allocation_statistics (STRING_CST, length);
+  record_node_allocation_statistics (STRING_CST, size);
 
-  s = (tree) ggc_internal_alloc (length);
+  tree s = (tree) ggc_internal_alloc (size);
 
   memset (s, 0, sizeof (struct tree_typed));
   TREE_SET_CODE (s, STRING_CST);
   TREE_CONSTANT (s) = 1;
   TREE_STRING_LENGTH (s) = len;
-  memcpy (s->string.str, str, len);
+  if (str)
+    memcpy (s->string.str, str, len);
+  else
+    memset (s->string.str, 0, len);
   s->string.str[len] = '\0';
 
   return s;
@@ -3349,51 +3351,6 @@ HOST_WIDE_INT
 int_byte_position (const_tree field)
 {
   return tree_to_shwi (byte_position (field));
-}
-
-/* Return the strictest alignment, in bits, that T is known to have.  */
-
-unsigned int
-expr_align (const_tree t)
-{
-  unsigned int align0, align1;
-
-  switch (TREE_CODE (t))
-    {
-    CASE_CONVERT:  case NON_LVALUE_EXPR:
-      /* If we have conversions, we know that the alignment of the
-	 object must meet each of the alignments of the types.  */
-      align0 = expr_align (TREE_OPERAND (t, 0));
-      align1 = TYPE_ALIGN (TREE_TYPE (t));
-      return MAX (align0, align1);
-
-    case SAVE_EXPR:         case COMPOUND_EXPR:       case MODIFY_EXPR:
-    case INIT_EXPR:         case TARGET_EXPR:         case WITH_CLEANUP_EXPR:
-    case CLEANUP_POINT_EXPR:
-      /* These don't change the alignment of an object.  */
-      return expr_align (TREE_OPERAND (t, 0));
-
-    case COND_EXPR:
-      /* The best we can do is say that the alignment is the least aligned
-	 of the two arms.  */
-      align0 = expr_align (TREE_OPERAND (t, 1));
-      align1 = expr_align (TREE_OPERAND (t, 2));
-      return MIN (align0, align1);
-
-      /* FIXME: LABEL_DECL and CONST_DECL never have DECL_ALIGN set
-	 meaningfully, it's always 1.  */
-    case LABEL_DECL:     case CONST_DECL:
-    case VAR_DECL:       case PARM_DECL:   case RESULT_DECL:
-    case FUNCTION_DECL:
-      gcc_assert (DECL_ALIGN (t) != 0);
-      return DECL_ALIGN (t);
-
-    default:
-      break;
-    }
-
-  /* Otherwise take the alignment from that of the type.  */
-  return TYPE_ALIGN (TREE_TYPE (t));
 }
 
 /* Return, as a tree node, the number of elements for TYPE (which is an
@@ -5606,15 +5563,14 @@ free_lang_data_in_type (tree type, class free_lang_data_d *fld)
 	  /* Type values are used only for C++ ODR checking.  Drop them
 	     for all type variants and non-ODR types.
 	     For ODR types the data is freed in free_odr_warning_data.  */
-	  if (TYPE_MAIN_VARIANT (type) != type
-	      || !type_with_linkage_p (type))
+	  if (!TYPE_VALUES (type))
+	    ;
+	  else if (TYPE_MAIN_VARIANT (type) != type
+		   || !type_with_linkage_p (type)
+		   || type_in_anonymous_namespace_p (type))
 	    TYPE_VALUES (type) = NULL;
 	  else
-	  /* Simplify representation by recording only values rather
-	     than const decls.  */
-	    for (tree e = TYPE_VALUES (type); e; e = TREE_CHAIN (e))
-	      if (TREE_CODE (TREE_VALUE (e)) == CONST_DECL)
-		TREE_VALUE (e) = DECL_INITIAL (TREE_VALUE (e));
+	    register_odr_enum (type);
 	}
       free_lang_data_in_one_sizepos (&TYPE_MIN_VALUE (type));
       free_lang_data_in_one_sizepos (&TYPE_MAX_VALUE (type));
@@ -8889,7 +8845,7 @@ get_narrower (tree op, int *unsignedp_ptr)
 	return win;
       auto_vec <tree, 16> v;
       unsigned int i;
-      for (tree op = win; TREE_CODE (op) == COMPOUND_EXPR;
+      for (op = win; TREE_CODE (op) == COMPOUND_EXPR;
 	   op = TREE_OPERAND (op, 1))
 	v.safe_push (op);
       FOR_EACH_VEC_ELT_REVERSE (v, i, op)
@@ -10375,6 +10331,8 @@ build_common_tree_nodes (bool signed_char)
   uint16_type_node = make_or_reuse_type (16, 1);
   uint32_type_node = make_or_reuse_type (32, 1);
   uint64_type_node = make_or_reuse_type (64, 1);
+  if (targetm.scalar_mode_supported_p (TImode))
+    uint128_type_node = make_or_reuse_type (128, 1);
 
   /* Decimal float types. */
   if (targetm.decimal_float_supported_p ())
@@ -11614,12 +11572,12 @@ build_alloca_call_expr (tree size, unsigned int align, HOST_WIDE_INT max_size)
 
 /* Create a new constant string literal of type ELTYPE[SIZE] (or LEN
    if SIZE == -1) and return a tree node representing char* pointer to
-   it as an ADDR_EXPR (ARRAY_REF (ELTYPE, ...)).  The STRING_CST value
-   is the LEN bytes at STR (the representation of the string, which may
-   be wide).  */
+   it as an ADDR_EXPR (ARRAY_REF (ELTYPE, ...)).  When STR is nonnull
+   the STRING_CST value is the LEN bytes at STR (the representation
+   of the string, which may be wide).  Otherwise it's all zeros.  */
 
 tree
-build_string_literal (int len, const char *str,
+build_string_literal (unsigned len, const char *str /* = NULL */,
 		      tree eltype /* = char_type_node */,
 		      unsigned HOST_WIDE_INT size /* = -1 */)
 {
@@ -12256,6 +12214,12 @@ walk_tree_1 (tree *tp, walk_tree_fn func, void *data,
 	 Note that DECLs get walked as part of processing the BIND_EXPR.  */
       if (TREE_CODE (DECL_EXPR_DECL (*tp)) == TYPE_DECL)
 	{
+	  /* Call the function for the decl so e.g. copy_tree_body_r can
+	     replace it with the remapped one.  */
+	  result = (*func) (&DECL_EXPR_DECL (*tp), &walk_subtrees, data);
+	  if (result || !walk_subtrees)
+	    return result;
+
 	  tree *type_p = &TREE_TYPE (DECL_EXPR_DECL (*tp));
 	  if (TREE_CODE (*type_p) == ERROR_MARK)
 	    return NULL_TREE;
@@ -12848,10 +12812,11 @@ lhd_gcc_personality (void)
    OBJ_TYPE_REF representing an virtual call of C++ method.
    (As opposed to OBJ_TYPE_REF representing objc calls
    through a cast where middle-end devirtualization machinery
-   can't apply.) */
+   can't apply.)  FOR_DUMP_P is true when being called from
+   the dump routines.  */
 
 bool
-virtual_method_call_p (const_tree target)
+virtual_method_call_p (const_tree target, bool for_dump_p)
 {
   if (TREE_CODE (target) != OBJ_TYPE_REF)
     return false;
@@ -12864,7 +12829,7 @@ virtual_method_call_p (const_tree target)
   /* If we do not have BINFO associated, it means that type was built
      without devirtualization enabled.  Do not consider this a virtual
      call.  */
-  if (!TYPE_BINFO (obj_type_ref_class (target)))
+  if (!TYPE_BINFO (obj_type_ref_class (target, for_dump_p)))
     return false;
   return true;
 }
@@ -13291,7 +13256,9 @@ get_tree_code_name (enum tree_code code)
 {
   const char *invalid = "<invalid tree code>";
 
-  if (code >= MAX_TREE_CODES)
+  /* The tree_code enum promotes to signed, but we could be getting
+     invalid values, so force an unsigned comparison.  */
+  if (unsigned (code) >= MAX_TREE_CODES)
     {
       if (code == 0xa5a5)
 	return "ggc_freed";
@@ -13645,6 +13612,10 @@ component_ref_size (tree ref, bool *interior_zero_length /* = NULL */)
   if (!interior_zero_length)
     interior_zero_length = &int_0_len;
 
+  /* The object/argument referenced by the COMPONENT_REF and its type.  */
+  tree arg = TREE_OPERAND (ref, 0);
+  tree argtype = TREE_TYPE (arg);
+  /* The referenced member.  */
   tree member = TREE_OPERAND (ref, 1);
 
   tree memsize = DECL_SIZE_UNIT (member);
@@ -13656,7 +13627,7 @@ component_ref_size (tree ref, bool *interior_zero_length /* = NULL */)
 
       bool trailing = array_at_struct_end_p (ref);
       bool zero_length = integer_zerop (memsize);
-      if (!trailing && (!interior_zero_length || !zero_length))
+      if (!trailing && !zero_length)
 	/* MEMBER is either an interior array or is an array with
 	   more than one element.  */
 	return memsize;
@@ -13675,9 +13646,14 @@ component_ref_size (tree ref, bool *interior_zero_length /* = NULL */)
 		  offset_int minidx = wi::to_offset (min);
 		  offset_int maxidx = wi::to_offset (max);
 		  if (maxidx - minidx > 0)
-		    /* MEMBER is an array with more than 1 element.  */
+		    /* MEMBER is an array with more than one element.  */
 		    return memsize;
 		}
+
+      /* For a refernce to a zero- or one-element array member of a union
+	 use the size of the union instead of the size of the member.  */
+      if (TREE_CODE (argtype) == UNION_TYPE)
+	memsize = TYPE_SIZE_UNIT (argtype);
     }
 
   /* MEMBER is either a bona fide flexible array member, or a zero-length
@@ -13692,28 +13668,27 @@ component_ref_size (tree ref, bool *interior_zero_length /* = NULL */)
       if (!*interior_zero_length)
 	return NULL_TREE;
 
-      if (TREE_CODE (TREE_OPERAND (ref, 0)) != COMPONENT_REF)
+      if (TREE_CODE (arg) != COMPONENT_REF)
 	return NULL_TREE;
 
-      base = TREE_OPERAND (ref, 0);
+      base = arg;
       while (TREE_CODE (base) == COMPONENT_REF)
 	base = TREE_OPERAND (base, 0);
       baseoff = tree_to_poly_int64 (byte_position (TREE_OPERAND (ref, 1)));
     }
 
   /* BASE is the declared object of which MEMBER is either a member
-     or that is cast to REFTYPE (e.g., a char buffer used to store
-     a REFTYPE object).  */
-  tree reftype = TREE_TYPE (TREE_OPERAND (ref, 0));
+     or that is cast to ARGTYPE (e.g., a char buffer used to store
+     an ARGTYPE object).  */
   tree basetype = TREE_TYPE (base);
 
   /* Determine the base type of the referenced object.  If it's
-     the same as REFTYPE and MEMBER has a known size, return it.  */
+     the same as ARGTYPE and MEMBER has a known size, return it.  */
   tree bt = basetype;
   if (!*interior_zero_length)
     while (TREE_CODE (bt) == ARRAY_TYPE)
       bt = TREE_TYPE (bt);
-  bool typematch = useless_type_conversion_p (reftype, bt);
+  bool typematch = useless_type_conversion_p (argtype, bt);
   if (memsize && typematch)
     return memsize;
 
@@ -13729,7 +13704,7 @@ component_ref_size (tree ref, bool *interior_zero_length /* = NULL */)
 	  if (init)
 	    {
 	      memsize = TYPE_SIZE_UNIT (TREE_TYPE (init));
-	      if (tree refsize = TYPE_SIZE_UNIT (reftype))
+	      if (tree refsize = TYPE_SIZE_UNIT (argtype))
 		{
 		  /* Use the larger of the initializer size and the tail
 		     padding in the enclosing struct.  */
@@ -13849,6 +13824,30 @@ vector_type_mode (const_tree t)
     }
 
   return mode;
+}
+
+/* Return the size in bits of each element of vector type TYPE.  */
+
+unsigned int
+vector_element_bits (const_tree type)
+{
+  gcc_checking_assert (VECTOR_TYPE_P (type));
+  if (VECTOR_BOOLEAN_TYPE_P (type))
+    return vector_element_size (tree_to_poly_uint64 (TYPE_SIZE (type)),
+				TYPE_VECTOR_SUBPARTS (type));
+  return tree_to_uhwi (TYPE_SIZE (TREE_TYPE (type)));
+}
+
+/* Calculate the size in bits of each element of vector type TYPE
+   and return the result as a tree of type bitsizetype.  */
+
+tree
+vector_element_bits_tree (const_tree type)
+{
+  gcc_checking_assert (VECTOR_TYPE_P (type));
+  if (VECTOR_BOOLEAN_TYPE_P (type))
+    return bitsize_int (vector_element_bits (type));
+  return TYPE_SIZE (TREE_TYPE (type));
 }
 
 /* Verify that basic properties of T match TV and thus T can be a variant of
@@ -14971,11 +14970,18 @@ get_nonnull_args (const_tree fntype)
   if (fntype == NULL_TREE)
     return NULL;
 
+  bitmap argmap = NULL;
+  if (TREE_CODE (fntype) == METHOD_TYPE)
+    {
+      /* The this pointer in C++ non-static member functions is
+	 implicitly nonnull whether or not it's declared as such.  */
+      argmap = BITMAP_ALLOC (NULL);
+      bitmap_set_bit (argmap, 0);
+    }
+
   tree attrs = TYPE_ATTRIBUTES (fntype);
   if (!attrs)
-    return NULL;
-
-  bitmap argmap = NULL;
+    return argmap;
 
   /* A function declaration can specify multiple attribute nonnull,
      each with zero or more arguments.  The loop below creates a bitmap

@@ -43,6 +43,8 @@
 #include "gimple-iterator.h"
 #include "case-cfn-macros.h"
 #include "emit-rtl.h"
+#include "stringpool.h"
+#include "attribs.h"
 
 #define v8qi_UP  E_V8QImode
 #define v4hi_UP  E_V4HImode
@@ -115,6 +117,18 @@ enum aarch64_type_qualifiers
   qualifier_lane_quadtup_index = 0x1000,
 };
 
+/* Flags that describe what a function might do.  */
+const unsigned int FLAG_NONE = 0U;
+const unsigned int FLAG_READ_FPCR = 1U << 0;
+const unsigned int FLAG_RAISE_FP_EXCEPTIONS = 1U << 1;
+const unsigned int FLAG_READ_MEMORY = 1U << 2;
+const unsigned int FLAG_PREFETCH_MEMORY = 1U << 3;
+const unsigned int FLAG_WRITE_MEMORY = 1U << 4;
+
+const unsigned int FLAG_FP = FLAG_READ_FPCR | FLAG_RAISE_FP_EXCEPTIONS;
+const unsigned int FLAG_ALL = FLAG_READ_FPCR | FLAG_RAISE_FP_EXCEPTIONS
+  | FLAG_READ_MEMORY | FLAG_PREFETCH_MEMORY | FLAG_WRITE_MEMORY;
+
 typedef struct
 {
   const char *name;
@@ -122,6 +136,7 @@ typedef struct
   const enum insn_code code;
   unsigned int fcode;
   enum aarch64_type_qualifiers *qualifiers;
+  unsigned int flags;
 } aarch64_simd_builtin_datum;
 
 static enum aarch64_type_qualifiers
@@ -334,53 +349,53 @@ aarch64_types_storestruct_lane_qualifiers[SIMD_MAX_BUILTIN_ARGS]
 #define CF4(N, X) CODE_FOR_##N##X##4
 #define CF10(N, X) CODE_FOR_##N##X
 
-#define VAR1(T, N, MAP, A) \
-  {#N #A, UP (A), CF##MAP (N, A), 0, TYPES_##T},
-#define VAR2(T, N, MAP, A, B) \
-  VAR1 (T, N, MAP, A) \
-  VAR1 (T, N, MAP, B)
-#define VAR3(T, N, MAP, A, B, C) \
-  VAR2 (T, N, MAP, A, B) \
-  VAR1 (T, N, MAP, C)
-#define VAR4(T, N, MAP, A, B, C, D) \
-  VAR3 (T, N, MAP, A, B, C) \
-  VAR1 (T, N, MAP, D)
-#define VAR5(T, N, MAP, A, B, C, D, E) \
-  VAR4 (T, N, MAP, A, B, C, D) \
-  VAR1 (T, N, MAP, E)
-#define VAR6(T, N, MAP, A, B, C, D, E, F) \
-  VAR5 (T, N, MAP, A, B, C, D, E) \
-  VAR1 (T, N, MAP, F)
-#define VAR7(T, N, MAP, A, B, C, D, E, F, G) \
-  VAR6 (T, N, MAP, A, B, C, D, E, F) \
-  VAR1 (T, N, MAP, G)
-#define VAR8(T, N, MAP, A, B, C, D, E, F, G, H) \
-  VAR7 (T, N, MAP, A, B, C, D, E, F, G) \
-  VAR1 (T, N, MAP, H)
-#define VAR9(T, N, MAP, A, B, C, D, E, F, G, H, I) \
-  VAR8 (T, N, MAP, A, B, C, D, E, F, G, H) \
-  VAR1 (T, N, MAP, I)
-#define VAR10(T, N, MAP, A, B, C, D, E, F, G, H, I, J) \
-  VAR9 (T, N, MAP, A, B, C, D, E, F, G, H, I) \
-  VAR1 (T, N, MAP, J)
-#define VAR11(T, N, MAP, A, B, C, D, E, F, G, H, I, J, K) \
-  VAR10 (T, N, MAP, A, B, C, D, E, F, G, H, I, J) \
-  VAR1 (T, N, MAP, K)
-#define VAR12(T, N, MAP, A, B, C, D, E, F, G, H, I, J, K, L) \
-  VAR11 (T, N, MAP, A, B, C, D, E, F, G, H, I, J, K) \
-  VAR1 (T, N, MAP, L)
-#define VAR13(T, N, MAP, A, B, C, D, E, F, G, H, I, J, K, L, M) \
-  VAR12 (T, N, MAP, A, B, C, D, E, F, G, H, I, J, K, L) \
-  VAR1 (T, N, MAP, M)
-#define VAR14(T, X, MAP, A, B, C, D, E, F, G, H, I, J, K, L, M, N) \
-  VAR13 (T, X, MAP, A, B, C, D, E, F, G, H, I, J, K, L, M) \
-  VAR1 (T, X, MAP, N)
-#define VAR15(T, X, MAP, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O) \
-  VAR14 (T, X, MAP, A, B, C, D, E, F, G, H, I, J, K, L, M, N) \
-  VAR1 (T, X, MAP, O)
-#define VAR16(T, X, MAP, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P) \
-  VAR15 (T, X, MAP, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O) \
-  VAR1 (T, X, MAP, P)
+#define VAR1(T, N, MAP, FLAG, A) \
+  {#N #A, UP (A), CF##MAP (N, A), 0, TYPES_##T, FLAG_##FLAG},
+#define VAR2(T, N, MAP, FLAG, A, B) \
+  VAR1 (T, N, MAP, FLAG, A) \
+  VAR1 (T, N, MAP, FLAG, B)
+#define VAR3(T, N, MAP, FLAG, A, B, C) \
+  VAR2 (T, N, MAP, FLAG, A, B) \
+  VAR1 (T, N, MAP, FLAG, C)
+#define VAR4(T, N, MAP, FLAG, A, B, C, D) \
+  VAR3 (T, N, MAP, FLAG, A, B, C) \
+  VAR1 (T, N, MAP, FLAG, D)
+#define VAR5(T, N, MAP, FLAG, A, B, C, D, E) \
+  VAR4 (T, N, MAP, FLAG, A, B, C, D) \
+  VAR1 (T, N, MAP, FLAG, E)
+#define VAR6(T, N, MAP, FLAG, A, B, C, D, E, F) \
+  VAR5 (T, N, MAP, FLAG, A, B, C, D, E) \
+  VAR1 (T, N, MAP, FLAG, F)
+#define VAR7(T, N, MAP, FLAG, A, B, C, D, E, F, G) \
+  VAR6 (T, N, MAP, FLAG, A, B, C, D, E, F) \
+  VAR1 (T, N, MAP, FLAG, G)
+#define VAR8(T, N, MAP, FLAG, A, B, C, D, E, F, G, H) \
+  VAR7 (T, N, MAP, FLAG, A, B, C, D, E, F, G) \
+  VAR1 (T, N, MAP, FLAG, H)
+#define VAR9(T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I) \
+  VAR8 (T, N, MAP, FLAG, A, B, C, D, E, F, G, H) \
+  VAR1 (T, N, MAP, FLAG, I)
+#define VAR10(T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I, J) \
+  VAR9 (T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I) \
+  VAR1 (T, N, MAP, FLAG, J)
+#define VAR11(T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K) \
+  VAR10 (T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I, J) \
+  VAR1 (T, N, MAP, FLAG, K)
+#define VAR12(T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L) \
+  VAR11 (T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K) \
+  VAR1 (T, N, MAP, FLAG, L)
+#define VAR13(T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L, M) \
+  VAR12 (T, N, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L) \
+  VAR1 (T, N, MAP, FLAG, M)
+#define VAR14(T, X, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L, M, N) \
+  VAR13 (T, X, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L, M) \
+  VAR1 (T, X, MAP, FLAG, N)
+#define VAR15(T, X, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O) \
+  VAR14 (T, X, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L, M, N) \
+  VAR1 (T, X, MAP, FLAG, O)
+#define VAR16(T, X, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P) \
+  VAR15 (T, X, MAP, FLAG, A, B, C, D, E, F, G, H, I, J, K, L, M, N, O) \
+  VAR1 (T, X, MAP, FLAG, P)
 
 #include "aarch64-builtin-iterators.h"
 
@@ -436,7 +451,7 @@ typedef struct
   AARCH64_SIMD_BUILTIN_FCMLA_LANEQ##I##_##M,
 
 #undef VAR1
-#define VAR1(T, N, MAP, A) \
+#define VAR1(T, N, MAP, FLAG, A) \
   AARCH64_SIMD_BUILTIN_##T##_##N##A,
 
 enum aarch64_builtins
@@ -447,6 +462,11 @@ enum aarch64_builtins
   AARCH64_BUILTIN_SET_FPCR,
   AARCH64_BUILTIN_GET_FPSR,
   AARCH64_BUILTIN_SET_FPSR,
+
+  AARCH64_BUILTIN_GET_FPCR64,
+  AARCH64_BUILTIN_SET_FPCR64,
+  AARCH64_BUILTIN_GET_FPSR64,
+  AARCH64_BUILTIN_SET_FPSR64,
 
   AARCH64_BUILTIN_RSQRT_DF,
   AARCH64_BUILTIN_RSQRT_SF,
@@ -639,18 +659,12 @@ aarch64_mangle_builtin_scalar_type (const_tree type)
 static const char *
 aarch64_mangle_builtin_vector_type (const_tree type)
 {
-  int i;
-  int nelts = sizeof (aarch64_simd_types) / sizeof (aarch64_simd_types[0]);
-
-  for (i = 0; i < nelts; i++)
-    if (aarch64_simd_types[i].mode ==  TYPE_MODE (type)
-	&& TYPE_NAME (type)
-	&& TREE_CODE (TYPE_NAME (type)) == TYPE_DECL
-	&& DECL_NAME (TYPE_NAME (type))
-	&& !strcmp
-	     (IDENTIFIER_POINTER (DECL_NAME (TYPE_NAME (type))),
-	      aarch64_simd_types[i].name))
-      return aarch64_simd_types[i].mangle;
+  tree attrs = TYPE_ATTRIBUTES (type);
+  if (tree attr = lookup_attribute ("Advanced SIMD type", attrs))
+    {
+      tree mangled_name = TREE_VALUE (TREE_VALUE (attr));
+      return IDENTIFIER_POINTER (mangled_name);
+    }
 
   return NULL;
 }
@@ -802,10 +816,16 @@ aarch64_init_simd_builtin_types (void)
 
       if (aarch64_simd_types[i].itype == NULL)
 	{
-	  aarch64_simd_types[i].itype
-	    = build_distinct_type_copy
-	      (build_vector_type (eltype, GET_MODE_NUNITS (mode)));
-	  SET_TYPE_STRUCTURAL_EQUALITY (aarch64_simd_types[i].itype);
+	  tree type = build_vector_type (eltype, GET_MODE_NUNITS (mode));
+	  type = build_distinct_type_copy (type);
+	  SET_TYPE_STRUCTURAL_EQUALITY (type);
+
+	  tree mangled_name = get_identifier (aarch64_simd_types[i].mangle);
+	  tree value = tree_cons (NULL_TREE, mangled_name, NULL_TREE);
+	  TYPE_ATTRIBUTES (type)
+	    = tree_cons (get_identifier ("Advanced SIMD type"), value,
+			 TYPE_ATTRIBUTES (type));
+	  aarch64_simd_types[i].itype = type;
 	}
 
       tdecl = add_builtin_type (aarch64_simd_types[i].name,
@@ -1245,32 +1265,63 @@ aarch64_init_memtag_builtins (void)
 #undef AARCH64_INIT_MEMTAG_BUILTINS_DECL
 }
 
+/* Initialize fpsr fpcr getters and setters.  */
+
+static void
+aarch64_init_fpsr_fpcr_builtins (void)
+{
+  tree ftype_set
+    = build_function_type_list (void_type_node, unsigned_type_node, NULL);
+  tree ftype_get
+    = build_function_type_list (unsigned_type_node, NULL);
+
+  aarch64_builtin_decls[AARCH64_BUILTIN_GET_FPCR]
+    = aarch64_general_add_builtin ("__builtin_aarch64_get_fpcr",
+				   ftype_get,
+				   AARCH64_BUILTIN_GET_FPCR);
+  aarch64_builtin_decls[AARCH64_BUILTIN_SET_FPCR]
+    = aarch64_general_add_builtin ("__builtin_aarch64_set_fpcr",
+				   ftype_set,
+				   AARCH64_BUILTIN_SET_FPCR);
+  aarch64_builtin_decls[AARCH64_BUILTIN_GET_FPSR]
+    = aarch64_general_add_builtin ("__builtin_aarch64_get_fpsr",
+				   ftype_get,
+				   AARCH64_BUILTIN_GET_FPSR);
+  aarch64_builtin_decls[AARCH64_BUILTIN_SET_FPSR]
+    = aarch64_general_add_builtin ("__builtin_aarch64_set_fpsr",
+				   ftype_set,
+				   AARCH64_BUILTIN_SET_FPSR);
+
+  ftype_set
+    = build_function_type_list (void_type_node, long_long_unsigned_type_node,
+				NULL);
+  ftype_get
+    = build_function_type_list (long_long_unsigned_type_node, NULL);
+
+  aarch64_builtin_decls[AARCH64_BUILTIN_GET_FPCR64]
+    = aarch64_general_add_builtin ("__builtin_aarch64_get_fpcr64",
+				   ftype_get,
+				   AARCH64_BUILTIN_GET_FPCR64);
+  aarch64_builtin_decls[AARCH64_BUILTIN_SET_FPCR64]
+    = aarch64_general_add_builtin ("__builtin_aarch64_set_fpcr64",
+				   ftype_set,
+				   AARCH64_BUILTIN_SET_FPCR64);
+  aarch64_builtin_decls[AARCH64_BUILTIN_GET_FPSR64]
+    = aarch64_general_add_builtin ("__builtin_aarch64_get_fpsr64",
+				   ftype_get,
+				   AARCH64_BUILTIN_GET_FPSR64);
+  aarch64_builtin_decls[AARCH64_BUILTIN_SET_FPSR64]
+    = aarch64_general_add_builtin ("__builtin_aarch64_set_fpsr64",
+				   ftype_set,
+				   AARCH64_BUILTIN_SET_FPSR64);
+}
+
 /* Initialize all builtins in the AARCH64_BUILTIN_GENERAL group.  */
 
 void
 aarch64_general_init_builtins (void)
 {
-  tree ftype_set_fpr
-    = build_function_type_list (void_type_node, unsigned_type_node, NULL);
-  tree ftype_get_fpr
-    = build_function_type_list (unsigned_type_node, NULL);
-
-  aarch64_builtin_decls[AARCH64_BUILTIN_GET_FPCR]
-    = aarch64_general_add_builtin ("__builtin_aarch64_get_fpcr",
-				   ftype_get_fpr,
-				   AARCH64_BUILTIN_GET_FPCR);
-  aarch64_builtin_decls[AARCH64_BUILTIN_SET_FPCR]
-    = aarch64_general_add_builtin ("__builtin_aarch64_set_fpcr",
-				   ftype_set_fpr,
-				   AARCH64_BUILTIN_SET_FPCR);
-  aarch64_builtin_decls[AARCH64_BUILTIN_GET_FPSR]
-    = aarch64_general_add_builtin ("__builtin_aarch64_get_fpsr",
-				   ftype_get_fpr,
-				   AARCH64_BUILTIN_GET_FPSR);
-  aarch64_builtin_decls[AARCH64_BUILTIN_SET_FPSR]
-    = aarch64_general_add_builtin ("__builtin_aarch64_set_fpsr",
-				   ftype_set_fpr,
-				   AARCH64_BUILTIN_SET_FPSR);
+  aarch64_init_fpsr_fpcr_builtins ();
 
   aarch64_init_fp16_types ();
 
@@ -1876,6 +1927,16 @@ aarch64_expand_builtin_memtag (int fcode, tree exp, rtx target)
   return target;
 }
 
+/* Expand an expression EXP as fpsr or cpsr setter (depending on
+   UNSPEC) using MODE.  */
+static void
+aarch64_expand_fpsr_fpcr_setter (int unspec, machine_mode mode, tree exp)
+{
+  tree arg = CALL_EXPR_ARG (exp, 0);
+  rtx op = force_reg (mode, expand_normal (arg));
+  emit_insn (gen_aarch64_set (unspec, mode, op));
+}
+
 /* Expand an expression EXP that calls built-in function FCODE,
    with result going to TARGET if that's convenient.  IGNORE is true
    if the result of the builtin is ignored.  */
@@ -1884,35 +1945,35 @@ aarch64_general_expand_builtin (unsigned int fcode, tree exp, rtx target,
 				int ignore)
 {
   int icode;
-  rtx pat, op0;
+  rtx op0;
   tree arg0;
 
   switch (fcode)
     {
     case AARCH64_BUILTIN_GET_FPCR:
-    case AARCH64_BUILTIN_SET_FPCR:
-    case AARCH64_BUILTIN_GET_FPSR:
-    case AARCH64_BUILTIN_SET_FPSR:
-      if ((fcode == AARCH64_BUILTIN_GET_FPCR)
-	  || (fcode == AARCH64_BUILTIN_GET_FPSR))
-	{
-	  icode = (fcode == AARCH64_BUILTIN_GET_FPSR) ?
-	    CODE_FOR_get_fpsr : CODE_FOR_get_fpcr;
-	  target = gen_reg_rtx (SImode);
-	  pat = GEN_FCN (icode) (target);
-	}
-      else
-	{
-	  target = NULL_RTX;
-	  icode = (fcode == AARCH64_BUILTIN_SET_FPSR) ?
-	    CODE_FOR_set_fpsr : CODE_FOR_set_fpcr;
-	  arg0 = CALL_EXPR_ARG (exp, 0);
-	  op0 = force_reg (SImode, expand_normal (arg0));
-	  pat = GEN_FCN (icode) (op0);
-	}
-      emit_insn (pat);
+      emit_insn (gen_aarch64_get (UNSPECV_GET_FPCR, SImode, target));
       return target;
-
+    case AARCH64_BUILTIN_SET_FPCR:
+      aarch64_expand_fpsr_fpcr_setter (UNSPECV_SET_FPCR, SImode, exp);
+      return target;
+    case AARCH64_BUILTIN_GET_FPSR:
+      emit_insn (gen_aarch64_get (UNSPECV_GET_FPSR, SImode, target));
+      return target;
+    case AARCH64_BUILTIN_SET_FPSR:
+      aarch64_expand_fpsr_fpcr_setter (UNSPECV_SET_FPSR, SImode, exp);
+      return target;
+    case AARCH64_BUILTIN_GET_FPCR64:
+      emit_insn (gen_aarch64_get (UNSPECV_GET_FPCR, DImode, target));
+      return target;
+    case AARCH64_BUILTIN_SET_FPCR64:
+      aarch64_expand_fpsr_fpcr_setter (UNSPECV_SET_FPCR, DImode, exp);
+      return target;
+    case AARCH64_BUILTIN_GET_FPSR64:
+      emit_insn (gen_aarch64_get (UNSPECV_GET_FPSR, DImode, target));
+      return target;
+    case AARCH64_BUILTIN_SET_FPSR64:
+      aarch64_expand_fpsr_fpcr_setter (UNSPECV_SET_FPSR, DImode, exp);
+      return target;
     case AARCH64_PAUTH_BUILTIN_AUTIA1716:
     case AARCH64_PAUTH_BUILTIN_PACIA1716:
     case AARCH64_PAUTH_BUILTIN_AUTIB1716:
@@ -2148,7 +2209,7 @@ aarch64_general_builtin_rsqrt (unsigned int fn)
 }
 
 #undef VAR1
-#define VAR1(T, N, MAP, A) \
+#define VAR1(T, N, MAP, FLAG, A) \
   case AARCH64_SIMD_BUILTIN_##T##_##N##A:
 
 /* Try to fold a call to the built-in function with subcode FCODE.  The
@@ -2161,11 +2222,11 @@ aarch64_general_fold_builtin (unsigned int fcode, tree type,
 {
   switch (fcode)
     {
-      BUILTIN_VDQF (UNOP, abs, 2)
+      BUILTIN_VDQF (UNOP, abs, 2, ALL)
 	return fold_build1 (ABS_EXPR, type, args[0]);
-      VAR1 (UNOP, floatv2si, 2, v2sf)
-      VAR1 (UNOP, floatv4si, 2, v4sf)
-      VAR1 (UNOP, floatv2di, 2, v2df)
+      VAR1 (UNOP, floatv2si, 2, ALL, v2sf)
+      VAR1 (UNOP, floatv4si, 2, ALL, v4sf)
+      VAR1 (UNOP, floatv2di, 2, ALL, v2df)
 	return fold_build1 (FLOAT_EXPR, type, args[0]);
       default:
 	break;
@@ -2191,24 +2252,24 @@ aarch64_general_gimple_fold_builtin (unsigned int fcode, gcall *stmt)
      the arguments to the __builtin.  */
   switch (fcode)
     {
-      BUILTIN_VALL (UNOP, reduc_plus_scal_, 10)
+      BUILTIN_VALL (UNOP, reduc_plus_scal_, 10, ALL)
 	new_stmt = gimple_build_call_internal (IFN_REDUC_PLUS,
 					       1, args[0]);
 	gimple_call_set_lhs (new_stmt, gimple_call_lhs (stmt));
 	break;
-      BUILTIN_VDQIF (UNOP, reduc_smax_scal_, 10)
-      BUILTIN_VDQ_BHSI (UNOPU, reduc_umax_scal_, 10)
+      BUILTIN_VDQIF (UNOP, reduc_smax_scal_, 10, ALL)
+      BUILTIN_VDQ_BHSI (UNOPU, reduc_umax_scal_, 10, ALL)
 	new_stmt = gimple_build_call_internal (IFN_REDUC_MAX,
 					       1, args[0]);
 	gimple_call_set_lhs (new_stmt, gimple_call_lhs (stmt));
 	break;
-      BUILTIN_VDQIF (UNOP, reduc_smin_scal_, 10)
-      BUILTIN_VDQ_BHSI (UNOPU, reduc_umin_scal_, 10)
+      BUILTIN_VDQIF (UNOP, reduc_smin_scal_, 10, ALL)
+      BUILTIN_VDQ_BHSI (UNOPU, reduc_umin_scal_, 10, ALL)
 	new_stmt = gimple_build_call_internal (IFN_REDUC_MIN,
 					       1, args[0]);
 	gimple_call_set_lhs (new_stmt, gimple_call_lhs (stmt));
 	break;
-      BUILTIN_GPF (BINOP, fmulx, 0)
+      BUILTIN_GPF (BINOP, fmulx, 0, ALL)
 	{
 	  gcc_assert (nargs == 2);
 	  bool a0_cst_p = TREE_CODE (args[0]) == REAL_CST;

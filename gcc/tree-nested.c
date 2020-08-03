@@ -160,9 +160,6 @@ create_tmp_var_for (struct nesting_info *info, tree type, const char *prefix)
   DECL_CONTEXT (tmp_var) = info->context;
   DECL_CHAIN (tmp_var) = info->new_local_var_chain;
   DECL_SEEN_IN_BIND_EXPR_P (tmp_var) = 1;
-  if (TREE_CODE (type) == COMPLEX_TYPE
-      || TREE_CODE (type) == VECTOR_TYPE)
-    DECL_GIMPLE_REG_P (tmp_var) = 1;
 
   info->new_local_var_chain = tmp_var;
 
@@ -308,13 +305,14 @@ lookup_field_for_decl (struct nesting_info *info, tree decl,
 	}
       else
 	{
-          TREE_TYPE (field) = TREE_TYPE (decl);
-          DECL_SOURCE_LOCATION (field) = DECL_SOURCE_LOCATION (decl);
-          SET_DECL_ALIGN (field, DECL_ALIGN (decl));
-          DECL_USER_ALIGN (field) = DECL_USER_ALIGN (decl);
-          TREE_ADDRESSABLE (field) = TREE_ADDRESSABLE (decl);
-          DECL_NONADDRESSABLE_P (field) = !TREE_ADDRESSABLE (decl);
-          TREE_THIS_VOLATILE (field) = TREE_THIS_VOLATILE (decl);
+	  TREE_TYPE (field) = TREE_TYPE (decl);
+	  DECL_SOURCE_LOCATION (field) = DECL_SOURCE_LOCATION (decl);
+	  SET_DECL_ALIGN (field, DECL_ALIGN (decl));
+	  DECL_USER_ALIGN (field) = DECL_USER_ALIGN (decl);
+	  DECL_IGNORED_P (field) = DECL_IGNORED_P (decl);
+	  DECL_NONADDRESSABLE_P (field) = !TREE_ADDRESSABLE (decl);
+	  TREE_NO_WARNING (field) = TREE_NO_WARNING (decl);
+	  TREE_THIS_VOLATILE (field) = TREE_THIS_VOLATILE (decl);
 
 	  /* Declare the transformation and adjust the original DECL.  For a
 	     variable or for a parameter when not optimizing, we make it point
