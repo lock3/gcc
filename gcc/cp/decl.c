@@ -17419,11 +17419,13 @@ record_key_method_defined (tree fndecl)
 static void
 maybe_save_function_definition (tree fun)
 {
+  /* We tentatively promote guarded functions to constexpr for use in
+     static analysis routines.  */
+  bool contract_sa_p = flag_contracts
+    && flag_constexpr_contract_checking
+    && (DECL_HAS_CONTRACTS_P (fun) || DECL_ORIGINAL_FN (fun));
   if (!processing_template_decl
-      && (DECL_DECLARED_CONSTEXPR_P (fun)
-	/* We tentatively promote guarded functions to constexpr for use in
-	   static analysis routines.  */
-	|| (flag_constexpr_contract_checking && DECL_HAS_CONTRACTS_P (fun)))
+      && (DECL_DECLARED_CONSTEXPR_P (fun) || contract_sa_p)
       && !cp_function_chain->invalid_constexpr
       && !DECL_CLONED_FUNCTION_P (fun))
     check_constexpr_fundef (fun, DECL_SAVED_TREE (fun));

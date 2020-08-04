@@ -1161,6 +1161,12 @@ uid_sensitive_constexpr_evaluation_checker::evaluation_restricted_p () const
    static checking of contracts through the OPT_Wconstexpr_contract_checking_
    flag, and not from an actual constexpr expression.  */
 static int contract_static_analysis_check_p = 0;
+static int contract_static_analysis_warned = 0;
+static tree contract_static_analysis_call = NULL_TREE;
+
+static bool
+diagnose_constant_contract (tree contract, tree value, location_t loc,
+			    bool trivial_p);
 
 /* A table of all constexpr calls that have been evaluated by the
    compiler in this translation unit.  */
@@ -2272,25 +2278,9 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
   if (DECL_THUNK_P (fun))
     return cxx_eval_thunk_call (ctx, t, fun, lval, non_constant_p, overflow_p);
 
-  if (DECL_ORIGINAL_FN (fun) && contract_static_analysis_check_p
-      && !DECL_DECLARED_CONSTEXPR_P (DECL_ORIGINAL_FN (fun)))
-    {
-      /* If this is either void or a pre function (also void), we have no real
-	 return value.  */
-      if (VOID_TYPE_P (TREE_TYPE (TREE_TYPE (fun))))
-	return void_node;
-
-      /* Otherwise this is a call to a non-void post function, in which case
-	 the real return value is passed as the last argument.  */
-      const int nargs = call_expr_nargs (t);
-      tree ret_arg = get_nth_callarg (t, nargs - 1);
-      ret_arg = cxx_eval_constant_expression (ctx, ret_arg, false,
-					      non_constant_p, overflow_p);
-      VERIFY_CONSTANT (ret_arg);
-      return ret_arg;
-    }
-
-  if (!DECL_DECLARED_CONSTEXPR_P (fun) && !DECL_HAS_CONTRACTS_P (fun))
+  if (!DECL_DECLARED_CONSTEXPR_P (fun)
+      && !DECL_HAS_CONTRACTS_P (fun)
+      && !DECL_ORIGINAL_FN (fun))
     {
       if (TREE_CODE (t) == CALL_EXPR
 	  && cxx_replaceable_global_alloc_fn (fun)
@@ -6565,9 +6555,25 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 	if (semantic == CCS_ASSUME && !cp_tree_defined_p (c))
 	  break;
 
+	bool declared_constexpr_p
+	  = DECL_DECLARED_CONSTEXPR_P (ctx->call->fundef->decl);
+	constexpr_ctx new_ctx = *ctx;
+	new_ctx.quiet |= contract_static_analysis_check_p
+	  && !declared_constexpr_p;
+
 	/* Evaluate the generated check.  */
-	r = cxx_eval_constant_expression (ctx, c, false, non_constant_p,
+	r = cxx_eval_constant_expression (&new_ctx, c, false, non_constant_p,
 					  overflow_p);
+
+	/* Ignore non-constant contract conditions under static analysis.  */
+	if (*non_constant_p && contract_static_analysis_check_p
+	    && !declared_constexpr_p)
+	  {
+	    if (!contract_static_analysis_warned)
+	      *non_constant_p = false;
+	    return void_node;
+	  }
+
 	if (r == boolean_false_node)
 	  {
 	    *non_constant_p = true;
@@ -6575,11 +6581,15 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 	    /* We may be doing trial-evaluation for statically checking the
 	       contracts rather than actually evaluating this call in a
 	       constexpr context.  In that case we only emit a warning.  */
-	    if (!ctx->quiet
-		&& contract_static_analysis_check_p
-		&& !DECL_DECLARED_CONSTEXPR_P (ctx->call->fundef->decl))
-	      warning_at (EXPR_LOCATION (c), OPT_Wconstexpr_contract_checking_,
-			  "contract predicate %qE is %qE", c, r);
+	    if (contract_static_analysis_check_p)
+	      {
+		++contract_static_analysis_warned;
+		/* TODO: error when declared constexpr? what about dead code
+		 * that isn't ever actually called in a constexpr context? */
+		location_t loc
+		  = cp_expr_loc_or_input_loc (contract_static_analysis_call);
+		diagnose_constant_contract (t, r, loc, false);
+	      }
 	    else if (!ctx->quiet)
 	      error_at (EXPR_LOCATION (c), "contract predicate %qE is %qE", c, r);
 	  }
@@ -8644,6 +8654,8 @@ check_trivial_constant_contract (tree contract)
 {
   if (!flag_contracts || !(flag_constexpr_contract_checking & ccc_trivial))
     return;
+  if (TREE_CONSTANT (contract))
+    return; /* Already diagnosed. */
 
   tree condition = CONTRACT_CONDITION (contract);
   if (condition == error_mark_node)
@@ -8652,12 +8664,10 @@ check_trivial_constant_contract (tree contract)
   /* Try computing a constant value.  */
   tree value = maybe_constant_value (condition);
 
-#if 0
   /* If this condition is trivial, mark the entire contract trivial so we
      don't double diagnose it later.  */
   if (TREE_CONSTANT (value))
     TREE_CONSTANT (contract) = true;
-#endif
 
   location_t loc = cp_expr_loc_or_input_loc (condition);
   diagnose_constant_contract (contract, value, loc, /*trivial_p=*/true);
@@ -8767,6 +8777,28 @@ check_constant_contracts (tree call)
   if (!DECL_HAS_CONTRACTS_P (fn))
     return;
 
+  /* When when checking mode includes post, we need to evaluate the entire
+   * call. We use the ordinary constexpr machinery to evaluate the
+   * preconditoins, body, and postconditions.  */
+  if ((flag_constexpr_contract_checking & ccc_post)
+      && retrieve_constexpr_fundef (fn))
+    {
+      ++contract_static_analysis_check_p;
+      temp_override<tree> contract_static_analysis_call(call);
+      contract_static_analysis_warned = 0;
+      tree ret = maybe_constant_value (call);
+      if (!TREE_CONSTANT (ret))
+	ret = error_mark_node;
+      --contract_static_analysis_check_p;
+      /* If we encountered an error, we cannot check any post conditions (even
+	 trivial ones) since runtime execution would not have made it to that
+	 point.  */
+      if (ret == error_mark_node)
+	return;
+      // TODO replace call with one to unchecked version?
+      return;
+    }
+
   tree args = NULL_TREE;
   /* If we're at least checking pre contracts, try to evaluate all arguments
      as constant expressions.  */
@@ -8794,32 +8826,6 @@ check_constant_contracts (tree call)
     }
 
   // TODO replace call with one to no-pre version?
-
-  /* Postconditions may reference the return value, compute it if we can.  */
-  if (retrieve_constexpr_fundef (fn)
-      && (flag_constexpr_contract_checking & ccc_post))
-    {
-      ++contract_static_analysis_check_p;
-      ret = cxx_constant_value (call);
-      --contract_static_analysis_check_p;
-      /* If we encountered an error, we cannot check any post conditions (even
-	 trivial ones) since runtime execution would not have made it to that
-	 point.  */
-      if (ret == error_mark_node)
-	return;
-    }
-
-  /* Try evaluating the postconditions.  */
-  for (tree attr = DECL_CONTRACTS (fn); attr; attr = CONTRACT_CHAIN (attr))
-    {
-      tree contract = TREE_VALUE (attr);
-      if (TREE_CODE (contract) != POSTCONDITION_STMT)
-	continue;
-      if (!check_constant_contract (fn, contract, call, args, ret))
-	return;
-    }
-
-  // TODO replace call with one to no-post version?
 }
 
 /* Finalize constexpr processing after parsing.  */

@@ -27,8 +27,8 @@ int fun4(int n)
 
 int main(int, char**) {
   constexpr int n = 0;
-  fun(); // { dg-warning "never satisfied here" }
-  fun2(n); // { dg-warning "never satisfied here" }
+  fun(); // { dg-bogus "never satisfied here" }
+  fun2(n); // { dg-bogus "never satisfied here" }
   fun4(n); // { dg-bogus "never satisfied here" }
 }
 

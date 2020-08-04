@@ -39,8 +39,7 @@ int main(int, char**) {
   fun2(n); // { dg-warning "never satisfied here" }
   fun4(n); // { dg-warning "never satisfied here" }
   fun4(m); // { dg-bogus "never satisfied here" }
-  fun5(n); // { dg-warning "contract predicate ..n != 0.. is .false." "" { target *-*-* } 31 }
+  fun5(n); // { dg-warning "assertion ..n != 0.. is never satisfied" }
   fun5(m); // { dg-warning "never satisfied here" }
-  // { dg-bogus "contract predicate ..n != 0.. is .false." "" { target *-*-* } 31 }
 }
 

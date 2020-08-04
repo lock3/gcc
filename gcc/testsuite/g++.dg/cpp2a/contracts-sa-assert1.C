@@ -41,6 +41,6 @@ int main(int, char**) {
   fun(0); // { dg-warning "precondition ..n != 0.. is never satisfied here" }
   fun2(n); // { dg-warning "precondition ..n != 0.. is never satisfied here" }
   fun3();
-  fun4(n); // { dg-warning "contract predicate" "" { target *-*-* } 35 }
+  fun4(n); // { dg-warning "assertion ..n == 1.. is never satisfied here" }
 }
 

@@ -47,13 +47,13 @@ constexpr int test1() {
 }
 
 constexpr int test2() {
-  constexpr int e = ffun(5);
+  constexpr int e = ffun(5); // { dg-warning "never satisfied" }
   // { dg-error "contract predicate" "" { target *-*-* } 7 }
-  constexpr int f = ftfun(5);
+  constexpr int f = ftfun(5); // { dg-warning "never satisfied" }
   // { dg-error "contract predicate" "" { target *-*-* } 15 }
-  constexpr int g = explicitfn(5);
+  constexpr int g = explicitfn(5); // { dg-warning "never satisfied" }
   // { dg-error "contract predicate" "" { target *-*-* } 24 }
-  constexpr int h = ftfun2(5.5);
+  constexpr int h = ftfun2(5.5); // { dg-warning "never satisfied" }
   // { dg-error "contract predicate" "" { target *-*-* } 32 }
   return e + f + g + h;
 }
