@@ -2966,6 +2966,15 @@ private:
   tree tpl_parm_value ();
 
 private:
+  struct constraint_cache_info
+  {
+    tree norm;
+    tree decl_sat_result;
+    auto_vec<tree_pair_s> atom_sat_results;
+  };
+  void decl_constraints (constraint_ca_info *cci);
+
+private:
   tree chained_decls ();  /* Follow DECL_CHAIN.  */
   vec<tree, va_heap> *vec_chained_decls ();
   vec<tree, va_gc> *tree_vec (); /* vec of tree.  */
@@ -7677,15 +7686,98 @@ trees_out::decl_value (tree decl, depset *dep)
 				 TREE_CODE (decl), decl);
 }
 
-void 
+struct sat_cache_context
+{
+  trees_out *out;
+  tree key;
+  unsigned count;
+};
+
+static bool
+write_sat_result (bool decl_p, tree key, tree args, tree result, void *p)
+{
+  sat_cache_context *ctx = (sat_cache_context *)p;
+  if (key == ctx->key)
+    {
+      ctx->count++;
+      //ctx->out->tree_node (key);
+      if (decl_p)
+        {
+          // There can only be one result for this decl.
+          ctx->out->tree_node (result);
+          return false;
+        }
+      else
+        {
+          // We may have multiple matches of key with
+          // different args. This allows us to cache the
+          // failed satisfaction results, which would
+          // otherwise not be recorded anywhere.
+          ctx->out->tree_node (args);
+          ctx->out->tree_node (result);
+        }
+    }
+  return true;
+}
+
+static 
+void walk_normalized_constraints(tree t, sat_cache_context *ctx)
+{
+  switch (TREE_CODE (t))
+    {
+    case CONJ_CONSTR:
+      {
+        walk_normalized_constraints (TREE_OPERAND (t, 0), ctx);
+        walk_normalized_constraints (TREE_OPERAND (t, 1), ctx);
+        break;
+      }
+    case DISJ_CONSTR:
+      {
+        walk_normalized_constraints (TREE_OPERAND (t, 0), ctx);
+        walk_normalized_constraints (TREE_OPERAND (t, 1), ctx);
+        break;
+      }
+    case ATOMIC_CONSTR:
+      {
+        ctx->key = t;
+        walk_constraint_cache (false, write_sat_result, ctx);
+        break;
+      }
+    default:
+      gcc_unreachable ();
+    }
+}
+
+void
 trees_out::decl_constraints (tree decl)
 {
   tree req = get_constraints (decl);
   tree_node (req);
   if (req)
     {
+      // Write the normalized form of the constraint.
       tree norm = get_normalized_constraints (decl);
       tree_node (norm);
+
+      // Write the cached decl satisfied result.
+      sat_cache_context ctx;
+      ctx.out = this;
+      ctx.key = decl;
+      ctx.count = 0;
+      walk_constraint_cache (true, write_sat_result, &ctx);
+      if (!ctx.count)
+        tree_node (NULL_TREE);
+
+      // Write the cached results for the atomic constraints
+      // for the normalized form, including ALL the failed
+      // results.
+      if (norm)
+        {
+          ctx.count = 0;
+          walk_normalized_constraints (norm, &ctx);
+          // Write a sentinel value
+          tree_node (NULL_TREE);
+        }
     }
 }
 
@@ -7883,10 +7975,10 @@ trees_in::decl_value ()
     goto bail;
 
   tree constraints = tree_node ();
-  tree norm_constraints = NULL_TREE;
+  constraint_cache_info cci;
   if (constraints)
     {
-      norm_constraints = tree_node ();
+      decl_constraints (&cci);
     }
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
@@ -7952,9 +8044,19 @@ trees_in::decl_value ()
 	}
 
       if (constraints)
-	set_constraints (decl, constraints);
-      if (norm_constraints)
-        set_normalized_constraints (decl, norm_constraints);
+        {
+          set_constraints (decl, constraints);
+          if (cci.norm)
+            set_normalized_constraints (decl, norm_constraints);
+          if (cci.sat_result)
+            {
+              // TODO: update sat_cache
+            }
+          for (size_t i = 0; i < cci.atom_sat_results.length (); i++)
+            {
+              // TODO: update atom cache results.
+            }
+        }
 
       if (TREE_CODE (decl) == INTEGER_CST && !TREE_OVERFLOW (decl))
 	{
@@ -8060,6 +8162,27 @@ trees_in::decl_value ()
 
   unused = saved_unused;
   return decl;
+}
+
+void
+trees_in::decl_constraints (constraint_cache_info *cci)
+{
+  cci->norm = tree_node ();
+
+  // Read the constraint satisfaction result for decl
+  cci->decl_sat_result = tree_node ();
+
+  if (cci->norm)
+    {
+      // Read in the cached results wrt the atomic constraints
+      // of the normal form. These are delimited with a NULL_TREE
+      tree a;
+      while (a = tree_node ())
+        {
+          tree r = tree_node ();
+          cci->atom_sat_results.push_back (tree_pair (a, r));
+        }
+    }
 }
 
 /* Reference DECL.  REF indicates the walk kind we are performing.
@@ -19370,6 +19493,11 @@ handle_module_option (unsigned code, const char *str, int)
 
     case OPT_fnote_include_translate_:
       vec_safe_push (note_includes, str);
+      return true;
+
+    case OPT_fmodule_concept_cache:
+      flag_modules = 1;
+      flag_module_concept_cache = 1;
       return true;
 
     default:
