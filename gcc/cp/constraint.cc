@@ -896,7 +896,8 @@ normalize_nontemplate_requirements (tree decl, bool diag = false)
   return get_normalized_constraints_from_decl (decl, diag);
 }
 
-/* Reads the cached normal form, if one exists.  */
+/* Reads the cached normal form, if one exists.  
+   FIXME: Get a better name.  */
 
 tree
 get_normalized_constraints (tree decl)
@@ -906,7 +907,7 @@ get_normalized_constraints (tree decl)
 
 /* Writes the cached normal form, if one exists.  
    TODO: this is mostly copied from get_normalized_constraints_from_decl. 
-   I should rectify that. */
+   I should make more of an effort. */
    
 void set_normalized_constraints(tree d, tree norm)
 {
@@ -2404,7 +2405,7 @@ clear_satisfaction_cache ()
 
 void
 walk_constraint_cache (bool decl_p,
-                       void (*cb) (bool, tree, tree, tree, void *), void *ctx)
+                       bool (*cb) (bool, tree, tree, tree, void *), void *ctx)
 {
   if (decl_p)
     {
@@ -2415,7 +2416,8 @@ walk_constraint_cache (bool decl_p,
       for (hash_map<tree, tree>::iterator i = decl_satisfied_cache->begin ();
            i != end; ++i)
         {
-          cb (decl_p, (*i).first, NULL, (*i).second, ctx);
+          if (!cb (decl_p, (*i).first, NULL, (*i).second, ctx))
+            return;
         }
     }
   else
@@ -2424,11 +2426,13 @@ walk_constraint_cache (bool decl_p,
         return;
 
       hash_table<sat_hasher>::iterator end = sat_cache->end ();
-      for (hash_table<sat_hasher>::iterator i = sat_cache->begin(); i != end; ++i)
-      {
-              sat_entry *e = *i;
-              cb(decl_p, e->constr, e->args, e->result, ctx);
-      }
+      for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end;
+           ++i)
+        {
+          sat_entry *e = *i;
+          if (!cb (decl_p, e->constr, e->args, e->result, ctx))
+            return;
+        }
     }
 }
 
