@@ -1,3 +1,122 @@
+2020-08-04  Tom de Vries  <tdevries@suse.de>
+
+	PR target/96428
+	* testsuite/libgomp.oacc-fortran/pr96628-part1.f90: New test.
+	* testsuite/libgomp.oacc-fortran/pr96628-part2.f90: New test.
+
+2020-08-03  Julian Brown  <julian@codesourcery.com>
+	    Thomas Schwinge  <thomas@codesourcery.com>
+
+	* testsuite/libgomp.oacc-fortran/attach-descriptor-1.f90: Don't run for
+	shared-memory devices.  Extend with further checking.
+
+2020-08-03  Martin Jambor  <mjambor@suse.cz>
+
+	* plugin/Makefrag.am: Remove configuration of HSA plugin.
+	* aclocal.m4: Regenerated.
+	* Makefile.in: Regenerated.
+	* config.h.in: Regenerated.
+	* configure: Regenerated.
+	* plugin/configfrag.ac: Likewise.
+	* plugin/hsa_ext_finalize.h: Removed.
+	* plugin/plugin-hsa.c: Likewise.
+	* testsuite/Makefile.in: Regenerated.
+	* testsuite/lib/libgomp.exp
+	(offload_target_to_openacc_device_type): Remove hsa case.
+	(check_effective_target_hsa_offloading_selected_nocache): Removed
+	(check_effective_target_hsa_offloading_selected): Likewise.
+	(libgomp_init): Do not add -Wno-hsa to additional_flags.
+	* testsuite/libgomp.hsa.c/alloca-1.c: Removed test.
+	* testsuite/libgomp.hsa.c/bitfield-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/bits-insns.c: Likewise.
+	* testsuite/libgomp.hsa.c/builtins-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/c.exp: Likewise.
+	* testsuite/libgomp.hsa.c/complex-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/complex-align-2.c: Likewise.
+	* testsuite/libgomp.hsa.c/formal-actual-args-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/function-call-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/get-level-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/gridify-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/gridify-2.c: Likewise.
+	* testsuite/libgomp.hsa.c/gridify-3.c: Likewise.
+	* testsuite/libgomp.hsa.c/gridify-4.c: Likewise.
+	* testsuite/libgomp.hsa.c/memory-operations-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/pr69568.c: Likewise.
+	* testsuite/libgomp.hsa.c/pr82416.c: Likewise.
+	* testsuite/libgomp.hsa.c/rotate-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/staticvar.c: Likewise.
+	* testsuite/libgomp.hsa.c/switch-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/switch-branch-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/switch-sbr-2.c: Likewise.
+	* testsuite/libgomp.hsa.c/tiling-1.c: Likewise.
+	* testsuite/libgomp.hsa.c/tiling-2.c: Likewise.
+
+2020-07-27  Julian Brown  <julian@codesourcery.com>
+	    Thomas Schwinge  <thomas@codesourcery.com>
+
+	* libgomp.h (struct target_var_desc): Rename do_detach field to
+	is_attach.
+	* oacc-mem.c (goacc_exit_datum_1): Add assert.  Don't set finalize for
+	GOMP_MAP_FORCE_DETACH. Update checking to use is_attach field.
+	(goacc_enter_data_internal): Don't affect reference counts
+	for attach mappings.
+	(goacc_exit_data_internal): Don't affect reference counts for detach
+	mappings.
+	* target.c (gomp_map_vars_existing): Don't affect reference counts for
+	attach mappings.
+	(gomp_map_vars_internal): Set renamed is_attach flag unconditionally to
+	mark attach mappings.
+	(gomp_unmap_vars_internal): Use is_attach flag to prevent affecting
+	reference count for attach mappings.
+	* testsuite/libgomp.oacc-c-c++-common/mdc-refcount-1.c: New test.
+	* testsuite/libgomp.oacc-c-c++-common/mdc-refcount-2.c: New test.
+	* testsuite/libgomp.oacc-c-c++-common/mdc-refcount-2.c: New test.
+	* testsuite/libgomp.oacc-fortran/deep-copy-6-no_finalize.F90: Mark
+	test as shouldfail.
+	* testsuite/libgomp.oacc-fortran/deep-copy-6.f90: Adjust to fail
+	gracefully in no-finalize mode.
+	* testsuite/libgomp.oacc-c-c++-common/mdc-refcount-3.c: New file.
+
+2020-07-24  Thomas Schwinge  <thomas@codesourcery.com>
+
+	* testsuite/libgomp.oacc-c++/c++.exp: Unset 'offload_target' after
+	use.
+	* testsuite/libgomp.oacc-c/c.exp: Likewise.
+	* testsuite/libgomp.oacc-fortran/fortran.exp: Likewise.
+
+2020-07-23  Julian Brown  <julian@codesourcery.com>
+	    Thomas Schwinge  <thomas@codesourcery.com>
+
+	* target.c (gomp_unmap_vars_internal): Remove unnecessary forcing of
+	finalization for detach operation.
+	* testsuite/libgomp.oacc-c-c++-common/structured-detach-underflow.c:
+	New test.
+
+2020-07-23  Tobias Burnus  <tobias@codesourcery.com>
+
+	* configure.ac: Add OMP_DEPEND_KIND and OMP_INT128_SIZE.
+	* libgomp_f.h.in (omp_check_defines): Check whether
+	sizeof of determined Fortran kind and C typedef match.
+	* omp_lib.f90.in: Add omp_depened_kind.
+	* omp_lib.h.in: Likewise; fix omp_alloctrait_key_kind.
+	* configure: Regenerate.
+	* Makefile.in: Regenerate.
+	* testsuite/Makefile.in: Regenerate.
+
+2020-07-22  Tobias Burnus  <tobias@codesourcery.com>
+
+	* testsuite/libgomp.c-c++-common/critical-hint-1.c: New; moved from
+	gcc/testsuite/c-c++-common/gomp/.
+	* testsuite/libgomp.c-c++-common/critical-hint-2.c: Likewise.
+	* testsuite/libgomp.fortran/critical-hint-1.f90: New; moved
+	from gcc/testsuite/gfortran.dg/gomp/.
+	* testsuite/libgomp.fortran/critical-hint-2.f90: Likewise.
+
+2020-07-22  Tobias Burnus  <tobias@codesourcery.com>
+
+	* omp_lib.f90.in: Add omp_sync_hint_* and omp_sync_hint_kind.
+	* omp_lib.h.in: Likewise.
+
 2020-07-18  H.J. Lu  <hjl.tools@gmail.com>
 
 	PR target/95620

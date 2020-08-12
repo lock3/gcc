@@ -50,6 +50,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "spellcheck.h"
 #include "c-spellcheck.h"
 #include "selftest.h"
+#include "debug.h"
 
 cpp_reader *parse_in;		/* Declared in c-pragma.h.  */
 
@@ -537,11 +538,11 @@ const struct c_common_resword c_common_reswords[] =
   { "concept",		RID_CONCEPT,	D_CXX_CONCEPTS_FLAGS | D_CXXWARN },
   { "requires", 	RID_REQUIRES,	D_CXX_CONCEPTS_FLAGS | D_CXXWARN },
 
-  /* Modules-related keywords, these are internal tokens, created by
-     the preprocessor.   */
-  { "__module",		RID__MODULE,	D_CXX_MODULES_FLAGS | D_CXXWARN },
-  { "__import",		RID__IMPORT,	D_CXX_MODULES_FLAGS | D_CXXWARN },
-  { "__export",		RID__EXPORT,	D_CXX_MODULES_FLAGS | D_CXXWARN },
+  /* Modules-related keywords, these are internal unspellable tokens,
+     created by the preprocessor.  */
+  { "module ",		RID__MODULE,	D_CXX_MODULES_FLAGS | D_CXXWARN },
+  { "import ",		RID__IMPORT,	D_CXX_MODULES_FLAGS | D_CXXWARN },
+  { "export ",		RID__EXPORT,	D_CXX_MODULES_FLAGS | D_CXXWARN },
 
   /* Coroutines-related keywords */
   { "co_await",		RID_CO_AWAIT,	D_CXX_COROUTINES_FLAGS | D_CXXWARN },
@@ -5544,7 +5545,7 @@ check_nonnull_arg (void *ctx, tree param, unsigned HOST_WIDE_INT param_num)
     {
       warned = warning_at (loc, OPT_Wnonnull,
 			   "%qs pointer null", "this");
-      if (pctx->fndecl)
+      if (warned && pctx->fndecl)
 	inform (DECL_SOURCE_LOCATION (pctx->fndecl),
 		"in a call to non-static member function %qD",
 		pctx->fndecl);
@@ -5554,7 +5555,7 @@ check_nonnull_arg (void *ctx, tree param, unsigned HOST_WIDE_INT param_num)
       warned = warning_at (loc, OPT_Wnonnull,
 			   "argument %u null where non-null expected",
 			   (unsigned) param_num);
-      if (pctx->fndecl)
+      if (warned && pctx->fndecl)
 	inform (DECL_SOURCE_LOCATION (pctx->fndecl),
 		"in a call to function %qD declared %qs",
 		pctx->fndecl, "nonnull");
@@ -5851,6 +5852,9 @@ check_function_arguments_recurse (void (*callback)
 				  void *ctx, tree param,
 				  unsigned HOST_WIDE_INT param_num)
 {
+  if (TREE_NO_WARNING (param))
+    return;
+
   if (CONVERT_EXPR_P (param)
       && (TYPE_PRECISION (TREE_TYPE (param))
 	  == TYPE_PRECISION (TREE_TYPE (TREE_OPERAND (param, 0)))))
@@ -8794,8 +8798,7 @@ c_family_tests (void)
 #endif /* #if CHECKING_P */
 
 /* Attempt to locate a suitable location within FILE for a
-   #include directive to be inserted before.  FILE should
-   be a string from libcpp (pointer equality is used).
+   #include directive to be inserted before.  
    LOC is the location of the relevant diagnostic.
 
    Attempt to return the location within FILE immediately
@@ -8830,14 +8833,17 @@ try_to_locate_new_include_insertion_point (const char *file, location_t loc)
 
       if (const line_map_ordinary *from
 	  = linemap_included_from_linemap (line_table, ord_map))
-	if (from->to_file == file)
+	/* We cannot use pointer equality, because with preprocessed
+	   input all filename strings are unique.  */
+	if (0 == strcmp (from->to_file, file))
 	  {
 	    last_include_ord_map = from;
 	    last_ord_map_after_include = NULL;
 	  }
 
-      if (0 == strcmp (ord_map->to_file, file)
-	  && ord_map->to_line)
+      /* Likewise, use strcmp, and reject any line-zero introductory
+	 map.  */
+      if (ord_map->to_line && 0 == strcmp (ord_map->to_file, file))
 	{
 	  if (!first_ord_map_in_file)
 	    first_ord_map_in_file = ord_map;
@@ -9112,6 +9118,22 @@ tree
 braced_lists_to_strings (tree type, tree ctor)
 {
   return braced_lists_to_strings (type, ctor, false);
+}
+
+
+/* Emit debug for functions before finalizing early debug.  */
+
+void
+c_common_finalize_early_debug (void)
+{
+  /* Emit early debug for reachable functions, and by consequence,
+     locally scoped symbols.  Also emit debug for extern declared
+     functions that are still reachable at this point.  */
+  struct cgraph_node *cnode;
+  FOR_EACH_FUNCTION (cnode)
+    if (!cnode->alias && !cnode->thunk.thunk_p
+	&& (cnode->has_gimple_body_p () || !DECL_IS_BUILTIN (cnode->decl)))
+      (*debug_hooks->early_global_decl) (cnode->decl);
 }
 
 #include "gt-c-family-c-common.h"

@@ -2678,11 +2678,12 @@ simplify_binary_operation_1 (enum rtx_code code, machine_mode mode,
 	  && !contains_symbolic_reference_p (op1))
 	return simplify_gen_unary (NOT, mode, op1, mode);
 
-      /* Subtracting 0 has no effect unless the mode has signed zeros
-	 and supports rounding towards -infinity.  In such a case,
-	 0 - 0 is -0.  */
+      /* Subtracting 0 has no effect unless the mode has signalling NaNs,
+	 or has signed zeros and supports rounding towards -infinity.
+	 In such a case, 0 - 0 is -0.  */
       if (!(HONOR_SIGNED_ZEROS (mode)
 	    && HONOR_SIGN_DEPENDENT_ROUNDING (mode))
+	  && !HONOR_SNANS (mode)
 	  && trueop1 == CONST0_RTX (mode))
 	return op0;
 
@@ -3372,7 +3373,6 @@ simplify_binary_operation_1 (enum rtx_code code, machine_mode mode,
       /* Convert (xor (and A C) (and B C)) into (and (xor A B) C).  */
       if (GET_CODE (op0) == GET_CODE (op1)
 	  && (GET_CODE (op0) == AND
-	      || GET_CODE (op0) == XOR
 	      || GET_CODE (op0) == LSHIFTRT
 	      || GET_CODE (op0) == ASHIFTRT
 	      || GET_CODE (op0) == ASHIFT

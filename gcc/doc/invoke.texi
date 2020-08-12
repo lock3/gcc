@@ -333,7 +333,7 @@ Objective-C and Objective-C++ Dialects}.
 -Wformat-security  -Wformat-signedness  -Wformat-truncation=@var{n} @gol
 -Wformat-y2k  -Wframe-address @gol
 -Wframe-larger-than=@var{byte-size}  -Wno-free-nonheap-object @gol
--Wno-hsa  -Wno-if-not-aligned  -Wno-ignored-attributes @gol
+-Wno-if-not-aligned  -Wno-ignored-attributes @gol
 -Wignored-qualifiers  -Wno-incompatible-pointer-types @gol
 -Wimplicit  -Wimplicit-fallthrough  -Wimplicit-fallthrough=@var{n} @gol
 -Wno-implicit-function-declaration  -Wno-implicit-int @gol
@@ -560,7 +560,7 @@ Objective-C and Objective-C++ Dialects}.
 -fsanitize=@var{style}  -fsanitize-recover  -fsanitize-recover=@var{style} @gol
 -fasan-shadow-offset=@var{number}  -fsanitize-sections=@var{s1},@var{s2},... @gol
 -fsanitize-undefined-trap-on-error  -fbounds-check @gol
--fcf-protection=@r{[}full@r{|}branch@r{|}return@r{|}none@r{]} @gol
+-fcf-protection=@r{[}full@r{|}branch@r{|}return@r{|}none@r{|}check@r{]} @gol
 -fstack-protector  -fstack-protector-all  -fstack-protector-strong @gol
 -fstack-protector-explicit  -fstack-check @gol
 -fstack-limit-register=@var{reg}  -fstack-limit-symbol=@var{sym} @gol
@@ -821,6 +821,7 @@ Objective-C and Objective-C++ Dialects}.
 @gccoptlist{-march=@var{arch}  -mcpu=@var{cpu} @gol
 -mbig-endian  -EB  -mlittle-endian  -EL @gol
 -mhard-float  -msoft-float  -mfpu=@var{fpu}  -mdouble-float  -mfdivdu @gol
+-mfloat-abi=@var{name} @gol
 -melrw  -mistack  -mmp  -mcp  -mcache  -msecurity  -mtrust @gol
 -mdsp  -medsp  -mvdsp @gol
 -mdiv  -msmart  -mhigh-registers  -manchor @gol
@@ -1141,7 +1142,9 @@ See RS/6000 and PowerPC Options.
 -mexplicit-relocs  -mno-explicit-relocs @gol
 -mrelax  -mno-relax @gol
 -mriscv-attribute  -mmo-riscv-attribute @gol
--malign-data=@var{type}}
+-malign-data=@var{type} @gol
++-mstack-protector-guard=@var{guard} -mstack-protector-guard-reg=@var{reg} @gol
++-mstack-protector-guard-offset=@var{offset}}
 
 @emph{RL78 Options}
 @gccoptlist{-msim  -mmul=none  -mmul=g13  -mmul=g14  -mallregs @gol
@@ -1183,6 +1186,7 @@ See RS/6000 and PowerPC Options.
 -mblock-move-inline-limit=@var{num} @gol
 -mblock-compare-inline-limit=@var{num} @gol
 -mblock-compare-inline-loop-limit=@var{num} @gol
+-mno-block-ops-unaligned-vsx @gol
 -mstring-compare-inline-limit=@var{num} @gol
 -misel  -mno-isel @gol
 -mvrsave  -mno-vrsave @gol
@@ -1551,7 +1555,7 @@ name suffix).  This option applies to all following input files until
 the next @option{-x} option.  Possible values for @var{language} are:
 @smallexample
 c  c-header  cpp-output
-c++  c++-header  c++-cpp-output
+c++  c++-header  c++-system-header c++-user-header c++-cpp-output
 objective-c  objective-c-header  objective-c-cpp-output
 objective-c++ objective-c++-header objective-c++-cpp-output
 assembler  assembler-with-cpp
@@ -2830,7 +2834,7 @@ This flag is enabled by default for @option{-std=c++17}.
 @itemx -fno-char8_t
 @opindex fchar8_t
 @opindex fno-char8_t
-Enable support for @code{char8_t} as adopted for C++2a.  This includes
+Enable support for @code{char8_t} as adopted for C++20.  This includes
 the addition of a new @code{char8_t} fundamental type, changes to the
 types of UTF-8 string and character literals, new signatures for
 user-defined literals, associated standard library updates, and new
@@ -2896,10 +2900,10 @@ exhaustion is signalled by throwing @code{std::bad_alloc}.  See also
 @itemx -fconcepts-ts
 @opindex fconcepts
 @opindex fconcepts-ts
-Below @option{-std=c++2a}, @option{-fconcepts} enables support for the
+Below @option{-std=c++20}, @option{-fconcepts} enables support for the
 C++ Extensions for Concepts Technical Specification, ISO 19217 (2015).
 
-With @option{-std=c++2a} and above, Concepts are part of the language
+With @option{-std=c++20} and above, Concepts are part of the language
 standard, so @option{-fconcepts} defaults to on.  But the standard
 specification of Concepts differs significantly from the TS, so some
 constructs that were allowed in the TS but didn't make it into the
@@ -3025,11 +3029,10 @@ errors if these functions are not inlined everywhere they are called.
 @itemx -fno-modules-ts
 @opindex fmodules-ts
 @opindex fno-modules-ts
-Enable experimental support for n4720:``Working Draft, Extensions to
-C++ for Modules'' via p1103r1 ``Merging Modules''. The
-@option{-fno-modules-ts} is usually not needed, as that is the
-default.  Even though this is adopted for C++2a, it is not currently
-implicitly enabled by selecting that standard version.
+Enable support for C++ 20 modules.  The @option{-fno-modules-ts} is
+usually not needed, as that is the default.  Even though this is a
+C++20 feature, it is not currently implicitly enabled by selecting
+that standard version.
 
 @item -fno-module-lazy
 @opindex fno-module-lazy
@@ -3037,6 +3040,8 @@ implicitly enabled by selecting that standard version.
 Disable lazy module importing and module mapper creation.
 
 @item -fmodule-header
+@itemx -fmodule-header=user
+@itemx -fmodule-header=system
 @opindex fmodule-header
 Compile as a header unit.
 
@@ -3340,7 +3345,7 @@ about ABI tags.
 @opindex Wcomma-subscript
 @opindex Wno-comma-subscript
 Warn about uses of a comma expression within a subscripting expression.
-This usage was deprecated in C++2a.  However, a comma expression wrapped
+This usage was deprecated in C++20.  However, a comma expression wrapped
 in @code{( )} is not deprecated.  Example:
 
 @smallexample
@@ -3352,7 +3357,7 @@ void f(int *a, int b, int c) @{
 @end group
 @end smallexample
 
-Enabled by default with @option{-std=c++2a}.
+Enabled by default with @option{-std=c++20}.
 
 @item -Wctor-dtor-privacy @r{(C++ and Objective-C++ only)}
 @opindex Wctor-dtor-privacy
@@ -3873,7 +3878,7 @@ non-class type, @code{volatile}-qualified function return type,
 @code{volatile}-qualified parameter type, and structured bindings of a
 @code{volatile}-qualified type.  This usage was deprecated in C++20.
 
-Enabled by default with @option{-std=c++2a}.
+Enabled by default with @option{-std=c++20}.
 
 @item -Wzero-as-null-pointer-constant @r{(C++ and Objective-C++ only)}
 @opindex Wzero-as-null-pointer-constant
@@ -6327,7 +6332,7 @@ This is the warning level of @option{-Wshift-overflow} and is enabled
 by default in C99 and C++11 modes (and newer).  This warning level does
 not warn about left-shifting 1 into the sign bit.  (However, in C, such
 an overflow is still rejected in contexts where an integer constant expression
-is required.)  No warning is emitted in C++2A mode (and newer), as signed left
+is required.)  No warning is emitted in C++20 mode (and newer), as signed left
 shifts always wrap.
 
 @item -Wshift-overflow=2
@@ -8645,12 +8650,6 @@ Suppress warnings when a positional initializer is used to initialize
 a structure that has been marked with the @code{designated_init}
 attribute.
 
-@item -Wno-hsa
-@opindex Whsa
-@opindex Wno-hsa
-Do not warn when HSAIL cannot be emitted for the compiled function or
-OpenMP construct.  These warnings are enabled by default.
-
 @end table
 
 @node Static Analyzer Options
@@ -9223,11 +9222,11 @@ except when selective scheduling is enabled.
 
 @item -gsplit-dwarf
 @opindex gsplit-dwarf
-Separate as much DWARF debugging information as possible into a
-separate output file with the extension @file{.dwo}.  This option allows
-the build system to avoid linking files with debug information.  To
-be useful, this option requires a debugger capable of reading @file{.dwo}
-files.
+If DWARF debugging information is enabled, separate as much debugging
+information as possible into a separate output file with the extension
+@file{.dwo}.  This option allows the build system to avoid linking files with
+debug information.  To be useful, this option requires a debugger capable of
+reading @file{.dwo} files.
 
 @item -gdescribe-dies
 @opindex gdescribe-dies
@@ -13447,12 +13446,6 @@ Maximum depth of recursion when querying properties of SSA names in things
 like fold routines.  One level of recursion corresponds to following a
 use-def chain.
 
-@item hsa-gen-debug-stores
-Enable emission of special debug stores within HSA kernels which are
-then read and reported by libgomp plugin.  Generation of these stores
-is disabled by default, use @option{--param hsa-gen-debug-stores=1} to
-enable it.
-
 @item max-speculative-devirt-maydefs
 The maximum number of may-defs we analyze when looking for a must-def
 specifying the dynamic type of an object that invokes a virtual call
@@ -14268,7 +14261,7 @@ operand constant, @code{__sanitizer_cov_trace_cmpf} or
 @code{__sanitizer_cov_trace_cmpd} for float or double comparisons and
 @code{__sanitizer_cov_trace_switch} for switch statements.
 
-@item -fcf-protection=@r{[}full@r{|}branch@r{|}return@r{|}none@r{]}
+@item -fcf-protection=@r{[}full@r{|}branch@r{|}return@r{|}none@r{|}check@r{]}
 @opindex fcf-protection
 Enable code instrumentation of control-flow transfers to increase
 program security by checking that target addresses of control-flow
@@ -14285,6 +14278,11 @@ implements checking of validity at the point of returning from a
 function.  The value @code{full} is an alias for specifying both
 @code{branch} and @code{return}. The value @code{none} turns off
 instrumentation.
+
+The value @code{check} is used for the final link with link-time
+optimization (LTO).  An error is issued if LTO object files are
+compiled with different @option{-fcf-protection} values.  The
+value @code{check} is ignored at the compile time.
 
 The macro @code{__CET__} is defined when @option{-fcf-protection} is
 used.  The first bit of @code{__CET__} is set to 1 for the value
@@ -17263,24 +17261,6 @@ and from what offset from that base register. There is no default
 register or offset as this is entirely for use within the Linux
 kernel.
 
-@item -mstack-protector-guard=@var{guard}
-@itemx -mstack-protector-guard-reg=@var{reg}
-@itemx -mstack-protector-guard-offset=@var{offset}
-@opindex mstack-protector-guard
-@opindex mstack-protector-guard-reg
-@opindex mstack-protector-guard-offset
-Generate stack protection code using canary at @var{guard}.  Supported
-locations are @samp{global} for a global canary or @samp{sysreg} for a
-canary in an appropriate system register.
-
-With the latter choice the options
-@option{-mstack-protector-guard-reg=@var{reg}} and
-@option{-mstack-protector-guard-offset=@var{offset}} furthermore specify
-which system register to use as base register for reading the canary,
-and from what offset from that base register. There is no default
-register or offset as this is entirely for use within the Linux
-kernel.
-
 @item -mtls-dialect=desc
 @opindex mtls-dialect=desc
 Use TLS descriptors as the thread-local storage mechanism for dynamic accesses
@@ -17415,7 +17395,8 @@ performance of the code.  Permissible values for this option are:
 @samp{octeontx81},  @samp{octeontx83},
 @samp{octeontx2}, @samp{octeontx2t98}, @samp{octeontx2t96}
 @samp{octeontx2t93}, @samp{octeontx2f95}, @samp{octeontx2f95n},
-@samp{octeontx2f95mm}
+@samp{octeontx2f95mm},
+@samp{a64fx},
 @samp{thunderx}, @samp{thunderxt88},
 @samp{thunderxt88p1}, @samp{thunderxt81}, @samp{tsv110},
 @samp{thunderxt83}, @samp{thunderx2t99}, @samp{thunderx3t110}, @samp{zeus},
@@ -20708,6 +20689,23 @@ Specify the C-SKY target processor.  Valid values for @var{cpu} are:
 @opindex EL
 
 Select big- or little-endian code.  The default is little-endian.
+
+@item -mfloat-abi=@var{name}
+@opindex mfloat-abi
+Specifies which floating-point ABI to use.  Permissible values
+are: @samp{soft}, @samp{softfp} and @samp{hard}.
+
+Specifying @samp{soft} causes GCC to generate output containing
+library calls for floating-point operations.
+@samp{softfp} allows the generation of code using hardware floating-point
+instructions, but still uses the soft-float calling conventions.
+@samp{hard} allows generation of floating-point instructions
+and uses FPU-specific calling conventions.
+
+The default depends on the specific target configuration.  Note that
+the hard-float and soft-float ABIs are not link-compatible; you must
+compile your entire program with the same ABI, and link with a
+compatible set of libraries.
 
 @item -mhard-float
 @opindex mhard-float
@@ -25860,6 +25858,24 @@ Control how GCC aligns variables and constants of array, structure, or union
 types.  Supported values for @var{type} are @samp{xlen} which uses x register
 width as the alignment value, and @samp{natural} which uses natural alignment.
 @samp{xlen} is the default.
+
+@item -mstack-protector-guard=@var{guard}
+@itemx -mstack-protector-guard-reg=@var{reg}
+@itemx -mstack-protector-guard-offset=@var{offset}
+@opindex mstack-protector-guard
+@opindex mstack-protector-guard-reg
+@opindex mstack-protector-guard-offset
+Generate stack protection code using canary at @var{guard}.  Supported
+locations are @samp{global} for a global canary or @samp{tls} for per-thread
+canary in the TLS block.
+
+With the latter choice the options
+@option{-mstack-protector-guard-reg=@var{reg}} and
+@option{-mstack-protector-guard-offset=@var{offset}} furthermore specify
+which register to use as base register for reading the canary,
+and from what offset from that base register. There is no default
+register or offset as this is entirely for use within the Linux
+kernel.
 @end table
 
 @node RL78 Options
@@ -27094,6 +27110,13 @@ store instructions when the option @option{-mcpu=future} is used.
 @opindex mno-mma
 Generate (do not generate) the MMA instructions when the option
 @option{-mcpu=future} is used.
+
+@item -mblock-ops-unaligned-vsx
+@itemx -mno-block-ops-unaligned-vsx
+@opindex block-ops-unaligned-vsx
+@opindex no-block-ops-unaligned-vsx
+Generate (do not generate) unaligned vsx loads and stores for
+inline expansion of @code{memcpy} and @code{memmove}.
 @end table
 
 @node RX Options
@@ -31732,8 +31755,8 @@ preprocessor.
 
 @node Precompiled Headers
 @section Using Precompiled Headers
-@cindex Precompiled Headers
-@cindex Speed of Compilation
+@cindex precompiled headers
+@cindex speed of compilation
 
 Often large projects have many header files that are included in every
 source file.  The time the compiler takes to process these header files
@@ -31867,8 +31890,7 @@ not get debugging information for routines in the precompiled header.
 
 @node C++ Modules
 @section C++ Modules
-@cindex C++ Modules
-@cindex Speed of Compilation
+@cindex speed of compilation
 
 Modules are a C++ 20 language feature.  As the name suggests, it
 provides a modular compilation system, intending to provide both
@@ -31882,7 +31904,7 @@ considered complete (there may be defect reports to come).
 not complete.  Command-line options are not stable.}
 
 Modular compilation is @emph{not} enabled with just the
-@option{-std=c++2a} option.  You must explicitly enable it with the
+@option{-std=c++20} option.  You must explicitly enable it with the
 @option{-fmodules-ts} option.  It is independent of the language
 version selected.
 
@@ -31907,6 +31929,19 @@ the @option{-fmodules-ts} option.  These CMIs are named by the fully
 resolved underlying header file, and thus may be a complete pathname
 containing subdirectories.  If the header file is found at an absolute
 pathname, the CMI location is still relative to a CMI root directory.
+
+As header files often have no suffix, you commonly have to specify a
+@option{-x} option to tell the compiler the source is a header file.
+You may use @option{-x c++-header}, @option{-x c++-user-header} or
+@option{-x c++-system-header}.  When used in conjunction with
+@option{-fmodules-ts}, these all imply an appropriate
+@option{-fmodule-header} option.  The latter two variants will use the
+user or system include path to search for the file specified.  This
+allows you to, for instance, compile standard library header files as
+header units, without needing to know exactly where they are
+installed.  Specifying the language as one of these variants also
+inhibits output of the object file, as header files have no associated
+object file.
 
 When creating an output CMI any missing directory components are
 created in a manner that is safe for concurrent builds creating

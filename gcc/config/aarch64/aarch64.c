@@ -868,6 +868,17 @@ static const cpu_prefetch_tune xgene1_prefetch_tune =
   -1			/* default_opt_level  */
 };
 
+static const cpu_prefetch_tune a64fx_prefetch_tune =
+{
+  8,			/* num_slots  */
+  64,			/* l1_cache_size  */
+  256,			/* l1_cache_line_size  */
+  32768,		/* l2_cache_size  */
+  true,			/* prefetch_dynamic_strides */
+  -1,			/* minimum_stride */
+  -1			/* default_opt_level  */
+};
+
 static const struct tune_params generic_tunings =
 {
   &cortexa57_extra_costs,
@@ -1323,6 +1334,32 @@ static const struct tune_params neoversen1_tunings =
   tune_params::AUTOPREFETCHER_WEAK,	/* autoprefetcher_model.  */
   (AARCH64_EXTRA_TUNE_NONE),	/* tune_flags.  */
   &generic_prefetch_tune
+};
+
+static const struct tune_params a64fx_tunings =
+{
+  &generic_extra_costs,
+  &generic_addrcost_table,
+  &generic_regmove_cost,
+  &generic_vector_cost,
+  &generic_branch_cost,
+  &generic_approx_modes,
+  SVE_512, /* sve_width  */
+  4, /* memmov_cost  */
+  7, /* issue_rate  */
+  (AARCH64_FUSE_AES_AESMC | AARCH64_FUSE_CMP_BRANCH), /* fusible_ops  */
+  "32",	/* function_align.  */
+  "16",	/* jump_align.  */
+  "32",	/* loop_align.  */
+  4,	/* int_reassoc_width.  */
+  2,	/* fp_reassoc_width.  */
+  2,	/* vec_reassoc_width.  */
+  2,	/* min_div_recip_mul_sf.  */
+  2,	/* min_div_recip_mul_df.  */
+  0,	/* max_case_values.  */
+  tune_params::AUTOPREFETCHER_WEAK,	/* autoprefetcher_model.  */
+  (AARCH64_EXTRA_TUNE_NONE),	/* tune_flags.  */
+  &a64fx_prefetch_tune
 };
 
 /* Support for fine-grained override of the tuning structures.  */
@@ -6920,6 +6957,9 @@ aarch64_gen_store_pair (machine_mode mode, rtx mem1, rtx reg1, rtx mem2,
     case E_TFmode:
       return gen_store_pair_dw_tftf (mem1, reg1, mem2, reg2);
 
+    case E_V4SImode:
+      return gen_vec_store_pairv4siv4si (mem1, reg1, mem2, reg2);
+
     default:
       gcc_unreachable ();
     }
@@ -6942,6 +6982,9 @@ aarch64_gen_load_pair (machine_mode mode, rtx reg1, rtx mem1, rtx reg2,
 
     case E_TFmode:
       return gen_load_pair_dw_tftf (reg1, mem1, reg2, mem2);
+
+    case E_V4SImode:
+      return gen_load_pairv4siv4si (reg1, mem1, reg2, mem2);
 
     default:
       gcc_unreachable ();
@@ -11737,8 +11780,6 @@ aarch64_if_then_else_costs (rtx op0, rtx op1, rtx op2, int *cost, bool speed)
 	  if (speed)
 	    {
 	      machine_mode mode = GET_MODE (XEXP (op1, 0));
-	      const struct cpu_cost_table *extra_cost
-		= aarch64_tune_params.insn_extra_cost;
 
 	      if (GET_MODE_CLASS (mode) == MODE_INT)
 		*cost += extra_cost->alu.arith;
@@ -15003,6 +15044,16 @@ static void
 aarch64_override_options_after_change (void)
 {
   aarch64_override_options_after_change_1 (&global_options);
+}
+
+/* Implement the TARGET_OFFLOAD_OPTIONS hook.  */
+static char *
+aarch64_offload_options (void)
+{
+  if (TARGET_ILP32)
+    return xstrdup ("-foffload-abi=ilp32");
+  else
+    return xstrdup ("-foffload-abi=lp64");
 }
 
 static struct machine_function *
@@ -21097,6 +21148,27 @@ static void
 aarch64_copy_one_block_and_progress_pointers (rtx *src, rtx *dst,
 					      machine_mode mode)
 {
+  /* Handle 256-bit memcpy separately.  We do this by making 2 adjacent memory
+     address copies using V4SImode so that we can use Q registers.  */
+  if (known_eq (GET_MODE_BITSIZE (mode), 256))
+    {
+      mode = V4SImode;
+      rtx reg1 = gen_reg_rtx (mode);
+      rtx reg2 = gen_reg_rtx (mode);
+      /* "Cast" the pointers to the correct mode.  */
+      *src = adjust_address (*src, mode, 0);
+      *dst = adjust_address (*dst, mode, 0);
+      /* Emit the memcpy.  */
+      emit_insn (aarch64_gen_load_pair (mode, reg1, *src, reg2,
+					aarch64_progress_pointer (*src)));
+      emit_insn (aarch64_gen_store_pair (mode, *dst, reg1,
+					 aarch64_progress_pointer (*dst), reg2));
+      /* Move the pointers forward.  */
+      *src = aarch64_move_pointer (*src, 32);
+      *dst = aarch64_move_pointer (*dst, 32);
+      return;
+    }
+
   rtx reg = gen_reg_rtx (mode);
 
   /* "Cast" the pointers to the correct mode.  */
@@ -21150,9 +21222,12 @@ aarch64_expand_cpymem (rtx *operands)
   /* Convert n to bits to make the rest of the code simpler.  */
   n = n * BITS_PER_UNIT;
 
-  /* Maximum amount to copy in one go.  The AArch64 back-end has integer modes
-     larger than TImode, but we should not use them for loads/stores here.  */
-  const int copy_limit = GET_MODE_BITSIZE (TImode);
+  /* Maximum amount to copy in one go.  We allow 256-bit chunks based on the
+     AARCH64_EXTRA_TUNE_NO_LDP_STP_QREGS tuning parameter and TARGET_SIMD.  */
+  const int copy_limit = ((aarch64_tune_params.extra_tuning_flags
+			   & AARCH64_EXTRA_TUNE_NO_LDP_STP_QREGS)
+			  || !TARGET_SIMD)
+			 ? GET_MODE_BITSIZE (TImode) : 256;
 
   while (n > 0)
     {
@@ -23579,6 +23654,9 @@ aarch64_libgcc_floating_mode_supported_p
 #undef TARGET_OVERRIDE_OPTIONS_AFTER_CHANGE
 #define TARGET_OVERRIDE_OPTIONS_AFTER_CHANGE \
   aarch64_override_options_after_change
+
+#undef TARGET_OFFLOAD_OPTIONS
+#define TARGET_OFFLOAD_OPTIONS aarch64_offload_options
 
 #undef TARGET_OPTION_SAVE
 #define TARGET_OPTION_SAVE aarch64_option_save

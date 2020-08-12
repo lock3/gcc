@@ -1,3 +1,37 @@
+2020-08-03  Ian Lance Taylor  <iant@golang.org>
+
+	* config/i386/morestack.S (BACKOFF) [x86_64]: Add 2048 bytes.
+
+2020-08-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/96402
+	* config/aarch64/lse.S (__aarch64_cas16_acq_rel): Use x2, x3 instead
+	of x(tmp0), x(tmp1) in STXP arguments.
+
+2020-07-31  Maciej W. Rozycki  <macro@wdc.com>
+
+	* config/riscv/save-restore.S [__riscv_xlen == 64]
+	(__riscv_save_10, __riscv_save_8, __riscv_save_6, __riscv_save_4)
+	(__riscv_save_2): Replace negative immediates used for the final
+	stack pointer adjustment with positive ones, right-shifted by 4.
+
+2020-07-31  Martin Liska  <mliska@suse.cz>
+
+	* libgcov-driver.c: Add __gcov_kvp_pool
+	and __gcov_kvp_pool_index variables.
+	* libgcov.h (allocate_gcov_kvp): New.
+	(gcov_topn_add_value): Use it.
+
+2020-07-24  Szabolcs Nagy  <szabolcs.nagy@arm.com>
+
+	* config/aarch64/lse.S: Add PAC property note.
+
+2020-07-23  Martin Liska  <mliska@suse.cz>
+
+	PR gcov-profile/96035
+	* libgcov-driver-system.c: Create gcov folders with 0777
+	so that it respects a system umask.
+
 2020-07-14  David Edelsohn  <dje.gcc@gmail.com>
 
 	* config/rs6000/t-slibgcc-aix: Set BITS from compiler cpp macro.

@@ -5931,6 +5931,13 @@ fold_range_test (location_t loc, enum tree_code code, tree type,
     return 0;
 
   lhs = make_range (op0, &in0_p, &low0, &high0, &strict_overflow_p);
+  /* If op0 is known true or false and this is a short-circuiting
+     operation we must not merge with op1 since that makes side-effects
+     unconditional.  So special-case this.  */
+  if (!lhs
+      && ((code == TRUTH_ORIF_EXPR && in0_p)
+	  || (code == TRUTH_ANDIF_EXPR && !in0_p)))
+    return op0;
   rhs = make_range (op1, &in1_p, &low1, &high1, &strict_overflow_p);
 
   /* If this is an OR operation, invert both sides; we will invert
@@ -10187,8 +10194,7 @@ tree_expr_nonzero_p (tree t)
 bool
 expr_not_equal_to (tree t, const wide_int &w)
 {
-  wide_int min, max, nz;
-  value_range_kind rtype;
+  value_range vr;
   switch (TREE_CODE (t))
     {
     case INTEGER_CST:
@@ -10197,17 +10203,9 @@ expr_not_equal_to (tree t, const wide_int &w)
     case SSA_NAME:
       if (!INTEGRAL_TYPE_P (TREE_TYPE (t)))
 	return false;
-      rtype = get_range_info (t, &min, &max);
-      if (rtype == VR_RANGE)
-	{
-	  if (wi::lt_p (max, w, TYPE_SIGN (TREE_TYPE (t))))
-	    return true;
-	  if (wi::lt_p (w, min, TYPE_SIGN (TREE_TYPE (t))))
-	    return true;
-	}
-      else if (rtype == VR_ANTI_RANGE
-	       && wi::le_p (min, w, TYPE_SIGN (TREE_TYPE (t)))
-	       && wi::le_p (w, max, TYPE_SIGN (TREE_TYPE (t))))
+      get_range_info (t, vr);
+      if (!vr.undefined_p ()
+	  && !vr.contains_p (wide_int_to_tree (TREE_TYPE (t), w)))
 	return true;
       /* If T has some known zero bits and W has any of those bits set,
 	 then T is known not to be equal to W.  */

@@ -17,6 +17,7 @@
 
 // <charconv> is supported in C++14 as a GNU extension
 // { dg-do run { target c++14 } }
+// { dg-add-options ieee }
 
 #include <charconv>
 #include <string>
@@ -27,6 +28,9 @@
 
 // Test std::from_chars floating-point conversions.
 
+// As of July 2020 __cpp_lib_to_chars is not defined, but std::from_chars
+// works for floating-point types when _GLIBCXX_HAVE_USELOCALE is defined.
+#if __cpp_lib_to_chars >= 201611L || _GLIBCXX_HAVE_USELOCALE
 void
 test01()
 {
@@ -296,8 +300,7 @@ test_max_mantissa()
   using Float_limits = std::numeric_limits<FloatT>;
   using UInt_limits = std::numeric_limits<UIntT>;
 
-  if constexpr (Float_limits::is_iec559
-		&& Float_limits::digits < UInt_limits::digits)
+  if (Float_limits::is_iec559 && Float_limits::digits < UInt_limits::digits)
   {
     std::printf("Testing %d-bit float, using %zu-bit integer\n",
 	Float_limits::digits + (int)std::log2(Float_limits::max_exponent) + 1,
@@ -335,7 +338,7 @@ test_max_mantissa()
 	VERIFY( flt == val );
 
 	std::string s2 = s.substr(0, len - 5);
-	s2.insert(s2.cbegin() + orig_len - 1, '.');
+	s2.insert(s2.begin() + orig_len - 1, '.');
 	s2 += "e000000000001";
 	res = std::from_chars(s.data(), s.data() + len, flt, fmt);
 	VERIFY( res.ec == std::errc{} );
@@ -355,14 +358,17 @@ test06()
   test_max_mantissa<long double, unsigned __GLIBCXX_TYPE_INT_N_0>();
 #endif
 }
+#endif
 
 int
 main()
 {
+#if __cpp_lib_to_chars >= 201611L || _GLIBCXX_HAVE_USELOCALE
   test01();
   test02();
   test03();
   test04();
   test05();
   test06();
+#endif
 }

@@ -310,20 +310,45 @@ merge_and_complain (struct cl_decoded_option **decoded_options,
 
 	case OPT_fcf_protection_:
 	  /* Default to link-time option, else append or check identical.  */
-	  if (!cf_protection_option)
+	  if (!cf_protection_option
+	      || cf_protection_option->value == CF_CHECK)
 	    {
 	      for (j = 0; j < *decoded_options_count; ++j)
 		if ((*decoded_options)[j].opt_index == foption->opt_index)
 		  break;
 	      if (j == *decoded_options_count)
 		append_option (decoded_options, decoded_options_count, foption);
-	      else if (strcmp ((*decoded_options)[j].arg, foption->arg))
-		fatal_error (input_location,
-			     "option -fcf-protection with mismatching values"
-			     " (%s, %s)",
-			     (*decoded_options)[j].arg, foption->arg);
+	      else if ((*decoded_options)[j].value != foption->value)
+		{
+		  if (cf_protection_option
+		      && cf_protection_option->value == CF_CHECK)
+		    fatal_error (input_location,
+				 "option -fcf-protection with mismatching values"
+				 " (%s, %s)",
+				 (*decoded_options)[j].arg, foption->arg);
+		  else
+		    {
+		      /* Merge and update the -fcf-protection option.  */
+		      (*decoded_options)[j].value &= (foption->value
+						      & CF_FULL);
+		      switch ((*decoded_options)[j].value)
+			{
+			case CF_NONE:
+			  (*decoded_options)[j].arg = "none";
+			  break;
+			case CF_BRANCH:
+			  (*decoded_options)[j].arg = "branch";
+			  break;
+			case CF_RETURN:
+			  (*decoded_options)[j].arg = "return";
+			  break;
+			default:
+			  gcc_unreachable ();
+			}
+		    }
+		}
 	    }
-	    break;
+	  break;
 
 	case OPT_O:
 	case OPT_Ofast:
@@ -951,7 +976,6 @@ compile_images_for_offload_targets (unsigned in_argc, char *in_argv[],
     return;
   unsigned num_targets = parse_env_var (target_names, &names, NULL);
 
-  int next_name_entry = 0;
   const char *compiler_path = getenv ("COMPILER_PATH");
   if (!compiler_path)
     goto out;
@@ -961,19 +985,13 @@ compile_images_for_offload_targets (unsigned in_argc, char *in_argv[],
   offload_names = XCNEWVEC (char *, num_targets + 1);
   for (unsigned i = 0; i < num_targets; i++)
     {
-      /* HSA does not use LTO-like streaming and a different compiler, skip
-	 it. */
-      if (strcmp (names[i], "hsa") == 0)
-	continue;
-
-      offload_names[next_name_entry]
+      offload_names[i]
 	= compile_offload_image (names[i], compiler_path, in_argc, in_argv,
 				 compiler_opts, compiler_opt_count,
 				 linker_opts, linker_opt_count);
-      if (!offload_names[next_name_entry])
+      if (!offload_names[i])
 	fatal_error (input_location,
 		     "problem with building target image for %s", names[i]);
-      next_name_entry++;
     }
 
  out:

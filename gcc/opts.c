@@ -2004,13 +2004,21 @@ parse_and_check_align_values (const char *flag,
 }
 
 /* Check that alignment value FLAG for -falign-NAME is valid at a given
-   location LOC.  */
+   location LOC. OPT_STR points to the stored -falign-NAME=argument and
+   OPT_FLAG points to the associated -falign-NAME on/off flag.  */
 
 static void
-check_alignment_argument (location_t loc, const char *flag, const char *name)
+check_alignment_argument (location_t loc, const char *flag, const char *name,
+			  int *opt_flag, const char **opt_str)
 {
   auto_vec<unsigned> align_result;
   parse_and_check_align_values (flag, name, align_result, true, loc);
+
+  if (align_result.length() >= 1 && align_result[0] == 0)
+    {
+      *opt_flag = 1;
+      *opt_str = NULL;
+    }
 }
 
 /* Print help when OPT__help_ is set.  */
@@ -2476,35 +2484,8 @@ common_handle_option (struct gcc_options *opts,
       break;
 
     case OPT_foffload_:
-      {
-	const char *p = arg;
-	opts->x_flag_disable_hsa = true;
-	while (*p != 0)
-	  {
-	    const char *comma = strchr (p, ',');
-
-	    if ((strncmp (p, "disable", 7) == 0)
-		&& (p[7] == ',' || p[7] == '\0'))
-	      {
-		opts->x_flag_disable_hsa = true;
-		break;
-	      }
-
-	    if ((strncmp (p, "hsa", 3) == 0)
-		&& (p[3] == ',' || p[3] == '\0'))
-	      {
-#ifdef ENABLE_HSA
-		opts->x_flag_disable_hsa = false;
-#else
-		sorry ("HSA has not been enabled during configuration");
-#endif
-	      }
-	    if (!comma)
-	      break;
-	    p = comma + 1;
-	  }
-	break;
-      }
+      /* Deferred.  */
+      break;
 
 #ifndef ACCEL_COMPILER
     case OPT_foffload_abi_:
@@ -2696,11 +2677,6 @@ common_handle_option (struct gcc_options *opts,
       set_debug_level (DWARF2_DEBUG, false, "", opts, opts_set, loc);
       break;
 
-    case OPT_gsplit_dwarf:
-      set_debug_level (NO_DEBUG, DEFAULT_GDB_EXTENSIONS, "", opts, opts_set,
-		       loc);
-      break;
-
     case OPT_ggdb:
       set_debug_level (NO_DEBUG, 2, arg, opts, opts_set, loc);
       break;
@@ -2785,19 +2761,27 @@ common_handle_option (struct gcc_options *opts,
       break;
 
     case OPT_falign_loops_:
-      check_alignment_argument (loc, arg, "loops");
+      check_alignment_argument (loc, arg, "loops",
+				&opts->x_flag_align_loops,
+				&opts->x_str_align_loops);
       break;
 
     case OPT_falign_jumps_:
-      check_alignment_argument (loc, arg, "jumps");
+      check_alignment_argument (loc, arg, "jumps",
+				&opts->x_flag_align_jumps,
+				&opts->x_str_align_jumps);
       break;
 
     case OPT_falign_labels_:
-      check_alignment_argument (loc, arg, "labels");
+      check_alignment_argument (loc, arg, "labels",
+				&opts->x_flag_align_labels,
+				&opts->x_str_align_labels);
       break;
 
     case OPT_falign_functions_:
-      check_alignment_argument (loc, arg, "functions");
+      check_alignment_argument (loc, arg, "functions",
+				&opts->x_flag_align_functions,
+				&opts->x_str_align_functions);
       break;
 
     case OPT_ftabstop_:

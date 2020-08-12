@@ -3295,6 +3295,10 @@ public:
   void close ();
 
 public:
+  /* Propagate imported linemaps to us, if needed.  */
+  bool maybe_propagate (module_state *import, location_t loc);
+
+public:
   const span *ordinary (location_t);
   const span *macro (location_t);
 };
@@ -6029,7 +6033,7 @@ trees_out::core_vals (tree t)
       {
 	/* The ompcode is serialized in start.  */
 	if (streaming_p ())
-	  WU (t->omp_clause.subcode.dimension);
+	  WU (t->omp_clause.subcode.map_kind);
 	state->write_location (*this, t->omp_clause.locus);
 
 	unsigned len = omp_clause_num_ops[OMP_CLAUSE_CODE (t)];
@@ -6499,7 +6503,7 @@ trees_in::core_vals (tree t)
 
     case OMP_CLAUSE:
       {
-	RU (t->omp_clause.subcode.dimension);
+	RU (t->omp_clause.subcode.map_kind);
 	t->omp_clause.locus = state->read_location (*this);
 
 	unsigned len = omp_clause_num_ops[OMP_CLAUSE_CODE (t)];
@@ -8023,7 +8027,11 @@ trees_in::decl_value ()
 	  dump (dumper::TREE) && dump ("CDTOR %N is %scloned",
 				       decl, cloned_p ? "" : "not ");
 	  if (cloned_p)
-	    build_cdtor_clones (decl, flags & 2, flags & 4);
+	    build_cdtor_clones (decl, flags & 2, flags & 4,
+				/* Update the member vec, if there is
+				   one (we're in a different cluster
+				   to the class defn).  */
+				CLASSTYPE_MEMBER_VEC (DECL_CONTEXT (decl)));
 	}
     }
 
@@ -10549,11 +10557,26 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	  else
 	    {
 	      gcc_checking_assert (mk == MK_named || mk == MK_enum);
-	      tree *gslot = mergeable_namespace_entities
-		(container, name, !is_mod);
-	      existing = check_mergeable_decl (mk, decl, *gslot, key);
-	      if (!existing && mk == MK_named)
-		add_mergeable_namespace_entity (gslot, decl);
+	      tree mvec;
+	      tree *vslot = mergeable_namespace_slots (container, name, !is_mod,
+						       &mvec);
+	      existing = check_mergeable_decl (mk, decl, *vslot, key);
+	      if (mk == MK_enum)
+		/* We do not need to register enum-keyed types here,
+		as they'll be entered when we deal with the enumerator
+		itself.  */
+		;
+	      else if (!existing)
+		add_mergeable_namespace_entity (vslot, decl);
+	      else
+		{
+		  /* Note that we now have duplicates to deal with in
+		     name lookup.  */
+		  if (is_mod)
+		    MODULE_VECTOR_PARTITION_DUPS_P (mvec) = true;
+		  else
+		    MODULE_VECTOR_GLOBAL_DUPS_P (mvec) = true;
+		}
 	    }
 	  break;
 
@@ -12309,7 +12332,7 @@ depset::hash::add_namespace_entities (tree ns, bitmap partitions)
     (DECL_NAMESPACE_BINDINGS (ns)->end ());
   for (hash_table<named_decl_hash>::iterator iter
 	 (DECL_NAMESPACE_BINDINGS (ns)->begin ()); iter != end; ++iter)
-    if (tree value = extract_module_binding (*iter, ns, partitions))
+    if (tree value = extract_module_binding (*iter, partitions))
       bindings.quick_push (value);
 
   /* Sort for reproducibility.  */
@@ -13196,6 +13219,21 @@ loc_spans::init (const line_maps *lmaps, const line_map_ordinary *map)
     && dump ("Main span %u ordinary:[%u,*) macro:[*,%u)", spans.length (),
 	     interval.ordinary.first, interval.macro.second);
   spans.quick_push (interval);
+}
+
+/* Reopen the span, if we want the about-to-be-inserted set of maps to
+   be propagated in our own location table.  I.e. we are the primary
+   interface and we're importing a partition.  */
+
+bool
+loc_spans::maybe_propagate (module_state *import,
+			    location_t loc = UNKNOWN_LOCATION)
+{
+  bool opened = (module_interface_p () && !module_partition_p ()
+		 && import->is_partition ());
+  if (opened)
+    open (loc);
+  return opened;
 }
 
 /* Open a new linemap interval.  The just-created ordinary map is the
@@ -14249,17 +14287,7 @@ module_state::read_cluster (unsigned snum)
 	    tree decls = NULL_TREE;
 	    tree visible = NULL_TREE;
 	    tree type = NULL_TREE;
-
-	    // FIXME: It would be better to mark the vector containing
-	    // this binding as containing actual duplicates in the
-	    // MODULE_SLOT_GLOBAL or MODULE_SLOT_PARTITION overloads.
-	    // Then deduping only need be engaged when duplicates are
-	    // in play, rather than when just looking at a global or
-	    // partition slot.
-	    bool dedup = (TREE_PUBLIC (ns)
-			  && (is_module ()
-			      || is_partition ()
-			      || is_header ()));
+	    bool dedup = false;
 
 	    /* We rely on the bindings being in the reverse order of
 	       the resulting overload set.  */
@@ -14288,7 +14316,6 @@ module_state::read_cluster (unsigned snum)
 		  {
 		    if (decls
 			|| (flags & (cbf_hidden | cbf_wrapped))
-			|| (dedup && TREE_CODE (decl) == FUNCTION_DECL)
 			|| DECL_FUNCTION_TEMPLATE_P (decl))
 		      {
 			decls = ovl_make (decl, decls);
@@ -14308,7 +14335,9 @@ module_state::read_cluster (unsigned snum)
 		    else
 		      decls = decl;
 
-		    if (flags & cbf_export)
+		    if (flags & cbf_export
+			|| (!(flags & cbf_hidden)
+			    && (is_module () || is_partition ())))
 		      visible = decls;
 		  }
 	      }
@@ -14319,12 +14348,11 @@ module_state::read_cluster (unsigned snum)
 	    if (sec.get_overrun ())
 	      break; /* Bail.  */
 
-	    if (is_module () || is_partition ())
-	      visible = decls;
-
 	    dump () && dump ("Binding of %P", ns, name);
 	    if (!set_module_binding (ns, name, mod,
-				     is_module () || is_partition (),
+				     is_header () ? -1
+				     : is_module () || is_partition () ? 1
+				     : 0,
 				     decls, type, visible))
 	      sec.set_overrun ();
 
@@ -14950,9 +14978,10 @@ lazy_specializations_p (unsigned mod, bool header_p, bool partition_p)
 enum loc_kind {
   LK_ORDINARY,
   LK_MACRO,
-  LK_ADHOC,
   LK_IMPORT_ORDINARY,
-  LK_IMPORT_MACRO
+  LK_IMPORT_MACRO,
+  LK_ADHOC,
+  LK_RESERVED,
 };
 
 static const module_state *
@@ -15027,7 +15056,12 @@ module_state::write_location (bytes_out &sec, location_t loc)
        about write_ordinary_maps.  */
     return;
 
-  if (IS_ADHOC_LOC (loc))
+  if (loc < RESERVED_LOCATION_COUNT)
+    {
+      dump (dumper::LOCATION) && dump ("Reserved location %u", unsigned (loc));
+      sec.u (LK_RESERVED + loc);
+    }
+  else if (IS_ADHOC_LOC (loc))
     {
       dump (dumper::LOCATION) && dump ("Adhoc location");
       sec.u (LK_ADHOC);
@@ -15104,7 +15138,14 @@ module_state::read_location (bytes_in &sec) const
   switch (kind)
      {
     default:
-      sec.set_overrun ();
+      {
+	if (kind < LK_RESERVED + RESERVED_LOCATION_COUNT)
+	  locus = location_t (kind - LK_RESERVED);
+	else
+	  sec.set_overrun ();
+	dump (dumper::LOCATION)
+	  && dump ("Reserved location %u", unsigned (locus));
+      }
       break;
 
      case LK_ADHOC:
@@ -15510,7 +15551,7 @@ module_state::write_macro_maps (elf_out *to, location_map_info &info,
 	  write_location (sec, mmap->expansion);
 	  const location_t *locs = mmap->macro_locations;
 	  /* There are lots of identical runs.  */
-	  location_t prev = 0;
+	  location_t prev = UNKNOWN_LOCATION;
 	  unsigned count = 0;
 	  unsigned runs = 0;
 	  for (unsigned jx = mmap->n_tokens * 2; jx--;)
@@ -15589,10 +15630,7 @@ module_state::read_ordinary_maps ()
     offset += range_mask + 1;
   offset = (offset & ~range_mask);
 
-  /* We need to insert our maps if we're a partition of the primary
-     module interface.  */
-  if (module_interface_p () && !module_partition_p () && is_partition ())
-    spans.open (offset + low_bits);
+  bool propagated = spans.maybe_propagate (this, offset + low_bits);
 
   line_map_ordinary *maps = static_cast<line_map_ordinary *>
     (line_map_new_raw (line_table, false, num_ordinary));
@@ -15641,6 +15679,9 @@ module_state::read_ordinary_maps ()
     sec.set_overrun ();
   dump () && dump ("Ordinary location hwm:%u", ordinary_locs.second);
 
+  if (propagated)
+    spans.close ();
+
   filenames.release ();
   
   dump.outdent ();
@@ -15663,6 +15704,8 @@ module_state::read_macro_maps ()
   unsigned num_macros = sec.u ();
   location_t zero = sec.u ();
   dump () && dump ("Macro maps:%u zero:%u", num_macros, zero);
+
+  bool propagated = spans.maybe_propagate (this);
 
   location_t offset = LINEMAPS_MACRO_LOWEST_LOCATION (line_table);
   slurp->loc_deltas.second = zero - offset;
@@ -15688,7 +15731,7 @@ module_state::read_macro_maps ()
 	break;
 
       location_t *locs = macro->macro_locations;
-      location_t tok_loc = loc;
+      location_t tok_loc = UNKNOWN_LOCATION;
       unsigned count = sec.u ();
       unsigned runs = 0;
       for (unsigned jx = macro->n_tokens * 2; jx-- && !sec.get_overrun ();)
@@ -15714,7 +15757,7 @@ module_state::read_macro_maps ()
 
   dump () && dump ("Macro location lwm:%u", macro_locs.first);
 
-  if (module_interface_p () && !module_partition_p () && is_partition ())
+  if (propagated)
     spans.close ();
 
   dump.outdent ();
@@ -18750,9 +18793,15 @@ preprocess_module (module_state *module, location_t from_loc,
       module->directness = module_directness (MD_DIRECT + in_purview);
 
       /* Set the location to be most informative for users.  */
-      module->loc = ordinary_loc_of (line_table, from_loc);
-      if (!module->flatname)
-	module->set_flatname ();
+      from_loc = ordinary_loc_of (line_table, from_loc);
+      if (module->loadedness != ML_NONE)
+	linemap_module_reparent (line_table, module->loc, from_loc);
+      else
+	{
+	  module->loc = from_loc;
+	  if (!module->flatname)
+	    module->set_flatname ();
+	}
     }
 
   if (is_import

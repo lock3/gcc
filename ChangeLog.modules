@@ -1,3 +1,195 @@
+2020-08-07  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk d21252de6c8.
+
+	Address 2 FIXMEs.
+	gcc/cp/
+	* name-lookup.c (finish_nonmember_using_decl): Here.
+	(lookup_type_scope_1): Here.
+
+	Global decls.
+	gcc/cp/
+	* name-lookup.c (get_fixed_binding_slot): Skip internal decls when
+	creating vector.
+	(record_mergeable_decl): Replace with ...
+	(maybe_record_mergeable_decl): Skip internal decls.
+	(do_pushdecl): Adjust.
+	* decl.c (start_decl): Templated vars are not
+	internal. (Incomplete fix of PR 96523)
+
+	Shadowed type.
+	gcc/cp/
+	* name-lookup.c (check_module_override): No need to deal with
+	shadowed type here.
+	gcc/testsuite/
+	* g++.dg/modules/shadowed-1_[ab].C: New.
+
+	Simplify binding extraction.
+	gcc/cp/
+	* name-lookup.h (extract_module_binding): Drop NS arg.
+	* name-lookup.c (extract_module_binding): Reimplement.
+	* module.cc (depset::hash::add_namespace_entities): Adjust.
+
+2020-08-06  Nathan Sidwell  <nathan@acm.org>
+
+	Remove now-unneeded dedup bits.
+	gcc/cp/
+	* module.cc (module_state::read_cluster): Don't set dedup for
+	partition or header unit.
+
+	Determine deduplication via slot flags.
+	gcc/cp/
+	* module.cc (module_state::read_cluster): Disable dedup here.
+	* name-lookup.cc (get_fixed_binding_slot): Set
+	MODULE_BINDING_GLOBAL_P if necessary.
+	(name_lookup::search_bitmap_only): Inspect MODULE_BINDING_$foo_P.
+	(name_lookup::adl_namespace_fns): Likewise.
+	(set_module_binding): Always stat hack if mod_glob.
+
+	gcc/cp/
+	* module.cc (module_state::read_cluster): Pay attention to hidden
+	decls even in same module.
+	* name-lookup.c (name_lookup:adl_namespace_fns): Drop unused parm.
+
+2020-08-05  Nathan Sidwell  <nathan@acm.org>
+
+	Note binding slot origin.
+	gcc/cp/
+	* cp-tree.h (MODULE_BINDING_{GLOBAL,PARTITION}_P): New.
+	* module_cc (module_state::read_cluster): Adjust
+	set_module_binding call.
+	* name-lookup.c (set_module_binding): Replace inter_p with
+	mod_glob parm.  Adjust and set origin.
+	* name-lookup.h (set_module_binding): Adjust prototype.
+
+	Note duplicates on symbol vector.
+	gcc/cp/
+	* cp-tree.h (MODULE_VECTOR_{GLOBAL,PARTITION}_DUPS_P): New.
+	* name-lookup.h (mergeable_namespace_entities): Replace with ...
+	(mergeable_namespace_slots): ... this.
+	* module.cc (trees_in::key_mergeable): Set dups flag when alread
+	existing.
+	* name-lookup.c (mergeable_namespace_entities): Replace with ...
+	(mergeable_namespace_slots): ... this.  Return the vector too.
+
+2020-08-04  Nathan Sidwell  <nathan@acm.org>
+
+	Fix alias templates.
+	gcc/cp/
+	* pt.c (lookup_template_class_1): Fix alias resetting of
+	ti_template.
+	gcc/testsuite/
+	* g++.dg/template/pr95263.C: Re-enable.
+
+	Merge trunk 1790d13dc8f.
+
+2020-08-03  Nathan Sidwell  <nathan@acm.org>
+
+	Revert local paranoid change.
+	gcc/cp/
+	* cp-tree.h (build_cdtor_clones, clone_cdtor): Drop via_using parm.
+	* class.c (build_cdtor_clones): Drop via_using parm.
+	(clone_cdtor): Likewise.
+	(clone_constructors_and_destructors): Adjust.
+	* module.cc (trees_in::decl_value): Adjust build_cdtor_clones parms.
+
+	Add private module fragment parsing (only).
+	gcc/cp/
+	* parser.c (enum module_preamble): Replace with ...
+	(enum module_parse): Update all uses.  Add PMF values.
+	(cp_parser_module_declaration): Add private-module-fragment grammar.
+	gcc/testsuite/
+	* g++.dg/modules/pmp-[123]{,_[ab]}.C: New.
+
+	Fix save-temps & header-units
+	gcc/cp/
+	* lang-specs.h (@c++-{,system-,user-}header): Directives-only
+	preprocessing for saving temps with modules.
+
+	Merge trunk d1773f58f3a.
+
+	Add c++-user-header c++-system-header languages.
+	gcc/cp/
+	* lang-specs.h (@c++-header): Map -fmodules-ts to -fmodule-header,
+	inhibit PCH.
+	(@c++-user-header, @c++-system-header): New.
+	gcc/
+	* doc/invoke.texi (C++ Modules): Document.
+
+2020-07-31  Nathan Sidwell  <nathan@acm.org>
+
+	Preserve reserved locations.
+	gcc/cp/
+	* module.cc (enum loc_kind): Add LK_RESERVED.
+	(module_state::{read,write}_location): Preserve reserved
+	locations.
+	(module_State::{read,write}_macro_maps): Default to
+	UNKNOWN_LOCATION.
+	gcc/testsuite/
+	* g++.dg/modules/part-mac-1_[abc].[CH]: New.
+
+	Fix location of imports of partitions.
+	* module.cc (loc_spans::maybe_propagate): New.
+	(module_state::read_{ordinary,macro}_maps): Use it.
+	gcc/testsuite/
+	* g++.dg/modules/part-hdr-1_[abc].[CH]: New.
+
+	Fix import location reparenting.
+	gcc/cp/
+	* module.cc (preprocess_module): Reparent here, if we're already
+	imported.
+	gcc/testsuite/
+	* g++.dg/modules/reparent-1_[abc].C: New.
+
+2020-07-30  Nathan Sidwell  <nathan@acm.org>
+
+	Unspellable module control-line tokens.
+	libcpp/
+	* internal.h (struct spec_nodes): Add M__IMPORT.
+	* init.c (post_options): Adjust module token spelling.
+	* lex.c (cpp_maybe_module_directive): Adjust.
+	* macro.c (cpp_get_token_1): Reset to zero.
+	gcc/c-family/
+	* c-common.c (c_common_reswords): Adjust module token spelling.
+	gcc/testsuite/
+	* g++.dg/modules/dir-recovery.C: New.
+	* g++.dg/modules/cpp-[25]_c.C: Adjust.
+	* g++.dg/modules/dep-2.C: Adjust.
+	* g++.dg/modules/dir-only-[234]{,_b}.C: Adjust.
+	* g++.dg/modules/inc-xlate-1_b.H: Adjust.
+	* g++.dg/modules/legacy-[36]_[bcd].[HC]: Adjust.
+
+	Fix implicit fns from modules.
+	gcc/cp/
+	* cp-tree.h (build_cdtor_clones): Add parms.
+	* class.c (build_cdtor_clones): Swallow clone_cdtor's member insertion.
+	(clone_cdtor): Move member insertion to build_cdtor_clones.
+	* module.cc (trees_in::decl_value): Insert clones, if there's
+	already a member vec.
+	gcc/testsuite/
+	* g++.dg/modules/sv-1{.h,_[ab].C}: New.
+
+2020-07-28  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk f3665bd1111.
+
+	gcc/cp/
+	* class.c (layout_class_type): Restore trunk for unnamed classes.
+	* cp-tree.h (lang_tree_node): Retore trunk GTY.
+	(cp_tree_node_structure): Restore trunk API.
+	* decl.c (cp_tree_node_structure): Restore trunk API.
+	* diagnostic.c (progname): Restore trunk comment.
+	gcc/
+	* doc/invoke.texi (Precompiled Headers): Restore trunk index
+	capitalization.
+	(C++ Modules): Adjust to match.
+
+	Merge trunk 134051f16bd.
+
+	libcpp/
+	* directives.c (_cpp_do_file_change): Check we're moving to line
+	zero of the same file.
+
 2020-07-22  Nathan Sidwell  <nathan@acm.org>
 
 	gcc/c-family/

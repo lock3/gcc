@@ -400,6 +400,9 @@ static const struct builtin_macro builtin_array[] =
   B("__LINE__",		 BT_SPECLINE,      true),
   B("__INCLUDE_LEVEL__", BT_INCLUDE_LEVEL, true),
   B("__COUNTER__",	 BT_COUNTER,       true),
+  /* Make sure to update the list of built-in
+     function-like macros in traditional.c:
+     fun_like_macro() when adding more following */
   B("__has_attribute",	 BT_HAS_ATTRIBUTE, true),
   B("__has_cpp_attribute", BT_HAS_ATTRIBUTE, true),
   B("__has_builtin",	 BT_HAS_BUILTIN,   true),
@@ -838,22 +841,23 @@ post_options (cpp_reader *pfile)
 
   if (CPP_OPTION (pfile, module_directives))
     {
+      /* These unspellable tokens have a leading space.  */
       const char *const inits[spec_nodes::M_HWM]
-	= {"__export", "__module", "__import"};
+	= {"export ", "module ", "import ", "__import"};
 
       for (int ix = 0; ix != spec_nodes::M_HWM; ix++)
 	{
 	  cpp_hashnode *node = cpp_lookup (pfile, UC (inits[ix]),
 					   strlen (inits[ix]));
-	  node->flags |= NODE_MODULE;
+
+	  /* Token we pass to the compiler.  */
 	  pfile->spec_nodes.n_modules[ix][1] = node;
-	  if (!CPP_OPTION (pfile, preprocessed))
-	    {
-	      /* Drop the leading '__'.  */
-	      node = cpp_lookup (pfile, NODE_NAME (node) + 2,
-				 NODE_LEN (node) - 2);
-	      node->flags |= NODE_MODULE;
-	    }
+
+	  if (ix != spec_nodes::M__IMPORT)
+	    /* Token we recognize when lexing, drop the trailing ' '.  */
+	    node = cpp_lookup (pfile, NODE_NAME (node), NODE_LEN (node) - 1);
+
+	  node->flags |= NODE_MODULE;
 	  pfile->spec_nodes.n_modules[ix][0] = node;
 	}
     }
