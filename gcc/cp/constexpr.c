@@ -889,7 +889,8 @@ check_constexpr_fundef (tree fun, tree body)
    * otherwise loudly error.  */
   if (!potential && !DECL_GENERATED_P (fun))
     {
-      if (DECL_HAS_CONTRACTS_P (fun) && !DECL_DECLARED_CONSTEXPR_P (fun))
+      if ((DECL_HAS_CONTRACTS_P (fun) || DECL_ORIGINAL_FN (fun))
+	  && !DECL_DECLARED_CONSTEXPR_P (fun))
 	potential_constant_expression_1 (massaged, true, true, false, tf_none);
       else
 	require_potential_rvalue_constant_expression (massaged);
@@ -1163,6 +1164,20 @@ uid_sensitive_constexpr_evaluation_checker::evaluation_restricted_p () const
 static int contract_static_analysis_check_p = 0;
 static int contract_static_analysis_warned = 0;
 static tree contract_static_analysis_call = NULL_TREE;
+
+struct contract_static_analysis_sentinel
+{
+  contract_static_analysis_sentinel(tree call)
+    : csac_override(call)
+  {
+    ++contract_static_analysis_check_p;
+  }
+  ~contract_static_analysis_sentinel()
+  {
+    --contract_static_analysis_check_p;
+  }
+  temp_override<tree> csac_override;
+};
 
 static bool
 diagnose_constant_contract (tree contract, tree value, location_t loc,
@@ -4702,7 +4717,8 @@ var_in_constexpr_fn (tree t)
 }
 
 /* True if T was declared in a function that might be constexpr: either a
-   function that was declared constexpr, or a C++17 lambda op().  */
+   function that was declared constexpr, a C++17 lambda op(), or a guarded
+   function when constexpr contract checking is enabled.  */
 
 bool
 var_in_maybe_constexpr_fn (tree t)
@@ -4711,6 +4727,14 @@ var_in_maybe_constexpr_fn (tree t)
       && DECL_FUNCTION_SCOPE_P (t)
       && LAMBDA_FUNCTION_P (DECL_CONTEXT (t)))
     return true;
+  if (flag_contracts
+      && flag_constexpr_contract_checking
+      && DECL_FUNCTION_SCOPE_P (t))
+    {
+      tree ctx = DECL_CONTEXT (t);
+      if (DECL_HAS_CONTRACTS_P (ctx) || DECL_ORIGINAL_FN (ctx))
+	return true;
+    }
   return var_in_constexpr_fn (t);
 }
 
@@ -8662,6 +8686,7 @@ check_trivial_constant_contract (tree contract)
     return;
 
   /* Try computing a constant value.  */
+  contract_static_analysis_sentinel sentinel(NULL_TREE);
   tree value = maybe_constant_value (condition);
 
   /* If this condition is trivial, mark the entire contract trivial so we
@@ -8776,6 +8801,7 @@ check_constant_contracts (tree call)
     return;
   if (!DECL_HAS_CONTRACTS_P (fn))
     return;
+  contract_static_analysis_sentinel sentinel(call);
 
   /* When when checking mode includes post, we need to evaluate the entire
    * call. We use the ordinary constexpr machinery to evaluate the
@@ -8783,13 +8809,10 @@ check_constant_contracts (tree call)
   if ((flag_constexpr_contract_checking & ccc_post)
       && retrieve_constexpr_fundef (fn))
     {
-      ++contract_static_analysis_check_p;
-      temp_override<tree> contract_static_analysis_call(call);
       contract_static_analysis_warned = 0;
       tree ret = maybe_constant_value (call);
       if (!TREE_CONSTANT (ret))
 	ret = error_mark_node;
-      --contract_static_analysis_check_p;
       /* If we encountered an error, we cannot check any post conditions (even
 	 trivial ones) since runtime execution would not have made it to that
 	 point.  */

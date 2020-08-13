@@ -106,14 +106,31 @@ struct TFoo {
 
   void fun(T n)
     [[ pre: n != 0 ]]
-    // FIXME use of this in constant expression
-    //[[ pre: memb != 0 ]]
+    [[ pre: memb != 0 ]]
     [[ pre: false ]] // { dg-warning "always .false." }
   {
   }
 
   T memb{0};
 };
+
+int nested1(int n)
+  [[ pre: n != 0 ]]
+{
+  return n;
+}
+
+int nested2(int n)
+  [[ pre: nested1(n) != 1 ]]
+{
+  return n;
+}
+
+int nested3(int n)
+  [[ pre: nested2(n) != 2 ]]
+{
+  return n;
+}
 
 int main(int, char**) {
   constexpr int n = 0;
