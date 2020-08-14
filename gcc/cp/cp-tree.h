@@ -8194,13 +8194,14 @@ extern hashval_t iterative_hash_constraint      (tree, hashval_t);
 extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
-extern void walk_constraint_cache               (bool, 
+extern void walk_satisfaction_cache               (bool, 
                                                  bool (*) (bool, 
                                                            tree, 
                                                            tree, 
                                                            tree, 
                                                            void *), 
                                                  void *);
+extern void save_satisfaction (bool, tree, tree, tree);
 
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);
