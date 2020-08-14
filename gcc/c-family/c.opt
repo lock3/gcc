@@ -1866,6 +1866,21 @@ frtti
 C++ ObjC++ Optimization Var(flag_rtti) Init(1)
 Generate run time type descriptor information.
 
+fserialize-caches
+C++ ObjC++ Var(flag_serialize_subsumption_cache) RejectNegative Integer Init(0)
+
+fserialize-constraint-cache
+C++ ObjC++ Var(flag_serialize_constraint_cache) RejectNegative Integer Init(0)
+
+fserialize-declaration-cache
+C++ ObjC++ Var(flag_serialize_declaration_cache) RejectNegative Integer Init(0)
+
+fserialize-normalization-cache
+C++ ObjC++ Var(flag_serialize_normalization_cache) RejectNegative Integer Init(0)
+
+fserialize-subsumption-cache
+C++ ObjC++ Var(flag_serialize_subsumption_cache) RejectNegative Integer Init(0)
+
 fshort-enums
 C ObjC C++ ObjC++ LTO Optimization Var(flag_short_enums)
 Use the narrowest integer type possible for enumeration types.

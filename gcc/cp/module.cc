@@ -2920,6 +2920,54 @@ typedef hash_map<tree,uintptr_t,
 		 simple_hashmap_traits<duplicate_hash,uintptr_t> >
 duplicate_hash_map;
 
+
+/* The caches that are to be serialized/deserialized.  */
+enum cache_kind
+{
+  CK_none = 0,
+  CK_declarations = 1,   // decl satisfaction cache
+  CK_constraints = 2,    // atomic constraint satisfaction cache
+  CK_normalizations = 4, // normalization cache
+  CK_subsumptions = 8,   // subsumption cache
+};
+
+static bool
+is_set (unsigned u, cache_kind k)
+{
+  return (u & (unsigned)k) != 0;
+}
+
+static inline cache_kind
+operator| (cache_kind a, cache_kind b)
+{
+  return (cache_kind) ((unsigned)a | (unsigned)b);
+}
+
+/* Global cache serialization flag. 
+   This is set with the -fserialize-* & subsequently written 
+   into the config section of the CMI (if one is being written).
+*/
+static cache_kind serialize_caches = CK_none;
+
+/* Cache helpers */
+
+static bool serialize_declarations_p() 
+{
+  return is_set (serialize_caches, CK_declarations);
+}
+static bool serialize_constraints_p() 
+{ 
+  return is_set(serialize_caches, CK_constraints);
+}
+static bool serialize_normalizations_p() 
+{ 
+  return is_set(serialize_caches, CK_normalizations);
+}
+static bool serialize_subsumptions_p() 
+{ 
+  return is_set(serialize_caches, CK_subsumptions);
+}
+
 /* Tree stream reader.  Note that reading a stream doesn't mark the
    read trees with TREE_VISITED.  Thus it's quite safe to have
    multiple concurrent readers.  Which is good, because lazy
@@ -2968,11 +3016,14 @@ private:
 private:
   struct constraint_cache_info
   {
+    cache_kind flags;
+    tree constr;
     tree norm;
     tree decl_sat_result;
-    auto_vec<tree_pair_s> atom_sat_results;
+    auto_vec<tree_pair> atom_sat_results;
   };
-  void decl_constraints (constraint_ca_info *cci);
+  void decl_constraints (constraint_cache_info *cci);
+  void update_constraints (tree decl, constraint_cache_info *cci);
 
 private:
   tree chained_decls ();  /* Follow DECL_CHAIN.  */
@@ -3500,7 +3551,16 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
 			   calling.  */
   /* Record extensions emitted or permitted.  */
   unsigned extensions : SE_BITS;
-  /* 12 bits used, 4 bits remain  */
+
+  bool decl_cache_p : 1; /* module contains declaration constraint satisfactions */
+  bool norm_cache_p : 1; /* module contains normalized constraints  */
+  bool constr_cache_p : 1; /* module contains atomic constraint satisfactions */ 
+  bool subsum_cache_p : 1; /* module contains subsumption results */ 
+
+  /* 16 bits used, 0 bits remain  */
+
+  /* TODO: Fit this into the bitfield above  */
+  unsigned serialized_caches;
 
  public:
   module_state (tree name, module_state *, bool);
@@ -3559,7 +3619,17 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
     return directness == MD_PARTITION_DIRECT;
   }
 
- public:
+public:
+  cache_kind
+  get_cache_kind () const
+  {
+    return (cache_kind)((decl_cache_p ? CK_declarations : 0)
+           | (norm_cache_p ? CK_normalizations : 0)
+           | (constr_cache_p ? CK_constraints : 0)
+           | (subsum_cache_p ? CK_subsumptions : 0));
+  }
+
+public:
   /* Is this not a real module?  */
   bool is_rooted () const
   {
@@ -7686,101 +7756,6 @@ trees_out::decl_value (tree decl, depset *dep)
 				 TREE_CODE (decl), decl);
 }
 
-struct sat_cache_context
-{
-  trees_out *out;
-  tree key;
-  unsigned count;
-};
-
-static bool
-write_sat_result (bool decl_p, tree key, tree args, tree result, void *p)
-{
-  sat_cache_context *ctx = (sat_cache_context *)p;
-  if (key == ctx->key)
-    {
-      ctx->count++;
-      //ctx->out->tree_node (key);
-      if (decl_p)
-        {
-          // There can only be one result for this decl.
-          ctx->out->tree_node (result);
-          return false;
-        }
-      else
-        {
-          // We may have multiple matches of key with
-          // different args. This allows us to cache the
-          // failed satisfaction results, which would
-          // otherwise not be recorded anywhere.
-          ctx->out->tree_node (args);
-          ctx->out->tree_node (result);
-        }
-    }
-  return true;
-}
-
-static 
-void walk_normalized_constraints(tree t, sat_cache_context *ctx)
-{
-  switch (TREE_CODE (t))
-    {
-    case CONJ_CONSTR:
-      {
-        walk_normalized_constraints (TREE_OPERAND (t, 0), ctx);
-        walk_normalized_constraints (TREE_OPERAND (t, 1), ctx);
-        break;
-      }
-    case DISJ_CONSTR:
-      {
-        walk_normalized_constraints (TREE_OPERAND (t, 0), ctx);
-        walk_normalized_constraints (TREE_OPERAND (t, 1), ctx);
-        break;
-      }
-    case ATOMIC_CONSTR:
-      {
-        ctx->key = t;
-        walk_constraint_cache (false, write_sat_result, ctx);
-        break;
-      }
-    default:
-      gcc_unreachable ();
-    }
-}
-
-void
-trees_out::decl_constraints (tree decl)
-{
-  tree req = get_constraints (decl);
-  tree_node (req);
-  if (req)
-    {
-      // Write the normalized form of the constraint.
-      tree norm = get_normalized_constraints (decl);
-      tree_node (norm);
-
-      // Write the cached decl satisfied result.
-      sat_cache_context ctx;
-      ctx.out = this;
-      ctx.key = decl;
-      ctx.count = 0;
-      walk_constraint_cache (true, write_sat_result, &ctx);
-      if (!ctx.count)
-        tree_node (NULL_TREE);
-
-      // Write the cached results for the atomic constraints
-      // for the normalized form, including ALL the failed
-      // results.
-      if (norm)
-        {
-          ctx.count = 0;
-          walk_normalized_constraints (norm, &ctx);
-          // Write a sentinel value
-          tree_node (NULL_TREE);
-        }
-    }
-}
-
 tree
 trees_in::decl_value ()
 {
@@ -7974,12 +7949,9 @@ trees_in::decl_value ()
 	       || (stub_decl && !tree_node_vals (stub_decl))))
     goto bail;
 
-  tree constraints = tree_node ();
   constraint_cache_info cci;
-  if (constraints)
-    {
-      decl_constraints (&cci);
-    }
+  cci.flags = (cache_kind)state->get_cache_kind ();
+  decl_constraints (&cci);
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
 
@@ -8043,20 +8015,7 @@ trees_in::decl_value ()
 	    }
 	}
 
-      if (constraints)
-        {
-          set_constraints (decl, constraints);
-          if (cci.norm)
-            set_normalized_constraints (decl, norm_constraints);
-          if (cci.sat_result)
-            {
-              // TODO: update sat_cache
-            }
-          for (size_t i = 0; i < cci.atom_sat_results.length (); i++)
-            {
-              // TODO: update atom cache results.
-            }
-        }
+      update_constraints (decl, &cci);
 
       if (TREE_CODE (decl) == INTEGER_CST && !TREE_OVERFLOW (decl))
 	{
@@ -8164,24 +8123,210 @@ trees_in::decl_value ()
   return decl;
 }
 
+struct sat_cache_out_context
+{
+  trees_out *out;
+  tree key;
+  unsigned count;
+};
+
+static bool
+write_sat_result (bool decl_p, tree key, tree args, tree result, void *p)
+{
+  sat_cache_out_context *ctx = (sat_cache_out_context *)p;
+  if (key == ctx->key)
+    {
+      ctx->count++;
+      if (decl_p)
+        {
+          // There can only be one result for this decl.
+          ctx->out->tree_node (result);
+          return false;
+        }
+      else
+        {
+          // We may have multiple matches of key with
+          // different args. This allows us to cache the
+          // failed satisfaction results, which would
+          // otherwise not be recorded anywhere.
+          ctx->out->tree_node (args);
+          ctx->out->tree_node (result);
+        }
+    }
+  return true;
+}
+
+static void
+walk_normalized_constraints (tree t, void (*cb) (tree, void *), void *ctx)
+{
+  switch (TREE_CODE (t))
+    {
+    case CONJ_CONSTR:
+      {
+        walk_normalized_constraints (TREE_OPERAND (t, 0), cb, ctx);
+        walk_normalized_constraints (TREE_OPERAND (t, 1), cb, ctx);
+        break;
+      }
+    case DISJ_CONSTR:
+      {
+        walk_normalized_constraints (TREE_OPERAND (t, 0), cb, ctx);
+        walk_normalized_constraints (TREE_OPERAND (t, 1), cb, ctx);
+        break;
+      }
+    case ATOMIC_CONSTR:
+      {
+        cb (t, ctx);
+        break;
+      }
+    default:
+      gcc_unreachable ();
+    }
+}
+
+void
+write_constraint_satisfactions (tree t, void *p)
+{
+  sat_cache_out_context *ctx = (sat_cache_out_context *)p;
+  ctx->key = t;
+  walk_satisfaction_cache (false, write_sat_result, p);
+}
+
+void
+trees_out::decl_constraints (tree decl)
+{
+  tree req = get_constraints (decl);
+  tree_node (req);
+  if (req)
+    {
+      if (streaming_p ())
+        fprintf (stderr, "wrote constraints for %p\n", (void *)decl);
+
+      sat_cache_out_context ctx;
+      ctx.out = this;
+
+      if (serialize_declarations_p ())
+        {
+          ctx.key = decl;
+          ctx.count = 0;
+          // Write the cached decl satisfied result.
+          walk_satisfaction_cache (true, write_sat_result, &ctx);
+          if (!ctx.count)
+            tree_node (NULL_TREE);
+
+          if (streaming_p ())
+            fprintf (stderr,
+                     "wrote %u decl satisfactions constraints for %p\n",
+                     ctx.count, (void *)decl);
+        }
+
+      tree norm = NULL_TREE;
+      if (serialize_normalizations_p ())
+        {
+          // Write the normalized form of the constraint.
+          // norm could be null, it just means that the
+          // constraint was never tested.
+          norm = get_normalized_constraints (decl);
+          tree_node (norm);
+
+          if (streaming_p ())
+            fprintf (stderr, "wrote normalized constraint for %p\n", (void *)decl);
+        }
+
+      if (serialize_constraints_p ())
+        {
+          // Write the cached results for the atomic constraints
+          // for the normalized form, including ALL the failed
+          // results.
+          if (norm)
+            {
+              ctx.count = 0;
+              walk_normalized_constraints (
+                  norm, write_constraint_satisfactions, &ctx);
+            }
+          // Write a sentinel value
+          tree_node (NULL_TREE);
+
+          if (streaming_p ())
+            fprintf (stderr, "wrote %u constraint satisfactions for %p\n",
+                   ctx.count, (void *)decl);
+        }
+    }
+}
+
+void
+save_constraint_satisfactions (tree t, void *p)
+{
+  auto_vec<tree_pair> *v = (auto_vec<tree_pair> *)p;
+  gcc_assert (v->length ());
+  tree_pair &ar = v->pop ();
+  save_satisfaction (false, t, ar.first, ar.second);
+}
+
 void
 trees_in::decl_constraints (constraint_cache_info *cci)
 {
-  cci->norm = tree_node ();
+  cci->constr = NULL_TREE;
+  cci->norm = NULL_TREE;
+  cci->decl_sat_result = NULL_TREE;
+
+  cci->constr = tree_node ();
+  if (!cci->constr)
+    return;
+
+  fprintf (stderr, "read constraints %p\n", (void *)cci->constr);
 
   // Read the constraint satisfaction result for decl
-  cci->decl_sat_result = tree_node ();
+  if (cci->flags & CK_declarations)
+    {
+      cci->decl_sat_result = tree_node ();
+      fprintf (stderr, "read declaration satisfaction %p\n",
+               (void *)cci->decl_sat_result);
+    }
 
-  if (cci->norm)
+  if (cci->flags & CK_normalizations)
+    {
+      cci->norm = tree_node ();
+      fprintf (stderr, "read normalized constraint %p\n", (void *)cci->norm);
+    }
+
+  if (cci->flags & CK_constraints)
     {
       // Read in the cached results wrt the atomic constraints
       // of the normal form. These are delimited with a NULL_TREE
       tree a;
-      while (a = tree_node ())
+      while ((a = tree_node ()) != NULL_TREE)
         {
           tree r = tree_node ();
-          cci->atom_sat_results.push_back (tree_pair (a, r));
+          tree_pair p = std::make_pair (a, r);
+          cci->atom_sat_results.safe_push (p);
         }
+
+      fprintf (stderr, "read %u constraint satisfactions\n",
+               cci->atom_sat_results.length ());
+    }
+}
+
+void
+trees_in::update_constraints (tree decl, constraint_cache_info *cci)
+{
+  if (!cci->constr)
+    return;
+
+  set_constraints (decl, cci->constr);
+
+  if (cci->norm)
+    set_normalized_constraints (decl, cci->norm);
+
+  if (cci->decl_sat_result)
+    save_satisfaction (true, decl, NULL_TREE, cci->decl_sat_result);
+
+  if (cci->atom_sat_results.length ())
+    {
+      gcc_assert (cci->norm);
+      cci->atom_sat_results.reverse ();
+
+      walk_normalized_constraints (cci->norm, save_constraint_satisfactions,
+                                   &cci->atom_sat_results);
     }
 }
 
@@ -14173,11 +14318,13 @@ struct module_state_config {
   const char *dialect_str;
   unsigned num_imports;
   unsigned num_partitions;
+  unsigned cache_flags;         /* see cache_kind */
 
 public:
   module_state_config ()
     :dialect_str (get_dialect ()),
-     num_imports (0), num_partitions (0)
+     num_imports (0), num_partitions (0), 
+     cache_flags(0)
   {
   }
 
@@ -16925,6 +17072,9 @@ module_state::write_config (elf_out *to, module_state_config &config,
   cfg.u (config.num_imports);
   cfg.u (config.num_partitions);
 
+  /* Write the constraint cache serialization flags */
+  cfg.u((unsigned)serialize_caches);
+
   /* Now generate CRC, we'll have incorporated the inner CRC because
      of its serialization above.  */
   cfg.end (to, to->name (MOD_SNAME_PFX ".cfg"), &crc);
@@ -17104,6 +17254,8 @@ module_state::read_config (module_state_config &config)
   config.num_imports = cfg.u ();
   config.num_partitions = cfg.u ();
 
+  /* Read the serialization flags */
+  config.cache_flags = cfg.u();
 
  done:
   return cfg.end (from ());
@@ -17408,6 +17560,15 @@ module_state::read_initial (cpp_reader *reader)
 
   if (ok && !read_config (config))
     ok = false;
+
+  /* Save the cache serialization flags.  */
+  if (ok) 
+  {
+    decl_cache_p = is_set (config.cache_flags, CK_declarations);
+    norm_cache_p =  is_set (config.cache_flags, CK_normalizations);
+    constr_cache_p =  is_set (config.cache_flags, CK_constraints);
+    subsum_cache_p =  is_set (config.cache_flags, CK_subsumptions);
+  }
 
   /* Ordinary maps before the imports.  */
   if (ok && !read_ordinary_maps ())
@@ -19460,14 +19621,13 @@ fini_modules ()
    generation machinery to set fmodule-mapper or -fmodule-header to
    make a string type option variable.  */
 
-bool
-handle_module_option (unsigned code, const char *str, int)
+bool handle_module_option(unsigned code, const char *str, int)
 {
-  switch (opt_code (code))
-    {
-    case OPT_fmodule_mapper_:
-      module_mapper_name = str;
-      return true;
+  switch (opt_code(code))
+  {
+  case OPT_fmodule_mapper_:
+    module_mapper_name = str;
+    return true;
 
     case OPT_fmodule_header_:
       {
@@ -19482,27 +19642,45 @@ handle_module_option (unsigned code, const char *str, int)
       }
       /* Fallthrough.  */
 
-    case OPT_fmodule_header:
-      flag_header_unit = 1;
-      flag_modules = 1;
-      return true;
+  case OPT_fmodule_header:
+    flag_header_unit = 1;
+    flag_modules = 1;
+    return true;
 
-    case OPT_fnote_include_translate_query:
-      note_include_translate = -1;
-      return true;
+  case OPT_fnote_include_translate_query:
+    note_include_translate = -1;
+    return true;
 
-    case OPT_fnote_include_translate_:
-      vec_safe_push (note_includes, str);
-      return true;
+  case OPT_fnote_include_translate_:
+    vec_safe_push(note_includes, str);
+    return true;
 
-    case OPT_fmodule_concept_cache:
-      flag_modules = 1;
-      flag_module_concept_cache = 1;
-      return true;
+  case OPT_fserialize_declaration_cache:
+    serialize_caches = serialize_caches | CK_declarations;
+    return true;
 
-    default:
-      return false;
-    }
+  case OPT_fserialize_normalization_cache:
+    serialize_caches = serialize_caches | CK_normalizations;
+    return true;
+
+  case OPT_fserialize_constraint_cache:
+    serialize_caches = serialize_caches | CK_constraints;
+    return true;
+
+  case OPT_fserialize_subsumption_cache:
+    serialize_caches = serialize_caches | CK_subsumptions;
+    return true;
+
+  case OPT_fserialize_caches:
+    serialize_caches = CK_normalizations |
+                      CK_declarations |
+                      CK_constraints |
+                      CK_subsumptions;
+    return true;
+
+  default:
+    return false;
+  }
 }
 
 #include "gt-cp-module.h"

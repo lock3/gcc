@@ -897,7 +897,7 @@ normalize_nontemplate_requirements (tree decl, bool diag = false)
 }
 
 /* Reads the cached normal form, if one exists.  
-   FIXME: Get a better name.  */
+   FIXME: Get a better name so as not to confuse .  */
 
 tree
 get_normalized_constraints (tree decl)
@@ -2404,7 +2404,7 @@ clear_satisfaction_cache ()
    or the atomic satisfaction cache otherwise.  */
 
 void
-walk_constraint_cache (bool decl_p,
+walk_satisfaction_cache (bool decl_p,
                        bool (*cb) (bool, tree, tree, tree, void *), void *ctx)
 {
   if (decl_p)
@@ -2433,6 +2433,21 @@ walk_constraint_cache (bool decl_p,
           if (!cb (decl_p, e->constr, e->args, e->result, ctx))
             return;
         }
+    }
+}
+
+void
+save_satisfaction (bool decl_p, tree decl_or_constraint, tree args,
+                   tree result)
+{
+  if (decl_p)
+    {
+      hash_map_safe_put<hm_ggc> (decl_satisfied_cache, decl_or_constraint,
+                                 result);
+    }
+  else
+    {
+      save_satisfaction (decl_or_constraint, args, result);
     }
 }
 
