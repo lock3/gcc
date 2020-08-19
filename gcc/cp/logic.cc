@@ -833,8 +833,8 @@ lookup_subsumption (tree t1, tree t2)
 
 /* Save a subsumption result. */
 
-static bool
-save_subsumption (tree t1, tree t2, bool result)
+bool
+save_subsumption_result (tree t1, tree t2, bool result)
 {
   if (!subsumption_cache)
     subsumption_cache = hash_table<subsumption_hasher>::create_ggc(31);
@@ -886,7 +886,7 @@ subsumes_constraints_nonnull (tree lhs, tree rhs)
       result = derive_proofs (cnf, lhs, right);
     }
 
-  return save_subsumption (lhs, rhs, result);
+  return save_subsumption_result (lhs, rhs, result);
 }
 
 /* Returns true if the LEFT constraints subsume the RIGHT
@@ -902,6 +902,48 @@ subsumes (tree lhs, tree rhs)
   if (!rhs || rhs == error_mark_node)
     return true;
   return subsumes_constraints_nonnull (lhs, rhs);
+}
+
+void
+walk_subsumption_cache (void (*cb) (tree, tree, bool, void *), void *p)
+{
+  if (!subsumption_cache)
+    return;
+
+  hash_table<subsumption_hasher>::iterator end = subsumption_cache->end ();
+  for (hash_table<subsumption_hasher>::iterator i
+       = subsumption_cache->begin ();
+       i != end; ++i)
+    {
+      subsumption_entry *e = *i;
+      cb (e->lhs, e->rhs, e->result, p);
+    }
+}
+
+/*  Calls cb for each entry in the subsumption cache where T is 
+    either the LHS or RHS of the entry.  The int result supplied 
+    to the callback is as follows:
+    bit 0: the result in the entry
+    bit 1: 0 if T is the LHS, 1 if it is the RHS. */
+
+void
+search_subsumption_cache (tree t, void (*cb) (tree, int, void *), void *p)
+{
+  if (!subsumption_cache)
+    return;
+
+  hash_table<subsumption_hasher>::iterator end = subsumption_cache->end ();
+  for (hash_table<subsumption_hasher>::iterator i
+       = subsumption_cache->begin ();
+       i != end; ++i)
+    {
+      subsumption_entry *e = *i;
+      int r = e->result ? 1 : 0;
+      if (e->lhs == t)
+        cb (e->rhs, r, p);
+      else if (e->rhs == t)
+        cb (e->lhs, r | 2, p);
+    }
 }
 
 #include "gt-cp-logic.h"

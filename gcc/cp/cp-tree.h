@@ -8203,6 +8203,9 @@ extern void save_satisfaction (bool, tree, tree, tree);
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);
 
+extern void walk_subsumption_cache (void (*) (tree, tree, bool, void *), void *);
+extern void search_subsumption_cache (tree, void (*) (tree, int, void *), void *);
+
 /* In class.c */
 extern void cp_finish_injected_record_type (tree);
 
