@@ -8457,6 +8457,8 @@ extern bool literal_type_p                      (tree);
 extern tree check_constexpr_fundef           	(tree, tree);
 extern tree register_constexpr_fundef           (const constexpr_fundef &);
 extern constexpr_fundef *retrieve_constexpr_fundef		(tree);
+extern tree register_constexpr_fundef           (tree, tree);
+extern tree register_contracts_constexpr_fundef (tree, tree);
 extern bool is_valid_constexpr_fn		(tree, bool);
 extern bool check_constexpr_ctor_body           (tree, tree, bool);
 extern tree constexpr_fn_retval		(tree);

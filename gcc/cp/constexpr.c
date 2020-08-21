@@ -947,6 +947,43 @@ register_constexpr_fundef (const constexpr_fundef &value)
   return value.decl;
 }
 
+/* True if the call expression currently being evaluated is being done for
+   static checking of contracts through the OPT_Wconstexpr_contract_checking_
+   flag, and not from an actual constexpr expression.  */
+static int contract_static_analysis_check_p = 0;
+/* True if we've already emitted an error for the current top level SA check.  */
+static int contract_static_analysis_warned = 0;
+/* The top level contract SA call if we're currently doing contract SA and
+   such a call exists (pre/post checking).  */
+static tree contract_static_analysis_call = NULL_TREE;
+
+/* Helper to handle the above.  */
+struct contract_static_analysis_sentinel
+{
+  contract_static_analysis_sentinel(tree call)
+    : csac_override(call)
+  {
+    ++contract_static_analysis_check_p;
+    contract_static_analysis_warned = 0;
+  }
+  ~contract_static_analysis_sentinel()
+  {
+    --contract_static_analysis_check_p;
+  }
+  temp_override<tree> csac_override;
+};
+
+/* Similar to register_constexpr_fundef, but we don't require an explicit
+   constexpr specifier and we fail quietly.  This is used to save the body of
+   functions with contracts so that static analysis can be performed.  */
+
+tree
+register_contracts_constexpr_fundef (tree fun, tree body)
+{
+  contract_static_analysis_sentinel sentinel(NULL_TREE);
+  return register_constexpr_fundef (fun, body);
+}
+
 /* FUN is a non-constexpr function called in a context that requires a
    constant expression.  If it comes from a constexpr template, explain why
    the instantiation isn't constexpr.  */
@@ -1157,27 +1194,6 @@ uid_sensitive_constexpr_evaluation_checker::evaluation_restricted_p () const
   return (uid_sensitive_constexpr_evaluation_value
 	  && saved_counter != uid_sensitive_constexpr_evaluation_true_counter);
 }
-
-/* True if the call expression currently being evaluated is being done for
-   static checking of contracts through the OPT_Wconstexpr_contract_checking_
-   flag, and not from an actual constexpr expression.  */
-static int contract_static_analysis_check_p = 0;
-static int contract_static_analysis_warned = 0;
-static tree contract_static_analysis_call = NULL_TREE;
-
-struct contract_static_analysis_sentinel
-{
-  contract_static_analysis_sentinel(tree call)
-    : csac_override(call)
-  {
-    ++contract_static_analysis_check_p;
-  }
-  ~contract_static_analysis_sentinel()
-  {
-    --contract_static_analysis_check_p;
-  }
-  temp_override<tree> csac_override;
-};
 
 static bool
 diagnose_constant_contract (tree contract, tree value, location_t loc,
@@ -7645,10 +7661,10 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
 			|| !is_std_construct_at (current_function_decl))
 		    && !cxx_dynamic_cast_fn_p (fun)
 		    /* Allow checks on guarded functions for static analysis.  */
-		    && (!DECL_HAS_CONTRACTS_P (fun)
-			|| !contract_static_analysis_check_p)
+		    && !(DECL_HAS_CONTRACTS_P (fun)
+			&& contract_static_analysis_check_p)
 		    /* Allow pre/post fns.  */
-		    && !(DECL_ORIGINAL_FN (fun) != NULL_TREE))
+		    && (DECL_ORIGINAL_FN (fun) == NULL_TREE))
 		  {
 		    if (flags & tf_error)
 		      {
@@ -8797,6 +8813,7 @@ check_constant_contracts (tree call)
   /* Dig out the function being called. Note that this folds the expression
      so we can see through trivially indirect calls.  */
   tree fn = cp_get_callee_fndecl (call);
+  // FIXME cp_get_callee_fndecl_nofold ? get_function_named_in_call ?
   if (!fn || !DECL_DECLARES_FUNCTION_P (fn))
     return;
   if (!DECL_HAS_CONTRACTS_P (fn))
@@ -8809,7 +8826,6 @@ check_constant_contracts (tree call)
   if ((flag_constexpr_contract_checking & ccc_post)
       && retrieve_constexpr_fundef (fn))
     {
-      contract_static_analysis_warned = 0;
       tree ret = maybe_constant_value (call);
       if (!TREE_CONSTANT (ret))
 	ret = error_mark_node;
