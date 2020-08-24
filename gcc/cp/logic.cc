@@ -932,6 +932,9 @@ search_subsumption_cache (tree t, void (*cb) (tree, int, void *), void *p)
   if (!subsumption_cache)
     return;
 
+  if (!t)
+    return;
+
   hash_table<subsumption_hasher>::iterator end = subsumption_cache->end ();
   for (hash_table<subsumption_hasher>::iterator i
        = subsumption_cache->begin ();

@@ -3023,7 +3023,7 @@ private:
     auto_vec<tree_pair> constr_results;
     auto_vec<std::pair<tree, int>> subsum_results;
   };
-  void decl_constraints (constraint_cache_info *cci);
+  void decl_constraints (tree decl, constraint_cache_info *cci);
   void update_constraints (tree decl, constraint_cache_info *cci);
 
 private:
@@ -7980,7 +7980,7 @@ trees_in::decl_value ()
 
   constraint_cache_info cci;
   cci.flags = (cache_kind)state->get_cache_kind ();
-  decl_constraints (&cci);
+  decl_constraints (decl, &cci);
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
 
@@ -8170,6 +8170,10 @@ write_sat_result (bool decl_p, tree key, tree args, tree result, void *p)
         {
           // There can only be one result for this decl.
           ctx->out->tree_node (result);
+
+          ctx->out->streaming_p () && dump (dumper::TREE)
+              && dump ("Wrote: decl satisfaction result %N (%C)", key, result);
+
           return false;
         }
       else
@@ -8180,6 +8184,10 @@ write_sat_result (bool decl_p, tree key, tree args, tree result, void *p)
           // otherwise not be recorded anywhere.
           ctx->out->tree_node (args);
           ctx->out->tree_node (result);
+
+          ctx->out->streaming_p () && dump (dumper::TREE)
+              && dump ("Wrote: constraint satisfaction result %N<%C> (%C)",
+                       key, args, result);
         }
     }
   return true;
@@ -8188,6 +8196,8 @@ write_sat_result (bool decl_p, tree key, tree args, tree result, void *p)
 static void
 walk_normalized_constraints (tree t, void (*cb) (tree, void *), void *ctx)
 {
+  if (!t)
+    return;
   switch (TREE_CODE (t))
     {
     case CONJ_CONSTR:
@@ -8222,6 +8232,7 @@ write_constraint_satisfactions (tree t, void *p)
 
 struct subsum_cache_out_context
 {
+  tree key; // Just for dump info
   trees_out *out;
   unsigned count;
 };
@@ -8233,6 +8244,10 @@ write_subsumption_results (tree t, int result, void *p)
   ctx->out->tree_node (t);
   ctx->out->i (result);
   ctx->count++;
+
+  if (ctx->out->streaming_p () && dump (dumper::TREE))
+    dump ("Wrote: subsumption result for %C - %C (%d)", ctx->key, t,
+          result);
 }
 
 void
@@ -8240,76 +8255,67 @@ trees_out::decl_constraints (tree decl)
 {
   tree req = get_constraints (decl);
   tree_node (req);
-  if (req)
+
+  if (!req)
+    return;
+
+  if (streaming_p ())
+    dump (dumper::TREE) && dump ("Wrote: constraint info for %N", decl);
+
+  if (serialize_caches && dump (dumper::TREE))
+    dump.indent ();
+
+  sat_cache_out_context ctx;
+  ctx.out = this;
+
+  if (serialize_declarations_p ())
     {
-      if (streaming_p ())
-        fprintf (stderr, "wrote constraints for %p\n", (void *)decl);
-
-      sat_cache_out_context ctx;
-      ctx.out = this;
-
-      if (serialize_declarations_p ())
-        {
-          ctx.key = decl;
-          ctx.count = 0;
-          // Write the cached decl satisfied result.
-          walk_satisfaction_cache (true, write_sat_result, &ctx);
-          if (!ctx.count)
-            tree_node (NULL_TREE);
-
-          if (streaming_p ())
-            fprintf (stderr,
-                     "wrote %u decl satisfactions constraints for %p\n",
-                     ctx.count, (void *)decl);
-        }
-
-      tree norm = NULL_TREE;
-      if (serialize_normalizations_p ())
-        {
-          // Write the normalized form of the constraint.
-          // norm could be null, it just means that the
-          // constraint was never tested.
-          norm = get_normalized_constraints (decl);
-          tree_node (norm);
-
-          if (streaming_p ())
-            fprintf (stderr, "wrote normalized constraint for %p\n",
-                     (void *)decl);
-        }
-
-      if (serialize_constraints_p ())
-        {
-          // Write the cached results for the atomic constraints
-          // for the normalized form, including ALL the failed
-          // results.
-          if (norm)
-            {
-              ctx.count = 0;
-              walk_normalized_constraints (
-                  norm, write_constraint_satisfactions, &ctx);
-            }
-          // Write a sentinel value
-          tree_node (NULL_TREE);
-
-          if (streaming_p ())
-            fprintf (stderr, "wrote %u constraint satisfactions for %p\n",
-                     ctx.count, (void *)decl);
-        }
-
-      if (serialize_subsumptions_p ())
-        {
-          subsum_cache_out_context ctx;
-          ctx.out = this;
-          ctx.count = 0;
-          search_subsumption_cache (norm, write_subsumption_results, &ctx);
-          // write a sentinel value.
-          tree_node (NULL_TREE);
-
-          if (streaming_p ())
-            fprintf (stderr, "wrote %u subsumption results for %p\n",
-                     ctx.count, (void *)decl);
-        }
+      ctx.key = decl;
+      ctx.count = 0;
+      // Write the cached decl satisfied result.
+      walk_satisfaction_cache (true, write_sat_result, &ctx);
+      if (!ctx.count)
+        tree_node (NULL_TREE);
     }
+
+  tree norm = NULL_TREE;
+  if (serialize_normalizations_p ())
+    {
+      // Write the normalized form of the constraint.
+      // norm could be null, it just means that the
+      // constraint was never tested.
+      norm = get_normalized_constraints (decl);
+      tree_node (norm);
+
+      // TODO: walk tree & dump indiviual constraints
+      if (streaming_p () && dump (dumper::TREE))
+        dump ("Wrote: normalized constraint for %N", decl);
+    }
+
+  if (serialize_constraints_p ())
+    {
+      // Write the cached results for the atomic constraints
+      // for the normalized form, including ALL the failed
+      // results.
+      ctx.count = 0;
+      walk_normalized_constraints (norm, write_constraint_satisfactions, &ctx);
+      // Write a sentinel value
+      tree_node (NULL_TREE);
+    }
+
+  if (serialize_subsumptions_p ())
+    {
+      subsum_cache_out_context ctx;
+      ctx.key = norm;
+      ctx.out = this;
+      ctx.count = 0;
+      search_subsumption_cache (norm, write_subsumption_results, &ctx);
+      // Write a sentinel value.
+      tree_node (NULL_TREE);
+    }
+
+  if (serialize_caches && dump (dumper::TREE))
+    dump.outdent ();
 }
 
 void
@@ -8322,7 +8328,7 @@ save_constraint_satisfactions (tree t, void *p)
 }
 
 void
-trees_in::decl_constraints (constraint_cache_info *cci)
+trees_in::decl_constraints (tree decl, constraint_cache_info *cci)
 {
   cci->constr = NULL_TREE;
   cci->norm = NULL_TREE;
@@ -8332,20 +8338,25 @@ trees_in::decl_constraints (constraint_cache_info *cci)
   if (!cci->constr)
     return;
 
-  fprintf (stderr, "read constraints %p\n", (void *)cci->constr);
+  dump (dumper::TREE) && dump ("Read: constraint info for %N", decl);
+
+  if (cci->flags && dump (dumper::TREE))
+    dump.indent ();
 
   // Read the constraint satisfaction result for decl
   if (cci->flags & CK_declarations)
     {
       cci->decl_results = tree_node ();
-      fprintf (stderr, "read declaration satisfaction %p\n",
-               (void *)cci->decl_results);
+      dump (dumper::TREE) && dump ("Read: declaration satisfaction %N (%C)",
+               decl, cci->decl_results);
     }
 
   if (cci->flags & CK_normalizations)
     {
       cci->norm = tree_node ();
-      fprintf (stderr, "read normalized constraint %p\n", (void *)cci->norm);
+
+      // TODO: walk norm & dump constraints
+      dump(dumper::TREE) && dump ("Read: normalized constraint for %N", decl);
     }
 
   if (cci->flags & CK_constraints)
@@ -8357,28 +8368,33 @@ trees_in::decl_constraints (constraint_cache_info *cci)
         {
           tree r = tree_node ();
           cci->constr_results.safe_push (std::make_pair (a, r));
-        }
 
-      fprintf (stderr, "read %u constraint satisfactions\n",
-               cci->constr_results.length ());
-
-      if (cci->flags & CK_subsumptions)
-        {
-          tree t;
-          while ((t = tree_node ()) != NULL_TREE)
-            {
-              // TODO: What is T? is it the normalized
-              // constraints for some other requires expression?
-              // Or the constraint info for some other declaration?
-              // Should we be saving it to the cache somehow?
-              int r = i ();
-              cci->subsum_results.safe_push (std::make_pair (t, r));
-            }
-
-            fprintf (stderr, "read %u subsumption results\n",
-               cci->subsum_results.length ());
+          dump (dumper::TREE)
+              && dump ("Read: constraint satisfaction for %N[%C] (%C)", decl,
+                       a, r);
         }
     }
+
+  if (cci->flags & CK_subsumptions)
+    {
+      tree t;
+      while ((t = tree_node ()) != NULL_TREE)
+        {
+          // TODO: What is T? is it the normalized
+          // constraints for some other requires expression?
+          // Or the constraint info for some other declaration?
+          // Should we be saving it to the cache somehow?
+          int r = i ();
+          cci->subsum_results.safe_push (std::make_pair (t, r));
+
+          dump (dumper::TREE)
+              && dump ("Read: subsumption result for %C - %C (%d)", decl, t,
+                       r);
+        }
+    }
+
+  if (cci->flags && dump (dumper::TREE))
+    dump.outdent ();
 }
 
 void
