@@ -36,6 +36,7 @@ T tfun(T t)
 template<typename T>
 T tfun2(T t)
   [[ pre: t > 0 ]]
+  [[ post: t < 0 ]]
   [[ post: false ]] // { dg-warning "always .false." }
 {
   return t;
@@ -61,23 +62,25 @@ struct Foo {
   Foo(int n)
     [[ pre: n != 0 ]]
     [[ pre: false ]] // { dg-warning "always .false." }
+    : memb{n}
   {
   }
 
-  static void sfun(int n)
+  static int sfun(int n)
     [[ pre: n != 0 ]]
     [[ pre: false ]] // { dg-warning "always .false." }
   {
+    return n;
   }
-  static void sfun2(int n)
+  static int sfun2(int n)
     [[ pre: false ]] // { dg-warning "always .false." }
   {
+    return n;
   }
 
-  void fun(int n)
+  void fun(int n) const
     [[ pre: n != 0 ]]
-    // FIXME use of this in constant expression
-    //[[ pre: memb != 0 ]]
+    [[ pre: memb != 0 ]]
     [[ pre: false ]] // { dg-warning "always .false." }
   {
   }
@@ -114,6 +117,19 @@ struct TFoo {
   T memb{0};
 };
 
+struct CFoo {
+  constexpr CFoo(int n) : memb{n} { }
+
+  int fun(int n) const
+    [[ pre: n != 0 ]]
+    [[ pre: memb != 0 ]]
+  {
+    return n;
+  }
+
+  int memb{0};
+};
+
 int nested1(int n)
   [[ pre: n != 0 ]]
 {
@@ -144,11 +160,10 @@ int main(int, char**) {
   fun2(n); // { dg-warning "precondition .false. is never satisfied here" }
   fun3(n); // { dg-warning "postcondition .false. is never satisfied here" }
 
-  // FIXME templates that haven't been fully instantiated at call time?
   tfun(1); // { dg-warning "precondition .false. is never satisfied here" }
   tfun(1.5); // { dg-warning "precondition .false. is never satisfied here" }
-  //tfun2(1); // dg-warning "postcondition .false. is never satisfied here" }
-  //tfun2(1.5); // dg-warning "postcondition .false. is never satisfied here" }
+  tfun2(2); //  dg-warning "postcondition .false. is never satisfied here" }
+  tfun2(2.5); //  dg-warning "postcondition .false. is never satisfied here" }
 
   tfun_auto(1); // { dg-warning "precondition .false. is never satisfied here" }
   tfun_auto(1.5); // { dg-warning "precondition .false. is never satisfied here" }
@@ -161,11 +176,22 @@ int main(int, char**) {
   f1.fun(0);
   f1.fun(n);
 
-  // FIXME non-template statics?
-  Foo::sfun(0); // dg-warning "precondition ..n != 0.. is never satisfied here" }
-  Foo::sfun(n); // dg-warning "precondition ..n != 0.. is never satisfied here" }
-  Foo::sfun2(0); // dg-warning "precondition .false. is never satisfied here" }
-  Foo::sfun2(n); // dg-warning "precondition .false. is never satisfied here" }
+  f2.fun(0);
+  f2.fun(n);
+
+  constexpr int m = 1;
+  f1.fun(m);
+  f2.fun(m);
+
+  constexpr CFoo f3{m};
+  int f30 = f3.fun(0);
+  int f3n = f3.fun(n);
+  int f3m = f3.fun(m);
+
+  Foo::sfun(0); // { dg-warning "precondition ..n != 0.. is never satisfied here" }
+  Foo::sfun(n); // { dg-warning "precondition ..n != 0.. is never satisfied here" }
+  Foo::sfun2(0); // { dg-warning "precondition .false. is never satisfied here" }
+  Foo::sfun2(n); // { dg-warning "precondition .false. is never satisfied here" }
 
   TFoo<int> ft_int1{0};
   TFoo<int> ft_int2{n};
