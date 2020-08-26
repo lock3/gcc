@@ -8242,12 +8242,14 @@ write_subsumption_results (tree t, int result, void *p)
 {
   subsum_cache_out_context *ctx = (subsum_cache_out_context *)p;
   ctx->out->tree_node (t);
-  ctx->out->i (result);
+  if (ctx->out->streaming_p ())
+    {
+      ctx->out->i (result);
+    }
   ctx->count++;
 
   if (ctx->out->streaming_p () && dump (dumper::TREE))
-    dump ("Wrote: subsumption result for %C - %C (%d)", ctx->key, t,
-          result);
+    dump ("Wrote: subsumption result for %C - %C (%d)", ctx->key, t, result);
 }
 
 void
@@ -8260,10 +8262,14 @@ trees_out::decl_constraints (tree decl)
     return;
 
   if (streaming_p ())
-    dump (dumper::TREE) && dump ("Wrote: constraint info for %N", decl);
-
-  if (serialize_caches && dump (dumper::TREE))
-    dump.indent ();
+    {
+      if (dump (dumper::TREE))
+        {
+          dump ("Wrote: constraint info for %N", decl);
+          if (serialize_caches)
+            dump.indent ();
+        }
+    }
 
   sat_cache_out_context ctx;
   ctx.out = this;
@@ -8294,6 +8300,9 @@ trees_out::decl_constraints (tree decl)
 
   if (serialize_constraints_p ())
     {
+      if (!norm)
+        norm = get_normalized_constraints (decl);
+
       // Write the cached results for the atomic constraints
       // for the normalized form, including ALL the failed
       // results.
@@ -8305,6 +8314,9 @@ trees_out::decl_constraints (tree decl)
 
   if (serialize_subsumptions_p ())
     {
+      if (!norm)
+        norm = get_normalized_constraints (decl);
+
       subsum_cache_out_context ctx;
       ctx.key = norm;
       ctx.out = this;
@@ -8314,7 +8326,7 @@ trees_out::decl_constraints (tree decl)
       tree_node (NULL_TREE);
     }
 
-  if (serialize_caches && dump (dumper::TREE))
+  if (streaming_p() && serialize_caches && dump (dumper::TREE))
     dump.outdent ();
 }
 
