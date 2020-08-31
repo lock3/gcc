@@ -10201,6 +10201,7 @@ grokvardecl (tree type,
         }
     }
   else if (flag_concepts
+	   && !current_function_decl
 	   && processing_template_decl > template_class_depth (scope))
     {
       tree reqs = TEMPLATE_PARMS_CONSTRAINTS (current_template_parms);
