@@ -1,3 +1,131 @@
+2020-08-28  Nathan Sidwell  <nathan@acm.org>
+
+	Fix pushing imported namespaces.
+	gcc/cp/
+	* module.cc (depset::hash_add_namespace): Don't mark bindings
+	special.
+	(struct add_binding_data): Record finding a namespace.
+	(depset::hash::add_binding_entity): Make namespaces idempotent.
+	(depset::hash::add_namespace_entities): Clear met_namespace.
+	(module_state::write): Zap partitions bitmap if empty.
+	* name-lookup.c (push_namespace): Ensure namespace is in
+	MODULE_SLOT_CURRENT.
+	* ptree.c (cxx_print_xnode): Show more detail on MODULE_VECTOR.
+	gcc/testsuite/
+	* g++.dg/modules/ns-imp-1_[abc].C: New.
+	* g++.dg/modules/ns-part-1_[abc].C: New.
+
+	gcc/testsuite/
+	* lib/prune.exp (prune_ices): Adjust regexp.
+
+	Merge trunk cb3c3d63315.
+	Whee, all up to date!
+
+	Merge trunk f1612b8ae8a.
+	c++: Check satisfaction before non-dep convs. [CWG2369]
+	gcc/testsuite/
+	* g++.dg/modules/concept-[13]_b.C: Adjust.
+
+	Merge trunk e6e01618e83.
+
+2020-08-27  Nathan Sidwell  <nathan@acm.org>
+
+	Stream MEM_REFs, who knew?
+	gcc/cp/
+	* module.cc (trees_{in,out}::start): Permit MEM_REFs.
+	(trees_{in,out}::core_bools): Likewise.
+	gcc/testsuite/
+	* g++.dg/modules/memref-1_[ab].C: New.
+
+2020-08-27  Nathan Sidwell  <nathan@acm.org>
+	    Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix hash table breakage.
+	gcc/cp/
+	* name-lookup.c (push_namespace): Do not create slot on first
+	lookup.
+	gcc/testsuite/
+	* g++.dg/modules/string-view1.C: New test.
+	* g++.dg/modules/string-view2.C: Ditto.
+
+2020-08-27  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 708b3600d04.
+
+2020-08-26  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 17abcc77341.
+	libstdc++: Replace operator>>(istream&, char*) [LWG 2499]
+
+	Fix type lang specific changing.
+	gcc/cp/
+	* lex.c (copy_lang_type): Split allocation & assignment to be
+	conditional-breakpoint friendly.
+	* module.cc (trees_in::read_class_def): Update variants if we
+	alter TYPE_LANG_SPECIFIC.
+	* name-lookup.c (maybe_lazily_declare): Look at main variant's
+	decl.
+	gcc/testsuite/
+	* g++.dg/modules/tdef-inst-1{.h,_[ab].C}: New.
+
+	Fix int_cst caching
+	gcc/
+	* tree.c (cache_integer_cst): Fix pointer type indices.
+
+	Cherry pick 794275711bd.
+	gcc/cp/
+	* name-lookup.c (op_unqualified_lookup): Don't check if matches
+	global lookup.
+	gcc/testsuite/
+	* g++.dg/lookup/operator-[12].C: New.
+
+2020-08-25  Nathan Sidwell  <nathan@acm.org>
+
+	Operator function lookups in templates
+	gcc/cp/
+	* decl.c (poplevel): A local-binding tree list holds the name in
+	TREE_PURPOSE.
+	* name-lookup.c (update_local_overload): Add id to TREE_PURPOSE.
+	(lookup_name_1): Deal with local-binding error_mark_node marker.
+	(op_unqualified_lookup): Return error_mark_node for 'nothing
+	found'.  Do other short circuiting here.
+	(maybe_save_operator_binding): Reimplement to always cache a
+	result.
+	(push_operator_bindings): Deal with 'ignore' marker.
+	gcc/testsuite/
+	* g++.dg/modules/operator-1_[ab].C: New.
+
+2020-08-20  Nathan Sidwell  <nathan@acm.org>
+
+	Friend specialization overhaul part 1
+	gcc/cp/
+	* module.cc
+	gcc/testsuite/
+	* g++.dg/modules/tpl-friend-[12]_a.C: Adjust scan.
+	* g++.dg/modules/tpl-friend-merge-1*: New.
+
+	Do not stream hidden_friend_p.
+	gcc/cp/
+	* module.cc (trees_{in,out}::lang_decl_bools): Do not stream
+	anticipated_p or hidden_friend_p.
+	* name-lookup.c (name_lookup::adl_class_fns): DECL_ANTICIPATED is
+	not informative.
+
+	Reimplement module binding extraction.
+	gcc/cp/
+	* module.cc (depset::clear_hidden_binding): New.
+	(depset::hash::add_binding): Delete.
+	(struct add_binding_data): New.
+	(depset::hash::add_binding_entity): New.
+	(writable_cmp): Delete.
+	(depset::hash::add_namespace_entities): Reimplement.
+	(module_state::write_cluster): Adjust for unscoped enums.
+	* name-lookup.h (extract_module_binding): Replace with ...
+	(walk_module_binding): ... this.
+	* name-lookup.c (STAT_TYPE_HIDDEN): New.
+	(extract_module_binding): Replace with ...
+	(walk_module_binding): ... this.
+
 2020-08-19  Nathan Sidwell  <nathan@acm.org>
 
 	ODR-check enums!

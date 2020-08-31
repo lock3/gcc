@@ -1,5 +1,8 @@
 // { dg-additional-options "-fmodules-ts" }
 // reduced from string-view1 through cvise. Broken under c++2a too.
+// we were creating a hash slot, and then doing another lookup without
+// initializing that first slot :(
+
 namespace std {
 typedef int a;
 int b;

@@ -582,12 +582,22 @@ add_to_template_args (tree args, tree extra_args)
    (EXTRA_ARGS) levels are added.  This function is used to combine
    the template arguments from a partial instantiation with the
    template arguments used to attain the full instantiation from the
-   partial instantiation.  */
+   partial instantiation.
+
+   If ARGS is a TEMPLATE_DECL, use its parameters as args.  */
 
 tree
 add_outermost_template_args (tree args, tree extra_args)
 {
   tree new_args;
+
+  if (!args)
+    return extra_args;
+  if (TREE_CODE (args) == TEMPLATE_DECL)
+    {
+      tree ti = get_template_info (DECL_TEMPLATE_RESULT (args));
+      args = TI_ARGS (ti);
+    }
 
   /* If there are more levels of EXTRA_ARGS than there are ARGS,
      something very fishy is going on.  */
@@ -4426,7 +4436,7 @@ canonical_type_parameter (tree type)
   gcc_assert (TREE_CODE (type) != TEMPLATE_TEMPLATE_PARM);
 
   if (vec_safe_length (canonical_template_parms) <= (unsigned) idx)
-    vec_safe_grow_cleared (canonical_template_parms, idx + 1);
+    vec_safe_grow_cleared (canonical_template_parms, idx + 1, true);
 
   for (tree list = (*canonical_template_parms)[idx];
        list; list = TREE_CHAIN (list))
@@ -10817,7 +10827,7 @@ static GTY(()) struct tinst_level *last_error_tinst_level;
 /* We're starting to instantiate D; record the template instantiation context
    at LOC for diagnostics and to restore it later.  */
 
-static bool
+bool
 push_tinst_level_loc (tree tldcl, tree targs, location_t loc)
 {
   struct tinst_level *new_level;
@@ -10871,7 +10881,7 @@ push_tinst_level_loc (tree tldcl, tree targs, location_t loc)
 /* We're starting substitution of TMPL<ARGS>; record the template
    substitution context for diagnostics and to restore it later.  */
 
-static bool
+bool
 push_tinst_level (tree tmpl, tree args)
 {
   return push_tinst_level_loc (tmpl, args, input_location);
@@ -13503,6 +13513,17 @@ tsubst_aggr_type (tree t,
 					 complain, in_decl);
 	  if (argvec == error_mark_node)
 	    r = error_mark_node;
+	  else if (cxx_dialect >= cxx17 && dependent_scope_p (context))
+	    {
+	      /* See maybe_dependent_member_ref.  */
+	      tree name = TYPE_IDENTIFIER (t);
+	      tree fullname = name;
+	      if (instantiates_primary_template_p (t))
+		fullname = build_nt (TEMPLATE_ID_EXPR, name,
+				     INNERMOST_TEMPLATE_ARGS (argvec));
+	      return build_typename_type (context, name, fullname,
+					  typename_type);
+	    }
 	  else
 	    {
 	      r = lookup_template_class (t, argvec, in_decl, context,
@@ -16451,6 +16472,31 @@ tsubst_init (tree init, tree decl, tree args,
   return init;
 }
 
+/* If T is a reference to a dependent member of the current instantiation C and
+   we are trying to refer to that member in a partial instantiation of C,
+   return a SCOPE_REF; otherwise, return NULL_TREE.
+
+   This can happen when forming a C++17 deduction guide, as in PR96199.  */
+
+static tree
+maybe_dependent_member_ref (tree t, tree args, tsubst_flags_t complain,
+			    tree in_decl)
+{
+  if (cxx_dialect < cxx17)
+    return NULL_TREE;
+
+  tree ctx = context_for_name_lookup (t);
+  if (!CLASS_TYPE_P (ctx))
+    return NULL_TREE;
+
+  ctx = tsubst (ctx, args, complain, in_decl);
+  if (dependent_scope_p (ctx))
+    return build_qualified_name (NULL_TREE, ctx, DECL_NAME (t),
+				 /*template_p=*/false);
+
+  return NULL_TREE;
+}
+
 /* Like tsubst, but deals with expressions.  This function just replaces
    template parms; to finish processing the resultant expression, use
    tsubst_copy_and_build or tsubst_expr.  */
@@ -16509,6 +16555,9 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	if (args == NULL_TREE)
 	  return scalar_constant_value (t);
 
+	if (tree ref = maybe_dependent_member_ref (t, args, complain, in_decl))
+	  return ref;
+
 	/* Unfortunately, we cannot just call lookup_name here.
 	   Consider:
 
@@ -16559,6 +16608,9 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
       return t;
 
     case VAR_DECL:
+      if (tree ref = maybe_dependent_member_ref (t, args, complain, in_decl))
+	return ref;
+      gcc_fallthrough();
     case FUNCTION_DECL:
       if (DECL_LANG_SPECIFIC (t) && DECL_TEMPLATE_INFO (t))
 	r = tsubst (t, args, complain, in_decl);
@@ -21478,13 +21530,24 @@ fn_type_unification (tree fn,
       goto fail;
     }
 
+ deduced:
+
+  /* CWG2369: Check satisfaction before non-deducible conversions.  */
+  if (!constraints_satisfied_p (fn, targs))
+    {
+      if (explain_p)
+	diagnose_constraints (DECL_SOURCE_LOCATION (fn), fn, targs);
+      goto fail;
+    }
+
   /* DR 1391: All parameters have args, now check non-dependent parms for
-     convertibility.  */
-  if (check_non_deducible_conversions (parms, args, nargs, fn, strict, flags,
-				       convs, explain_p))
+     convertibility.  We don't do this if all args were explicitly specified,
+     as the standard says that we substitute explicit args immediately.  */
+  if (incomplete
+      && check_non_deducible_conversions (parms, args, nargs, fn, strict, flags,
+					  convs, explain_p))
     goto fail;
 
- deduced:
   /* All is well so far.  Now, check:
 
      [temp.deduct]
@@ -22361,6 +22424,8 @@ resolve_overloaded_unification (tree tparms,
 	      && !any_dependent_template_arguments_p (subargs))
 	    {
 	      fn = instantiate_template (fn, subargs, tf_none);
+	      if (!constraints_satisfied_p (fn))
+		continue;
 	      if (undeduced_auto_decl (fn))
 		{
 		  /* Instantiate the function to deduce its return type.  */
@@ -22507,7 +22572,8 @@ resolve_nondeduced_context (tree orig_expr, tsubst_flags_t complain)
 		  badfn = fn;
 		  badargs = subargs;
 		}
-	      else if (elem && (!goodfn || !decls_match (goodfn, elem)))
+	      else if (elem && (!goodfn || !decls_match (goodfn, elem))
+		       && constraints_satisfied_p (elem))
 		{
 		  goodfn = elem;
 		  ++good;
@@ -28586,6 +28652,16 @@ build_deduction_guide (tree type, tree ctor, tree outer_args, tsubst_flags_t com
 	  cp_evaluated ev;
 	  fargs = tsubst (fargs, tsubst_args, complain, ctor);
 	  current_template_parms = save_parms;
+	}
+      else
+	{
+	  /* Substitute in the same arguments to rewrite class members into
+	     references to members of an unknown specialization.  */
+	  cp_evaluated ev;
+	  fparms = tsubst_arg_types (fparms, targs, NULL_TREE, complain, ctor);
+	  fargs = tsubst (fargs, targs, complain, ctor);
+	  if (ci)
+	    ci = tsubst_constraint_info (ci, targs, complain, ctor);
 	}
 
       --processing_template_decl;

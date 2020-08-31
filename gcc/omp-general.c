@@ -444,10 +444,6 @@ omp_extract_for_data (gomp_for *for_stmt, struct omp_for_data *fd,
 	      = build_nonstandard_integer_type
 		  (TYPE_PRECISION (TREE_TYPE (loop->v)), 1);
 	}
-      else if (loop->m1 || loop->m2)
-	/* Non-rectangular loops should use static schedule and no
-	   ordered clause.  */
-	gcc_unreachable ();
       else if (iter_type != long_long_unsigned_type_node)
 	{
 	  if (POINTER_TYPE_P (TREE_TYPE (loop->v)))
@@ -463,7 +459,9 @@ omp_extract_for_data (gomp_for *for_stmt, struct omp_for_data *fd,
 				     loop->n2, loop->step);
 	      else
 		n = loop->n1;
-	      if (TREE_CODE (n) != INTEGER_CST
+	      if (loop->m1
+		  || loop->m2
+		  || TREE_CODE (n) != INTEGER_CST
 		  || tree_int_cst_lt (TYPE_MAX_VALUE (iter_type), n))
 		iter_type = long_long_unsigned_type_node;
 	    }
@@ -484,7 +482,9 @@ omp_extract_for_data (gomp_for *for_stmt, struct omp_for_data *fd,
 					loop->n2, loop->step);
 		  n2 = loop->n1;
 		}
-	      if (TREE_CODE (n1) != INTEGER_CST
+	      if (loop->m1
+		  || loop->m2
+		  || TREE_CODE (n1) != INTEGER_CST
 		  || TREE_CODE (n2) != INTEGER_CST
 		  || !tree_int_cst_lt (TYPE_MIN_VALUE (iter_type), n1)
 		  || !tree_int_cst_lt (n2, TYPE_MAX_VALUE (iter_type)))
@@ -1491,7 +1491,7 @@ omp_construct_simd_compare (tree clauses1, tree clauses2)
 	  }
 	unsigned HOST_WIDE_INT argno = tree_to_uhwi (OMP_CLAUSE_DECL (c));
 	if (argno >= v->length ())
-	  v->safe_grow_cleared (argno + 1);
+	  v->safe_grow_cleared (argno + 1, true);
 	(*v)[argno] = c;
       }
   /* Here, r is used as a bitmask, 2 is set if CLAUSES1 has something

@@ -944,27 +944,24 @@ public:
        Implemented by overriding all the RETURN_EXPRs and replacing all
        occurrences of VAR with the RESULT_DECL for the function.
        This is only worth doing for functions that can return in memory.  */
-    if (d->nrvo_can)
-      {
-	tree restype = TREE_TYPE (DECL_RESULT (fndecl));
+    tree resdecl = DECL_RESULT (fndecl);
 
-	if (!AGGREGATE_TYPE_P (restype))
-	  d->nrvo_can = 0;
+    if (TREE_ADDRESSABLE (TREE_TYPE (resdecl))
+	|| aggregate_value_p (TREE_TYPE (resdecl), fndecl))
+      {
+	/* Return non-trivial structs by invisible reference.  */
+	if (TREE_ADDRESSABLE (TREE_TYPE (resdecl)))
+	  {
+	    TREE_TYPE (resdecl) = build_reference_type (TREE_TYPE (resdecl));
+	    DECL_BY_REFERENCE (resdecl) = 1;
+	    TREE_ADDRESSABLE (resdecl) = 0;
+	    relayout_decl (resdecl);
+	    d->shidden = build_deref (resdecl);
+	  }
 	else
-	  d->nrvo_can = aggregate_value_p (restype, fndecl);
-      }
+	  d->shidden = resdecl;
 
-    if (d->nrvo_can)
-      {
-	tree resdecl = DECL_RESULT (fndecl);
-
-	TREE_TYPE (resdecl)
-	  = build_reference_type (TREE_TYPE (resdecl));
-	DECL_BY_REFERENCE (resdecl) = 1;
-	TREE_ADDRESSABLE (resdecl) = 0;
-	relayout_decl (resdecl);
-
-	if (d->nrvo_var)
+	if (d->nrvo_can && d->nrvo_var)
 	  {
 	    tree var = get_symbol_decl (d->nrvo_var);
 
@@ -972,11 +969,10 @@ public:
 	    DECL_NAME (resdecl) = DECL_NAME (var);
 	    /* Don't forget that we take its address.  */
 	    TREE_ADDRESSABLE (var) = 1;
-	    resdecl = build_deref (resdecl);
 
 	    SET_DECL_VALUE_EXPR (var, resdecl);
 	    DECL_HAS_VALUE_EXPR_P (var) = 1;
-	    SET_DECL_LANG_NRVO (var, resdecl);
+	    SET_DECL_LANG_NRVO (var, d->shidden);
 	  }
       }
 

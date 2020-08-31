@@ -2279,7 +2279,9 @@ private:
 				   specialization.  */
     DB_ALIAS_SPEC_BIT,		/* Specialization of an alias template
 				   (in both spec tables).  */
-    DB_TYPE_SPEC_BIT,		/* Specialization in the type table.  */
+    DB_TYPE_SPEC_BIT,		/* Specialization in the type table.
+				   */
+    DB_FRIEND_SPEC_BIT,		/* An instantiated template friend.  */
   };
 
 public:
@@ -2387,12 +2389,20 @@ public:
   {
     return get_flag_bit<DB_TYPE_SPEC_BIT> ();
   }
+  bool is_friend_spec () const
+  {
+    return get_flag_bit<DB_FRIEND_SPEC_BIT> ();
+  }
 
 public:
   /* We set these bit outside of depset.  */
   void set_hidden_binding ()
   {
     set_flag_bit<DB_HIDDEN_BIT> ();
+  }
+  void clear_hidden_binding ()
+  {
+    clear_flag_bit<DB_HIDDEN_BIT> ();
   }
 
 public:
@@ -2524,9 +2534,9 @@ public:
 
   private:
     depset *add_partial_redirect (depset *partial, depset **slot = nullptr);
-    bool add_binding (tree ns, tree value);
+    static bool add_binding_entity (tree, bool, bool, int, void *);
 
-  public:  
+  public:
     bool add_namespace_entities (tree ns, bitmap partitions);
     void add_specializations (bool decl_p);
     void add_class_entities (vec<tree, va_gc> *);
@@ -2871,6 +2881,7 @@ enum merge_kind
   // FIXME: perhaps the MK_field, MK_vtable, MK_as_base can all be
   // combined, so that this can be put up there?
   MK_partial = 16,
+  MK_friend_spec = 17,  /* Like named, but has a tmpl & args too.  */
   MK_hwm
 };
 /* This is more than a debugging array.  NULLs are used to determine
@@ -2884,6 +2895,7 @@ static char const *const merge_kind_name[MK_hwm] =
     "decl spec", "decl tmpl spec",	/* 12,13 decl (template).  */
     "alias spec", NULL,			/* 14,15 alias. */
     "partial",				/* 16 constrained partial */
+    "friend spec",			/* 17 friend specialization.  */
   };
 
 /* Mergeable entity location data.  */
@@ -5059,7 +5071,6 @@ trees_out::start (tree t, bool code_streamed)
       break;
 
     case IDENTIFIER_NODE:
-    case MEM_REF:
     case SSA_NAME:
     case TARGET_MEM_REF:
     case TRANSLATION_UNIT_DECL:
@@ -5142,7 +5153,6 @@ trees_in::start (unsigned code)
 
     case FIXED_CST:
     case IDENTIFIER_NODE:
-    case MEM_REF:
     case POLY_INT_CST:
     case SSA_NAME:
     case TARGET_MEM_REF:
@@ -5192,7 +5202,6 @@ trees_out::core_bools (tree t)
     {
     case CALL_EXPR:
     case INTEGER_CST:
-    case MEM_REF:
     case SSA_NAME:
     case TARGET_MEM_REF:
     case TREE_VEC:
@@ -5370,7 +5379,6 @@ trees_in::core_bools (tree t)
     {
     case CALL_EXPR:
     case INTEGER_CST:
-    case MEM_REF:
     case SSA_NAME:
     case TARGET_MEM_REF:
     case TREE_VEC:
@@ -5499,15 +5507,16 @@ trees_out::lang_decl_bools (tree t)
   WB (lang->u.base.language == lang_cplusplus);
   WB ((lang->u.base.use_template >> 0) & 1);
   WB ((lang->u.base.use_template >> 1) & 1);
-  /* Do not write u.base.not_really_extern, importer will set when
-     reading the definition (if any).  */
+  /* Do not write lang->u.base.not_really_extern, importer will set
+     when reading the definition (if any).  */
   WB (lang->u.base.initialized_in_class);
   WB (lang->u.base.threadprivate_or_deleted_p);
-  WB (lang->u.base.anticipated_p);
+  /* Do not write lang->u.base.anticipated_p, it is a property of the
+     current TU.  */
   WB (lang->u.base.friend_or_tls);
   WB (lang->u.base.unknown_bound_p);
-  /* Do not write u.base.odr_used, importer will recalculate if they
-     do ODR use this decl.  */
+  /* Do not write lang->u.base.odr_used, importer will recalculate if
+     they do ODR use this decl.  */
   WB (lang->u.base.concept_p);
   WB (lang->u.base.var_declared_inline_p);
   WB (lang->u.base.dependent_init_p);
@@ -5531,7 +5540,8 @@ trees_out::lang_decl_bools (tree t)
       WB (lang->u.fn.nonconverting);
       WB (lang->u.fn.thunk_p);
       WB (lang->u.fn.this_thunk_p);
-      WB (lang->u.fn.hidden_friend_p);
+      /* Do not stream lang->u.hidden_friend_p, it is a property of
+	 the TU.  */
       WB (lang->u.fn.omp_declare_reduction_p);
       WB (lang->u.fn.has_dependent_explicit_spec_p);
       WB (lang->u.fn.immediate_fn_p);
@@ -5572,10 +5582,10 @@ trees_in::lang_decl_bools (tree t)
   /* lang->u.base.not_really_extern is not streamed.  */
   RB (lang->u.base.initialized_in_class);
   RB (lang->u.base.threadprivate_or_deleted_p);
-  RB (lang->u.base.anticipated_p);
+  /* lang->u.base.anticipated_p is not streamed.  */
   RB (lang->u.base.friend_or_tls);
   RB (lang->u.base.unknown_bound_p);
-  /* u.base.odr_used is not streamed.  */
+  /* lang->u.base.odr_used is not streamed.  */
   RB (lang->u.base.concept_p);
   RB (lang->u.base.var_declared_inline_p);
   RB (lang->u.base.dependent_init_p);
@@ -5597,7 +5607,7 @@ trees_in::lang_decl_bools (tree t)
       RB (lang->u.fn.nonconverting);
       RB (lang->u.fn.thunk_p);
       RB (lang->u.fn.this_thunk_p);
-      RB (lang->u.fn.hidden_friend_p);
+      /* lang->u.fn.hidden_friend_p is not streamed.  */
       RB (lang->u.fn.omp_declare_reduction_p);
       RB (lang->u.fn.has_dependent_explicit_spec_p);
       RB (lang->u.fn.immediate_fn_p);
@@ -10004,7 +10014,9 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	gcc_checking_assert (dep->is_special ());
 	spec_entry *entry = reinterpret_cast <spec_entry *> (dep->deps[0]);
 
-	if (dep->is_type_spec ())
+	if (dep->is_friend_spec ())
+	  mk = MK_friend_spec;
+	else if (dep->is_type_spec ())
 	  mk = dep->is_partial () ? MK_type_partial_spec : MK_type_spec;
 	else
 	  mk = dep->is_alias () ? MK_alias_spec : MK_decl_spec;
@@ -10151,6 +10163,7 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	  gcc_unreachable ();
 
 	case MK_named:
+	case MK_friend_spec:
 	  if (IDENTIFIER_CONV_OP_P (name))
 	    name = conv_op_identifier;
 
@@ -10182,6 +10195,17 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 		   return type.  */
 		// FIXME: What if the return type is a voldemort?
 		key.ret = fndecl_declared_return_type (inner);
+	    }
+
+	  if (mk == MK_friend_spec)
+	    {
+	      gcc_checking_assert (dep && dep->is_special ());
+	      spec_entry *entry = reinterpret_cast <spec_entry *> (dep->deps[0]);
+
+	      tree_node (entry->tmpl);
+	      tree_node (entry->args);
+	      if (streaming_p ())
+		u (get_mergeable_specialization_flags (entry->tmpl, decl));
 	    }
 	  break;
 
@@ -10488,7 +10512,8 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
       key.index = code >> 2;
 
       if (mk == MK_partial
-	  || (mk == MK_named && inner && TREE_CODE (inner) == FUNCTION_DECL))
+	  || ((mk == MK_named || mk == MK_friend_spec)
+	      && inner && TREE_CODE (inner) == FUNCTION_DECL))
 	{
 	  key.ret = tree_node ();
 	  tree arg, *arg_ptr = &key.args;
@@ -10537,174 +10562,188 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	    add_mergeable_specialization (key.ret, key.args, decl, 2);
 	}
       else
-      switch (TREE_CODE (container))
-	{
-	default:
-	  gcc_unreachable ();
+	switch (TREE_CODE (container))
+	  {
+	  default:
+	    gcc_unreachable ();
 
-	case NAMESPACE_DECL:
-	  if (mk == MK_attached)
-	    {
-	      if (DECL_LANG_SPECIFIC (name)
-		  && DECL_ATTACHED_DECLS_P (name))
-		if (attachset *set = attached_table->get (DECL_UID (name)))
-		  if (key.index < set->num)
-		    {
-		      existing = set->values[key.index];
-		      if (existing)
-			{
-			  gcc_checking_assert
-			    (DECL_IMPLICIT_TYPEDEF_P (existing));
-			  if (inner != decl)
-			    existing
-			      = CLASSTYPE_TI_TEMPLATE (TREE_TYPE (existing));
-			}
-		    }
-	    }
-	  else if (is_mod && !(state->is_module () || state->is_partition ()))
-	    kind = "unique";
-	  else
-	    {
-	      gcc_checking_assert (mk == MK_named || mk == MK_enum);
-	      tree mvec;
-	      tree *vslot = mergeable_namespace_slots (container, name, !is_mod,
-						       &mvec);
-	      existing = check_mergeable_decl (mk, decl, *vslot, key);
-	      if (mk == MK_enum)
-		/* We do not need to register enum-keyed types here,
-		as they'll be entered when we deal with the enumerator
-		itself.  */
-		;
-	      else if (!existing)
-		add_mergeable_namespace_entity (vslot, decl);
-	      else
-		{
-		  /* Note that we now have duplicates to deal with in
-		     name lookup.  */
-		  if (is_mod)
-		    MODULE_VECTOR_PARTITION_DUPS_P (mvec) = true;
-		  else
-		    MODULE_VECTOR_GLOBAL_DUPS_P (mvec) = true;
-		}
-	    }
-	  break;
-
-	case FUNCTION_DECL:
-	  // FIXME: What about a voldemort? how do we find what it
-	  // duplicates? Do we have to number vmorts relative to
-	  // their containing function?  But how would that work
-	  // when matching an in-TU declaration?
-	  kind = "unique";
-	  break;
-
-	case TYPE_DECL:
-	  if (is_mod && !(state->is_module () || state->is_partition ())
-	      /* Implicit member functions can come from
-		 anywhere.  */
-	      && !(DECL_ARTIFICIAL (decl)
-		   && TREE_CODE (decl) == FUNCTION_DECL
-		   && !DECL_THUNK_P (decl)))
-	    kind = "unique";
-	  else
-	    {
-	      tree ctx = TREE_TYPE (container);
-
-	      /* For some reason templated enumeral types are not marked
-		 as COMPLETE_TYPE_P, even though they have members.
-		 This may well be a bug elsewhere.  */
-	      if (TREE_CODE (ctx) == ENUMERAL_TYPE)
-		existing = find_enum_member (ctx, name);
-	      else if (COMPLETE_TYPE_P (ctx))
-		{
-		  switch (mk)
-		    {
-		    default:
-		      gcc_unreachable ();
-
-		    case MK_named:
-		      existing = mergeable_class_entities (ctx, name);
-		      if (existing)
-			{
-			  tree inner = decl;
-			  if (TREE_CODE (inner) == TEMPLATE_DECL
-			      && !DECL_MEMBER_TEMPLATE_P (inner))
-			    inner = DECL_TEMPLATE_RESULT (inner);
-
-			  existing = check_mergeable_decl
-			    (mk, inner, existing, key);
-
-			  if (!existing && DECL_ALIAS_TEMPLATE_P (decl))
-			    {} // FIXME: Insert into specialization
-			      // tables, we'll need the arguments for that!
-			}
-		      break;
-
-		    case MK_field:
+	  case NAMESPACE_DECL:
+	    if (mk == MK_attached)
+	      {
+		if (DECL_LANG_SPECIFIC (name)
+		    && DECL_ATTACHED_DECLS_P (name))
+		  if (attachset *set = attached_table->get (DECL_UID (name)))
+		    if (key.index < set->num)
 		      {
-			unsigned ix = key.index;
-			for (tree field = TYPE_FIELDS (ctx);
-			     field; field = DECL_CHAIN (field))
+			existing = set->values[key.index];
+			if (existing)
 			  {
-			    tree finner = STRIP_TEMPLATE (field);
-			    if (TREE_CODE (finner) == TREE_CODE (inner))
-			      if (!ix--)
-				{
-				  existing = field;
-				  break;
-				}
+			    gcc_checking_assert
+			      (DECL_IMPLICIT_TYPEDEF_P (existing));
+			    if (inner != decl)
+			      existing
+				= CLASSTYPE_TI_TEMPLATE (TREE_TYPE (existing));
 			  }
 		      }
-		      break;
+	      }
+	    else if (is_mod && !(state->is_module () || state->is_partition ()))
+	      kind = "unique";
+	    else
+	      {
+		gcc_checking_assert (mk == MK_named || mk == MK_enum);
+		tree mvec;
+		tree *vslot = mergeable_namespace_slots (container, name,
+							 !is_mod, &mvec);
+		existing = check_mergeable_decl (mk, decl, *vslot, key);
+		if (mk == MK_enum)
+		  /* We do not need to register enum-keyed types here,
+		     as they'll be entered when we deal with the enumerator
+		     itself.  */
+		  ;
+		else if (!existing)
+		  add_mergeable_namespace_entity (vslot, decl);
+		else
+		  {
+		    /* Note that we now have duplicates to deal with in
+		       name lookup.  */
+		    if (is_mod)
+		      MODULE_VECTOR_PARTITION_DUPS_P (mvec) = true;
+		    else
+		      MODULE_VECTOR_GLOBAL_DUPS_P (mvec) = true;
+		  }
+	      }
+	    break;
 
-		    case MK_vtable:
+	  case FUNCTION_DECL:
+	    // FIXME: What about a voldemort? how do we find what it
+	    // duplicates? Do we have to number vmorts relative to
+	    // their containing function?  But how would that work
+	    // when matching an in-TU declaration?
+	    kind = "unique";
+	    break;
+
+	  case TYPE_DECL:
+	    if (is_mod && !(state->is_module () || state->is_partition ())
+		/* Implicit member functions can come from
+		   anywhere.  */
+		&& !(DECL_ARTIFICIAL (decl)
+		     && TREE_CODE (decl) == FUNCTION_DECL
+		     && !DECL_THUNK_P (decl)))
+	      kind = "unique";
+	    else
+	      {
+		tree ctx = TREE_TYPE (container);
+
+		/* For some reason templated enumeral types are not marked
+		   as COMPLETE_TYPE_P, even though they have members.
+		   This may well be a bug elsewhere.  */
+		if (TREE_CODE (ctx) == ENUMERAL_TYPE)
+		  existing = find_enum_member (ctx, name);
+		else if (COMPLETE_TYPE_P (ctx))
+		  {
+		    switch (mk)
 		      {
-			unsigned ix = key.index;
-			for (tree vtable = CLASSTYPE_VTABLES (ctx);
-			     vtable; vtable = DECL_CHAIN (vtable))
-			  if (!ix--)
+		      default:
+			gcc_unreachable ();
+
+		      case MK_named:
+			existing = mergeable_class_entities (ctx, name);
+			if (existing)
+			  {
+			    tree inner = decl;
+			    if (TREE_CODE (inner) == TEMPLATE_DECL
+				&& !DECL_MEMBER_TEMPLATE_P (inner))
+			      inner = DECL_TEMPLATE_RESULT (inner);
+
+			    existing = check_mergeable_decl
+			      (mk, inner, existing, key);
+			    
+			    if (!existing && DECL_ALIAS_TEMPLATE_P (decl))
+			      {} // FIXME: Insert into specialization
+			    // tables, we'll need the arguments for that!
+			  }
+			break;
+
+		      case MK_field:
+			{
+			  unsigned ix = key.index;
+			  for (tree field = TYPE_FIELDS (ctx);
+			       field; field = DECL_CHAIN (field))
 			    {
-			      existing = vtable;
-			      break;
+			      tree finner = STRIP_TEMPLATE (field);
+			      if (TREE_CODE (finner) == TREE_CODE (inner))
+				if (!ix--)
+				  {
+				    existing = field;
+				    break;
+				  }
 			    }
-		      }
-		      break;
+			}
+			break;
 
-		    case MK_as_base:
+		      case MK_vtable:
+			{
+			  unsigned ix = key.index;
+			  for (tree vtable = CLASSTYPE_VTABLES (ctx);
+			       vtable; vtable = DECL_CHAIN (vtable))
+			    if (!ix--)
+			      {
+				existing = vtable;
+				break;
+			      }
+			}
+			break;
+
+		      case MK_as_base:
+			{
+			  tree as_base = CLASSTYPE_AS_BASE (ctx);
+			  if (as_base && as_base != ctx)
+			    existing = TYPE_NAME (as_base);
+			}
+			break;
+
+		      case MK_local_friend:
+			{
+			  unsigned ix = key.index;
+			  for (tree decls = CLASSTYPE_DECL_LIST (ctx);
+			       decls; decls = TREE_CHAIN (decls))
+			    if (!TREE_PURPOSE (decls) && !ix--)
+			      {
+				existing
+				  = friend_from_decl_list (TREE_VALUE (decls));
+				break;
+			      }
+			}
+			break;
+		      }
+
+		    if (existing && mk < MK_indirect_lwm
+			&& TREE_CODE (decl) == TEMPLATE_DECL
+			&& !DECL_MEMBER_TEMPLATE_P (decl))
 		      {
-			tree as_base = CLASSTYPE_AS_BASE (ctx);
-			if (as_base && as_base != ctx)
-			  existing = TYPE_NAME (as_base);
+			tree ti;
+			if (DECL_IMPLICIT_TYPEDEF_P (existing))
+			  ti = TYPE_TEMPLATE_INFO (TREE_TYPE (existing));
+			else
+			  ti = DECL_TEMPLATE_INFO (existing);
+			existing = TI_TEMPLATE (ti);
 		      }
-		      break;
+		  }
+	      }
+	  }
 
-		    case MK_local_friend:
-		      {
-			unsigned ix = key.index;
-			for (tree decls = CLASSTYPE_DECL_LIST (ctx);
-			     decls; decls = TREE_CHAIN (decls))
-			  if (!TREE_PURPOSE (decls) && !ix--)
-			    {
-			      existing
-				= friend_from_decl_list (TREE_VALUE (decls));
-			      break;
-			    }
-		      }
-		      break;
-		    }
+      if (mk == MK_friend_spec)
+	{
+	  tree tmpl = tree_node ();
+	  tree args = tree_node ();
+	  unsigned flags = u ();
 
-		  if (existing && mk < MK_indirect_lwm
-		      && TREE_CODE (decl) == TEMPLATE_DECL
-		      && !DECL_MEMBER_TEMPLATE_P (decl))
-		    {
-		      tree ti;
-		      if (DECL_IMPLICIT_TYPEDEF_P (existing))
-			ti = TYPE_TEMPLATE_INFO (TREE_TYPE (existing));
-		      else
-			ti = DECL_TEMPLATE_INFO (existing);
-		      existing = TI_TEMPLATE (ti);
-		    }
-		}
-	    }
+	  tree e = match_mergeable_specialization (true, tmpl, args, decl);
+	  if (!e)
+	    add_mergeable_specialization (tmpl, args,
+					  existing ? existing : decl, flags);
+	  else if (e != existing)
+	    set_overrun ();
 	}
     }
 
@@ -11526,7 +11565,7 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 	  TYPE_HAS_NONTRIVIAL_DESTRUCTOR (type)
 	    = TYPE_HAS_NONTRIVIAL_DESTRUCTOR (type_dup);
 
-	  if (TYPE_LANG_SPECIFIC (type_dup))
+	  if (auto ls = TYPE_LANG_SPECIFIC (type_dup))
 	    {
 	      if (TYPE_LANG_SPECIFIC (type))
 		{
@@ -11535,7 +11574,8 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 		  CLASSTYPE_TYPEINFO_VAR (type_dup)
 		    = CLASSTYPE_TYPEINFO_VAR (type);
 		}
-	      TYPE_LANG_SPECIFIC (type) = TYPE_LANG_SPECIFIC (type_dup);
+	      for (tree v = type; v; v = TYPE_NEXT_VARIANT (v))
+		TYPE_LANG_SPECIFIC (v) = ls;
 	    }
 	}
 
@@ -12252,31 +12292,28 @@ depset::hash::add_namespace_context (depset *dep, tree ns)
 
   /* Mark it as special if imported so we don't walk connect when
      SCCing.  */
-  if (ns_dep->is_import ())
+  if (!dep->is_binding () && ns_dep->is_import ())
     dep->set_special ();
 }
 
-/* VALUE is an overload of decls that is bound in this module.  Create
-   the relevant depsets for the binding and its contents.  MAYBE_TYPE
-   is used for struct stat hack behaviour.  */
+struct add_binding_data
+{
+  tree ns;
+  bitmap partitions;
+  depset *binding;
+  depset::hash *hash;
+  bool met_namespace;
+};
 
 bool
-depset::hash::add_binding (tree ns, tree value)
+depset::hash::add_binding_entity (tree decl, bool maybe_dups,
+				  bool hiddenness, int usingness,
+				  void *data_)
 {
-  depset *binding = make_binding (ns, NULL_TREE);
+  auto data = static_cast <add_binding_data *> (data_);
 
-  tree name = NULL_TREE;
-  gcc_checking_assert (TREE_PUBLIC (ns) && !is_key_order ());
-  for (ovl_iterator iter (value); iter; ++iter)
+  if (TREE_CODE (decl) != NAMESPACE_DECL || DECL_NAMESPACE_ALIAS (decl))
     {
-      tree decl = *iter;
-      name = DECL_NAME (decl);
-
-      gcc_checking_assert (!IDENTIFIER_ANON_P (name));
-      gcc_checking_assert (!(TREE_CODE (decl) == NAMESPACE_DECL
-			     && !DECL_NAMESPACE_ALIAS (decl)));
-      // FIXME:Distinguish GMF usings from purview usings.
-
       tree inner = decl;
 
       if (TREE_CODE (inner) == CONST_DECL
@@ -12287,7 +12324,7 @@ depset::hash::add_binding (tree ns, tree value)
 
       if (!DECL_LANG_SPECIFIC (inner) || !DECL_MODULE_PURVIEW_P (inner))
 	/* Ignore global module fragment entities.  */
-	continue;
+	return false;
 
       if ((TREE_CODE (inner) == VAR_DECL
 	   || TREE_CODE (inner) == FUNCTION_DECL)
@@ -12295,7 +12332,7 @@ depset::hash::add_binding (tree ns, tree value)
 	{
 	  if (!header_module_p ())
 	    /* Ignore internal-linkage entitites.  */
-	    continue;
+	    return false;
 	  // FIXME: Promote here?  Or should we have done that already?
 	}
 
@@ -12303,76 +12340,94 @@ depset::hash::add_binding (tree ns, tree value)
 	   || TREE_CODE (decl) == TYPE_DECL)
 	  && DECL_TINFO_P (decl))
 	/* Ignore TINFO things.  */
-	continue;
+	return false;
 
-      bool using_p = iter.using_p ();
-      depset::entity_kind ek = depset::EK_FOR_BINDING;
-      tree maybe_using = decl;
-      if (using_p)
+      if (!usingness && CP_DECL_CONTEXT (decl) != data->ns)
+	/* A using that lost its wrapper or an unscoped enum
+	   constant.  */
+	usingness = (DECL_MODULE_EXPORT_P (TREE_CODE (decl) == CONST_DECL
+					   ? TYPE_NAME (TREE_TYPE (decl))
+					   : STRIP_TEMPLATE (decl))
+		     ? -1 : +1);
+
+      if (!data->binding)
+	/* No binding to check.  */;
+      else if (usingness)
 	{
-	  maybe_using = iter.get_using ();
-	  ek = depset::EK_USING;
+	  /* Look in the binding to see if we already have this
+	     using.  */
+	  for (unsigned ix = data->binding->deps.length (); --ix;)
+	    {
+	      depset *d = data->binding->deps[ix];
+	      if (d->get_entity_kind () == EK_USING
+		  && OVL_FUNCTION (d->get_entity ()) == decl)
+		{
+		  if (!hiddenness)
+		    d->clear_hidden_binding ();
+		  if (usingness < 0)
+		    OVL_EXPORT_P (d->get_entity ()) = true;
+		  return false;
+		}
+	    }
 	}
-      else if (CP_DECL_CONTEXT (decl) != ns)
+      else if (maybe_dups)
 	{
-	  /* A using that lost its wrapper or an unscoped enum
-	     constant.  */
-	  // FIXME: name-lookup should preserve this, but we tend to
-	  // drop it for non-function decls :(
-	  maybe_using = ovl_make (decl, NULL_TREE);
-	  if (DECL_MODULE_EXPORT_P (TREE_CODE (decl) == CONST_DECL
-				    ? TYPE_NAME (TREE_TYPE (decl))
-				    : STRIP_TEMPLATE (decl)))
-	    OVL_EXPORT_P (maybe_using) = true;
-	  ek = depset::EK_USING;
+	  /* Look in the binding to see if we already have this decl.  */
+	  for (unsigned ix = data->binding->deps.length (); --ix;)
+	    {
+	      depset *d = data->binding->deps[ix];
+	      if (d->get_entity () == decl)
+		{
+		  if (!hiddenness)
+		    d->clear_hidden_binding ();
+		  return false;
+		}
+	    }
 	}
 
-      if (!binding->deps.length ())
-	add_namespace_context (binding, ns);
-
-      depset *dep = make_dependency (maybe_using, ek);
-      if (iter.hidden_p ())
+      /* We're adding something.  */
+      if (!data->binding)
 	{
-	  /* It is safe to mark the target decl with the hidden bit,
-	     because we cannot have other bindings to this decl in
-	     this TU.  The same is not true for export_p. */
-	  // FIXME: check whether a partition can make the entity
-	  // unhidden, perhaps the right things already happen?
-	  dep->set_hidden_binding ();
+	  data->binding = make_binding (data->ns, DECL_NAME (decl));
+	  data->hash->add_namespace_context (data->binding, data->ns);
+
+	  depset **slot = data->hash->binding_slot (data->ns,
+						    DECL_NAME (decl), true);
+	  gcc_checking_assert (!*slot);
+	  *slot = data->binding;
 	}
-      binding->deps.safe_push (dep);
+
+      if (usingness)
+	{
+	  decl = ovl_make (decl, NULL_TREE);
+	  if (usingness < 0)
+	    OVL_EXPORT_P (decl) = true;
+	}
+
+      depset *dep = data->hash->make_dependency
+	(decl, usingness ? EK_USING : EK_FOR_BINDING);
+      if (hiddenness)
+	dep->set_hidden_binding ();
+      data->binding->deps.safe_push (dep);
       /* Binding and contents are mutually dependent.  */
-      dep->deps.safe_push (binding);
-    }
+      dep->deps.safe_push (data->binding);
 
-  bool added = binding->deps.length () != 0;
-  if (added)
+      return true;
+    }
+  else if (DECL_NAME (decl) && !data->met_namespace)
     {
-      binding->set_binding_name (name);
-      depset **slot = binding_slot (ns, name, true);
-      gcc_checking_assert (!*slot);
-      *slot = binding;
+      /* Namespace, walk exactly once.  */
+      gcc_checking_assert (TREE_PUBLIC (decl));
+      data->met_namespace = true;
+      if (data->hash->add_namespace_entities (decl, data->partitions)
+	  || DECL_MODULE_EXPORT_P (decl))
+	{
+	  data->hash->make_dependency (decl, depset::EK_NAMESPACE);
+	  return true;
+	}
     }
-  else
-    delete binding;
 
-  return added;
-}
-
-/* Compare two writable bindings.  We don't particularly care on the
-   ordering, just so long as it reproduces across builds.  */
-
-static int
-writable_cmp (const void *a_, const void *b_)
-{
-  tree a = *(const tree *)a_;
-  tree b = *(const tree *)b_;
-
-  tree first_a = OVL_FIRST (a);
-  tree first_b = OVL_FIRST (b);
-
-  gcc_checking_assert (first_a != first_b);
-  return DECL_UID (first_a) < DECL_UID (first_b) ? -1 : +1;
+  return false;
 }
 
 /* Recursively find all the namespace bindings of NS.
@@ -12389,40 +12444,21 @@ depset::hash::add_namespace_entities (tree ns, bitmap partitions)
   dump.indent ();
 
   unsigned count = 0;
-  vec<tree> bindings;
-  bindings.create (DECL_NAMESPACE_BINDINGS (ns)->size ());
+  add_binding_data data;
+  data.ns = ns;
+  data.partitions = partitions;
+  data.hash = this;
 
   hash_table<named_decl_hash>::iterator end
     (DECL_NAMESPACE_BINDINGS (ns)->end ());
   for (hash_table<named_decl_hash>::iterator iter
 	 (DECL_NAMESPACE_BINDINGS (ns)->begin ()); iter != end; ++iter)
-    if (tree value = extract_module_binding (*iter, partitions))
-      bindings.quick_push (value);
-
-  /* Sort for reproducibility.  */
-  bindings.qsort (writable_cmp);
-  while (bindings.length ())
     {
-      tree value = bindings.pop ();
-      if (TREE_CODE (value) != NAMESPACE_DECL
-	  || DECL_NAMESPACE_ALIAS (value))
-	{
-	  if (add_binding (ns, value))
-	    count++;
-	}
-      else if (DECL_NAME (value))
-	{
-	  gcc_checking_assert (TREE_PUBLIC (value));
-	  bool not_empty = add_namespace_entities (value, partitions);
-	  if (not_empty || DECL_MODULE_EXPORT_P (value))
-	    {
-	      make_dependency (value, depset::EK_NAMESPACE);
-	      count++;
-	    }
-	}
+      data.binding = nullptr;
+      data.met_namespace = false;
+      if (walk_module_binding (*iter, partitions, add_binding_entity, &data))
+	count++;
     }
-
-  bindings.release ();
 
   if (count)
     dump () && dump ("Found %u entries", count);
@@ -12561,6 +12597,12 @@ depset::hash::add_specializations (bool decl_p)
       bool is_partial = false;
       int use_tpl = 0;
       bool is_alias = false;
+      bool is_friend = false;
+
+      if (decl_p && DECL_UNINSTANTIATED_TEMPLATE_FRIEND_P (entry->tmpl))
+	/* A friend of a template.  This is keyed to the
+	   instantiation.  */
+	is_friend = true;
 
       if (!decl_p && DECL_ALIAS_TEMPLATE_P (entry->tmpl))
 	{
@@ -12580,10 +12622,23 @@ depset::hash::add_specializations (bool decl_p)
 		  spec = tmpl;
 		  gcc_checking_assert (DECL_USE_TEMPLATE (spec) == use_tpl);
 		}
+	      else if (is_friend)
+		{
+		  if (TI_TEMPLATE (ti) != entry->tmpl
+		      || !template_args_equal (TI_ARGS (ti), entry->tmpl))
+		    goto template_friend;
+		}
 	    }
 	  else
-	    /* This is some kind of friend.  */
-	    gcc_assert (!DECL_USE_TEMPLATE (spec));
+	    {
+	    template_friend:;
+	      gcc_checking_assert (is_friend);
+	      /* This is a friend of a template class, but not the one
+		 that generated entry->spec itself (i.e. it's an
+		 equivalent clone).  We do not need to record
+		 this.  */
+	      continue;
+	    }
 	}
       else
 	{
@@ -12659,21 +12714,15 @@ depset::hash::add_specializations (bool decl_p)
       depset *dep = make_dependency (spec, depset::EK_SPECIALIZATION);
       if (dep->is_special ())
 	{
-	  /* An already located specialization, this is a friend
-	     with a different entry->tmpl, or the type of a type-alias.  */
+	  /* An already located specialization, this must be the TYPE
+	     corresponding to an alias_decl we found in the decl
+	     table.  */
 	  spec_entry *other = reinterpret_cast <spec_entry *> (dep->deps[0]);
-	  if (other->tmpl != entry->tmpl)
-	    gcc_checking_assert (!is_partial && !is_alias
-				 && needs_reaching == dep->is_unreached ());
-	  else
-	    {
-	      gcc_checking_assert (!decl_p && !dep->is_type_spec ()
-				   && is_alias
-				   && TREE_TYPE (other->spec) == entry->spec
-				   && template_args_equal (other->args,
-							   entry->args));
-	      dep->set_flag_bit<DB_ALIAS_SPEC_BIT> ();
-	    }
+	  gcc_checking_assert (!decl_p && is_alias && !dep->is_type_spec ());
+	  gcc_checking_assert (other->tmpl == entry->tmpl
+			       && template_args_equal (other->args, entry->args)
+			       && TREE_TYPE (other->spec) == entry->spec);
+	  dep->set_flag_bit<DB_ALIAS_SPEC_BIT> ();
 	}
       else
 	{
@@ -12686,6 +12735,8 @@ depset::hash::add_specializations (bool decl_p)
 	    add_partial_redirect (dep);
 	  if (!decl_p)
 	    dep->set_flag_bit<DB_TYPE_SPEC_BIT> ();
+	  if (is_friend)
+	    dep->set_flag_bit<DB_FRIEND_SPEC_BIT> ();
 	}
     }
   data.release ();
@@ -12769,7 +12820,8 @@ depset::hash::find_dependencies ()
 	      walker.end ();
 
 	      if (!walker.is_key_order ()
-		  && TREE_CODE (decl) == TEMPLATE_DECL)
+		  && TREE_CODE (decl) == TEMPLATE_DECL
+		  && !DECL_UNINSTANTIATED_TEMPLATE_FRIEND_P (decl))
 		/* Mark all the explicit & partial specializations as
 		   reachable.  */
 		for (tree cons = DECL_TEMPLATE_INSTANTIATIONS (decl);
@@ -12792,8 +12844,8 @@ depset::hash::find_dependencies ()
 			    reached_unreached = true;
 			    spec_dep->clear_flag_bit<DB_UNREACHED_BIT> ();
 			    dump (dumper::DEPEND)
-			      && dump ("Reaching unreached specialization %C:%N",
-				       TREE_CODE (spec), spec);
+			      && dump ("Reaching unreached specialization"
+				       " %C:%N", TREE_CODE (spec), spec);
 			  }
 		      }
 		  }
@@ -14202,31 +14254,39 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	    for (unsigned jx = b->deps.length (); --jx;)
 	      {
 		depset *dep = b->deps[jx];
-		tree decl = dep->get_entity ();
+		tree bound = dep->get_entity ();
 		unsigned flags = 0;
 		if (dep->get_entity_kind () == depset::EK_USING)
 		  {
-		    flags |= cbf_using;
-		    if (OVL_USING_P (decl))
-		      flags |= cbf_wrapped;
-		    if (OVL_EXPORT_P (decl))
+		    tree ovl = bound;
+		    bound = OVL_FUNCTION (bound);
+		    if (!(TREE_CODE (bound) == CONST_DECL
+			  && UNSCOPED_ENUM_P (TREE_TYPE (bound))
+			  && decl == TYPE_NAME (TREE_TYPE (bound))))
+		      {
+			/* An unscope enumerator in its enumeration's
+			   scope is not a using.  */
+			flags |= cbf_using;
+			if (OVL_USING_P (ovl))
+			  flags |= cbf_wrapped;
+		      }
+		    if (OVL_EXPORT_P (ovl))
 		      flags |= cbf_export;
-		    decl = OVL_FUNCTION (decl);
 		  }
 		else
 		  {
 		    /* An implicit typedef must be at one.  */
-		    gcc_assert (!DECL_IMPLICIT_TYPEDEF_P (decl) || jx == 1);
+		    gcc_assert (!DECL_IMPLICIT_TYPEDEF_P (bound) || jx == 1);
 		    if (dep->is_hidden ())
 		      flags |= cbf_hidden;
-		    else if (DECL_MODULE_EXPORT_P (STRIP_TEMPLATE (decl)))
+		    else if (DECL_MODULE_EXPORT_P (STRIP_TEMPLATE (bound)))
 		      flags |= cbf_export;
 		  }
 
-		gcc_checking_assert (DECL_P (decl));
+		gcc_checking_assert (DECL_P (bound));
 
 		sec.i (flags);
-		sec.tree_node (decl);
+		sec.tree_node (bound);
 	      }
 
 	    /* Terminate the list.  */
@@ -17051,6 +17111,10 @@ module_state::write (elf_out *to, cpp_reader *reader)
 	      }
 	}
     }
+
+  if (partitions && bitmap_empty_p (partitions))
+    /* No partitions present.  */
+    partitions = nullptr;
 
   /* Find the set of decls we must write out.  */
   depset::hash table (DECL_NAMESPACE_BINDINGS (global_namespace)->size () * 8);

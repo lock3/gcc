@@ -6601,7 +6601,7 @@ extern bool null_member_pointer_value_p		(tree);
 extern bool sufficient_parms_p			(const_tree);
 extern tree type_decays_to			(tree);
 extern tree extract_call_expr			(tree);
-extern tree build_trivial_dtor_call		(tree);
+extern tree build_trivial_dtor_call		(tree, bool = false);
 extern tree build_user_type_conversion		(tree, tree, int,
 						 tsubst_flags_t);
 extern tree build_new_function_call		(tree, vec<tree, va_gc> **,
@@ -6707,6 +6707,7 @@ extern bool is_std_init_list			(tree);
 extern bool is_list_ctor			(tree);
 extern void validate_conversion_obstack		(void);
 extern void mark_versions_used			(tree);
+extern bool unsafe_return_slot_p		(tree);
 extern bool cp_warn_deprecated_use		(tree, tsubst_flags_t = tf_warning_or_error);
 extern void cp_warn_deprecated_use_scopes	(tree);
 extern tree get_function_version_dispatcher	(tree);
@@ -7465,7 +7466,9 @@ extern bool template_parm_object_p		(const_tree);
 extern tree tparm_object_argument		(tree);
 extern bool explicit_class_specialization_p     (tree);
 extern bool push_tinst_level                    (tree);
+extern bool push_tinst_level                    (tree, tree);
 extern bool push_tinst_level_loc                (tree, location_t);
+extern bool push_tinst_level_loc                (tree, tree, location_t);
 extern void pop_tinst_level                     (void);
 extern struct tinst_level *outermost_tinst_level(void);
 extern void init_template_processing		(void);
@@ -8691,6 +8694,24 @@ is_constrained_auto (const_tree t)
 {
   return is_auto (t) && PLACEHOLDER_TYPE_CONSTRAINTS (t);
 }
+
+/* RAII class to push/pop class scope T; if T is not a class, do nothing.  */
+
+struct push_nested_class_guard
+{
+  bool push;
+  push_nested_class_guard (tree t)
+    : push (t && CLASS_TYPE_P (t))
+  {
+    if (push)
+      push_nested_class (t);
+  }
+  ~push_nested_class_guard ()
+  {
+    if (push)
+      pop_nested_class ();
+  }
+};
 
 #if CHECKING_P
 namespace selftest {

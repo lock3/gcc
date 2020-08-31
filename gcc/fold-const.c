@@ -7875,11 +7875,12 @@ native_encode_string (const_tree expr, unsigned char *ptr, int len, int off)
 }
 
 
-/* Subroutine of fold_view_convert_expr.  Encode the INTEGER_CST,
-   REAL_CST, COMPLEX_CST or VECTOR_CST specified by EXPR into the
-   buffer PTR of length LEN bytes.  If PTR is NULL, don't actually store
-   anything, just do a dry run.  If OFF is not -1 then start
-   the encoding at byte offset OFF and encode at most LEN bytes.
+/* Subroutine of fold_view_convert_expr.  Encode the INTEGER_CST, REAL_CST,
+   FIXED_CST, COMPLEX_CST, STRING_CST, or VECTOR_CST specified by EXPR into
+   the buffer PTR of size LEN bytes.  If PTR is NULL, don't actually store
+   anything, just do a dry run.  Fail either if OFF is -1 and LEN isn't
+   sufficient to encode the entire EXPR, or if OFF is out of bounds.
+   Otherwise, start at byte offset OFF and encode at most LEN bytes.
    Return the number of bytes placed in the buffer, or zero upon failure.  */
 
 int
@@ -8327,7 +8328,19 @@ native_interpret_real (tree type, const unsigned char *ptr, int len)
     }
 
   real_from_target (&r, tmp, mode);
-  return build_real (type, r);
+  tree ret = build_real (type, r);
+  if (MODE_COMPOSITE_P (mode))
+    {
+      /* For floating point values in composite modes, punt if this folding
+	 doesn't preserve bit representation.  As the mode doesn't have fixed
+	 precision while GCC pretends it does, there could be valid values that
+	 GCC can't really represent accurately.  See PR95450.  */
+      unsigned char buf[24];
+      if (native_encode_expr (ret, buf, total_bytes, 0) != total_bytes
+	  || memcmp (ptr, buf, total_bytes) != 0)
+	ret = NULL_TREE;
+    }
+  return ret;
 }
 
 
@@ -11596,45 +11609,53 @@ fold_binary_loc (location_t loc, enum tree_code code, tree type,
 	 C1 is a valid shift constant, and C2 is a power of two, i.e.
 	 a single bit.  */
       if (TREE_CODE (arg0) == BIT_AND_EXPR
-	  && TREE_CODE (TREE_OPERAND (arg0, 0)) == RSHIFT_EXPR
-	  && TREE_CODE (TREE_OPERAND (TREE_OPERAND (arg0, 0), 1))
-	     == INTEGER_CST
 	  && integer_pow2p (TREE_OPERAND (arg0, 1))
 	  && integer_zerop (arg1))
 	{
-	  tree itype = TREE_TYPE (arg0);
-	  tree arg001 = TREE_OPERAND (TREE_OPERAND (arg0, 0), 1);
-	  prec = TYPE_PRECISION (itype);
-
-	  /* Check for a valid shift count.  */
-	  if (wi::ltu_p (wi::to_wide (arg001), prec))
+	  tree arg00 = TREE_OPERAND (arg0, 0);
+	  STRIP_NOPS (arg00);
+	  if (TREE_CODE (arg00) == RSHIFT_EXPR
+	      && TREE_CODE (TREE_OPERAND (arg00, 1)) == INTEGER_CST)
 	    {
-	      tree arg01 = TREE_OPERAND (arg0, 1);
-	      tree arg000 = TREE_OPERAND (TREE_OPERAND (arg0, 0), 0);
-	      unsigned HOST_WIDE_INT log2 = tree_log2 (arg01);
-	      /* If (C2 << C1) doesn't overflow, then ((X >> C1) & C2) != 0
-		 can be rewritten as (X & (C2 << C1)) != 0.  */
-	      if ((log2 + TREE_INT_CST_LOW (arg001)) < prec)
+	      tree itype = TREE_TYPE (arg00);
+	      tree arg001 = TREE_OPERAND (arg00, 1);
+	      prec = TYPE_PRECISION (itype);
+
+	      /* Check for a valid shift count.  */
+	      if (wi::ltu_p (wi::to_wide (arg001), prec))
 		{
-		  tem = fold_build2_loc (loc, LSHIFT_EXPR, itype, arg01, arg001);
-		  tem = fold_build2_loc (loc, BIT_AND_EXPR, itype, arg000, tem);
-		  return fold_build2_loc (loc, code, type, tem,
-					  fold_convert_loc (loc, itype, arg1));
-		}
-	      /* Otherwise, for signed (arithmetic) shifts,
-		 ((X >> C1) & C2) != 0 is rewritten as X < 0, and
-		 ((X >> C1) & C2) == 0 is rewritten as X >= 0.  */
-	      else if (!TYPE_UNSIGNED (itype))
-		return fold_build2_loc (loc, code == EQ_EXPR ? GE_EXPR : LT_EXPR, type,
-				    arg000, build_int_cst (itype, 0));
-	      /* Otherwise, of unsigned (logical) shifts,
-		 ((X >> C1) & C2) != 0 is rewritten as (X,false), and
-		 ((X >> C1) & C2) == 0 is rewritten as (X,true).  */
-	      else
-		return omit_one_operand_loc (loc, type,
+		  tree arg01 = TREE_OPERAND (arg0, 1);
+		  tree arg000 = TREE_OPERAND (arg00, 0);
+		  unsigned HOST_WIDE_INT log2 = tree_log2 (arg01);
+		  /* If (C2 << C1) doesn't overflow, then
+		     ((X >> C1) & C2) != 0 can be rewritten as
+		     (X & (C2 << C1)) != 0.  */
+		  if ((log2 + TREE_INT_CST_LOW (arg001)) < prec)
+		    {
+		      tem = fold_build2_loc (loc, LSHIFT_EXPR, itype,
+					     arg01, arg001);
+		      tem = fold_build2_loc (loc, BIT_AND_EXPR, itype,
+					     arg000, tem);
+		      return fold_build2_loc (loc, code, type, tem,
+				fold_convert_loc (loc, itype, arg1));
+		    }
+		  /* Otherwise, for signed (arithmetic) shifts,
+		     ((X >> C1) & C2) != 0 is rewritten as X < 0, and
+		     ((X >> C1) & C2) == 0 is rewritten as X >= 0.  */
+		  else if (!TYPE_UNSIGNED (itype))
+		    return fold_build2_loc (loc, code == EQ_EXPR ? GE_EXPR
+								 : LT_EXPR,
+					    type, arg000,
+					    build_int_cst (itype, 0));
+		  /* Otherwise, of unsigned (logical) shifts,
+		     ((X >> C1) & C2) != 0 is rewritten as (X,false), and
+		     ((X >> C1) & C2) == 0 is rewritten as (X,true).  */
+		  else
+		    return omit_one_operand_loc (loc, type,
 					 code == EQ_EXPR ? integer_one_node
 							 : integer_zero_node,
 					 arg000);
+		}
 	    }
 	}
 
@@ -15485,19 +15506,19 @@ fold_build_pointer_plus_hwi_loc (location_t loc, tree ptr, HOST_WIDE_INT off)
 			  ptr, size_int (off));
 }
 
-/* Return a pointer P to a NUL-terminated string containing the sequence
+/* Return a pointer to a NUL-terminated string containing the sequence
    of bytes corresponding to the representation of the object referred to
    by SRC (or a subsequence of such bytes within it if SRC is a reference
    to an initialized constant array plus some constant offset).
-   If STRSIZE is non-null, store the number of bytes in the constant
-   sequence including the terminating NUL byte.  *STRSIZE is equal to
-   sizeof(A) - OFFSET where A is the array that stores the constant
-   sequence that SRC points to and OFFSET is the byte offset of SRC from
-   the beginning of A.  SRC need not point to a string or even an array
-   of characters but may point to an object of any type.  */
+   Set *STRSIZE the number of bytes in the constant sequence including
+   the terminating NUL byte.  *STRSIZE is equal to sizeof(A) - OFFSET
+   where A is the array that stores the constant sequence that SRC points
+   to and OFFSET is the byte offset of SRC from the beginning of A.  SRC
+   need not point to a string or even an array of characters but may point
+   to an object of any type.  */
 
 const char *
-c_getstr (tree src, unsigned HOST_WIDE_INT *strsize /* = NULL */)
+getbyterep (tree src, unsigned HOST_WIDE_INT *strsize)
 {
   /* The offset into the array A storing the string, and A's byte size.  */
   tree offset_node;
@@ -15506,7 +15527,10 @@ c_getstr (tree src, unsigned HOST_WIDE_INT *strsize /* = NULL */)
   if (strsize)
     *strsize = 0;
 
-  src = string_constant (src, &offset_node, &mem_size, NULL);
+  if (strsize)
+    src = byte_representation (src, &offset_node, &mem_size, NULL);
+  else
+    src = string_constant (src, &offset_node, &mem_size, NULL);
   if (!src)
     return NULL;
 
@@ -15572,6 +15596,18 @@ c_getstr (tree src, unsigned HOST_WIDE_INT *strsize /* = NULL */)
     }
 
   return offset < init_bytes ? string + offset : "";
+}
+
+/* Return a pointer to a NUL-terminated string corresponding to
+   the expression STR referencing a constant string, possibly
+   involving a constant offset.  Return null if STR either doesn't
+   reference a constant string or if it involves a nonconstant
+   offset.  */
+
+const char *
+c_getstr (tree str)
+{
+  return getbyterep (str, NULL);
 }
 
 /* Given a tree T, compute which bits in T may be nonzero.  */

@@ -123,6 +123,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-ssa-ccp.h"
 #include "stringpool.h"
 #include "attribs.h"
+#include "dbgcnt.h"
 
 template <typename valtype> class ipcp_value;
 
@@ -1010,7 +1011,7 @@ ipcp_bits_lattice::set_to_constant (widest_int value, widest_int mask)
 {
   gcc_assert (top_p ());
   m_lattice_val = IPA_BITS_CONSTANT;
-  m_value = value;
+  m_value = wi::bit_and (wi::bit_not (mask), value);
   m_mask = mask;
   return true;
 }
@@ -1047,6 +1048,7 @@ ipcp_bits_lattice::meet_with_1 (widest_int value, widest_int mask,
 
   widest_int old_mask = m_mask;
   m_mask = (m_mask | mask) | (m_value ^ value);
+  m_value &= ~m_mask;
 
   if (wi::sext (m_mask, precision) == -1)
     return set_to_bottom ();
@@ -3323,12 +3325,12 @@ gather_context_independent_values (class ipa_node_params *info,
 
   known_csts->create (0);
   known_contexts->create (0);
-  known_csts->safe_grow_cleared (count);
-  known_contexts->safe_grow_cleared (count);
+  known_csts->safe_grow_cleared (count, true);
+  known_contexts->safe_grow_cleared (count, true);
   if (known_aggs)
     {
       known_aggs->create (0);
-      known_aggs->safe_grow_cleared (count);
+      known_aggs->safe_grow_cleared (count, true);
     }
 
   if (removable_params_cost)
@@ -4821,7 +4823,8 @@ find_more_contexts_for_caller_subset (cgraph_node *node,
 	    }
 
 	  if (!known_contexts->exists ())
-	    known_contexts->safe_grow_cleared (ipa_get_param_count (info));
+	    known_contexts->safe_grow_cleared (ipa_get_param_count (info),
+					       true);
 	  (*known_contexts)[i] = newval;
 	}
 
@@ -5788,9 +5791,13 @@ ipcp_store_bits_results (void)
 	  ipa_bits *jfbits;
 
 	  if (plats->bits_lattice.constant_p ())
-	    jfbits
-	      = ipa_get_ipa_bits_for_value (plats->bits_lattice.get_value (),
-					    plats->bits_lattice.get_mask ());
+	    {
+	      jfbits
+		= ipa_get_ipa_bits_for_value (plats->bits_lattice.get_value (),
+					      plats->bits_lattice.get_mask ());
+	      if (!dbg_cnt (ipa_cp_bits))
+		jfbits = NULL;
+	    }
 	  else
 	    jfbits = NULL;
 

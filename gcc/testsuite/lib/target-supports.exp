@@ -3639,13 +3639,11 @@ proc check_effective_target_arm_vect_no_misalign { } {
 # multilibs may be incompatible with this option.
 
 proc check_effective_target_arm_soft_ok { } {
-    if { [check_effective_target_arm32] } {
-	return [check_no_compiler_messages arm_soft_ok executable {
-	    int main() { return 0;}
+    return [check_no_compiler_messages arm_soft_ok object {
+	#include <stdint.h>
+	int dummy;
+	int main (void) { return 0; }
 	} "-mfloat-abi=soft"]
-    } else {
-	return 0
-    }
 }
 
 # Return 1 if this is an ARM target supporting -mfpu=vfp with an
@@ -7704,7 +7702,19 @@ proc check_effective_target_sync_int_long { } {
 	     || [istarget cris-*-*]
 	     || ([istarget sparc*-*-*] && [check_effective_target_sparc_v9])
 	     || ([istarget arc*-*-*] && [check_effective_target_arc_atomic])
-	     || [check_effective_target_mips_llsc] }}]
+	     || [check_effective_target_mips_llsc]
+	     || [istarget nvptx*-*-*]
+	 }}]
+}
+
+# Return 1 if the target supports atomic operations on "int" and "long" on
+# stack addresses.
+
+proc check_effective_target_sync_int_long_stack { } {
+    return [check_cached_effective_target sync_int_long_stack {
+      expr { ![istarget nvptx*-*-*]
+	     && [check_effective_target_sync_int_long]	     
+	 }}]
 }
 
 # Return 1 if the target supports atomic operations on "char" and "short".
@@ -10423,4 +10433,27 @@ proc check_effective_target_msp430_large {} {
 	#error __MSP430X_LARGE__
 	#endif
     } ""]
+}
+
+# Return 1 if the target has an efficient means to encode large initializers
+# in the assembly.
+
+proc check_effective_target_large_initializer { } {
+    if { [istarget nvptx*-*-*] } {
+	return 0
+    }
+
+    return 1
+}
+# Returns 1 if the target toolchain supports extended
+# syntax of .symver directive, 0 otherwise.
+
+proc check_symver_available { } {
+    return [check_no_compiler_messages symver_available object {
+	    int foo(void) { return 0; }
+	    int main (void) {
+		asm volatile (".symver foo,foo@VER_1, local");
+		return 0;
+	    }
+	}]
 }

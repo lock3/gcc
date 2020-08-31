@@ -1865,7 +1865,8 @@ vect_get_datarefs_in_loop (loop_p loop, basic_block *bbs,
 	if (is_gimple_debug (stmt))
 	  continue;
 	++(*n_stmts);
-	opt_result res = vect_find_stmt_data_reference (loop, stmt, datarefs);
+	opt_result res = vect_find_stmt_data_reference (loop, stmt, datarefs,
+							NULL, 0);
 	if (!res)
 	  {
 	    if (is_gimple_call (stmt) && loop->safelen)
@@ -2087,7 +2088,7 @@ vect_analyze_loop_2 (loop_vec_info loop_vinfo, bool &fatal, unsigned *n_stmts)
   /* Analyze the access patterns of the data-refs in the loop (consecutive,
      complex, etc.). FORNOW: Only handle consecutive access pattern.  */
 
-  ok = vect_analyze_data_ref_accesses (loop_vinfo);
+  ok = vect_analyze_data_ref_accesses (loop_vinfo, NULL);
   if (!ok)
     {
       if (dump_enabled_p ())
@@ -3798,6 +3799,58 @@ vect_estimate_min_profitable_iters (loop_vec_info loop_vinfo,
       (void) add_stmt_cost (loop_vinfo, target_cost_data, num_masks - 1,
 			    vector_stmt, NULL, NULL_TREE, 0, vect_body);
     }
+  else if (LOOP_VINFO_FULLY_WITH_LENGTH_P (loop_vinfo))
+    {
+      /* Referring to the functions vect_set_loop_condition_partial_vectors
+	 and vect_set_loop_controls_directly, we need to generate each
+	 length in the prologue and in the loop body if required. Although
+	 there are some possible optimizations, we consider the worst case
+	 here.  */
+
+      bool niters_known_p = LOOP_VINFO_NITERS_KNOWN_P (loop_vinfo);
+      bool need_iterate_p
+	= (!LOOP_VINFO_EPILOGUE_P (loop_vinfo)
+	   && !vect_known_niters_smaller_than_vf (loop_vinfo));
+
+      /* Calculate how many statements to be added.  */
+      unsigned int prologue_stmts = 0;
+      unsigned int body_stmts = 0;
+
+      rgroup_controls *rgc;
+      unsigned int num_vectors_m1;
+      FOR_EACH_VEC_ELT (LOOP_VINFO_LENS (loop_vinfo), num_vectors_m1, rgc)
+	if (rgc->type)
+	  {
+	    /* May need one SHIFT for nitems_total computation.  */
+	    unsigned nitems = rgc->max_nscalars_per_iter * rgc->factor;
+	    if (nitems != 1 && !niters_known_p)
+	      prologue_stmts += 1;
+
+	    /* May need one MAX and one MINUS for wrap around.  */
+	    if (vect_rgroup_iv_might_wrap_p (loop_vinfo, rgc))
+	      prologue_stmts += 2;
+
+	    /* Need one MAX and one MINUS for each batch limit excepting for
+	       the 1st one.  */
+	    prologue_stmts += num_vectors_m1 * 2;
+
+	    unsigned int num_vectors = num_vectors_m1 + 1;
+
+	    /* Need to set up lengths in prologue, only one MIN required
+	       for each since start index is zero.  */
+	    prologue_stmts += num_vectors;
+
+	    /* Each may need two MINs and one MINUS to update lengths in body
+	       for next iteration.  */
+	    if (need_iterate_p)
+	      body_stmts += 3 * num_vectors;
+	  }
+
+      (void) add_stmt_cost (loop_vinfo, target_cost_data, prologue_stmts,
+			    scalar_stmt, NULL, NULL_TREE, 0, vect_prologue);
+      (void) add_stmt_cost (loop_vinfo, target_cost_data, body_stmts,
+			    scalar_stmt, NULL, NULL_TREE, 0, vect_body);
+    }
 
   /* FORNOW: The scalar outside cost is incremented in one of the
      following ways:
@@ -3932,8 +3985,8 @@ vect_estimate_min_profitable_iters (loop_vec_info loop_vinfo,
     }
 
   /* ??? The "if" arm is written to handle all cases; see below for what
-     we would do for !LOOP_VINFO_FULLY_MASKED_P.  */
-  if (LOOP_VINFO_FULLY_MASKED_P (loop_vinfo))
+     we would do for !LOOP_VINFO_USING_PARTIAL_VECTORS_P.  */
+  if (LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo))
     {
       /* Rewriting the condition above in terms of the number of
 	 vector iterations (vniters) rather than the number of
@@ -3960,7 +4013,7 @@ vect_estimate_min_profitable_iters (loop_vec_info loop_vinfo,
 	dump_printf (MSG_NOTE, "  Minimum number of vector iterations: %d\n",
 		     min_vec_niters);
 
-      if (LOOP_VINFO_FULLY_MASKED_P (loop_vinfo))
+      if (LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo))
 	{
 	  /* Now that we know the minimum number of vector iterations,
 	     find the minimum niters for which the scalar cost is larger:
@@ -4015,6 +4068,10 @@ vect_estimate_min_profitable_iters (loop_vec_info loop_vinfo,
       && min_profitable_iters < (assumed_vf + peel_iters_prologue))
     /* We want the vectorized loop to execute at least once.  */
     min_profitable_iters = assumed_vf + peel_iters_prologue;
+  else if (min_profitable_iters < peel_iters_prologue)
+    /* For LOOP_VINFO_USING_PARTIAL_VECTORS_P, we need to ensure the
+       vectorized loop executes at least once.  */
+    min_profitable_iters = peel_iters_prologue;
 
   if (dump_enabled_p ())
     dump_printf_loc (MSG_NOTE, vect_location,
@@ -4032,7 +4089,7 @@ vect_estimate_min_profitable_iters (loop_vec_info loop_vinfo,
 
   if (vec_outside_cost <= 0)
     min_profitable_estimate = 0;
-  else if (LOOP_VINFO_FULLY_MASKED_P (loop_vinfo))
+  else if (LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo))
     {
       /* This is a repeat of the code above, but with + SOC rather
 	 than - SOC.  */
@@ -4044,7 +4101,7 @@ vect_estimate_min_profitable_iters (loop_vec_info loop_vinfo,
       if (outside_overhead > 0)
 	min_vec_niters = outside_overhead / saving_per_viter + 1;
 
-      if (LOOP_VINFO_FULLY_MASKED_P (loop_vinfo))
+      if (LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo))
 	{
 	  int threshold = (vec_inside_cost * min_vec_niters
 			   + vec_outside_cost
@@ -4589,7 +4646,8 @@ info_for_reduction (vec_info *vinfo, stmt_vec_info stmt_info)
 {
   stmt_info = vect_orig_stmt (stmt_info);
   gcc_assert (STMT_VINFO_REDUC_DEF (stmt_info));
-  if (!is_a <gphi *> (stmt_info->stmt))
+  if (!is_a <gphi *> (stmt_info->stmt)
+      || !VECTORIZABLE_CYCLE_DEF (STMT_VINFO_DEF_TYPE (stmt_info)))
     stmt_info = STMT_VINFO_REDUC_DEF (stmt_info);
   gphi *phi = as_a <gphi *> (stmt_info->stmt);
   if (STMT_VINFO_DEF_TYPE (stmt_info) == vect_double_reduction_def)
@@ -8336,7 +8394,7 @@ vect_record_loop_mask (loop_vec_info loop_vinfo, vec_loop_masks *masks,
 {
   gcc_assert (nvectors != 0);
   if (masks->length () < nvectors)
-    masks->safe_grow_cleared (nvectors);
+    masks->safe_grow_cleared (nvectors, true);
   rgroup_controls *rgm = &(*masks)[nvectors - 1];
   /* The number of scalars per iteration and the number of vectors are
      both compile-time constants.  */
@@ -8376,7 +8434,7 @@ vect_get_loop_mask (gimple_stmt_iterator *gsi, vec_loop_masks *masks,
      used it.  */
   if (rgm->controls.is_empty ())
     {
-      rgm->controls.safe_grow_cleared (nvectors);
+      rgm->controls.safe_grow_cleared (nvectors, true);
       for (unsigned int i = 0; i < nvectors; ++i)
 	{
 	  tree mask = make_temp_ssa_name (mask_type, NULL, "loop_mask");
@@ -8418,7 +8476,7 @@ vect_record_loop_len (loop_vec_info loop_vinfo, vec_loop_lens *lens,
 {
   gcc_assert (nvectors != 0);
   if (lens->length () < nvectors)
-    lens->safe_grow_cleared (nvectors);
+    lens->safe_grow_cleared (nvectors, true);
   rgroup_controls *rgl = &(*lens)[nvectors - 1];
 
   /* The number of scalars per iteration, scalar occupied bytes and
@@ -8454,7 +8512,7 @@ vect_get_loop_len (loop_vec_info loop_vinfo, vec_loop_lens *lens,
      used it.  */
   if (rgl->controls.is_empty ())
     {
-      rgl->controls.safe_grow_cleared (nvectors);
+      rgl->controls.safe_grow_cleared (nvectors, true);
       for (unsigned int i = 0; i < nvectors; ++i)
 	{
 	  tree len_type = LOOP_VINFO_RGROUP_COMPARE_TYPE (loop_vinfo);
@@ -8974,6 +9032,38 @@ vect_transform_loop (loop_vec_info loop_vinfo, gimple *loop_vectorized_call)
 	    }
 	}
 
+      /* Fill in backedge defs of reductions.  */
+      for (unsigned i = 0; i < loop_vinfo->reduc_latch_defs.length (); ++i)
+	{
+	  stmt_vec_info stmt_info = loop_vinfo->reduc_latch_defs[i];
+	  stmt_vec_info orig_stmt_info = vect_orig_stmt (stmt_info);
+	  vec<gimple *> &phi_info
+	    = STMT_VINFO_VEC_STMTS (STMT_VINFO_REDUC_DEF (orig_stmt_info));
+	  vec<gimple *> &vec_stmt
+	    = STMT_VINFO_VEC_STMTS (stmt_info);
+	  gcc_assert (phi_info.length () == vec_stmt.length ());
+	  gphi *phi
+	    = dyn_cast <gphi *> (STMT_VINFO_REDUC_DEF (orig_stmt_info)->stmt);
+	  edge e = loop_latch_edge (gimple_bb (phi_info[0])->loop_father);
+	  for (unsigned j = 0; j < phi_info.length (); ++j)
+	    add_phi_arg (as_a <gphi *> (phi_info[j]),
+			 gimple_get_lhs (vec_stmt[j]), e,
+			 gimple_phi_arg_location (phi, e->dest_idx));
+	}
+      for (unsigned i = 0; i < loop_vinfo->reduc_latch_slp_defs.length (); ++i)
+	{
+	  slp_tree slp_node = loop_vinfo->reduc_latch_slp_defs[i].first;
+	  slp_tree phi_node = loop_vinfo->reduc_latch_slp_defs[i].second;
+	  gphi *phi = as_a <gphi *> (SLP_TREE_SCALAR_STMTS (phi_node)[0]->stmt);
+	  e = loop_latch_edge (gimple_bb (phi)->loop_father);
+	  gcc_assert (SLP_TREE_VEC_STMTS (phi_node).length ()
+		      == SLP_TREE_VEC_STMTS (slp_node).length ());
+	  for (unsigned j = 0; j < SLP_TREE_VEC_STMTS (phi_node).length (); ++j)
+	    add_phi_arg (as_a <gphi *> (SLP_TREE_VEC_STMTS (phi_node)[j]),
+			 vect_get_slp_vect_def (slp_node, j),
+			 e, gimple_phi_arg_location (phi, e->dest_idx));
+	}
+
       /* Stub out scalar statements that must not survive vectorization.
 	 Doing this here helps with grouped statements, or statements that
 	 are involved in patterns.  */
@@ -9351,3 +9441,25 @@ vect_iv_limit_for_partial_vectors (loop_vec_info loop_vinfo)
   return iv_limit;
 }
 
+/* For the given rgroup_controls RGC, check whether an induction variable
+   would ever hit a value that produces a set of all-false masks or zero
+   lengths before wrapping around.  Return true if it's possible to wrap
+   around before hitting the desirable value, otherwise return false.  */
+
+bool
+vect_rgroup_iv_might_wrap_p (loop_vec_info loop_vinfo, rgroup_controls *rgc)
+{
+  widest_int iv_limit = vect_iv_limit_for_partial_vectors (loop_vinfo);
+
+  if (iv_limit == -1)
+    return true;
+
+  tree compare_type = LOOP_VINFO_RGROUP_COMPARE_TYPE (loop_vinfo);
+  unsigned int compare_precision = TYPE_PRECISION (compare_type);
+  unsigned nitems = rgc->max_nscalars_per_iter * rgc->factor;
+
+  if (wi::min_precision (iv_limit * nitems, UNSIGNED) > compare_precision)
+    return true;
+
+  return false;
+}

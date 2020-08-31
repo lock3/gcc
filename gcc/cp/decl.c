@@ -693,8 +693,18 @@ poplevel (int keep, int reverse, int functionbody)
   /* Remove declarations for all the DECLs in this level.  */
   for (link = decls; link; link = TREE_CHAIN (link))
     {
-      decl = TREE_CODE (link) == TREE_LIST ? TREE_VALUE (link) : link;
-      tree name = OVL_NAME (decl);
+      tree name;
+      if (TREE_CODE (link) == TREE_LIST)
+	{
+	  decl = TREE_VALUE (link);
+	  name = TREE_PURPOSE (link);
+	  gcc_checking_assert (name);
+	}
+      else
+	{
+	  decl = link;
+	  name = DECL_NAME (decl);
+	}
 
       /* Remove the binding.  */
       if (TREE_CODE (decl) == LABEL_DECL)
@@ -8622,7 +8632,7 @@ cp_maybe_mangle_decomp (tree decl, tree first, unsigned int count)
       && TREE_STATIC (decl))
     {
       auto_vec<tree, 16> v;
-      v.safe_grow (count);
+      v.safe_grow (count, true);
       tree d = first;
       for (unsigned int i = 0; i < count; i++, d = DECL_CHAIN (d))
 	v[count - i - 1] = d;
@@ -8682,7 +8692,7 @@ cp_finish_decomp (tree decl, tree first, unsigned int count)
     }
 
   auto_vec<tree, 16> v;
-  v.safe_grow (count);
+  v.safe_grow (count, true);
   tree d = first;
   for (unsigned int i = 0; i < count; i++, d = DECL_CHAIN (d))
     {

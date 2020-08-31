@@ -1139,6 +1139,11 @@ if_convertible_bb_p (class loop *loop, basic_block bb, basic_block exit_bb)
   if (EDGE_COUNT (bb->succs) > 2)
     return false;
 
+  gimple *last = last_stmt (bb);
+  if (gcall *call = safe_dyn_cast <gcall *> (last))
+    if (gimple_call_ctrl_altering_p (call))
+      return false;
+
   if (exit_bb)
     {
       if (bb != loop->latch)
@@ -2217,7 +2222,7 @@ predicate_rhs_code (gassign *stmt, tree mask, tree cond,
 
   /* Construct the arguments to the conditional internal function.   */
   auto_vec<tree, 8> args;
-  args.safe_grow (nops + 1);
+  args.safe_grow (nops + 1, true);
   args[0] = mask;
   for (unsigned int i = 1; i < nops; ++i)
     args[i] = gimple_op (stmt, i);

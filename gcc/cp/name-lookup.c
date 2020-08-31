@@ -65,6 +65,7 @@ static name_hint suggest_alternatives_for_1 (location_t location, tree name,
 #define STAT_VISIBLE(N) OVL_CHAIN (N)
 #define MAYBE_STAT_DECL(N) (STAT_HACK_P (N) ? STAT_DECL (N) : N)
 #define MAYBE_STAT_TYPE(N) (STAT_HACK_P (N) ? STAT_TYPE (N) : NULL_TREE)
+#define STAT_TYPE_HIDDEN_P(N) OVL_DEDUP_P (N)
 /* When a STAT_HACK_P is true, OVL_USING_P and OVL_EXPORT_P are valid
    and apply to the hacked type.  */
 
@@ -1251,18 +1252,18 @@ name_lookup::adl_class_fns (tree type)
 	  {
 	    tree fn = TREE_VALUE (friends);
 
-	    /* Only interested in anticipated friends.  (Non-anticipated
-	       ones will have been inserted during the namespace
-	       adl.)  */
-	    if (!DECL_ANTICIPATED (fn))
-	      continue;
-
 	    /* Only interested in global functions with potentially hidden
 	       (i.e. unqualified) declarations.  */
 	    if (!context)
 	      context = decl_namespace_context (type);
 	    if (CP_DECL_CONTEXT (fn) != context)
 	      continue;
+
+	    if (!deduping)
+	      {
+		lookup_mark (value, true);
+		deduping = true;
+	      }
 
 	    /* Template specializations are never found by name lookup.
 	       (Templates themselves can be found, but not template
@@ -1845,10 +1846,11 @@ get_class_binding_direct (tree klass, tree name, bool want_type)
 static void
 maybe_lazily_declare (tree klass, tree name)
 {
-  if (DECL_LANG_SPECIFIC (TYPE_NAME (klass))
-      && DECL_MODULE_PENDING_MEMBERS_P (TYPE_NAME (klass)))
-    lazy_load_members (TYPE_NAME (klass));
-  
+  tree main_decl = TYPE_NAME (TYPE_MAIN_VARIANT (klass));
+  if (DECL_LANG_SPECIFIC (main_decl)
+      && DECL_MODULE_PENDING_MEMBERS_P (main_decl))
+    lazy_load_members (main_decl);
+
   /* Lazily declare functions, if we're going to search these.  */
   if (IDENTIFIER_CTOR_P (name))
     {
@@ -2902,7 +2904,7 @@ update_local_overload (cxx_binding *binding, tree newval)
     if (*d == binding->value)
       {
 	/* Stitch new list node in.  */
-	*d = tree_cons (NULL_TREE, NULL_TREE, TREE_CHAIN (*d));
+	*d = tree_cons (DECL_NAME (*d), NULL_TREE, TREE_CHAIN (*d));
 	break;
       }
     else if (TREE_CODE (*d) == TREE_LIST && TREE_VALUE (*d) == binding->value)
@@ -4046,29 +4048,33 @@ mergeable_class_entities (tree klass, tree name)
   return found;
 }
 
-/* Given a namespace-level binding BINDING, extract the current
-   module's VALUE and TYPE bindings.  PARTITIONS tells us there are
-   partitions to consider.  */
+/* Given a namespace-level binding BINDING, walk it, calling CALLBACK
+   for all decls of the current module.  When partitions are involved,
+   decls might be mentioned more than once.   */
 
-tree
-extract_module_binding (tree binding, bitmap partitions)
+unsigned
+walk_module_binding (tree binding, bitmap partitions,
+		     bool (*callback) (tree decl, bool maybe_dup,
+				       bool hiddenness, int usingness,
+				       void *data),
+		     void *data)
 {
+  // FIXME: We don't quite deal with using decls naming stat hack
+  // type.
+  // Also using decls exporting something from the same scope
   tree current = binding;
+  unsigned count = 0;
 
   if (TREE_CODE (binding) == MODULE_VECTOR)
     current = MODULE_VECTOR_CLUSTER (binding, 0).slots[MODULE_SLOT_CURRENT];
 
-    /* This TU's bindings.  */
-  tree type = MAYBE_STAT_TYPE (current);
-  current = MAYBE_STAT_DECL (current);
-  tree value = current;
-
-  /* Keep implicit typedef in type slot.  */
-  if (value && DECL_IMPLICIT_TYPEDEF_P (value))
-    {
-      type = value;
-      value = NULL_TREE;
-    }
+  if (tree type = MAYBE_STAT_TYPE (current))
+    count += callback (type, false, DECL_HIDDEN_P (type), 0, data);
+  
+  for (ovl_iterator iter (MAYBE_STAT_DECL (current)); iter; ++iter)
+    count += callback (*iter, false, iter.hidden_p (),
+		       !iter.using_p () ? 0 : iter.exporting_p () ? -1 : +1,
+		       data);
 
   if (partitions && TREE_CODE (binding) == MODULE_VECTOR)
     {
@@ -4081,14 +4087,11 @@ extract_module_binding (tree binding, bitmap partitions)
 	  cluster++;
 	}
 
-      bool deduping = MODULE_VECTOR_PARTITION_DUPS_P (binding);
-      if (deduping)
-	lookup_mark (value, true);
+      bool maybe_dups = MODULE_VECTOR_PARTITION_DUPS_P (binding);
 
       for (; ix--; cluster++)
 	for (unsigned jx = 0; jx != MODULE_VECTOR_SLOTS_PER_CLUSTER; jx++)
 	  if (!cluster->slots[jx].is_lazy ())
-	    /* Load errors could mean there's nothing here.  */
 	    if (tree bind = cluster->slots[jx])
 	      {
 		if (TREE_CODE (bind) == NAMESPACE_DECL
@@ -4103,54 +4106,25 @@ extract_module_binding (tree binding, bitmap partitions)
 		    /* Not a partition's namespace.  */
 		    continue;
 		  found:
-		    if (!deduping)
-		      {
-			/* Namespaces are always shared, we must turn on
-			   deduping as we do not know otherwise.  */
-			lookup_mark (value, true);
-			deduping = true;
-		      }
-		    value = lookup_maybe_add (bind, value, deduping);
+		    count += callback (bind, maybe_dups, false, 0, data);
 		  }
 		else if (STAT_HACK_P (bind) && MODULE_BINDING_PARTITION_P (bind))
 		  {
-		    tree btype = STAT_TYPE (bind);
-		    tree bval = STAT_DECL (bind);
-
-		    /* We should never see an anonymous namespace.  */
-		    gcc_assert (!(TREE_CODE (bval) == NAMESPACE_DECL
-				  && !DECL_NAME (bval)));
-
-		    /* As above, keep implicit typedef in btype.  */
-		    if (DECL_IMPLICIT_TYPEDEF_P (bval))
-		      {
-			btype = bval;
-			bval = NULL;
-		      }
-
-		    if (btype)
-		      {
-			/* Types must be the same.  */
-			gcc_assert (!type || type == btype);
-			type = btype;
-		      }
-
-		    if (bval)
-		      // FIXME: Are we losing using and hidden
-		      // declaration information here?  Should we
-		      // propagate it into the overload?
-		      value = lookup_maybe_add (bval, value, deduping);
+		    if (tree btype = STAT_TYPE (bind))
+		      count += callback (btype, maybe_dups,
+					 STAT_TYPE_HIDDEN_P (bind),
+					 0, data);
+		    for (ovl_iterator iter (MAYBE_STAT_DECL (STAT_DECL (bind)));
+			 iter; ++iter)
+		      count += callback (*iter, maybe_dups, iter.hidden_p (),
+					 !iter.using_p () ? 0
+					 : iter.exporting_p () ? -1 : +1,
+					 data);
 		  }
 	      }
-
-      if (deduping)
-	lookup_mark (value, false);
     }
 
-  if (type)
-    value = lookup_add (type, value);
-
-  return value;
+  return count;
 }
 
 /* Imported module MOD has a binding to NS::NAME, stored in section
@@ -4401,7 +4375,7 @@ push_local_binding (tree id, tree decl, bool is_using)
   if (TREE_CODE (decl) == OVERLOAD || is_using)
     /* We must put the OVERLOAD or using into a TREE_LIST since we
        cannot use the decl's chain itself.  */
-    decl = build_tree_list (NULL_TREE, decl);
+    decl = build_tree_list (id, decl);
 
   /* And put DECL on the list of things declared by the current
      binding level.  */
@@ -7832,13 +7806,20 @@ lookup_name_1 (tree name, LOOK_where where, LOOK_want want)
 		*/
 		continue;
 	      }
+
+	    /* The saved lookups for an operator record 'nothing
+	       found' as error_mark_node.  We need to stop the search
+	       here, but not return the error mark node.  */
+	    if (binding == error_mark_node)
+	      binding = NULL_TREE;
+
 	    val = binding;
-	    break;
+	    goto found;
 	  }
       }
 
   /* Now lookup in namespace scopes.  */
-  if (!val && bool (where & LOOK_where::NAMESPACE))
+  if (bool (where & LOOK_where::NAMESPACE))
     {
       name_lookup lookup (name, want);
       if (lookup.search_unqualified
@@ -7846,10 +7827,11 @@ lookup_name_1 (tree name, LOOK_where where, LOOK_want want)
 	val = lookup.value;
     }
 
+ found:;
+
   /* If we have a known type overload, pull it out.  This can happen
      for both using decls and unhidden functions.  */
-  if (val && TREE_CODE (val) == OVERLOAD
-      && TREE_TYPE (val) != unknown_type_node)
+  if (val && TREE_CODE (val) == OVERLOAD && TREE_TYPE (val) != unknown_type_node)
     val = OVL_FIRST (val);
 
   return val;
@@ -8894,6 +8876,24 @@ push_namespace (tree name, bool make_inline)
     {
       /* DR2061.  NS might be a member of an inline namespace.  We
 	 need to push into those namespaces.  */
+      if (modules_p ())
+	{
+	  for (tree parent, ctx = ns; ctx != current_namespace;
+	       ctx = parent)
+	    {
+	      parent = CP_DECL_CONTEXT (ctx);
+
+	      tree bind = *find_namespace_slot (parent, DECL_NAME (ctx), false);
+	      if (bind != ctx)
+		{
+		  mc_slot &slot
+		    = MODULE_VECTOR_CLUSTER (bind, 0).slots[MODULE_SLOT_CURRENT];
+		  gcc_checking_assert (!(tree)slot || (tree)slot == ctx);
+		  slot = ctx;
+		}
+	    }
+	}
+
       count += push_inline_namespaces (CP_DECL_CONTEXT (ns));
       if (DECL_SOURCE_LOCATION (ns) == BUILTINS_LOCATION)
 	/* It's not builtin now.  */
@@ -8903,8 +8903,9 @@ push_namespace (tree name, bool make_inline)
     {
       /* Before making a new namespace, see if we already have one in
 	 the existing partitions of the current namespace.  */
-      tree *slot = find_namespace_slot (current_namespace, name, true);
-      ns = reuse_namespace (slot, current_namespace, name);
+      tree *slot = find_namespace_slot (current_namespace, name, false);
+      if (slot)
+	ns = reuse_namespace (slot, current_namespace, name);
       if (!ns)
 	ns = make_namespace (current_namespace, name,
 			     input_location, make_inline);
@@ -8915,8 +8916,12 @@ push_namespace (tree name, bool make_inline)
 	{
 	  /* finish up making the namespace.  */
 	  add_decl_to_level (NAMESPACE_LEVEL (current_namespace), ns);
-	  /* pushdecl may invalidate slot, find name again.  */
-	  slot = find_namespace_slot (current_namespace, name, true);
+	  if (!slot)
+	    {
+	      slot = find_namespace_slot (current_namespace, name);
+	      /* This should find the slot created by pushdecl.  */
+	      gcc_checking_assert (slot && *slot == ns);
+	    }
 	  make_namespace_finish (ns, slot);
 
 	  /* Add the anon using-directive here, we don't do it in
@@ -9018,7 +9023,7 @@ add_imported_namespace (tree ctx, tree name, unsigned origin, location_t loc,
   /* Append a new slot.  */
   tree *mslot = &(tree &)*append_imported_binding_slot (slot, name, origin);
 
-  gcc_assert (!*mslot || (visible_p && *mslot == decl));
+  gcc_assert (!*mslot);
   *mslot = visible_p ? decl : stat_hack (decl, NULL_TREE);
 
   return decl;
@@ -9133,23 +9138,38 @@ op_unqualified_lookup (tree fnname)
       cp_binding_level *l = binding->scope;
       while (l && !l->this_entity)
 	l = l->level_chain;
+
       if (l && uses_template_parms (l->this_entity))
 	/* Don't preserve decls from an uninstantiated template,
 	   wait until that template is instantiated.  */
 	return NULL_TREE;
     }
+
   tree fns = lookup_name (fnname);
-  if (fns && fns == get_global_binding (fnname))
-    /* The instantiation can find these.  */
-    return NULL_TREE;
+  if (!fns)
+    /* Remember we found nothing!  */
+    return error_mark_node;
+
+  tree d = is_overloaded_fn (fns) ? get_first_fn (fns) : fns;
+  if (DECL_CLASS_SCOPE_P (d))
+    /* We don't need to remember class-scope functions or declarations,
+       normal unqualified lookup will find them again.  */
+    fns = NULL_TREE;
+
   return fns;
 }
 
 /* E is an expression representing an operation with dependent type, so we
    don't know yet whether it will use the built-in meaning of the operator or a
-   function.  Remember declarations of that operator in scope.  */
+   function.  Remember declarations of that operator in scope.
 
-const char *const op_bind_attrname = "operator bindings";
+   We then inject a fake binding of that lookup into the
+   instantiation's parameter scope.  This approach fails if the user
+   has different using declarations or directives in different local
+   binding of the current function from whence we need to do lookups
+   (we'll cache what we see on the first lookup).  */
+
+static const char *const op_bind_attrname = "operator bindings";
 
 void
 maybe_save_operator_binding (tree e)
@@ -9157,46 +9177,37 @@ maybe_save_operator_binding (tree e)
   /* This is only useful in a generic lambda.  */
   if (!processing_template_decl)
     return;
+
   tree cfn = current_function_decl;
   if (!cfn)
     return;
 
-  /* Let's only do this for generic lambdas for now, we could do it for all
-     function templates if we wanted to.  */
-  if (!current_lambda_expr())
-    return;
+  /* Do this for lambdas and code that will emit a CMI.  In a module's
+     GMF we don't yet know whether there will be a CMI.  */
+  if (!module_has_cmi_p () && !global_purview_p () && !current_lambda_expr())
+     return;
 
   tree fnname = ovl_op_identifier (false, TREE_CODE (e));
   if (!fnname)
     return;
 
   tree attributes = DECL_ATTRIBUTES (cfn);
-  tree attr = lookup_attribute (op_bind_attrname, attributes);
-  tree bindings = NULL_TREE;
-  tree fns = NULL_TREE;
-  if (attr)
+  tree op_attr = lookup_attribute (op_bind_attrname, attributes);
+  if (!op_attr)
     {
-      bindings = TREE_VALUE (attr);
-      if (tree elt = purpose_member (fnname, bindings))
-	fns = TREE_VALUE (elt);
+      op_attr = tree_cons (get_identifier (op_bind_attrname),
+			   NULL_TREE, attributes);
+      DECL_ATTRIBUTES (cfn) = op_attr;
     }
 
-  if (!fns && (fns = op_unqualified_lookup (fnname)))
+  tree op_bind = purpose_member (fnname, TREE_VALUE (op_attr));
+  if (!op_bind)
     {
-      tree d = is_overloaded_fn (fns) ? get_first_fn (fns) : fns;
-      if (DECL_P (d) && DECL_CLASS_SCOPE_P (d))
-	/* We don't need to remember class-scope functions or declarations,
-	   normal unqualified lookup will find them again.  */
-	return;
+      tree fns = op_unqualified_lookup (fnname);
 
-      bindings = tree_cons (fnname, fns, bindings);
-      if (attr)
-	TREE_VALUE (attr) = bindings;
-      else
-	DECL_ATTRIBUTES (cfn)
-	  = tree_cons (get_identifier (op_bind_attrname),
-		       bindings,
-		       attributes);
+      /* Always record, so we don't keep looking for this
+	 operator.  */
+      TREE_VALUE (op_attr) = tree_cons (fnname, fns, TREE_VALUE (op_attr));
     }
 }
 
@@ -9219,11 +9230,11 @@ push_operator_bindings ()
   if (tree attr = lookup_attribute (op_bind_attrname,
 				    DECL_ATTRIBUTES (decl1)))
     for (tree binds = TREE_VALUE (attr); binds; binds = TREE_CHAIN (binds))
-      {
-	tree name = TREE_PURPOSE (binds);
-	tree val = TREE_VALUE (binds);
-	push_local_binding (name, val, /*using*/true);
-      }
+      if (tree val = TREE_VALUE (binds))
+	{
+	  tree name = TREE_PURPOSE (binds);
+	  push_local_binding (name, val, /*using*/true);
+	}
 }
 
 #include "gt-cp-name-lookup.h"

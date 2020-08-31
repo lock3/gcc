@@ -36,6 +36,9 @@
 #include <initializer_list>
 #include <bits/iterator_concepts.h>
 #include <ext/numeric_traits.h>
+#if __cplusplus > 201703L
+#include <bits/max_size_type.h>
+#endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -352,14 +355,32 @@ namespace ranges
 
   namespace __detail
   {
-    template<integral _Tp>
-      constexpr make_unsigned_t<_Tp>
-      __to_unsigned_like(_Tp __t) noexcept
-      { return __t; }
+    constexpr __max_size_type
+    __to_unsigned_like(__max_size_type __t) noexcept
+    { return __t; }
 
-    template<typename _Tp, bool _MaxDiff = same_as<_Tp, __max_diff_type>>
+    constexpr __max_size_type
+    __to_unsigned_like(__max_diff_type __t) noexcept
+    { return __max_size_type(__t); }
+
+    template<integral _Tp>
+      constexpr auto
+      __to_unsigned_like(_Tp __t) noexcept
+      { return static_cast<make_unsigned_t<_Tp>>(__t); }
+
+#if defined __STRICT_ANSI__ && defined __SIZEOF_INT128__
+    constexpr unsigned __int128
+    __to_unsigned_like(__int128 __t) noexcept
+    { return __t; }
+
+    constexpr unsigned __int128
+    __to_unsigned_like(unsigned __int128 __t) noexcept
+    { return __t; }
+#endif
+
+    template<typename _Tp>
       using __make_unsigned_like_t
-	= conditional_t<_MaxDiff, __max_size_type, make_unsigned_t<_Tp>>;
+	= decltype(__detail::__to_unsigned_like(std::declval<_Tp>()));
 
     // Part of the constraints of ranges::borrowed_range
     template<typename _Tp>
