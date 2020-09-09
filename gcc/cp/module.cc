@@ -8284,13 +8284,29 @@ trees_out::decl_constraints (tree decl)
         tree_node (NULL_TREE);
     }
 
+  // For these three modes of serialization, the normalized constraints must be
+  // known. Let's precompute that here.
   tree norm = NULL_TREE;
+  if (serialize_normalizations_p () || serialize_constraints_p ()
+      || serialize_constraints_p ())
+    {
+      // This is a bit wonky for specialized template variables.
+      // The template args aren't being extracted correctly for the
+      // defualt path, so we have to force feed the args to the
+      // normalization machinery.
+      if (TREE_CODE (decl) == VAR_DECL && DECL_LANG_SPECIFIC (decl)
+          && DECL_USE_TEMPLATE (decl))
+        {
+          // FIXME: actually do what the above comment says.
+        }
+      else
+        {
+          norm = get_normalized_constraints (decl);
+        }
+    }
+
   if (serialize_normalizations_p ())
     {
-      // Write the normalized form of the constraint.
-      // norm could be null, it just means that the
-      // constraint was never tested.
-      norm = get_normalized_constraints (decl);
       tree_node (norm);
 
       // TODO: walk tree & dump indiviual constraints
@@ -8300,28 +8316,29 @@ trees_out::decl_constraints (tree decl)
 
   if (serialize_constraints_p ())
     {
-      if (!norm)
-        norm = get_normalized_constraints (decl);
-
-      // Write the cached results for the atomic constraints
-      // for the normalized form, including ALL the failed
-      // results.
-      ctx.count = 0;
-      walk_normalized_constraints (norm, write_constraint_satisfactions, &ctx);
+      if (norm)
+        {
+          // Write the cached results for the atomic constraints
+          // for the normalized form, including ALL the failed
+          // results.
+          ctx.count = 0;
+          walk_normalized_constraints (norm, write_constraint_satisfactions,
+                                       &ctx);
+        }
       // Write a sentinel value
       tree_node (NULL_TREE);
     }
 
   if (serialize_subsumptions_p ())
     {
-      if (!norm)
-        norm = get_normalized_constraints (decl);
-
-      subsum_cache_out_context ctx;
-      ctx.key = norm;
-      ctx.out = this;
-      ctx.count = 0;
-      search_subsumption_cache (norm, write_subsumption_results, &ctx);
+      if (norm)
+        {
+          subsum_cache_out_context ctx;
+          ctx.key = norm;
+          ctx.out = this;
+          ctx.count = 0;
+          search_subsumption_cache (norm, write_subsumption_results, &ctx);
+        }
       // Write a sentinel value.
       tree_node (NULL_TREE);
     }
@@ -8420,7 +8437,10 @@ trees_in::update_constraints (tree decl, constraint_cache_info *cci)
   // Ensure the normalized constraints exist for
   // certain combinations of serialization flags.
   if (!cci->norm && (cci->flags & (CK_constraints | CK_subsumptions)))
-    cci->norm = get_normalized_constraints (decl);
+    {
+      // TODO: this may not work for VAR_DECLS?
+      cci->norm = get_normalized_constraints (decl);
+    }
 
   if (cci->norm)
     set_normalized_constraints (decl, cci->norm);
