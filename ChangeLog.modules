@@ -1,3 +1,184 @@
+2020-09-14  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk d106029c2aa
+
+	Merge trunk 10f51543bb8
+	libstdc++: Add compile-time checks to__glibcxx_assert [PR 71960]
+
+2020-09-11  Nathan Sidwell  <nathan@acm.org>
+
+	Concepts and local externs
+	gcc/cp/
+	* decl.c (grokfndecl): Don't attach to local extern.
+	gcc/testsuite/
+	* concepts/local-extern.C: New.
+
+	Local extern fns do not get template header
+	gcc/cp/
+	* module.cc (trees_out::chained_decls): Also mark local fns for
+	by-value walking.
+	(trees_out::decl_node): Assert we don't meet a local var or fn.
+	(trees_out::get_merge_kind): Local fns are also unique.
+	* pt.c (push_template_decl_real): Local fns also lack a header.
+	(tsubst_function_decl): Cope with local fns.
+	(tsubst_decl): Adjust VAR_DECL tsubsting.
+	gcc/testsuite/
+	* g++.dg/modules/tpl-extern-{var,fn}-1_{a.H,b.C}: New.
+
+2020-09-09  Nathan Sidwell  <nathan@acm.org>
+
+	Local extern vars do not get template header
+	gcc/cp/
+	* cp-tree.h (TINFO_VAR_DECLARED_CONSTINIT): Replace with ...
+	(DECL_DECLARED_CONSTINIT_P): ... here, decl_lang_flag 7.
+	* decl.c (start_decl): Set DECL_DECLARED_CONSTINIT_P as necessary.
+	(cp_finish_decl): Likewise.
+	* pt.c (push_template_decl_real): Don't add a header for
+	DECL_LOCAL_DECL_P VAR_DECLS.
+	(tsubst_decl): Check for VAR_DECLS lacking template info are
+	local.  No need to handle TINFO_VAR_DECLARED_CONSTINIT specially.
+	(tsubst_expr): Likewise.
+	(instantiate_decl): Likewise.
+
+	DECL_LOCAL_DECL_P
+	gcc/cp/
+	* cp-tree.h (DECL_LOCAL_FUNCTION_P): Rename to ...
+	(DECL_LOCAL_DECL_P): ... here.  Apply to VAR_DECLS too.
+	* decl.c (start_decl): Set DECL_LOCAL_DECL_P as approriate.
+	(start_decl_1): Reformat.
+	(omp_declare_variant_finalize_one): Use DECL_LOCAL_DECL_P.
+	(local_variable_p): Simplify.
+	* module.cc (trees_out::chained_decls): Stream DECL_LOCAL_DECL_P
+	by value.
+	(trees_out::get_merge_kind): DECL_LOCAL_DECL_P decls are unique.
+	* name-lookup.c (set_decl_context_in_fn): Assert DECL_LOCAL_DECL_P
+	as expected, don't set it here.
+	(do_pushdecl): Don't call it for friends or dependent types.
+	(is_local_extern): Simplify.
+	* parser.c (cp_parser_postfix_expression): Use DECL_LOCAL_DECL_P.
+	(cp_parser_omp_declare_reduction): Set DECL_LOCAL_DECL_P.
+	Refactor.
+	* pt.c (check_default_tmpl_args): Use DECL_LOCAL_DECL_P.
+	(tsubst_expr): Adjust omp reduction case.
+	(tsubst_omp_udr): Add comments.
+	(type_dependent_expression_p): Adjust.
+	* call.c (equal_functions): Adjust.
+	* semantics.c (finish_call_expr): Adjust.
+	libcc1/
+	* libcp1plugin.cc (plugin_build_call_expr): Use DECL_LOCAL_DECL_P.
+
+2020-09-08  Nathan Sidwell  <nathan@acm.org>
+
+	Change cxx_int_tree_map to cxx_decl_tree_map.
+	gcc/cp/
+	* cp-tree.h (struct cxx_int_tree_map): Rename to ...
+	(struct cxx_decl_tree_map): ... here.
+	* cp-gimplify.c (cxx_int_tree_map_hasher): Rename to ...
+	(cxx_decl_tree_map_hasher): ... here.  Update member fns
+	(cp_genericize_r): Adjust extern_decl_map lookup.
+	* name-lookup.c (set_local_extern_decl_linkage): Adjust
+	extern_decl_map insertion.
+
+2020-09-12  Nathan Sidwell  <nathan@acm.org>
+
+	FLAG DAY! Mapper reponse format change in LibCody
+	gcc/cp/
+	* mapper-client.cc (module_client::open_module_client): Use
+	Client::PC_PATHNAME.
+	* mapper-resolver.cc (module_resolver::ModuleRepoRequest): Use
+	PathnameResponse.
+	(module_resolver::cmi_response): Likewise.
+	(module_resolver::IncludeTranslateRequest): Use BoolResponse and
+	PathnameResponse.
+	* module.cc (module_state::set_filename): Use Client::PC_PATHNAME.
+	(module_translate_include): Use Client::PC_BOOL and
+	Client::PC_PATHNAME.
+
+2020-09-03  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 8bc0f24d7a2.
+
+	Instantiation after extern instantiation.
+	gcc/cp/
+	* module.cc (trees_in::read_class_def): Maybe set
+	CLASSTYPE_INTERFACE.
+	gcc/testsuite/
+	* g++.dg/modules/extern-tpl-2_[abc].[CH]: New.
+
+2020-09-02  Nathan Sidwell  <nathan@acm.org>
+
+	libcpp/
+	* files.c (_cpp_stack_file): Don't try and xlate include-next.
+
+	Extern instantiations.
+	gcc/cp/
+	* module.cc (trees_{in,out}::core_bools): Drop duplicate comdat
+	flag.
+	(trees_in::is_matching_decl): Don't propagate not-really-extern
+	here.
+	(trees_{in,out}::{read,write}_function_def): Stream
+	not-really-extern here.
+	gcc/testsuite/
+	* g++.dg/modules/extern-tpl-1_[abc].[CH]: New.
+
+	Rename -fnote-include-translate to -flang-info-include-translate.
+	gcc/cp/
+	* (module_translate_include): Check if matches trailing part of
+	header name.
+	(handle_module_option): Adjust.
+	gcc/c-family/
+	* c.opt (-fnote-include-translate{,=}): Rename to ...
+	(-flang-info-include-translate{,=}): ... here.
+	(-fnote-include-translate=query): Delete.
+	gcc/
+	* doc/invoke.texi: Update documentation.
+
+2020-08-31  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* lang-specs.h: c++headers always do directives-only preprocessing
+	in modules mode.
+
+	Deal with running out of locations.
+	gcc/cp/
+	* module.cc (module_state::read_prepare_maps): New.
+	(module_state::write_{ordinary,macro}_maps): Adjust.
+	(struct module_state_config): Record number of locations needed.
+	(module_state::read_location): Deal with lack of locations.
+	(module_state::{read,write}_config): Adjust.
+	(module_state::read_initial): Adjust.
+
+	gcc/cp/
+	* mapper.h (module_resolver): Default to no xlation.
+	* mapper-resolver.cc (module_resolver::read_tuple_file): Don't
+	fail on zero-length files.
+
+	Add control for default header translation rules.
+	gcc/cp/
+	* mapper-client.cc (module_client::open_module_client): Better
+	error reporting.
+	* mapper-resolver.cc (module_resolver::module_resolver): Specify
+	default translate behavior.
+	(module_resolver::IncludeTranslateRequest): Check it.
+	* mapper-server.cc (flag_xlate): New.
+	(process_args): Rename -f->-m add -t
+	(main): Adjust.
+	* mapper.h (module_resolver): Add default_xlate field.
+	gcc/testsuite/
+	* g++.dg/modules/inc-xlate-1_e.C: Adjust.
+	* g++.dg/modules/legacy-2_b.H: Adjust.
+	* g++.dg/modules/legacy-6.map: Adjust.
+	* g++.dg/modules/legacy-6_[cd].C: Adjust.
+	* g++.dg/modules/map-2.C: Adjust.
+
+	gcc/cp/
+	* name-lookup.c (get_fixed_binding_slot): Don't stat-hack a
+	namespace.
+	* module.cc (trees_in::assert_definition): Header units are
+	module_purview, but ok.
+	gcc/testsuite/
+	* g++.dg/modules/ns-dup-1_[ab].C: New.
+
 2020-08-28  Nathan Sidwell  <nathan@acm.org>
 
 	Fix pushing imported namespaces.

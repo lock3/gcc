@@ -25,12 +25,12 @@ export int pre_print(int n) { printf("pre_print(%d)\n", n); return n; }
 
 export int fn_in1(int n) [[ pre: pre_print(n) > 0 ]]
 {
-  printf("%s blah (%d)\n", __FUNCTION__, n);
+  printf("%s blah (%d)\n", "fn_in1", n); // FIXME __FUNCTION__
   return n;
 }
 export int fn_in2(int x) [[ pre: pre_print(x) > 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, x);
+  printf("%s(%d)\n", "fn_in2", x); // FIXME
   return x;
 }
 

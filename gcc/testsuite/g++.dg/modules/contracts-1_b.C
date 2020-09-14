@@ -14,7 +14,7 @@ template<typename T>
 T bar_fn(T n)
   [[ pre: bar_fn_pre(n) && n > 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, n);
+  printf("%s(%d)\n", "bar_fn", n); // FIXME __FUNCTION__
   return n;
 }
 

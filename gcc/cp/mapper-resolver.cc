@@ -1,4 +1,4 @@
-/* C++ modules.  Experimental!	-*- c++-mode -*-
+/* C++ modules.  Experimental!	-*- c++ -*-
    Copyright (C) 2017-2020 Free Software Foundation, Inc.
    Written by Nathan Sidwell <nathan@acm.org> while at FaceBook
 
@@ -30,8 +30,8 @@ along with GCC; see the file COPYING3.  If not see
 #include <sys/types.h>
 #include <sys/stat.h>
 
-module_resolver::module_resolver (bool def)
-  : provide_default (def)
+module_resolver::module_resolver (bool map, bool xlate)
+  : default_map (map), default_translate (xlate)
 {
 }
 
@@ -72,7 +72,10 @@ module_resolver::read_tuple_file (int fd, char const *prefix, bool force)
   if (fstat (fd, &stat) < 0)
     return -errno;
 
-  // Just Map the file, we're gonna read all of it, so no need for
+  if (!stat.st_size)
+    return 0;
+
+  // Just map the file, we're gonna read all of it, so no need for
   // line buffering
   void *buffer = mmap (nullptr, stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
   if (buffer == MAP_FAILED)
@@ -168,7 +171,7 @@ module_resolver::ConnectRequest (Cody::Server *s, unsigned version,
 int
 module_resolver::ModuleRepoRequest (Cody::Server *s)
 {
-  s->ModuleRepoResponse (repo);
+  s->PathnameResponse (repo);
   return 0;
 }
 
@@ -179,7 +182,7 @@ module_resolver::cmi_response (Cody::Server *s, std::string &module)
   if (iter == map.end ())
     {
       std::string file;
-      if (provide_default)
+      if (default_map)
 	file = std::move (GetCMIName (module));
       auto res = map.emplace (module, file);
       iter = res.first;
@@ -188,7 +191,7 @@ module_resolver::cmi_response (Cody::Server *s, std::string &module)
   if (iter->second.empty ())
     s->ErrorResponse ("no such module");
   else
-    s->ModuleCMIResponse (iter->second);
+    s->PathnameResponse (iter->second);
 
   return 0;
 }
@@ -206,11 +209,10 @@ module_resolver::ModuleImportRequest (Cody::Server *s, std::string &module)
 }
 
 int
-module_resolver::IncludeTranslateRequest (Cody::Server *s,
-					      std::string &include)
+module_resolver::IncludeTranslateRequest (Cody::Server *s, std::string &include)
 {
   auto iter = map.find (include);
-  if (iter == map.end ())
+  if (iter == map.end () && default_translate)
     {
       // Not found, look for it
       if (fd_repo == -1 && !repo.empty ())
@@ -235,9 +237,9 @@ module_resolver::IncludeTranslateRequest (Cody::Server *s,
     }
 
   if (iter == map.end () || iter->second.empty ())
-    s->IncludeTranslateResponse (false);
+    s->BoolResponse (false);
   else
-    s->ModuleCMIResponse (iter->second);
+    s->PathnameResponse (iter->second);
 
   return 0;
 }

@@ -2139,6 +2139,21 @@ build_constructor_from_list (tree type, tree vals)
   return build_constructor (type, v);
 }
 
+/* Return a new CONSTRUCTOR node whose type is TYPE and whose values
+   are in a vector pointed to by VALS.  Note that the TREE_PURPOSE
+   fields in the constructor remain null.  */
+
+tree
+build_constructor_from_vec (tree type, const vec<tree, va_gc> *vals)
+{
+  vec<constructor_elt, va_gc> *v = NULL;
+
+  for (tree t : *vals)
+    CONSTRUCTOR_APPEND_ELT (v, NULL_TREE, t);
+
+  return build_constructor (type, v);
+}
+
 /* Return a new CONSTRUCTOR node whose type is TYPE.  NELTS is the number
    of elements, provided as index/value pairs.  */
 
@@ -12576,17 +12591,18 @@ cl_option_hasher::equal (tree x, tree y)
     gcc_unreachable ();
 }
 
-/* Build an OPTIMIZATION_NODE based on the options in OPTS.  */
+/* Build an OPTIMIZATION_NODE based on the options in OPTS and OPTS_SET.  */
 
 tree
-build_optimization_node (struct gcc_options *opts)
+build_optimization_node (struct gcc_options *opts,
+			 struct gcc_options *opts_set)
 {
   tree t;
 
   /* Use the cache of optimization nodes.  */
 
   cl_optimization_save (TREE_OPTIMIZATION (cl_optimization_node),
-			opts);
+			opts, opts_set);
 
   tree *slot = cl_option_hash_table->find_slot (cl_optimization_node, INSERT);
   t = *slot;
@@ -12603,17 +12619,18 @@ build_optimization_node (struct gcc_options *opts)
   return t;
 }
 
-/* Build a TARGET_OPTION_NODE based on the options in OPTS.  */
+/* Build a TARGET_OPTION_NODE based on the options in OPTS and OPTS_SET.  */
 
 tree
-build_target_option_node (struct gcc_options *opts)
+build_target_option_node (struct gcc_options *opts,
+			  struct gcc_options *opts_set)
 {
   tree t;
 
   /* Use the cache of optimization nodes.  */
 
   cl_target_option_save (TREE_TARGET_OPTION (cl_target_option_node),
-			 opts);
+			 opts, opts_set);
 
   tree *slot = cl_option_hash_table->find_slot (cl_target_option_node, INSERT);
   t = *slot;

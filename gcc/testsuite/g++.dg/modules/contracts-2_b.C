@@ -5,13 +5,13 @@ module foo;
 
 int fn1(int x)
 {
-  printf("%s(%d)\n", __FUNCTION__, x);
+  printf("%s(%d)\n", "fn1", x); // FIXME __FUNCTION__
   return x;
 }
 
 int fn_iso(int n) [[ pre: pre_print(n) > 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, n);
+  printf("%s(%d)\n", "fn_iso", n); // FIXME
   return n;
 }
 
@@ -23,13 +23,13 @@ int pre_print2(int n)
 
 int fn2(int x)
 {
-  printf("%s(%d)\n", __FUNCTION__, x);
+  printf("%s(%d)\n", "fn2", x); // FIXME
   return x;
 }
 
 int fn3(int x)
 {
-  printf("%s(%d)\n", __FUNCTION__, x);
+  printf("%s(%d)\n", "fn3", x); // FIXME
   return x;
 }
 

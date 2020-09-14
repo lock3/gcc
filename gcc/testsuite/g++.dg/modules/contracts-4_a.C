@@ -20,7 +20,7 @@ T fn_t(T t)
   [[ pre: t > 0 ]]
   [[ pre audit %custom: t > 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, t);
+  printf("%s(%d)\n", "fn_t", t); // FIXME __FUNCTION__
   return t;
 }
 

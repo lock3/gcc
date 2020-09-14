@@ -19,7 +19,7 @@ template<typename T>
 T fn(T n)
   [[ pre: n > 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, n);
+  printf("%s(%d)\n", "fn", n); // FIXME __FUNCTION__ upstream issue?
   return n;
 }
 
@@ -28,7 +28,7 @@ template<typename T>
 void void_fn(T n)
   [[ pre: n < 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, n);
+  printf("%s(%d)\n", "void_fn", n); // FIXME
 }
 
 export void foo_fn()
@@ -41,7 +41,7 @@ export template<typename T>
 void fn2(T n)
   [[ pre: n > 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, n);
+  printf("%s(%d)\n", "fn2", n); // FIXME
 }
 
 export void foo_fn2()

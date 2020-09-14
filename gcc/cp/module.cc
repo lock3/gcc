@@ -3659,11 +3659,14 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   bool read_entities (unsigned count, unsigned lwm, unsigned hwm);
 
  private:
-  location_map_info prepare_maps ();
+  location_map_info write_prepare_maps (module_state_config *);
+  bool read_prepare_maps (const module_state_config *);
+
   void write_ordinary_maps (elf_out *to, location_map_info &,
-			    bool, unsigned *crc_ptr);
+			    module_state_config *, bool, unsigned *crc_ptr);
   bool read_ordinary_maps ();
-  void write_macro_maps (elf_out *to, location_map_info &, unsigned *crc_ptr);
+  void write_macro_maps (elf_out *to, location_map_info &,
+			 module_state_config *, unsigned *crc_ptr);
   bool read_macro_maps ();
 
  private:
@@ -4542,9 +4545,11 @@ trees_in::assert_definition (tree decl ATTRIBUTE_UNUSED,
        be present.  */
     gcc_assert (!is_duplicate (decl)
 		? !slot
-		: (!DECL_LANG_SPECIFIC (decl)
+		: (slot
+		   || !DECL_LANG_SPECIFIC (decl)
 		   || !DECL_MODULE_PURVIEW_P (decl)
-		   || slot));
+		   || (!DECL_MODULE_IMPORT_P (decl)
+		       && header_module_p ())));
 
   if (TREE_CODE (decl) == TEMPLATE_DECL)
     gcc_assert (!note_defs->find_slot (DECL_TEMPLATE_RESULT (decl), NO_INSERT));
@@ -4865,7 +4870,19 @@ void
 trees_out::chained_decls (tree decls)
 {
   for (; decls; decls = DECL_CHAIN (decls))
-    tree_node (decls);
+    {
+      if ((TREE_CODE (decls) == VAR_DECL
+	   || TREE_CODE (decls) == FUNCTION_DECL)
+	  && DECL_LOCAL_DECL_P (decls))
+	{
+	  /* Make sure this is the first encounter, and mark for
+	     walk-by-value.  */
+	  gcc_checking_assert (!TREE_VISITED (decls)
+			       && !DECL_TEMPLATE_INFO (decls));
+	  mark_by_value (decls);
+	}
+      tree_node (decls);
+    }
   tree_node (NULL_TREE);
 }
 
@@ -5314,7 +5331,6 @@ trees_out::core_bools (tree t)
       WB (t->decl_with_vis.seen_in_bind_expr);
       WB (t->decl_with_vis.comdat_flag);
       WB (t->decl_with_vis.visibility_specified);
-      WB (t->decl_with_vis.comdat_flag);
       WB (t->decl_with_vis.init_priority_p);
       WB (t->decl_with_vis.shadowed_for_var_p);
       WB (t->decl_with_vis.cxx_constructor);
@@ -5459,7 +5475,6 @@ trees_in::core_bools (tree t)
       RB (t->decl_with_vis.seen_in_bind_expr);
       RB (t->decl_with_vis.comdat_flag);
       RB (t->decl_with_vis.visibility_specified);
-      RB (t->decl_with_vis.comdat_flag);
       RB (t->decl_with_vis.init_priority_p);
       RB (t->decl_with_vis.shadowed_for_var_p);
       RB (t->decl_with_vis.cxx_constructor);
@@ -5658,6 +5673,7 @@ trees_out::lang_type_bools (tree t)
   WB (lang->has_copy_assign);
   WB (lang->has_new);
   WB (lang->has_array_new);
+
   WB ((lang->gets_delete >> 0) & 1);
   WB ((lang->gets_delete >> 1) & 1);
   // Interfaceness is recalculated upon reading.  May have to revisit?
@@ -5668,6 +5684,7 @@ trees_out::lang_type_bools (tree t)
   WB (lang->anon_aggr);
   WB (lang->non_zero_init);
   WB (lang->empty_p);
+
   WB (lang->vec_new_uses_cookie);
   WB (lang->declared_class);
   WB (lang->diamond_shaped);
@@ -5676,6 +5693,7 @@ trees_out::lang_type_bools (tree t)
   // lang->debug_requested
   WB (lang->fields_readonly);
   WB (lang->ptrmemfunc_flag);
+
   WB (lang->lazy_default_ctor);
   WB (lang->lazy_copy_ctor);
   WB (lang->lazy_copy_assign);
@@ -5684,6 +5702,7 @@ trees_out::lang_type_bools (tree t)
   WB (lang->has_complex_copy_ctor);
   WB (lang->has_complex_copy_assign);
   WB (lang->non_aggregate);
+
   WB (lang->has_complex_dflt);
   WB (lang->has_list_ctor);
   WB (lang->non_std_layout);
@@ -5692,6 +5711,7 @@ trees_out::lang_type_bools (tree t)
   WB (lang->lazy_move_assign);
   WB (lang->has_complex_move_ctor);
   WB (lang->has_complex_move_assign);
+
   WB (lang->has_constexpr_ctor);
   WB (lang->unique_obj_representations);
   WB (lang->unique_obj_representations_set);
@@ -5723,6 +5743,7 @@ trees_in::lang_type_bools (tree t)
   RB (lang->has_copy_assign);
   RB (lang->has_new);
   RB (lang->has_array_new);
+
   v = b () << 0;
   v |= b () << 1;
   lang->gets_delete = v;
@@ -5733,6 +5754,7 @@ trees_in::lang_type_bools (tree t)
   RB (lang->anon_aggr);
   RB (lang->non_zero_init);
   RB (lang->empty_p);
+
   RB (lang->vec_new_uses_cookie);
   RB (lang->declared_class);
   RB (lang->diamond_shaped);
@@ -5741,6 +5763,7 @@ trees_in::lang_type_bools (tree t)
   gcc_assert (!lang->debug_requested);
   RB (lang->fields_readonly);
   RB (lang->ptrmemfunc_flag);
+
   RB (lang->lazy_default_ctor);
   RB (lang->lazy_copy_ctor);
   RB (lang->lazy_copy_assign);
@@ -5749,6 +5772,7 @@ trees_in::lang_type_bools (tree t)
   RB (lang->has_complex_copy_ctor);
   RB (lang->has_complex_copy_assign);
   RB (lang->non_aggregate);
+
   RB (lang->has_complex_dflt);
   RB (lang->has_list_ctor);
   RB (lang->non_std_layout);
@@ -5757,6 +5781,7 @@ trees_in::lang_type_bools (tree t)
   RB (lang->lazy_move_assign);
   RB (lang->has_complex_move_ctor);
   RB (lang->has_complex_move_assign);
+
   RB (lang->has_constexpr_ctor);
   RB (lang->unique_obj_representations);
   RB (lang->unique_obj_representations_set);
@@ -6016,6 +6041,9 @@ trees_out::core_vals (tree t)
     case BLOCK:
       state->write_location (*this, t->block.locus);
       state->write_location (*this, t->block.end_locus);
+      
+      // FIXME:This contains VAR_DECLS and FN_DECLS with extern. Those
+      // should be first met here and walked by value
       chained_decls (t->block.vars);
       /* nonlocalized_vars is a middle-end thing.  */
       WT (t->block.subblocks);
@@ -8079,6 +8107,10 @@ trees_out::decl_node (tree decl, walk_kind ref)
     default:
       break;
 
+    case FUNCTION_DECL:
+      gcc_checking_assert (!DECL_LOCAL_DECL_P (decl));
+      break;
+
     case RESULT_DECL:
       // FIXME: Like a parm?
       return true;
@@ -8177,6 +8209,7 @@ trees_out::decl_node (tree decl, walk_kind ref)
       break;
 
     case VAR_DECL:
+      gcc_checking_assert (!DECL_LOCAL_DECL_P (decl));
       if (DECL_VTABLE_OR_VTT_P (decl))
 	{
 	  /* VTT or VTABLE, they are all on the vtables list.  */
@@ -9865,10 +9898,20 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 {
   if (!dep)
     {
+      if ((TREE_CODE (decl) == VAR_DECL
+	   || TREE_CODE (decl) == FUNCTION_DECL)
+	  && DECL_LOCAL_DECL_P (decl))
+	return MK_unique;
+
       /* Either unique, or some member of a class that cannot have an
 	 out-of-class definition.  For instance a FIELD_DECL.  */
       tree ctx = CP_DECL_CONTEXT (decl);
       if (TREE_CODE (ctx) == FUNCTION_DECL)
+	// FIXME: This not right if DECL has a template header.  For
+	// those will have instantiations pointing at it.  I think the
+	// only case is class definitions inside templates (including
+	// lambdas).  At least those have an ABI-mandated
+	// disambiguation mechanism that we can leverage.
 	return MK_unique;
 
       if (TREE_CODE (decl) == TEMPLATE_DECL
@@ -10901,16 +10944,11 @@ trees_in::is_matching_decl (tree existing, tree decl)
 
   tree e_inner = inner == decl ? existing : DECL_TEMPLATE_RESULT (existing);
 
-  if (TREE_CODE (inner) == FUNCTION_DECL)
-    if (DECL_DECLARED_INLINE_P (inner))
-      DECL_DECLARED_INLINE_P (e_inner) = true;
+  if (TREE_CODE (inner) == FUNCTION_DECL
+      && DECL_DECLARED_INLINE_P (inner))
+    DECL_DECLARED_INLINE_P (e_inner) = true;
   if (!DECL_EXTERNAL (inner))
     DECL_EXTERNAL (e_inner) = false;
-  if (DECL_LANG_SPECIFIC (inner) && DECL_NOT_REALLY_EXTERN (inner))
-    {
-      retrofit_lang_decl (e_inner);
-      DECL_NOT_REALLY_EXTERN (e_inner) = true;
-    }
 
   // FIXME: Check default tmpl and fn parms here
 
@@ -11137,6 +11175,16 @@ trees_out::write_function_def (tree decl)
 	}
       tree_node (cexpr->body);
     }
+
+  if (streaming_p ())
+    {
+      unsigned flags = 0;
+
+      if (DECL_NOT_REALLY_EXTERN (decl))
+	flags |= 1;
+
+      u (flags);
+    }
 }
 
 void
@@ -11188,6 +11236,8 @@ trees_in::read_function_def (tree decl, tree maybe_template)
   else
     cexpr.decl = NULL_TREE;
 
+  unsigned flags = u ();
+
   if (get_overrun ())
     return NULL_TREE;
 
@@ -11197,8 +11247,7 @@ trees_in::read_function_def (tree decl, tree maybe_template)
 
   if (installing)
     {
-      if (DECL_EXTERNAL (decl))
-	DECL_NOT_REALLY_EXTERN (decl) = true;
+      DECL_NOT_REALLY_EXTERN (decl) = flags & 1;
       DECL_RESULT (decl) = result;
       DECL_INITIAL (decl) = initial;
       DECL_SAVED_TREE (decl) = saved;
@@ -11540,6 +11589,15 @@ trees_in::read_class_def (tree defn, tree maybe_template)
   bool installing = maybe_dup && !TYPE_SIZE (type);
   if (installing)
     {
+      if (DECL_EXTERNAL (defn) && TYPE_LANG_SPECIFIC (type))
+	{
+	  /* We don't deal with not-really-extern, because, for a
+	     module you want the import to be the interface, and for a
+	     header-unit, you're doing it wrong.  */
+	  CLASSTYPE_INTERFACE_UNKNOWN (type) = false;
+	  CLASSTYPE_INTERFACE_ONLY (type) = true;
+	}
+
       if (maybe_dup != defn)
 	{
 	  // FIXME: This is needed on other defns too, almost
@@ -12513,6 +12571,8 @@ specialization_add (bool decl_p, spec_entry *entry, void *data_)
        gcc_checking_assert (!check_mergeable_specialization (true, entry)
 			    == (decl_p || !DECL_ALIAS_TEMPLATE_P (entry->tmpl)));
     }
+  else if (VAR_P (entry->spec) || TREE_CODE (entry->spec) == FUNCTION_DECL)
+    gcc_checking_assert (!DECL_LOCAL_DECL_P (entry->spec));
 
   tree spec = entry->spec;
   /* An importer should never inherit our version of a versioned template.  */
@@ -14075,11 +14135,15 @@ struct module_state_config {
   const char *dialect_str;
   unsigned num_imports;
   unsigned num_partitions;
+  unsigned ordinary_locs;
+  unsigned macro_locs;
+  unsigned ordinary_loc_align;
 
 public:
   module_state_config ()
     :dialect_str (get_dialect ()),
-     num_imports (0), num_partitions (0)
+     num_imports (0), num_partitions (0),
+     ordinary_locs (0), macro_locs (0), ordinary_loc_align (0)
   {
   }
 
@@ -14550,6 +14614,7 @@ module_state::read_cluster (unsigned snum)
 	  cfun->returns_struct = aggr;
 
 	  if (DECL_COMDAT (decl))
+	    // FIXME: Comdat grouping?
 	    comdat_linkage (decl);
 	  note_vague_linkage_fn (decl);
 	  cgraph_node::finalize_function (decl, true);
@@ -15289,15 +15354,20 @@ module_state::read_location (bytes_in &sec) const
     case LK_MACRO:
       {
 	unsigned off = sec.u ();
-	location_t adjusted = MAX_LOCATION_T - off;
 
-	adjusted -= slurp->loc_deltas.second;
-	if (adjusted < macro_locs.first)
-	  sec.set_overrun ();
-	else if (adjusted < macro_locs.second)
-	  locus = adjusted;
+	if (macro_locs.first)
+	  {
+	    location_t adjusted = MAX_LOCATION_T - off;
+	    adjusted -= slurp->loc_deltas.second;
+	    if (adjusted < macro_locs.first)
+	      sec.set_overrun ();
+	    else if (adjusted < macro_locs.second)
+	      locus = adjusted;
+	    else
+	      sec.set_overrun ();
+	  }
 	else
-	  sec.set_overrun ();
+	  locus = loc;
 	dump (dumper::LOCATION)
 	  && dump ("Macro %u becoming %u", off, locus);
       }
@@ -15306,15 +15376,20 @@ module_state::read_location (bytes_in &sec) const
     case LK_ORDINARY:
       {
 	unsigned off = sec.u ();
-	location_t adjusted = off;
+	if (ordinary_locs.second)
+	  {
+	    location_t adjusted = off;
 
-	adjusted += slurp->loc_deltas.first;
-	if (adjusted >= ordinary_locs.second)
-	  sec.set_overrun ();
-	else if (adjusted >= ordinary_locs.first)
-	  locus = adjusted;
-	else if (adjusted < spans.main_start ())
-	  locus = off;
+	    adjusted += slurp->loc_deltas.first;
+	    if (adjusted >= ordinary_locs.second)
+	      sec.set_overrun ();
+	    else if (adjusted >= ordinary_locs.first)
+	      locus = adjusted;
+	    else if (adjusted < spans.main_start ())
+	      locus = off;
+	  }
+	else
+	  locus = loc;
 
 	dump (dumper::LOCATION)
 	  && dump ("Ordinary location %u becoming %u", off, locus);
@@ -15345,14 +15420,18 @@ module_state::read_location (bytes_in &sec) const
 	   {
 	     if (kind == LK_IMPORT_MACRO)
 	       {
-		 if (off < import->macro_locs.second - macro_locs.first)
+		 if (!import->macro_locs.first)
+		   locus = import->loc;
+		 else if (off < import->macro_locs.second - macro_locs.first)
 		   locus = import->macro_locs.second - off - 1;
 		 else
 		   sec.set_overrun ();
 	       }
 	     else
 	       {
-		 if (off < (import->ordinary_locs.second
+		 if (!import->ordinary_locs.second)
+		   locus = import->loc;
+		 else if (off < (import->ordinary_locs.second
 			    - import->ordinary_locs.first))
 		   locus = import->ordinary_locs.first + off;
 		 else
@@ -15369,10 +15448,11 @@ module_state::read_location (bytes_in &sec) const
 /* Prepare the span adjustments.  */
 // FIXME: The location streaming does not consider running out of
 // locations in either the module interface, nor in the importers.
-// At least we fail with a hard error though.
+// At least we fail with a hard error though.  This routine should
+// fill in the module_state_config, not the individual writers.
 
 location_map_info
-module_state::prepare_maps ()
+module_state::write_prepare_maps (module_state_config *)
 {
   dump () && dump ("Preparing locations");
   dump.indent ();
@@ -15480,6 +15560,30 @@ module_state::prepare_maps ()
   return info;
 }
 
+bool
+module_state::read_prepare_maps (const module_state_config *cfg)
+{
+  location_t ordinary = line_table->highest_location + 1;
+  ordinary = ((ordinary + (1u << cfg->ordinary_loc_align))
+	      & ~((1u << cfg->ordinary_loc_align) - 1));
+  ordinary += cfg->ordinary_locs;
+
+  location_t macro = LINEMAPS_MACRO_LOWEST_LOCATION (line_table);
+  macro += cfg->macro_locs;
+
+  if (ordinary < LINE_MAP_MAX_LOCATION_WITH_COLS
+      && macro >= LINE_MAP_MAX_LOCATION)
+    /* OK, we have enough locations.  */
+    return true;
+
+  ordinary_locs.first = ordinary_locs.second = 0;
+  macro_locs.first = macro_locs.second = 0;
+
+  inform (loc, "unable to represent source locations in this module");
+
+  return false;
+}
+
 /* Write the location maps.  This also determines the shifts for the
    location spans.  */
 // FIXME: I do not prune the unreachable locations.  Modules with
@@ -15488,7 +15592,8 @@ module_state::prepare_maps ()
 
 void
 module_state::write_ordinary_maps (elf_out *to, location_map_info &info,
-				   bool has_partitions, unsigned *crc_p)
+				   module_state_config *cfg, bool has_partitions,
+				   unsigned *crc_p)
 {
   dump () && dump ("Writing ordinary location maps");
   dump.indent ();
@@ -15617,6 +15722,10 @@ module_state::write_ordinary_maps (elf_out *to, location_map_info &info,
   dump () && dump ("Ordinary location hwm:%u", offset);
   sec.u (offset);
 
+  // Record number of locations and alignment.
+  cfg->ordinary_loc_align = info.max_range;
+  cfg->ordinary_locs = offset;
+
   filenames.release ();
 
   sec.end (to, to->name (MOD_SNAME_PFX ".olm"), crc_p);
@@ -15625,7 +15734,7 @@ module_state::write_ordinary_maps (elf_out *to, location_map_info &info,
 
 void
 module_state::write_macro_maps (elf_out *to, location_map_info &info,
-				unsigned *crc_p)
+				module_state_config *cfg, unsigned *crc_p)
 {
   dump () && dump ("Writing macro location maps");
   dump.indent ();
@@ -15707,6 +15816,8 @@ module_state::write_macro_maps (elf_out *to, location_map_info &info,
   dump () && dump ("Macro location lwm:%u", offset);
   sec.u (offset);
   gcc_assert (macro_num == info.num_maps.second);
+
+  cfg->macro_locs = offset;
 
   sec.end (to, to->name (MOD_SNAME_PFX ".mlm"), crc_p);
   dump.outdent ();
@@ -15798,8 +15909,9 @@ module_state::read_ordinary_maps ()
      hand out.  */
   line_table->highest_location = ordinary_locs.second - 1;
 
-  if (lwm > line_table->highest_location)
-    /* We ran out of locations, fail.  */
+  if (line_table->highest_location >= LINE_MAP_MAX_LOCATION_WITH_COLS)
+    /* We shouldn't run out of locations, as we checked before
+       starting.  */
     sec.set_overrun ();
   dump () && dump ("Ordinary location hwm:%u", ordinary_locs.second);
 
@@ -15850,8 +15962,8 @@ module_state::read_macro_maps ()
       const line_map_macro *macro
 	= linemap_enter_macro (line_table, node, exp_loc, n_tokens);
       if (!macro)
-	/* We ran out of numbers, bail out (and that'll set overrun
-	   due to unread data.  */
+	/* We shouldn't run out of locations, as we checked that we
+	   had enough before starting.  */
 	break;
 
       location_t *locs = macro->macro_locations;
@@ -16847,6 +16959,10 @@ module_state::write_config (elf_out *to, module_state_config &config,
   cfg.u (config.num_imports);
   cfg.u (config.num_partitions);
 
+  cfg.u (config.ordinary_locs);
+  cfg.u (config.macro_locs);
+  cfg.u (config.ordinary_loc_align);  
+
   /* Now generate CRC, we'll have incorporated the inner CRC because
      of its serialization above.  */
   cfg.end (to, to->name (MOD_SNAME_PFX ".cfg"), &crc);
@@ -17041,6 +17157,9 @@ module_state::read_config (module_state_config &config)
   config.num_imports = cfg.u ();
   config.num_partitions = cfg.u ();
 
+  config.ordinary_locs = cfg.u ();
+  config.macro_locs = cfg.u ();
+  config.ordinary_loc_align = cfg.u ();
 
  done:
   return cfg.end (from ());
@@ -17152,8 +17271,8 @@ module_state::write (elf_out *to, cpp_reader *reader)
   vec<depset *> sccs = table.connect ();
 
   unsigned crc = 0;
-  location_map_info map_info = prepare_maps ();
   module_state_config config;
+  location_map_info map_info = write_prepare_maps (&config);
   unsigned counts[MSC_HWM];
 
   config.num_imports = mod_hwm;
@@ -17292,8 +17411,8 @@ module_state::write (elf_out *to, cpp_reader *reader)
     write_partitions (to, config.num_partitions, &crc);
 
   /* Write the line maps.  */
-  write_ordinary_maps (to, map_info, config.num_partitions, &crc);
-  write_macro_maps (to, map_info, &crc);
+  write_ordinary_maps (to, map_info, &config, config.num_partitions, &crc);
+  write_macro_maps (to, map_info, &config, &crc);
 
   if (is_header ())
     {
@@ -17340,8 +17459,10 @@ module_state::read_initial (cpp_reader *reader)
   if (ok && !read_config (config))
     ok = false;
 
+  bool have_locs = ok && read_prepare_maps (&config);
+
   /* Ordinary maps before the imports.  */
-  if (ok && !read_ordinary_maps ())
+  if (have_locs && !read_ordinary_maps ())
     ok = false;
 
   /* Allocate the REMAP vector.  */
@@ -17384,7 +17505,7 @@ module_state::read_initial (cpp_reader *reader)
   gcc_assert (!from ()->is_frozen ());
 
   /* Macro maps after the imports.  */
-  if (ok && !read_macro_maps ())
+  if (ok && have_locs && !read_macro_maps ())
     ok = false;
 
   gcc_assert (slurp->current == ~0u);
@@ -18740,7 +18861,7 @@ canonicalize_header_name (cpp_reader *reader, location_t loc, bool unquoted,
 void module_state::set_filename (const Cody::Packet &packet)
 {
   gcc_checking_assert (!filename);
-  if (packet.GetCode () == Cody::Client::PC_MODULE_CMI)
+  if (packet.GetCode () == Cody::Client::PC_PATHNAME)
     filename = xstrdup (packet.GetString ().c_str ());
   else
     {
@@ -18776,9 +18897,9 @@ module_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
   path = canonicalize_header_name (NULL, loc, true, path, len);
   auto packet = mapper->IncludeTranslate (path, len);
   int xlate = false;
-  if (packet.GetCode () == Cody::Client::PC_INCLUDE_TRANSLATE)
+  if (packet.GetCode () == Cody::Client::PC_BOOL)
     xlate = packet.GetInteger ();
-  else if (packet.GetCode () == Cody::Client::PC_MODULE_CMI)
+  else if (packet.GetCode () == Cody::Client::PC_PATHNAME)
     {
       /* Record the CMI name for when we do the import.  */
       module_state *import = get_module (build_string (len, path));
@@ -18793,9 +18914,7 @@ module_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
     }
 
   bool note = false;
-  if (note_include_translate < 0)
-    note = true;
-  else if (note_include_translate > 0 && xlate)
+  if (note_include_translate && xlate)
     note = true;
   else if (note_includes)
     {
@@ -18804,7 +18923,10 @@ module_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
       for (unsigned ix = note_includes->length (); !note && ix--;)
 	{
 	  const char *hdr = (*note_includes)[ix];
-	  if (!strcmp (hdr, path))
+	  size_t hdr_len = strlen (hdr);
+	  if ((hdr_len == len
+	       || (hdr_len < len && IS_DIR_SEPARATOR (path[len - hdr_len - 1])))
+	      && !memcmp (hdr, path + len - hdr_len, hdr_len))
 	    note = true;
 	}
     }
@@ -19528,11 +19650,7 @@ handle_module_option (unsigned code, const char *str, int)
       flag_modules = 1;
       return true;
 
-    case OPT_fnote_include_translate_query:
-      note_include_translate = -1;
-      return true;
-
-    case OPT_fnote_include_translate_:
+    case OPT_flang_info_include_translate_:
       vec_safe_push (note_includes, str);
       return true;
 
