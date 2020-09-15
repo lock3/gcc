@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=full" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts -Wconstant-postconditions" }
 
 int fun(int n)
   [[ pre: n > 0 ]]

@@ -65,14 +65,6 @@ enum contract_continuation
   MAYBE_CONTINUE
 };
 
-/* Bitmask flags to control compile time contract checking.  */
-enum constexpr_contract_checking_flags {
-  ccc_none = 0,		/* no checking */
-  ccc_trivial = 1 << 0,	/* do trivial checks (no substitution) */
-  ccc_pre = 1 << 1,	/* check pre contracts (substitute call args/locals) */
-  ccc_post = 1 << 2,	/* check body assert and post contracts (complete call) */
-};
-
 /* Assertion role info.  */
 struct contract_role
 {

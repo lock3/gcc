@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=trivial" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts" }
 
 int fun(int n)
   [[ pre: n != 0 ]]
@@ -17,6 +17,6 @@ int fun2(int n)
 int main(int, char**)
 {
   fun(0);
-  fun2(0); // { dg-warning "never satisfied here" }
+  fun2(0);
 }
 

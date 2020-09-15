@@ -1,19 +1,19 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=full" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts -Wconstant-postconditions" }
 
-int nested1(int n)
+constexpr int nested1(int n)
   [[ pre: n != 0 ]]
 {
   return n;
 }
 
-int nested2(int m)
+constexpr int nested2(int m)
   [[ pre: nested1(m) != 1 ]]
 {
   return m;
 }
 
-int nested3(int o)
+constexpr int nested3(int o)
   [[ pre: nested2(o) != 2 ]]
 {
   return o;

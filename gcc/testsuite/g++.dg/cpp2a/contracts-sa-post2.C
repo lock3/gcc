@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=pre" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-preconditions" }
 
 int fun()
   [[ post: false ]] // { dg-bogus "always .false." }

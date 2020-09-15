@@ -455,33 +455,17 @@ Wconditionally-supported
 C++ ObjC++ Var(warn_conditionally_supported) Warning
 Warn for conditionally-supported constructs.
 
-Enum
-Name(constexpr_contract_checking_mode) Type(int)
+Wconstant-contracts
+C++ Var(warn_constant_contracts) Warning
+Warn when a contract is unconditionally true or false.
 
-EnumValue
-Enum(constexpr_contract_checking_mode) String(off) Value(0)
+Wconstant-preconditions
+C++ Var(warn_constant_preconditions) Warning
+Warn when pre contracts on a guarded function call always fail.
 
-EnumValue
-Enum(constexpr_contract_checking_mode) String(trivial) Value(1)
-
-EnumValue
-Enum(constexpr_contract_checking_mode) String(pre) Value(2)
-
-EnumValue
-Enum(constexpr_contract_checking_mode) String(trivial,pre) Value(3)
-
-EnumValue
-Enum(constexpr_contract_checking_mode) String(prepost) Value(6)
-
-EnumValue
-Enum(constexpr_contract_checking_mode) String(trivial,prepost) Value(7)
-
-EnumValue
-Enum(constexpr_contract_checking_mode) String(full) Value(7)
-
-Wconstexpr-contract-checking=
-C++ Joined Var(flag_constexpr_contract_checking) Enum(constexpr_contract_checking_mode) Init(0) RejectNegative
--Wconstexpr-contract-checking=[on|checks|full]	Enable compile time contract checking (default off).
+Wconstant-postconditions
+C++ Var(warn_constant_postconditions) Warning
+Warn when any contracts on a guarded function call always fail.
 
 Wconversion
 C ObjC C++ ObjC++ Var(warn_conversion) Warning

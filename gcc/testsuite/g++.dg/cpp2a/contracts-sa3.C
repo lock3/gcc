@@ -1,19 +1,19 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=prepost" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-postconditions" }
 
-int fun(int n)
+constexpr int fun(int n)
   [[ post r: r != 0 ]]
 {
   return n;
 }
 
-int fun_arg(int n)
+constexpr int fun_arg(int n)
   [[ post r: n != 0 ]]
 {
   return n;
 }
 
-int fun_pre_arg(int n)
+constexpr int fun_pre_arg(int n)
   [[ post r: n != 0 ]]
 {
   return n;

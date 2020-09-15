@@ -43,9 +43,6 @@ do {									\
     return t;								\
  } while (0)
 
-static bool potential_constant_expression_1 (tree, bool, bool, bool,
-					     tsubst_flags_t);
-
 static HOST_WIDE_INT find_array_ctor_elt (tree ary, tree dindex,
 					  bool insert = false);
 
@@ -895,17 +892,8 @@ register_constexpr_fundef (tree fun, tree body)
     }
 
   bool potential = potential_rvalue_constant_expression (massaged);
-  /* If we're examining a function with contracts, we want to silently error
-   * when this is implicitly promoted to constexpr for contract checking, but
-   * otherwise loudly error.  */
   if (!potential && !DECL_GENERATED_P (fun))
-    {
-      if ((DECL_HAS_CONTRACTS_P (fun) || DECL_ORIGINAL_FN (fun))
-	  && !DECL_DECLARED_CONSTEXPR_P (fun))
-	potential_constant_expression_1 (massaged, true, true, false, tf_none);
-      else
-	require_potential_rvalue_constant_expression (massaged);
-    }
+    require_potential_rvalue_constant_expression (massaged);
 
   if (DECL_CONSTRUCTOR_P (fun)
       && cx_check_missing_mem_inits (DECL_CONTEXT (fun),
@@ -949,10 +937,11 @@ register_constexpr_fundef (tree fun, tree body)
 }
 
 /* True if the call expression currently being evaluated is being done for
-   static checking of contracts through the OPT_Wconstexpr_contract_checking_
-   flag, and not from an actual constexpr expression.  */
+   static checking of contracts through the -Wconstant-contracts,
+   -Wconstant-preconditions, or -Wconstant-postcondition flags, and not from
+   an actual constexpr expression.  */
 static int contract_static_analysis_check_p = 0;
-/* True if we've already emitted an error for the current top level SA check.  */
+/* True if we've already emitted an error for the current top level SA check. */
 static int contract_static_analysis_warned = 0;
 /* The top level contract SA call if we're currently doing contract SA and
    such a call exists (pre/post checking).  */
@@ -973,17 +962,6 @@ struct contract_static_analysis_sentinel
   }
   temp_override<tree> csac_override;
 };
-
-/* Similar to register_constexpr_fundef, but we don't require an explicit
-   constexpr specifier and we fail quietly.  This is used to save the body of
-   functions with contracts so that static analysis can be performed.  */
-
-tree
-register_contracts_constexpr_fundef (tree fun, tree body)
-{
-  contract_static_analysis_sentinel sentinel(NULL_TREE);
-  return register_constexpr_fundef (fun, body);
-}
 
 /* FUN is a non-constexpr function called in a context that requires a
    constant expression.  If it comes from a constexpr template, explain why
@@ -2310,9 +2288,7 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
   if (DECL_THUNK_P (fun))
     return cxx_eval_thunk_call (ctx, t, fun, lval, non_constant_p, overflow_p);
 
-  if (!DECL_DECLARED_CONSTEXPR_P (fun)
-      && !DECL_HAS_CONTRACTS_P (fun)
-      && !DECL_ORIGINAL_FN (fun))
+  if (!DECL_DECLARED_CONSTEXPR_P (fun))
     {
       if (TREE_CODE (t) == CALL_EXPR
 	  && cxx_replaceable_global_alloc_fn (fun)
@@ -4718,8 +4694,7 @@ var_in_constexpr_fn (tree t)
 }
 
 /* True if T was declared in a function that might be constexpr: either a
-   function that was declared constexpr, a C++17 lambda op(), or a guarded
-   function when constexpr contract checking is enabled.  */
+   function that was declared constexpr, or a C++17 lambda op().  */
 
 bool
 var_in_maybe_constexpr_fn (tree t)
@@ -4728,14 +4703,6 @@ var_in_maybe_constexpr_fn (tree t)
       && DECL_FUNCTION_SCOPE_P (t)
       && LAMBDA_FUNCTION_P (DECL_CONTEXT (t)))
     return true;
-  if (flag_contracts
-      && flag_constexpr_contract_checking
-      && DECL_FUNCTION_SCOPE_P (t))
-    {
-      tree ctx = DECL_CONTEXT (t);
-      if (DECL_HAS_CONTRACTS_P (ctx) || DECL_ORIGINAL_FN (ctx))
-	return true;
-    }
   return var_in_constexpr_fn (t);
 }
 
@@ -6580,19 +6547,15 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 	if (semantic == CCS_ASSUME && !cp_tree_defined_p (c))
 	  break;
 
-	bool declared_constexpr_p
-	  = DECL_DECLARED_CONSTEXPR_P (ctx->call->fundef->decl);
 	constexpr_ctx new_ctx = *ctx;
-	new_ctx.quiet |= contract_static_analysis_check_p
-	  && !declared_constexpr_p;
+	new_ctx.quiet |= contract_static_analysis_check_p;
 
 	/* Evaluate the generated check.  */
 	r = cxx_eval_constant_expression (&new_ctx, c, false, non_constant_p,
 					  overflow_p);
 
 	/* Ignore non-constant contract conditions under static analysis.  */
-	if (*non_constant_p && contract_static_analysis_check_p
-	    && !declared_constexpr_p)
+	if (*non_constant_p && contract_static_analysis_check_p)
 	  {
 	    if (!contract_static_analysis_warned)
 	      *non_constant_p = false;
@@ -8592,7 +8555,7 @@ diagnose_constant_contract (tree contract, tree value, location_t loc,
   if (value == boolean_true_node)
     {
       if (trivial_p)
-	warning_at (loc, OPT_Wconstexpr_contract_checking_,
+	warning_at (loc, OPT_Wconstant_contracts,
 		    "%s is always %<true%>", kind);
       /* TODO: Mark the contract for ellision.  */
 
@@ -8607,7 +8570,7 @@ diagnose_constant_contract (tree contract, tree value, location_t loc,
   gcc_assert (value == boolean_false_node);
   if (trivial_p)
     {
-      warning_at (loc, OPT_Wconstexpr_contract_checking_,
+      warning_at (loc, OPT_Wconstant_contracts,
 		  "%s is always %<false%>", kind);
 
       /* Check for the special case of '[[asert: false]]' and issue a fixit
@@ -8627,7 +8590,10 @@ diagnose_constant_contract (tree contract, tree value, location_t loc,
      aggregate those and diagnose them in one shot rather than emit
      multiple diagnostics.  */
   /* TODO if this was declared constexpr, just error instead? */
-  warning_at (loc, OPT_Wconstexpr_contract_checking_,
+  int opt = warn_constant_postconditions
+    ? OPT_Wconstant_postconditions
+    : OPT_Wconstant_preconditions;
+  warning_at (loc, opt,
 	      "%s %qE is never satisfied here", kind, condition);
   /* TODO: Mark CALL for immediate termination?  */
   return false;
@@ -8646,8 +8612,6 @@ static tree substitute_values (tree, tree, tree, int);
 static bool
 check_constant_contract (tree fn, tree contract, tree call, tree args, tree ret)
 {
-  if (!flag_contracts || !flag_constexpr_contract_checking)
-    return true;
   gcc_assert (list_length (DECL_ARGUMENTS (fn)) == call_expr_nargs (call));
 
   /* Rewrite the condition, substituting computed arguments and return value. */
@@ -8675,7 +8639,7 @@ check_constant_contract (tree fn, tree contract, tree call, tree args, tree ret)
 void
 check_trivial_constant_contract (tree contract)
 {
-  if (!flag_contracts || !(flag_constexpr_contract_checking & ccc_trivial))
+  if (!flag_contracts || !warn_constant_contracts)
     return;
   if (TREE_CONSTANT (contract))
     return; /* Already diagnosed. */
@@ -8791,7 +8755,8 @@ try_evaluate_arguments (tree call)
 void
 check_constant_contracts (tree call)
 {
-  if (!flag_contracts || !flag_constexpr_contract_checking)
+  if (!flag_contracts
+      || (!warn_constant_preconditions && !warn_constant_postconditions))
     return;
   /* Dig out the function being called. Note that this folds the expression
      so we can see through trivially indirect calls.  */
@@ -8806,8 +8771,7 @@ check_constant_contracts (tree call)
   /* When when checking mode includes post, we need to evaluate the entire
    * call. We use the ordinary constexpr machinery to evaluate the
    * preconditoins, body, and postconditions.  */
-  if ((flag_constexpr_contract_checking & ccc_post)
-      && retrieve_constexpr_fundef (fn))
+  if (warn_constant_postconditions && retrieve_constexpr_fundef (fn))
     {
       tree ret = maybe_constant_value (call);
       if (!TREE_CONSTANT (ret))
@@ -8821,20 +8785,9 @@ check_constant_contracts (tree call)
       return;
     }
 
-  tree args = NULL_TREE;
   /* If we're at least checking pre contracts, try to evaluate all arguments
      as constant expressions.  */
-  if (flag_constexpr_contract_checking & ccc_pre)
-    args = try_evaluate_arguments (call);
-  else
-    {
-      /* Otherwise, treat all arguments as unknown values.  */
-      const int nargs = call_expr_nargs (call);
-      args = make_tree_vec (nargs);
-      for (int i = 0; i < nargs; ++i)
-	TREE_VEC_ELT (args, i) = error_mark_node;
-    }
-
+  tree args = try_evaluate_arguments (call);
   tree ret = error_mark_node;
 
   /* Try evaluating the preconditions.  */

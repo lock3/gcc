@@ -1340,7 +1340,7 @@ finish_contract (tree contract, tree condition, tree comment)
     CONTRACT_COMMENT (contract) = comment;
 
   /* Eagerly evaluate contracts at compile-time, if possible.  */
-  if (flag_contracts && (flag_constexpr_contract_checking & ccc_trivial))
+  if (flag_contracts && warn_constant_contracts)
     check_trivial_constant_contract (contract);
 
   return contract;
@@ -3563,7 +3563,8 @@ finish_call_expr (tree fn, vec<tree, va_gc> **args, bool disallow_virtual,
 
   /* Try checking preconditions and postconditions of the function at
    * compile-time.  */
-  if (flag_contracts && flag_constexpr_contract_checking)
+  if (flag_contracts
+      && (warn_constant_preconditions || warn_constant_postconditions))
     check_constant_contracts (result);
 
   return result;

@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=full" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts -Wconstant-postconditions" }
 
 constexpr int cfun(int n)
   [[ pre: n > 11 ]]
@@ -19,7 +19,7 @@ constexpr int cfun3(int n)
   return n;
 }
 
-int fun(int n)
+constexpr int fun(int n)
   [[ pre: cfun(n) > 10 ]]
   [[ pre: n == 0 ]]
   [[ pre: n != 0 ]]
@@ -28,7 +28,7 @@ int fun(int n)
   return n;
 }
 
-int fun2(int n)
+constexpr int fun2(int n)
   [[ pre: cfun2(n) > 10 ]]
   [[ pre: n == 0 ]]
   [[ pre: n != 0 ]]
@@ -37,7 +37,7 @@ int fun2(int n)
   return n;
 }
 
-int fun3(int n)
+constexpr int fun3(int n)
   [[ pre: cfun3(n) > 10 ]]
   [[ pre: n == 0 ]]
   [[ pre: n != 0 ]]
