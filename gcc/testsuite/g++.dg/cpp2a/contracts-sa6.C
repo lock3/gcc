@@ -1,6 +1,6 @@
 // ensure that failing pre/post can fail at constexpr time
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -fcontract-continuation-mode=on -Wconstexpr-contract-checking=full" }
+// { dg-options "-std=c++20 -fcontracts -fcontract-continuation-mode=on -Wconstant-contracts -Wconstant-postconditions" }
 
 constexpr int ffun(int a)
   [[ pre: a > 0 ]]

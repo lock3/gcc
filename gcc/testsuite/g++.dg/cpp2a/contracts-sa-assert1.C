@@ -1,7 +1,7 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=full" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts -Wconstant-postconditions" }
 
-int fun(int n)
+constexpr int fun(int n)
   [[ pre: n != 0 ]]
   [[ post r: r != 0 ]]
 {
@@ -11,7 +11,7 @@ int fun(int n)
   return n;
 }
 
-int fun2(int n)
+constexpr int fun2(int n)
   [[ pre: n != 0 ]]
   [[ post r: r != 0 ]]
 {
@@ -21,7 +21,7 @@ int fun2(int n)
   return n;
 }
 
-void fun3()
+constexpr void fun3()
   [[ pre: true ]] // { dg-warning "precondition is always .true." }
   [[ post: true ]] // { dg-warning "postcondition is always .true." }
 {
@@ -29,7 +29,7 @@ void fun3()
   [[ assert: n != 0 ]]; // { dg-warning "assertion is always .false." }
 }
 
-int fun4(int n)
+constexpr int fun4(int n)
   [[ post: true ]] // { dg-warning "postcondition is always .true." }
 {
   [[ assert: n == 1 ]];

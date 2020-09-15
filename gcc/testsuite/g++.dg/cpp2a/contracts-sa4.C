@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=prepost" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-postconditions" }
 
 static int gvar{-1};
 

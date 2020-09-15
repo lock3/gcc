@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=trivial" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts" }
 
 int fun()
   [[ post: false ]] // { dg-warning "postcondition is always" }

@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=trivial,pre" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts -Wconstant-preconditions" }
 
 int fun()
   [[ pre: false ]] // { dg-warning "precondition is always" }

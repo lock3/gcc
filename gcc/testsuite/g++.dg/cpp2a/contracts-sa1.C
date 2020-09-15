@@ -1,7 +1,7 @@
 // { dg-do compile }
-// { dg-options "-std=c++20 -fcontracts -Wconstexpr-contract-checking=full" }
+// { dg-options "-std=c++20 -fcontracts -Wconstant-contracts -Wconstant-postconditions" }
 
-int fun1(int n)
+constexpr int fun1(int n)
   [[ pre: n != 0 ]]
   [[ pre: false ]] // { dg-warning "always .false." }
   [[ pre: true ]] // { dg-warning "always .true." }
@@ -10,14 +10,14 @@ int fun1(int n)
 {
   return n;
 }
-int fun2(int n)
+constexpr int fun2(int n)
   [[ pre: false ]] // { dg-warning "always .false." }
   [[ pre: true ]] // { dg-warning "always .true." }
   [[ post r: true ]] // { dg-warning "always .true." }
 {
   return n;
 }
-int fun3(int n)
+constexpr int fun3(int n)
   [[ pre: true ]] // { dg-warning "always .true." }
   [[ post r: false ]] // { dg-warning "always .false." }
   [[ post r: true ]] // { dg-warning "always .true." }
@@ -26,7 +26,7 @@ int fun3(int n)
 }
 
 template<typename T>
-T tfun(T t)
+constexpr T tfun(T t)
   [[ pre: false ]] // { dg-warning "always .false." }
   [[ pre: t > 0 ]]
   [[ post: false ]] // { dg-warning "always .false." }
@@ -34,7 +34,7 @@ T tfun(T t)
   return t;
 }
 template<typename T>
-T tfun2(T t)
+constexpr T tfun2(T t)
   [[ pre: t > 0 ]]
   [[ post: t < 0 ]]
   [[ post: false ]] // { dg-warning "always .false." }
@@ -43,7 +43,7 @@ T tfun2(T t)
 }
 
 template<typename T>
-auto tfun_auto(T t)
+constexpr auto tfun_auto(T t)
   [[ pre: false ]] // { dg-warning "always .false." }
   [[ pre: t > 0 ]]
   [[ post: false ]] // { dg-warning "always .false." }
@@ -51,7 +51,7 @@ auto tfun_auto(T t)
   return t;
 }
 template<typename T>
-auto tfun_auto2(T t)
+constexpr auto tfun_auto2(T t)
   [[ pre: t > 0 ]]
   [[ post: false ]] // { dg-warning "always .false." }
 {
@@ -162,8 +162,8 @@ int main(int, char**) {
 
   tfun(1); // { dg-warning "precondition .false. is never satisfied here" }
   tfun(1.5); // { dg-warning "precondition .false. is never satisfied here" }
-  tfun2(2); //  dg-warning "postcondition .false. is never satisfied here" }
-  tfun2(2.5); //  dg-warning "postcondition .false. is never satisfied here" }
+  tfun2(2); // { dg-warning "postcondition ..t < 0.. is never satisfied here" }
+  tfun2(2.5); // { dg-warning "postcondition ..t < .double.0.. is never satisfied here" }
 
   tfun_auto(1); // { dg-warning "precondition .false. is never satisfied here" }
   tfun_auto(1.5); // { dg-warning "precondition .false. is never satisfied here" }
