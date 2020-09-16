@@ -14493,17 +14493,25 @@ struct module_state_config {
   const char *dialect_str;
   unsigned num_imports;
   unsigned num_partitions;
+<<<<<<< HEAD
   unsigned ordinary_locs;
   unsigned macro_locs;
   unsigned ordinary_loc_align;
+=======
+>>>>>>> 37571c7371fc576f5b0f9a0c8da5650d808d3ab7
   unsigned cache_flags;         /* see cache_kind */
 
 public:
   module_state_config ()
     :dialect_str (get_dialect ()),
+<<<<<<< HEAD
      num_imports (0), num_partitions (0),
      ordinary_locs (0), macro_locs (0), ordinary_loc_align (0),
      cache_flags (0)
+=======
+     num_imports (0), num_partitions (0), 
+     cache_flags(0)
+>>>>>>> 37571c7371fc576f5b0f9a0c8da5650d808d3ab7
   {
   }
 
@@ -17299,10 +17307,13 @@ module_state::write_config (elf_out *to, module_state_config &config,
   cfg.u (config.num_imports);
   cfg.u (config.num_partitions);
 
+<<<<<<< HEAD
   cfg.u (config.ordinary_locs);
   cfg.u (config.macro_locs);
   cfg.u (config.ordinary_loc_align);  
 
+=======
+>>>>>>> 37571c7371fc576f5b0f9a0c8da5650d808d3ab7
   /* Write the constraint cache serialization flags */
   cfg.u((unsigned)serialize_caches);
 
@@ -17485,10 +17496,13 @@ module_state::read_config (module_state_config &config)
   config.num_imports = cfg.u ();
   config.num_partitions = cfg.u ();
 
+<<<<<<< HEAD
   config.ordinary_locs = cfg.u ();
   config.macro_locs = cfg.u ();
   config.ordinary_loc_align = cfg.u ();
 
+=======
+>>>>>>> 37571c7371fc576f5b0f9a0c8da5650d808d3ab7
   /* Read the serialization flags */
   config.cache_flags = cfg.u();
 
@@ -17796,8 +17810,11 @@ module_state::read_initial (cpp_reader *reader)
   if (ok && !read_config (config))
     ok = false;
 
+<<<<<<< HEAD
   bool have_locs = ok && read_prepare_maps (&config);
 
+=======
+>>>>>>> 37571c7371fc576f5b0f9a0c8da5650d808d3ab7
   /* Save the cache serialization flags.  */
   if (ok) 
   {
@@ -19885,6 +19902,7 @@ bool handle_module_option(unsigned code, const char *str, int)
     flag_modules = 1;
     return true;
 
+<<<<<<< HEAD
   case OPT_flang_info_include_translate_:
     vec_safe_push (note_includes, str);
     return true;
@@ -19893,6 +19911,20 @@ bool handle_module_option(unsigned code, const char *str, int)
     serialize_caches = serialize_caches | CK_declarations;
     return true;
 
+=======
+  case OPT_fnote_include_translate_query:
+    note_include_translate = -1;
+    return true;
+
+  case OPT_fnote_include_translate_:
+    vec_safe_push(note_includes, str);
+    return true;
+
+  case OPT_fserialize_declaration_cache:
+    serialize_caches = serialize_caches | CK_declarations;
+    return true;
+
+>>>>>>> 37571c7371fc576f5b0f9a0c8da5650d808d3ab7
   case OPT_fserialize_normalization_cache:
     serialize_caches = serialize_caches | CK_normalizations;
     return true;
