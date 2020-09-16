@@ -14502,8 +14502,8 @@ public:
   module_state_config ()
     :dialect_str (get_dialect ()),
      num_imports (0), num_partitions (0),
-     ordinary_locs (0), macro_locs (0), ordinary_loc_align (0)
-     cache_flags(0)
+     ordinary_locs (0), macro_locs (0), ordinary_loc_align (0),
+     cache_flags (0)
   {
   }
 
@@ -19887,14 +19887,6 @@ bool handle_module_option(unsigned code, const char *str, int)
 
   case OPT_flang_info_include_translate_:
     vec_safe_push (note_includes, str);
-    return true;
-
-  case OPT_fnote_include_translate_query:
-    note_include_translate = -1;
-    return true;
-
-  case OPT_fnote_include_translate_:
-    vec_safe_push(note_includes, str);
     return true;
 
   case OPT_fserialize_declaration_cache:
