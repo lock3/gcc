@@ -675,7 +675,7 @@ timer::print_row (FILE *fp,
 bool
 timer::all_zero (const timevar_time_def &elapsed)
 {
-  const double tiny = 5e-3;
+  const double tiny = 5e-5;
   return (elapsed.user < tiny
 	  && elapsed.sys < tiny
 	  && elapsed.wall < tiny

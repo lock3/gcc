@@ -8369,6 +8369,8 @@ extern tree maybe_substitute_reqs_for		(tree, const_tree);
 extern tree get_template_head_requirements	(tree);
 extern tree get_trailing_function_requirements	(tree);
 extern tree get_shorthand_constraints           (tree);
+extern tree get_normalized_constraints          (tree);
+extern void set_normalized_constraints          (tree, tree);
 
 extern tree build_concept_id			(tree);
 extern tree build_type_constraint		(tree, tree, tsubst_flags_t);
@@ -8429,8 +8431,20 @@ extern hashval_t iterative_hash_constraint      (tree, hashval_t);
 extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
+extern void walk_satisfaction_cache               (bool, 
+                                                 bool (*) (bool, 
+                                                           tree, 
+                                                           tree, 
+                                                           tree, 
+                                                           void *), 
+                                                 void *);
+extern void save_satisfaction (bool, tree, tree, tree);
+
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);
+
+extern void walk_subsumption_cache (void (*) (tree, tree, bool, void *), void *);
+extern void search_subsumption_cache (tree, void (*) (tree, int, void *), void *);
 
 /* In class.c */
 extern void cp_finish_injected_record_type (tree);
