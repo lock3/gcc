@@ -4871,8 +4871,7 @@ trees_out::chained_decls (tree decls)
 {
   for (; decls; decls = DECL_CHAIN (decls))
     {
-      if ((TREE_CODE (decls) == VAR_DECL
-	   || TREE_CODE (decls) == FUNCTION_DECL)
+      if (VAR_OR_FUNCTION_DECL_P (decls)
 	  && DECL_LOCAL_DECL_P (decls))
 	{
 	  /* Make sure this is the first encounter, and mark for
@@ -9898,8 +9897,7 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 {
   if (!dep)
     {
-      if ((TREE_CODE (decl) == VAR_DECL
-	   || TREE_CODE (decl) == FUNCTION_DECL)
+      if (VAR_OR_FUNCTION_DECL_P (decl)
 	  && DECL_LOCAL_DECL_P (decl))
 	return MK_unique;
 
@@ -9907,12 +9905,20 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	 out-of-class definition.  For instance a FIELD_DECL.  */
       tree ctx = CP_DECL_CONTEXT (decl);
       if (TREE_CODE (ctx) == FUNCTION_DECL)
-	// FIXME: This not right if DECL has a template header.  For
-	// those will have instantiations pointing at it.  I think the
-	// only case is class definitions inside templates (including
-	// lambdas).  At least those have an ABI-mandated
-	// disambiguation mechanism that we can leverage.
-	return MK_unique;
+	{
+	  // FIXME: This not right if DECL has a template header.  For
+	  // those will have instantiations pointing at it.  I think the
+	  // only case is class definitions inside templates (including
+	  // lambdas).  At least those have an ABI-mandated
+	  // disambiguation mechanism that we can leverage.  Hm, do
+	  // such class definitions show up in the instantiation
+	  // table, and hence have DEP non-null?
+	  gcc_checking_assert (TREE_CODE (decl) == USING_DECL
+			       || !DECL_LANG_SPECIFIC (decl)
+			       || !DECL_TEMPLATE_INFO (decl));
+
+	  return MK_unique;
+	}
 
       if (TREE_CODE (decl) == TEMPLATE_DECL
 	  && DECL_UNINSTANTIATED_TEMPLATE_FRIEND_P (decl))
@@ -9925,6 +9931,7 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	  && TREE_CODE (DECL_TI_TEMPLATE (decl)) != TEMPLATE_DECL)
 	/* A template specialization friend, we can treat as-if
 	   unique.  */
+	// FIXME: Isn't this now MK_friend_spec?
 	return MK_unique;
 
       gcc_checking_assert (TYPE_P (ctx));
@@ -10056,6 +10063,11 @@ trees_out::get_merge_kind (tree decl, depset *dep)
       {
 	gcc_checking_assert (dep->is_special ());
 	spec_entry *entry = reinterpret_cast <spec_entry *> (dep->deps[0]);
+
+	if (TREE_CODE (DECL_CONTEXT (decl)) == FUNCTION_DECL)
+	  // FIXME: Doesn't this need some kind of deduplication using
+	  // the uniqueness of the context?
+	  gcc_checking_assert (DECL_IMPLICIT_TYPEDEF_P (decl));
 
 	if (dep->is_friend_spec ())
 	  mk = MK_friend_spec;
@@ -10936,8 +10948,7 @@ trees_in::is_matching_decl (tree existing, tree decl)
       // that works right.
     }
 
-  if ((TREE_CODE (decl) == VAR_DECL
-       || TREE_CODE (decl) == FUNCTION_DECL)
+  if (VAR_OR_FUNCTION_DECL_P (decl)
       && DECL_TEMPLATE_INSTANTIATED (decl))
     /* Don't instantiate again!  */
     DECL_TEMPLATE_INSTANTIATED (existing) = true;
@@ -12236,8 +12247,7 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 	  if (!TREE_PUBLIC (ctx))
 	    /* Member of internal namespace.  */
 	    dep->set_flag_bit<DB_IS_INTERNAL_BIT> ();
-	  else if ((TREE_CODE (not_tmpl) == FUNCTION_DECL
-		    || TREE_CODE (not_tmpl) == VAR_DECL)
+	  else if (VAR_OR_FUNCTION_DECL_P (not_tmpl)
 		   && DECL_THIS_STATIC (not_tmpl))
 	    {
 	      /* An internal decl.  In global module permit
@@ -12384,8 +12394,7 @@ depset::hash::add_binding_entity (tree decl, bool maybe_dups,
 	/* Ignore global module fragment entities.  */
 	return false;
 
-      if ((TREE_CODE (inner) == VAR_DECL
-	   || TREE_CODE (inner) == FUNCTION_DECL)
+      if (VAR_OR_FUNCTION_DECL_P (inner)
 	  && DECL_THIS_STATIC (inner))
 	{
 	  if (!header_module_p ())
@@ -12571,7 +12580,7 @@ specialization_add (bool decl_p, spec_entry *entry, void *data_)
        gcc_checking_assert (!check_mergeable_specialization (true, entry)
 			    == (decl_p || !DECL_ALIAS_TEMPLATE_P (entry->tmpl)));
     }
-  else if (VAR_P (entry->spec) || TREE_CODE (entry->spec) == FUNCTION_DECL)
+  else if (VAR_OR_FUNCTION_DECL_P (entry->spec))
     gcc_checking_assert (!DECL_LOCAL_DECL_P (entry->spec));
 
   tree spec = entry->spec;
