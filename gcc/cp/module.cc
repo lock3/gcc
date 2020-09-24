@@ -4407,7 +4407,7 @@ dumper::operator () (const char *format, ...)
       /* Local indent.  */
       if (unsigned indent = dumps->indent)
 	{
-	  const char *prefix = "                 ";
+	  const char *prefix = "      ";
 	  fprintf (dumps->stream, (indent <= strlen (prefix)
 				   ? &prefix[strlen (prefix) - indent]
 				   : "  .%d.  "), indent);
