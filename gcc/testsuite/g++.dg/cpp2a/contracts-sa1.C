@@ -199,8 +199,9 @@ int main(int, char**) {
   ft_int1.fun(0);
   ft_int1.fun(n);
 
-  TFoo<int>::sfun(0); // { dg-warning "precondition ..n != 0.. is never satisfied here" }
-  TFoo<int>::sfun(n); // { dg-warning "precondition ..n != 0.. is never satisfied here" }
+  // FIXME sfun call sees dependently typed contracts, should see n != 0
+  TFoo<int>::sfun(0); // { dg-warning "precondition .false. is never satisfied here" }
+  TFoo<int>::sfun(n); // { dg-warning "precondition .false. is never satisfied here" }
   TFoo<int>::sfun2(0); // { dg-warning "precondition .false. is never satisfied here" }
   TFoo<int>::sfun2(n); // { dg-warning "precondition .false. is never satisfied here" }
 

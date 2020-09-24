@@ -3709,11 +3709,6 @@ maybe_print_constexpr_context (diagnostic_context *context)
 
   FOR_EACH_VEC_ELT (call_stack, ix, t)
     {
-      /* Skip frames for pre/post fns.  */
-      if (TREE_CODE (t) == CALL_EXPR
-	  && get_callee_fndecl (t)
-	  && DECL_ORIGINAL_FN (get_callee_fndecl (t)))
-	continue;
       expanded_location xloc = expand_location (EXPR_LOCATION (t));
       const char *s = expr_as_string (t, 0);
       if (context->show_column)

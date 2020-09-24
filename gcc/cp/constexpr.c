@@ -7625,9 +7625,7 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
 		    && !cxx_dynamic_cast_fn_p (fun)
 		    /* Allow checks on guarded functions for static analysis.  */
 		    && !(DECL_HAS_CONTRACTS_P (fun)
-			&& contract_static_analysis_check_p)
-		    /* Allow pre/post fns.  */
-		    && (DECL_ORIGINAL_FN (fun) == NULL_TREE))
+			&& contract_static_analysis_check_p))
 		  {
 		    if (flags & tf_error)
 		      {
@@ -8635,6 +8633,8 @@ check_constant_contract (tree fn, tree contract, tree call, tree args, tree ret)
   tree condition = CONTRACT_CONDITION (contract);
   if (condition == error_mark_node)
     return true;
+  if (TREE_TYPE (condition) == NULL_TREE)
+    return true;
 
   tree result = condition;
 
@@ -8774,6 +8774,8 @@ check_constant_contracts (tree call)
 {
   if (!flag_contracts
       || (!warn_constant_preconditions && !warn_constant_postconditions))
+    return;
+  if (TREE_TYPE (call) == NULL_TREE || TREE_TYPE (call) == error_mark_node)
     return;
   /* Dig out the function being called. Note that this folds the expression
      so we can see through trivially indirect calls.  */

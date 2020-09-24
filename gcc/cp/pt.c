@@ -20913,7 +20913,7 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
       register_local_specialization (DECL_UNCHECKED_RESULT (t), orig_result);
     }
   contract_attrs = tsubst_contract_conditions_r (contract_attrs, args,
-						 complain, in_decl, skip_post);
+						 complain, in_decl, false);
   set_decl_contracts (t, contract_attrs);
 }
 
