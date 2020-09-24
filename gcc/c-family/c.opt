@@ -463,16 +463,20 @@ Wconditionally-supported
 C++ ObjC++ Var(warn_conditionally_supported) Warning
 Warn for conditionally-supported constructs.
 
+Wconstant-contract-checks
+C++ Warning
+Enable all warnings related to compile time constant contracts.
+
 Wconstant-contracts
-C++ Var(warn_constant_contracts) Warning
+C++ Var(warn_constant_contracts) Warning LangEnabledBy(C++,Wconstant-contract-checks)
 Warn when a contract is unconditionally true or false.
 
 Wconstant-preconditions
-C++ Var(warn_constant_preconditions) Warning
+C++ Var(warn_constant_preconditions) Warning LangEnabledBy(C++,Wconstant-contract-checks)
 Warn when pre contracts on a guarded function call always fail.
 
 Wconstant-postconditions
-C++ Var(warn_constant_postconditions) Warning
+C++ Var(warn_constant_postconditions) Warning LangEnabledBy(C++,Wconstant-contract-checks)
 Warn when any contracts on a guarded function call always fail.
 
 Wconversion
