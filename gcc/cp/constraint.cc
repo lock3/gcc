@@ -837,8 +837,10 @@ get_normalized_constraints_from_decl (tree d, bool diag = false)
 
   /* If we're not diagnosing errors, use cached constraints, if any.  */
   if (!diag)
-    if (tree *p = hash_map_safe_get (normalized_map, tmpl))
-      return *p;
+    {
+      if (tree *p = hash_map_safe_get (normalized_map, tmpl))
+        return *p;
+    }
 
   push_nested_class_guard pncs (DECL_CONTEXT (d));
 
@@ -893,6 +895,55 @@ normalize_nontemplate_requirements (tree decl, bool diag = false)
 {
   return get_normalized_constraints_from_decl (decl, diag);
 }
+
+/* Reads the cached normal form, if one exists.  
+   FIXME: Get a better name so as not to confuse .  */
+
+tree
+get_normalized_constraints (tree decl)
+{
+  return get_normalized_constraints_from_decl (decl, false);
+}
+
+/* Writes the cached normal form, if one exists.  
+   TODO: this is mostly copied from get_normalized_constraints_from_decl. 
+   I should make more of an effort. */
+   
+void set_normalized_constraints(tree d, tree norm)
+{
+  tree tmpl;
+  tree decl;
+
+  /* For inherited constructors, consider the original declaration;
+     it has the correct template information attached. */
+  d = strip_inheriting_ctors (d);
+
+  if (TREE_CODE (d) == TEMPLATE_DECL)
+    {
+      tmpl = d;
+      decl = DECL_TEMPLATE_RESULT (tmpl);
+    }
+  else
+    {
+      if (tree ti = DECL_TEMPLATE_INFO (d))
+        tmpl = TI_TEMPLATE (ti);
+      else
+        tmpl = NULL_TREE;
+      decl = d;
+    }
+
+  if (tmpl)
+    {
+      if (DECL_LANG_SPECIFIC (tmpl) && !DECL_TEMPLATE_SPECIALIZATION (tmpl))
+        tmpl = most_general_template (tmpl);
+    }
+
+  if (tree *p = hash_map_safe_get (normalized_map, tmpl))
+      return;
+
+  hash_map_safe_put<hm_ggc> (normalized_map, tmpl, norm);
+}
+
 
 /* Normalize an EXPR as a constraint using ARGS.  */
 
@@ -2340,10 +2391,64 @@ save_satisfaction (tree constr, tree args, tree result)
 void
 clear_satisfaction_cache ()
 {
-  if (sat_cache)
-    sat_cache->empty ();
-  if (decl_satisfied_cache)
-    decl_satisfied_cache->empty ();
+/* Don't clear the cache. If you need to, your program is already ill-formed.
+
+   if (sat_cache)
+     sat_cache->empty ();
+   if (decl_satisfied_cache)
+     decl_satisfied_cache->empty ();
+*/     
+}
+
+/* Calls CB for each entry in the decl satisfaction cache when DECL_P is true 
+   or the atomic satisfaction cache otherwise.  */
+
+void
+walk_satisfaction_cache (bool decl_p,
+                       bool (*cb) (bool, tree, tree, tree, void *), void *ctx)
+{
+  if (decl_p)
+    {
+      if (!decl_satisfied_cache)
+        return;
+
+      hash_map<tree, tree>::iterator end = decl_satisfied_cache->end ();
+      for (hash_map<tree, tree>::iterator i = decl_satisfied_cache->begin ();
+           i != end; ++i)
+        {
+          if (!cb (decl_p, (*i).first, NULL, (*i).second, ctx))
+            return;
+        }
+    }
+  else
+    {
+      if (!sat_cache)
+        return;
+
+      hash_table<sat_hasher>::iterator end = sat_cache->end ();
+      for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end;
+           ++i)
+        {
+          sat_entry *e = *i;
+          if (!cb (decl_p, e->constr, e->args, e->result, ctx))
+            return;
+        }
+    }
+}
+
+void
+save_satisfaction (bool decl_p, tree decl_or_constraint, tree args,
+                   tree result)
+{
+  if (decl_p)
+    {
+      hash_map_safe_put<hm_ggc> (decl_satisfied_cache, decl_or_constraint,
+                                 result);
+    }
+  else
+    {
+      save_satisfaction (decl_or_constraint, args, result);
+    }
 }
 
 /* A tool to help manage satisfaction caching in satisfy_constraint_r.

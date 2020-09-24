@@ -2341,7 +2341,18 @@ toplev::~toplev ()
   if (g_timer && m_use_TV_TOTAL)
     {
       g_timer->stop (TV_TOTAL);
-      g_timer->print (stderr);
+
+      FILE *f = NULL;
+      if (time_report_file)
+        {
+          f = fopen (time_report_file, "w");
+        }
+
+      g_timer->print (f ? f : stderr);
+
+      if (!f)
+        fclose (f);
+        
       delete g_timer;
       g_timer = NULL;
     }

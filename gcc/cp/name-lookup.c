@@ -5015,6 +5015,22 @@ pushdecl_outermost_localscope (tree x)
   return ret;
 }
 
+static bool
+actually_has_external_linkage_p (tree d)
+{
+  /* Anything exported has module linkage.  */
+  if (DECL_MODULE_EXPORT_P (d))
+    return true;
+  
+  /* Declarations in the GMF have external linkage.  */
+  if (get_originating_module (d) <= 0
+      && !DECL_MODULE_PURVIEW_P (d))
+  return DECL_EXTERNAL_LINKAGE_P (d);
+
+  /* Presumably, all other declarations have internal or module linkage.  */
+  return false;
+}
+
 /* Process a local-scope or namespace-scope using declaration.  LOOKUP
    is the result of qualified lookup (both value & type are
    significant).  FN_SCOPE_P indicates if we're at function-scope (as
@@ -5059,7 +5075,7 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
 	    {
 	      /* If the using decl is exported, the things it refers
 		 to must also be exported.  */
-	      if (!DECL_MODULE_EXPORT_P (new_fn))
+	      if (!actually_has_external_linkage_p (new_fn))
 		{
 		  error ("%q#D does not have external linkage", new_fn);
 		  inform (DECL_SOURCE_LOCATION (new_fn),

@@ -2662,6 +2662,11 @@ common_handle_option (struct gcc_options *opts,
       opts->x_flag_stack_usage_info = value != 0;
       break;
 
+    case OPT_ftime_report_:
+      opts->x_time_report = 1;
+      opts->x_time_report_file = arg;
+      break;
+
     case OPT_g:
       set_debug_level (NO_DEBUG, DEFAULT_GDB_EXTENSIONS, arg, opts, opts_set,
                        loc);
