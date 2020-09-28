@@ -554,7 +554,7 @@ map_arguments (tree parms, tree args)
 	TREE_PURPOSE (p) = TMPL_ARG (args, level, index);
       }
     else
-      TREE_PURPOSE (p) = TREE_VALUE (p);
+      TREE_PURPOSE (p) = template_parm_to_arg (p);
 
   return parms;
 }
@@ -912,7 +912,6 @@ get_normalized_constraints (tree decl)
 void set_normalized_constraints(tree d, tree norm)
 {
   tree tmpl;
-  tree decl;
 
   /* For inherited constructors, consider the original declaration;
      it has the correct template information attached. */
@@ -921,7 +920,6 @@ void set_normalized_constraints(tree d, tree norm)
   if (TREE_CODE (d) == TEMPLATE_DECL)
     {
       tmpl = d;
-      decl = DECL_TEMPLATE_RESULT (tmpl);
     }
   else
     {
@@ -929,7 +927,6 @@ void set_normalized_constraints(tree d, tree norm)
         tmpl = TI_TEMPLATE (ti);
       else
         tmpl = NULL_TREE;
-      decl = d;
     }
 
   if (tmpl)
@@ -938,7 +935,7 @@ void set_normalized_constraints(tree d, tree norm)
         tmpl = most_general_template (tmpl);
     }
 
-  if (tree *p = hash_map_safe_get (normalized_map, tmpl))
+  if (hash_map_safe_get (normalized_map, tmpl))
       return;
 
   hash_map_safe_put<hm_ggc> (normalized_map, tmpl, norm);
@@ -1543,7 +1540,7 @@ finish_shorthand_constraint (tree decl, tree constr)
 
   /* Get the argument and overload used for the requirement
      and adjust it if we're going to expand later.  */
-  tree arg = template_parm_to_arg (build_tree_list (NULL_TREE, decl));
+  tree arg = template_parm_to_arg (decl);
   if (apply_to_each_p && declared_pack_p)
     arg = PACK_EXPANSION_PATTERN (TREE_VEC_ELT (ARGUMENT_PACK_ARGS (arg), 0));
 
@@ -2226,7 +2223,19 @@ tsubst_requires_expr (tree t, tree args,
   /* A requires-expression is an unevaluated context.  */
   cp_unevaluated u;
 
-  tree parms = TREE_OPERAND (t, 0);
+  args = add_extra_args (REQUIRES_EXPR_EXTRA_ARGS (t), args);
+  if (processing_template_decl)
+    {
+      /* We're partially instantiating a generic lambda.  Substituting into
+	 this requires-expression now may cause its requirements to get
+	 checked out of order, so instead just remember the template
+	 arguments and wait until we can substitute them all at once.  */
+      t = copy_node (t);
+      REQUIRES_EXPR_EXTRA_ARGS (t) = build_extra_args (t, args, complain);
+      return t;
+    }
+
+  tree parms = REQUIRES_EXPR_PARMS (t);
   if (parms)
     {
       parms = tsubst_constraint_variables (parms, args, info);
@@ -2234,13 +2243,10 @@ tsubst_requires_expr (tree t, tree args,
 	return boolean_false_node;
     }
 
-  tree reqs = TREE_OPERAND (t, 1);
+  tree reqs = REQUIRES_EXPR_REQS (t);
   reqs = tsubst_requirement_body (reqs, args, info);
   if (reqs == error_mark_node)
     return boolean_false_node;
-
-  if (processing_template_decl)
-    return finish_requires_expr (cp_expr_location (t), parms, reqs);
 
   return boolean_true_node;
 }
@@ -2739,7 +2745,8 @@ satisfy_atom (tree t, tree args, subst_info info)
     result = cxx_constant_value (result);
   else
     {
-      result = maybe_constant_value (result);
+      result = maybe_constant_value (result, NULL_TREE,
+				     /*manifestly_const_eval=*/true);
       if (!TREE_CONSTANT (result))
 	result = error_mark_node;
     }
@@ -3038,7 +3045,7 @@ finish_requires_expr (location_t loc, tree parms, tree reqs)
     }
 
   /* Build the node. */
-  tree r = build_min (REQUIRES_EXPR, boolean_type_node, parms, reqs);
+  tree r = build_min (REQUIRES_EXPR, boolean_type_node, parms, reqs, NULL_TREE);
   TREE_SIDE_EFFECTS (r) = false;
   TREE_CONSTANT (r) = true;
   SET_EXPR_LOCATION (r, loc);
