@@ -2914,8 +2914,10 @@ struct GTY(()) lang_decl_base {
   unsigned initialized_in_class : 1;	   /* var or fn */
 
   unsigned threadprivate_or_deleted_p : 1; /* var or fn */
-  unsigned anticipated_p : 1;		   /* fn, type or template */
-  /* anticipated_p reused as DECL_OMP_PRIVATIZED_MEMBER in var */
+  /* anticipated_p is no longer used for anticipated_decls (fn, type
+     or template).  It is used as DECL_OMP_PRIVATIZED_MEMBER in
+     var.  */
+  unsigned anticipated_p : 1;
   unsigned friend_or_tls : 1;		   /* var, fn, type or template */
   unsigned unknown_bound_p : 1;		   /* var */
   unsigned odr_used : 1;		   /* var or fn */
@@ -2987,7 +2989,6 @@ struct GTY(()) lang_decl_fn {
   unsigned thunk_p : 1;
 
   unsigned this_thunk_p : 1;
-  unsigned hidden_friend_p : 1;
   unsigned omp_declare_reduction_p : 1;
   unsigned has_dependent_explicit_spec_p : 1;
   unsigned immediate_fn_p : 1;
@@ -2995,7 +2996,7 @@ struct GTY(()) lang_decl_fn {
   unsigned coroutine_p : 1;
   unsigned seen_without_contracts_p : 1;
 
-  unsigned spare : 8;
+  unsigned spare : 9;
 
   /* 32-bits padding on 64-bit host.  */
 
@@ -4173,11 +4174,6 @@ find_contract (tree attrs)
    should be performed at instantiation time.  */
 #define KOENIG_LOOKUP_P(NODE) TREE_LANG_FLAG_0 (CALL_EXPR_CHECK (NODE))
 
-/* In a CALL_EXPR, true for allocator calls from new or delete
-   expressions.  */
-#define CALL_FROM_NEW_OR_DELETE_P(NODE) \
-  TREE_LANG_FLAG_2 (CALL_EXPR_CHECK (NODE))
-
 /* True if the arguments to NODE should be evaluated in left-to-right
    order regardless of PUSH_ARGS_REVERSED.  */
 #define CALL_EXPR_ORDERED_ARGS(NODE) \
@@ -4373,34 +4369,14 @@ more_aggr_init_expr_args_p (const aggr_init_expr_arg_iterator *iter)
 #define FNDECL_USED_AUTO(NODE) \
   TREE_LANG_FLAG_2 (FUNCTION_DECL_CHECK (NODE))
 
-/* Nonzero if NODE is a DECL which we know about but which has not
-   been explicitly declared, such as a built-in function or a friend
-   declared inside a class.  In the latter case DECL_HIDDEN_FRIEND_P
-   will be set.  */
-#define DECL_ANTICIPATED(NODE) \
-  (DECL_LANG_SPECIFIC (TYPE_FUNCTION_OR_TEMPLATE_DECL_CHECK (NODE)) \
-   ->u.base.anticipated_p)
-
-/* Is DECL NODE a hidden name?  */
-#define DECL_HIDDEN_P(NODE) \
-  (DECL_LANG_SPECIFIC (NODE) && TYPE_FUNCTION_OR_TEMPLATE_DECL_P (NODE) \
-   && DECL_ANTICIPATED (NODE))
-
-/* True if this is a hidden class type.    */
-#define TYPE_HIDDEN_P(NODE) \
-  (DECL_LANG_SPECIFIC (TYPE_NAME (NODE)) \
-   && DECL_ANTICIPATED (TYPE_NAME (NODE)))
+/* True if NODE is a builtin decl.  */
+#define DECL_BUILTIN_P(NODE) \
+  (DECL_SOURCE_LOCATION(NODE) == BUILTINS_LOCATION)
 
 /* True for artificial decls added for OpenMP privatized non-static
    data members.  */
 #define DECL_OMP_PRIVATIZED_MEMBER(NODE) \
   (DECL_LANG_SPECIFIC (VAR_DECL_CHECK (NODE))->u.base.anticipated_p)
-
-/* Nonzero if NODE is a FUNCTION_DECL which was declared as a friend
-   within a class but has not been declared in the surrounding scope.
-   The function is invisible except via argument dependent lookup.  */
-#define DECL_HIDDEN_FRIEND_P(NODE) \
-  (LANG_DECL_FN_CHECK (DECL_COMMON_CHECK (NODE))->hidden_friend_p)
 
 /* Nonzero if NODE is an artificial FUNCTION_DECL for
    #pragma omp declare reduction.  */
@@ -6578,6 +6554,7 @@ extern bool sufficient_parms_p			(const_tree);
 extern tree type_decays_to			(tree);
 extern tree extract_call_expr			(tree);
 extern tree build_trivial_dtor_call		(tree, bool = false);
+extern bool ref_conv_binds_directly_p		(tree, tree);
 extern tree build_user_type_conversion		(tree, tree, int,
 						 tsubst_flags_t);
 extern tree build_new_function_call		(tree, vec<tree, va_gc> **,
@@ -6821,7 +6798,8 @@ extern int decls_match				(tree, tree, bool = true);
 extern bool maybe_version_functions		(tree, tree, bool);
 extern bool merge_contracts			(tree, tree);
 extern tree duplicate_decls			(tree, tree,
-						 bool is_friend = false);
+						 bool hiding = false,
+						 bool was_hidden = false);
 extern tree declare_local_label			(tree);
 extern tree define_label			(location_t, tree);
 extern void check_goto				(tree);
@@ -6864,7 +6842,7 @@ extern void grok_special_member_properties	(tree);
 extern bool grok_ctor_properties		(const_tree, const_tree);
 extern bool grok_op_properties			(tree, bool);
 extern tree xref_tag				(tag_types, tree,
-						 tag_scope = ts_current,
+						 TAG_how = TAG_how::CURRENT_ONLY,
 						 bool tpl_header_p = false);
 extern void xref_basetypes			(tree, tree);
 extern tree start_enum				(tree, tree, tree, tree, bool, bool *);
@@ -6893,7 +6871,6 @@ extern tree create_implicit_typedef		(tree, tree);
 extern int local_variable_p			(const_tree);
 extern tree register_dtor_fn			(tree);
 extern tmpl_spec_kind current_tmpl_spec_kind	(int);
-extern tree cp_fname_init			(const char *, tree *);
 extern tree cxx_builtin_function		(tree decl);
 extern tree cxx_builtin_function_ext_scope	(tree decl);
 extern tree cxx_simulate_builtin_function_decl	(tree);
@@ -7161,7 +7138,8 @@ extern tree get_default_ctor			(tree);
 extern tree get_dtor				(tree, tsubst_flags_t);
 extern tree strip_inheriting_ctors		(tree);
 extern tree inherited_ctor_binfo		(tree);
-extern bool ctor_omit_inherited_parms		(tree, bool exact_name = true);
+extern bool base_ctor_omit_inherited_parms	(tree);
+extern bool ctor_omit_inherited_parms		(tree);
 extern tree locate_ctor				(tree);
 extern tree implicitly_declare_fn               (special_function_kind, tree,
 						 bool, tree, tree);
@@ -7823,6 +7801,7 @@ extern bool lambda_fn_in_template_p		(tree);
 extern void maybe_add_lambda_conv_op            (tree);
 extern bool is_lambda_ignored_entity            (tree);
 extern bool lambda_static_thunk_p		(tree);
+extern bool call_from_lambda_thunk_p		(tree);
 extern tree finish_builtin_launder		(location_t, tree,
 						 tsubst_flags_t);
 extern tree cp_build_vec_convert		(tree, location_t, tree,
@@ -7910,7 +7889,7 @@ inline tree ovl_first				(tree) ATTRIBUTE_PURE;
 extern tree ovl_make				(tree fn,
 						 tree next = NULL_TREE);
 extern tree ovl_insert				(tree fn, tree maybe_ovl,
-						 int usingness = 0);
+						 int using_or_hidden = 0);
 extern tree ovl_skip_hidden			(tree) ATTRIBUTE_PURE;
 extern void lookup_mark				(tree lookup, bool val);
 extern tree lookup_add				(tree fns, tree lookup);

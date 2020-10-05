@@ -204,6 +204,7 @@ public:
 #define SLP_TREE_CHILDREN(S)                     (S)->children
 #define SLP_TREE_SCALAR_STMTS(S)                 (S)->stmts
 #define SLP_TREE_SCALAR_OPS(S)                   (S)->ops
+#define SLP_TREE_REF_COUNT(S)                    (S)->refcnt
 #define SLP_TREE_VEC_STMTS(S)                    (S)->vec_stmts
 #define SLP_TREE_VEC_DEFS(S)                     (S)->vec_defs
 #define SLP_TREE_NUMBER_OF_VEC_STMTS(S)          (S)->vec_stmts_size
@@ -359,7 +360,6 @@ public:
 
   /* The SLP graph.  */
   auto_vec<slp_instance> slp_instances;
-  auto_vec<slp_tree> slp_loads;
 
   /* Maps base addresses to an innermost_loop_behavior that gives the maximum
      known alignment for that base.  */

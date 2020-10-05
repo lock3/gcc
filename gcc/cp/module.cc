@@ -7788,7 +7788,8 @@ trees_out::decl_value (tree decl, depset *dep)
       bool needs_vtt_parm_p
 	= (cloned_p && CLASSTYPE_VBASECLASSES (DECL_CONTEXT (decl)));
       bool omit_inherited_parms_p
-	= (cloned_p && ctor_omit_inherited_parms (decl, false));
+	= (cloned_p && DECL_MAYBE_IN_CHARGE_CONSTRUCTOR_P (decl)
+	   && base_ctor_omit_inherited_parms (decl));
       unsigned flags = (int (cloned_p) << 0
 			| int (needs_vtt_parm_p) << 1
 			| int (omit_inherited_parms_p) << 2);
@@ -11333,14 +11334,23 @@ trees_in::is_matching_decl (tree existing, tree decl)
       // FIXME: Might be template specialization from a module, not
       // necessarily global module
     mismatch:
-      error_at (DECL_SOURCE_LOCATION (decl),
-		"conflicting global module declaration %#qD", decl);
-      inform (DECL_SOURCE_LOCATION (existing),
-	      "existing declaration %#qD", existing);
-      return false;
+      if (DECL_IS_BUILTIN (existing))
+	// FIXME: it'd be nice if we had a way of determining
+	// whether this builtin had already met a proper decl.  For
+	// now just copy the type.  Perhaps we should update
+	// SOURCE_LOCATION in those cases?
+	TREE_TYPE (existing) = TREE_TYPE (decl);
+      else
+	{
+	  error_at (DECL_SOURCE_LOCATION (decl),
+		    "conflicting global module declaration %#qD", decl);
+	  inform (DECL_SOURCE_LOCATION (existing),
+		  "existing declaration %#qD", existing);
+	  return false;
+	}
     }
 
-  if (DECL_IS_BUILTIN (existing) && DECL_ANTICIPATED (existing))
+  if (DECL_BUILTIN_P (existing))
     {
       // FIXME: Take the type from decl, see duplicate decls.  FIXME: Our
       // DECL_ANTICIPATED_P machinery is broken for modules --
@@ -12781,6 +12791,8 @@ struct add_binding_data
 bool
 depset::hash::add_binding_entity (tree decl, bool maybe_dups,
 				  bool hiddenness, int usingness,
+				  // FIXME: Make this API match the
+				  // new ovl_insert's
 				  void *data_)
 {
   auto data = static_cast <add_binding_data *> (data_);

@@ -246,7 +246,7 @@ in the following sections.
 -Wmultiple-inheritance  -Wnamespaces  -Wnarrowing @gol
 -Wnoexcept  -Wnoexcept-type  -Wnon-virtual-dtor @gol
 -Wpessimizing-move  -Wno-placement-new  -Wplacement-new=@var{n} @gol
--Wredundant-move -Wredundant-tags @gol
+-Wrange-loop-construct -Wredundant-move -Wredundant-tags @gol
 -Wreorder  -Wregister @gol
 -Wstrict-null-sentinel  -Wno-subobject-linkage  -Wtemplates @gol
 -Wno-non-template-friend  -Wold-style-cast @gol
@@ -1363,6 +1363,7 @@ See RS/6000 and PowerPC Options.
 -mvpclmulqdq  -mavx512bitalg  -mmovdiri  -mmovdir64b  -mavx512vpopcntdq @gol
 -mavx5124fmaps  -mavx512vnni  -mavx5124vnniw  -mprfchw  -mrdpid @gol
 -mrdseed  -msgx -mavx512vp2intersect -mserialize -mtsxldtrk@gol
+-mamx-tile  -mamx-int8  -mamx-bf16@gol
 -mcldemote  -mms-bitfields  -mno-align-stringops  -minline-all-stringops @gol
 -minline-stringops-dynamically  -mstringop-strategy=@var{alg} @gol
 -mmemcpy-strategy=@var{strategy}  -mmemset-strategy=@var{strategy} @gol
@@ -3662,6 +3663,24 @@ treats the return value as if it were designated by an rvalue.
 
 This warning is enabled by @option{-Wextra}.
 
+@item -Wrange-loop-construct @r{(C++ and Objective-C++ only)}
+@opindex Wrange-loop-construct
+@opindex Wno-range-loop-construct
+This warning warns when a C++ range-based for-loop is creating an unnecessary
+copy.  This can happen when the range declaration is not a reference, but
+probably should be.  For example:
+
+@smallexample
+struct S @{ char arr[128]; @};
+void fn () @{
+  S arr[5];
+  for (const auto x : arr) @{ @dots{} @}
+@}
+@end smallexample
+
+It does not warn when the type being copied is a trivially-copyable type whose
+size is less than 64 bytes.  This warning is enabled by @option{-Wall}.
+
 @item -Wredundant-tags @r{(C++ and Objective-C++ only)}
 @opindex Wredundant-tags
 @opindex Wno-redundant-tags
@@ -5331,6 +5350,7 @@ Options} and @ref{Objective-C and Objective-C++ Dialect Options}.
 -Wparentheses  @gol
 -Wpessimizing-move @r{(only for C++)}  @gol
 -Wpointer-sign  @gol
+-Wrange-loop-construct @r{(only for C++)}  @gol
 -Wreorder   @gol
 -Wrestrict   @gol
 -Wreturn-type  @gol
@@ -10937,7 +10957,7 @@ callers are impacted, therefore need to be patched as well.
 @gccoptlist{-fwhole-program  -fipa-pta  -fipa-reference  -fipa-ra @gol
 -fipa-icf  -fipa-icf-functions  -fipa-icf-variables @gol
 -fipa-bit-cp  -fipa-vrp  -fipa-pure-const  -fipa-reference-addressable @gol
--fipa-stack-alignment}
+-fipa-stack-alignment -fipa-modref}
 
 @item inline-only-static
 
@@ -13491,6 +13511,10 @@ of iterations of a loop known, it adds a bonus of
 @option{ipa-cp-loop-hint-bonus} to the profitability score of
 the candidate.
 
+@item ipa-max-loop-predicates
+The maximum number of different predicates IPA will use to describe when
+loops in a function have known properties.
+
 @item ipa-max-aa-steps
 During its analysis of function bodies, IPA-CP employs alias analysis
 in order to track values pointed to by function parameters.  In order
@@ -13548,10 +13572,6 @@ if either vectorization (@option{-ftree-vectorize}) or if-conversion
 The smallest number of different values for which it is best to use a
 jump-table instead of a tree of conditional branches.  If the value is
 0, use the default for the machine.
-
-@item max-switch-clustering-attempts
-The maximum number of clustering attempts used
-in bit-test and jump-table switch expansion.
 
 @item jump-table-max-growth-ratio-for-size
 The maximum code size growth ratio when expanding
@@ -17607,6 +17627,7 @@ performance of the code.  Permissible values for this option are:
 @samp{cortex-a57}, @samp{cortex-a72}, @samp{cortex-a73}, @samp{cortex-a75},
 @samp{cortex-a76}, @samp{cortex-a76ae}, @samp{cortex-a77},
 @samp{cortex-a65}, @samp{cortex-a65ae}, @samp{cortex-a34},
+@samp{cortex-a78}, @samp{cortex-a78ae},
 @samp{ares}, @samp{exynos-m1}, @samp{emag}, @samp{falkor},
 @samp{neoverse-e1}, @samp{neoverse-n1}, @samp{neoverse-n2},
 @samp{neoverse-v1}, @samp{qdf24xx}, @samp{saphira},
@@ -17622,7 +17643,7 @@ performance of the code.  Permissible values for this option are:
 @samp{cortex-a57.cortex-a53}, @samp{cortex-a72.cortex-a53},
 @samp{cortex-a73.cortex-a35}, @samp{cortex-a73.cortex-a53},
 @samp{cortex-a75.cortex-a55}, @samp{cortex-a76.cortex-a55},
-@samp{cortex-r82}, @samp{native}.
+@samp{cortex-r82}, @samp{cortex-x1}, @samp{native}.
 
 The values @samp{cortex-a57.cortex-a53}, @samp{cortex-a72.cortex-a53},
 @samp{cortex-a73.cortex-a35}, @samp{cortex-a73.cortex-a53},
@@ -19449,11 +19470,12 @@ Permissible names are: @samp{arm7tdmi}, @samp{arm7tdmi-s}, @samp{arm710t},
 @samp{cortex-a32}, @samp{cortex-a35}, @samp{cortex-a53}, @samp{cortex-a55},
 @samp{cortex-a57}, @samp{cortex-a72}, @samp{cortex-a73}, @samp{cortex-a75},
 @samp{cortex-a76}, @samp{cortex-a76ae}, @samp{cortex-a77},
+@samp{cortex-a78}, @samp{cortex-a78ae},
 @samp{ares}, @samp{cortex-r4}, @samp{cortex-r4f},
 @samp{cortex-r5}, @samp{cortex-r7}, @samp{cortex-r8}, @samp{cortex-r52},
 @samp{cortex-m0}, @samp{cortex-m0plus}, @samp{cortex-m1}, @samp{cortex-m3},
 @samp{cortex-m4}, @samp{cortex-m7}, @samp{cortex-m23}, @samp{cortex-m33},
-@samp{cortex-m35p}, @samp{cortex-m55},
+@samp{cortex-m35p}, @samp{cortex-m55}, @samp{cortex-x1},
 @samp{cortex-m1.small-multiply}, @samp{cortex-m0.small-multiply},
 @samp{cortex-m0plus.small-multiply}, @samp{exynos-m1}, @samp{marvell-pj4},
 @samp{neoverse-n1}, @samp{neoverse-n2}, @samp{neoverse-v1}, @samp{xscale},
@@ -29297,7 +29319,7 @@ Generate instructions for the machine type @var{cpu-type}.  In contrast to
 for the specified @var{cpu-type}, @option{-march=@var{cpu-type}} allows GCC
 to generate code that may not run at all on processors other than the one
 indicated.  Specifying @option{-march=@var{cpu-type}} implies 
-@option{-mtune=@var{cpu-type}}.
+@option{-mtune=@var{cpu-type}}, except where noted otherwise.
 
 The choices for @var{cpu-type} are:
 
@@ -29312,6 +29334,19 @@ of the selected instruction set.
 
 @item x86-64
 A generic CPU with 64-bit extensions.
+
+@item x86-64-v2
+@itemx x86-64-v3
+@itemx x86-64-v4
+These choices for @var{cpu-type} select the corresponding
+micro-architecture level from the x86-64 psABI.  They are only available
+when compiling for an x86-64 target that uses the System V psABI@.
+
+Since these @var{cpu-type} values do not have a corresponding
+@option{-mtune} setting, using @option{-march} with these values enables
+generic tuning.  Specific tuning can be enabled using the
+@option{-mtune=@var{other-cpu-type}} option with an appropriate
+@var{other-cpu-type} value.
 
 @item i386
 Original Intel i386 CPU@.
@@ -30276,6 +30311,15 @@ preferred alignment to @option{-mpreferred-stack-boundary=2}.
 @need 200
 @itemx -mserialize
 @opindex mserialize
+@need 200
+@itemx -mamx-tile
+@opindex mamx-tile
+@need 200
+@itemx -mamx-int8
+@opindex mamx-int8
+@need 200
+@itemx -mamx-bf16
+@opindex mamx-bf16
 These switches enable the use of instructions in the MMX, SSE,
 SSE2, SSE3, SSSE3, SSE4, SSE4A, SSE4.1, SSE4.2, AVX, AVX2, AVX512F, AVX512PF,
 AVX512ER, AVX512CD, AVX512VL, AVX512BW, AVX512DQ, AVX512IFMA, AVX512VBMI, SHA,

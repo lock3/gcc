@@ -1636,7 +1636,7 @@ register_specialization (tree spec, tree tmpl, tree args, bool is_friend,
 		 for the specialization, we want this to look as if
 		 there were no definition, and vice versa.  */
 	      DECL_INITIAL (fn) = NULL_TREE;
-	      duplicate_decls (spec, fn, is_friend);
+	      duplicate_decls (spec, fn, /*hiding=*/is_friend);
 	      /* The call to duplicate_decls will have applied
 		 [temp.expl.spec]:
 
@@ -1663,7 +1663,7 @@ register_specialization (tree spec, tree tmpl, tree args, bool is_friend,
 	}
       else if (DECL_TEMPLATE_SPECIALIZATION (fn))
 	{
-	  tree dd = duplicate_decls (spec, fn, is_friend);
+	  tree dd = duplicate_decls (spec, fn, /*hiding=*/is_friend);
 	  if (dd == error_mark_node)
 	    /* We've already complained in duplicate_decls.  */
 	    return error_mark_node;
@@ -1678,7 +1678,7 @@ register_specialization (tree spec, tree tmpl, tree args, bool is_friend,
 	}
     }
   else if (fn)
-    return duplicate_decls (spec, fn, is_friend);
+    return duplicate_decls (spec, fn, /*hiding=*/is_friend);
 
   /* A specialization must be declared in the same namespace as the
      template it is specializing.  */
@@ -2993,6 +2993,7 @@ check_explicit_specialization (tree declarator,
       tree tmpl = NULL_TREE;
       tree targs = NULL_TREE;
       bool was_template_id = (TREE_CODE (declarator) == TEMPLATE_ID_EXPR);
+      bool found_hidden = false;
 
       /* Make sure that the declarator is a TEMPLATE_ID_EXPR.  */
       if (!was_template_id)
@@ -3013,12 +3014,15 @@ check_explicit_specialization (tree declarator,
 	      fns = lookup_qualified_name (CP_DECL_CONTEXT (decl), dname,
 					   LOOK_want::NORMAL, true);
 	      if (fns == error_mark_node)
-		/* If lookup fails, look for a friend declaration so we can
-		   give a better diagnostic.  */
-		fns = (lookup_qualified_name
-		       (CP_DECL_CONTEXT (decl), dname,
-			LOOK_want::NORMAL | LOOK_want::HIDDEN_FRIEND,
-			/*complain*/true));
+		{
+		  /* If lookup fails, look for a friend declaration so we can
+		     give a better diagnostic.  */
+		  fns = (lookup_qualified_name
+			 (CP_DECL_CONTEXT (decl), dname,
+			  LOOK_want::NORMAL | LOOK_want::HIDDEN_FRIEND,
+			  /*complain*/true));
+		  found_hidden = true;
+		}
 
 	      if (fns == error_mark_node || !is_overloaded_fn (fns))
 		{
@@ -3127,8 +3131,7 @@ check_explicit_specialization (tree declarator,
 	return error_mark_node;
       else
 	{
-	  if (TREE_CODE (decl) == FUNCTION_DECL
-	      && DECL_HIDDEN_FRIEND_P (tmpl))
+	  if (found_hidden && TREE_CODE (decl) == FUNCTION_DECL)
 	    {
 	      auto_diagnostic_group d;
 	      if (pedwarn (DECL_SOURCE_LOCATION (decl), 0,
@@ -3137,8 +3140,9 @@ check_explicit_specialization (tree declarator,
 		inform (DECL_SOURCE_LOCATION (tmpl),
 			"friend declaration here");
 	    }
-	  else if (!ctype && !is_friend
-		   && CP_DECL_CONTEXT (decl) == current_namespace)
+
+	  if (!ctype && !is_friend
+	      && CP_DECL_CONTEXT (decl) == current_namespace)
 	    check_unqualified_spec_or_inst (tmpl, DECL_SOURCE_LOCATION (decl));
 
 	  tree gen_tmpl = most_general_template (tmpl);
@@ -6035,17 +6039,14 @@ push_template_decl (tree decl, bool is_friend)
       if (!ctx
 	  && !(is_friend && template_class_depth (current_class_type) > 0))
 	{
-	  tmpl = pushdecl_namespace_level (tmpl, is_friend);
-	  if (tmpl == error_mark_node)
-	    return error_mark_node;
-
 	  /* Hide template friend classes that haven't been declared yet.  */
 	  // FIXME: See pushtag, can we copy from the TYPE_DECL?
 	  if (is_friend && TREE_CODE (decl) == TYPE_DECL)
-	    {
-	      DECL_ANTICIPATED (tmpl) = 1;
-	      DECL_FRIEND_P (tmpl) = 1;
-	    }
+	    DECL_FRIEND_P (tmpl) = 1;
+
+	  tmpl = pushdecl_namespace_level (tmpl, /*hiding=*/is_friend);
+	  if (tmpl == error_mark_node)
+	    return error_mark_node;
 	}
       else if (is_friend)
 	{
@@ -7116,12 +7117,12 @@ get_template_parm_object (tree expr, tsubst_flags_t complain)
 
   tree type = cp_build_qualified_type (TREE_TYPE (expr), TYPE_QUAL_CONST);
   decl = create_temporary_var (type);
+  DECL_CONTEXT (decl) = NULL_TREE;
   TREE_STATIC (decl) = true;
   DECL_DECLARED_CONSTEXPR_P (decl) = true;
   TREE_READONLY (decl) = true;
   DECL_NAME (decl) = name;
   SET_DECL_ASSEMBLER_NAME (decl, name);
-  DECL_CONTEXT (decl) = global_namespace;
   comdat_linkage (decl);
 
   if (!zero_init_p (type))
@@ -11125,7 +11126,7 @@ tsubst_friend_function (tree decl, tree args)
 	 into the namespace of the template.  */
       ns = decl_namespace_context (new_friend);
       push_nested_namespace (ns);
-      old_decl = pushdecl_namespace_level (new_friend, /*is_friend=*/true);
+      old_decl = pushdecl_namespace_level (new_friend, /*hiding=*/true);
       pop_nested_namespace (ns);
 
       if (old_decl == error_mark_node)
@@ -11354,11 +11355,6 @@ tsubst_friend_class (tree friend_tmpl, tree args)
 	  CLASSTYPE_TI_ARGS (TREE_TYPE (tmpl))
 	    = INNERMOST_TEMPLATE_ARGS (CLASSTYPE_TI_ARGS (TREE_TYPE (tmpl)));
 
-	  /* It is hidden.  */
-	  retrofit_lang_decl (DECL_TEMPLATE_RESULT (tmpl));
-	  DECL_ANTICIPATED (tmpl)
-	    = DECL_ANTICIPATED (DECL_TEMPLATE_RESULT (tmpl)) = true;
-
 	  /* Substitute into and set the constraints on the new declaration.  */
 	  if (tree ci = get_constraints (friend_tmpl))
 	    {
@@ -11370,7 +11366,7 @@ tsubst_friend_class (tree friend_tmpl, tree args)
 	    }
 
 	  /* Inject this template into the enclosing namspace scope.  */
-	  tmpl = pushdecl_namespace_level (tmpl, true);
+	  tmpl = pushdecl_namespace_level (tmpl, /*hiding=*/true);
 	}
     }
 
@@ -18265,16 +18261,11 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
 		else if (DECL_IMPLICIT_TYPEDEF_P (t))
 		  /* We already did a pushtag.  */;
 		else if (TREE_CODE (decl) == FUNCTION_DECL
-			 && DECL_OMP_DECLARE_REDUCTION_P (decl)
-			 && DECL_FUNCTION_SCOPE_P (pattern_decl))
+			 && DECL_LOCAL_DECL_P (decl)
+			 && DECL_OMP_DECLARE_REDUCTION_P (decl))
 		  {
-		    /* We pretend this is regular local extern decl of
-		       a namespace-scope fn.  Then we make it really
-		       local, it is a nested function.  */
-		    gcc_checking_assert (DECL_LOCAL_DECL_P (decl));
-		    DECL_CONTEXT (decl) = global_namespace;
-		    pushdecl (decl);
 		    DECL_CONTEXT (decl) = current_function_decl;
+		    pushdecl (decl);
 		    if (cp_check_omp_declare_reduction (decl))
 		      instantiate_body (pattern_decl, args, decl, true);
 		  }
@@ -20112,7 +20103,7 @@ tsubst_copy_and_build (tree t,
 
 	/* Stripped-down processing for a call in a thunk.  Specifically, in
 	   the thunk template for a generic lambda.  */
-	if (CALL_FROM_THUNK_P (t))
+	if (call_from_lambda_thunk_p (t))
 	  {
 	    /* Now that we've expanded any packs, the number of call args
 	       might be different.  */
@@ -29229,6 +29220,7 @@ do_class_deduction (tree ptype, tree tmpl, tree init,
   tree type = TREE_TYPE (tmpl);
 
   bool try_list_ctor = false;
+  bool list_init_p = false;
 
   releasing_vec rv_args = NULL;
   vec<tree,va_gc> *&args = *&rv_args;
@@ -29236,6 +29228,7 @@ do_class_deduction (tree ptype, tree tmpl, tree init,
     args = make_tree_vector ();
   else if (BRACE_ENCLOSED_INITIALIZER_P (init))
     {
+      list_init_p = true;
       try_list_ctor = TYPE_HAS_LIST_CTOR (type);
       if (try_list_ctor && CONSTRUCTOR_NELTS (init) == 1)
 	{
@@ -29268,9 +29261,10 @@ do_class_deduction (tree ptype, tree tmpl, tree init,
   if (cands == error_mark_node)
     return error_mark_node;
 
-  /* Prune explicit deduction guides in copy-initialization context.  */
+  /* Prune explicit deduction guides in copy-initialization context (but
+     not copy-list-initialization).  */
   bool elided = false;
-  if (flags & LOOKUP_ONLYCONVERTING)
+  if (!list_init_p && (flags & LOOKUP_ONLYCONVERTING))
     {
       for (lkp_iterator iter (cands); !elided && iter; ++iter)
 	if (DECL_NONCONVERTING_P (STRIP_TEMPLATE (*iter)))
@@ -29339,18 +29333,42 @@ do_class_deduction (tree ptype, tree tmpl, tree init,
       --cp_unevaluated_operand;
     }
 
-  if (call == error_mark_node
-      && (complain & tf_warning_or_error))
+  if (call == error_mark_node)
     {
-      error ("class template argument deduction failed:");
+      if (complain & tf_warning_or_error)
+	{
+	  error ("class template argument deduction failed:");
 
-      ++cp_unevaluated_operand;
-      call = build_new_function_call (cands, &args, complain | tf_decltype);
-      --cp_unevaluated_operand;
+	  ++cp_unevaluated_operand;
+	  call = build_new_function_call (cands, &args,
+					  complain | tf_decltype);
+	  --cp_unevaluated_operand;
 
-      if (elided)
-	inform (input_location, "explicit deduction guides not considered "
-		"for copy-initialization");
+	  if (elided)
+	    inform (input_location, "explicit deduction guides not considered "
+		    "for copy-initialization");
+	}
+      return error_mark_node;
+    }
+  /* [over.match.list]/1: In copy-list-initialization, if an explicit
+     constructor is chosen, the initialization is ill-formed.  */
+  else if (flags & LOOKUP_ONLYCONVERTING)
+    {
+      tree fndecl = cp_get_callee_fndecl_nofold (call);
+      if (fndecl && DECL_NONCONVERTING_P (fndecl))
+	{
+	  if (complain & tf_warning_or_error)
+	    {
+	      // TODO: Pass down location from cp_finish_decl.
+	      error ("class template argument deduction for %qT failed: "
+		     "explicit deduction guide selected in "
+		     "copy-list-initialization", type);
+	      inform (DECL_SOURCE_LOCATION (fndecl),
+		      "explicit deduction guide declared here");
+
+	    }
+	  return error_mark_node;
+	}
     }
 
   /* If CTAD succeeded but the type doesn't have any explicit deduction

@@ -1,3 +1,102 @@
+2020-09-29  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/95188
+	* engine.cc (stmt_requires_new_enode_p): Split enodes before
+	"signal" calls.
+
+2020-09-29  David Malcolm  <dmalcolm@redhat.com>
+
+	* constraint-manager.cc
+	(constraint_manager::add_constraint_internal): Whitespace fixes.
+	Silence -Wsign-compare warning.
+	* engine.cc (maybe_process_run_of_before_supernode_enodes):
+	Silence -Wsign-compare warning.
+
+2020-09-28  David Malcolm  <dmalcolm@redhat.com>
+
+	* region-model.h (binop_svalue::dyn_cast_binop_svalue): Remove
+	redundant "virtual".  Add FINAL OVERRIDE.
+	(widening_svalue::dyn_cast_widening_svalue): Add FINAL OVERRIDE.
+	(compound_svalue::dyn_cast_compound_svalue): Likewise.
+	(conjured_svalue::dyn_cast_conjured_svalue): Likewise.
+
+2020-09-28  David Malcolm  <dmalcolm@redhat.com>
+
+	* diagnostic-manager.cc (null_assignment_sm_context::m_visitor):
+	Remove unused field.
+
+2020-09-28  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/97233
+	* analyzer.cc (is_longjmp_call_p): Require the initial argument
+	to be a pointer.
+	* engine.cc (exploded_node::on_longjmp): Likewise.
+
+2020-09-28  David Malcolm  <dmalcolm@redhat.com>
+
+	* program-state.cc (sm_state_map::print): Update check
+	for m_global_state being the start state.
+
+2020-09-26  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/96646
+	PR analyzer/96841
+	* region-model.cc (region_model::get_representative_path_var):
+	When handling offset_region, wrap the MEM_REF's first argument in
+	an ADDR_EXPR of pointer type, rather than simply using the tree
+	for the parent region.  Require the MEM_REF's second argument to
+	be an integer constant.
+
+2020-09-24  David Malcolm  <dmalcolm@redhat.com>
+
+	* analyzer.h (struct rejected_constraint): New decl.
+	* analyzer.opt (fanalyzer-feasibility): New option.
+	* diagnostic-manager.cc (path_builder::path_builder): Add
+	"problem" param and use it to initialize new field.
+	(path_builder::get_feasibility_problem): New accessor.
+	(path_builder::m_feasibility_problem): New field.
+	(dedupe_winners::add): Remove inversion of logic in "if" clause,
+	swapping if/else suites.  In the !feasible_p suite, inspect
+	flag_analyzer_feasibility and add code to handle when this
+	is off, accepting the infeasible path, but recording the
+	feasibility_problem.
+	(diagnostic_manager::emit_saved_diagnostic): Pass the
+	feasibility_problem to the path_builder.
+	(diagnostic_manager::add_events_for_eedge): If we have
+	a feasibility_problem at this edge, use it to add a custom event.
+	* engine.cc (exploded_path::feasible_p): Pass a
+	rejected_constraint ** to model.maybe_update_for_edge and transfer
+	ownership of any created instance to any feasibility_problem.
+	(feasibility_problem::dump_to_pp): New.
+	* exploded-graph.h (feasibility_problem::feasibility_problem):
+	Drop "model" param; add rejected_constraint * param.
+	(feasibility_problem::~feasibility_problem): New.
+	(feasibility_problem::dump_to_pp): New decl.
+	(feasibility_problem::m_model): Drop field.
+	(feasibility_problem::m_rc): New field.
+	* program-point.cc (function_point::get_location): Handle
+	PK_BEFORE_SUPERNODE and PK_AFTER_SUPERNODE.
+	* program-state.cc (program_state::on_edge): Pass NULL to new
+	param of region_model::maybe_update_for_edge.
+	* region-model.cc (region_model::add_constraint): New overload
+	adding a rejected_constraint ** param.
+	(region_model::maybe_update_for_edge): Add rejected_constraint **
+	param and pass it to the various apply_constraints_for_ calls.
+	(region_model::apply_constraints_for_gcond): Add
+	rejected_constraint ** param and pass it to add_constraint calls.
+	(region_model::apply_constraints_for_gswitch): Likewise.
+	(region_model::apply_constraints_for_exception): Likewise.
+	(rejected_constraint::dump_to_pp): New.
+	* region-model.h (region_model::maybe_update_for_edge):
+	Add rejected_constraint ** param.
+	(region_model::add_constraint): New overload adding a
+	rejected_constraint ** param.
+	(region_model::apply_constraints_for_gcond): Add
+	rejected_constraint ** param.
+	(region_model::apply_constraints_for_gswitch): Likewise.
+	(region_model::apply_constraints_for_exception): Likewise.
+	(struct rejected_constraint): New.
+
 2020-09-23  David Malcolm  <dmalcolm@redhat.com>
 
 	PR analyzer/97178
