@@ -1773,7 +1773,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 
   /* Check for redeclaration and other discrepancies.  */
   if (TREE_CODE (olddecl) == FUNCTION_DECL
-      && DECL_BUILTIN_P (olddecl))
+      && DECL_UNDECLARED_BUILTIN_P (olddecl))
     {
       if (TREE_CODE (newdecl) != FUNCTION_DECL)
 	{
@@ -5805,9 +5805,14 @@ start_decl (const cp_declarator *declarator,
 
   if ((DECL_EXTERNAL (decl) || TREE_CODE (decl) == FUNCTION_DECL)
       && current_function_decl)
-    /* A function-scope decl of some namespace-scope decl.  */
-    // FIXME: This is ill-formed in a named module
-    DECL_LOCAL_DECL_P (decl) = true;
+    {
+      /* A function-scope decl of some namespace-scope decl.  */
+      DECL_LOCAL_DECL_P (decl) = true;
+      if (named_module_purview_p ())
+	error_at (declarator->id_loc,
+		  "block-scope extern declaration %q#D not permitted"
+		  " in module purview", decl);
+    }
 
   /* Enter this declaration into the symbol table.  Don't push the plain
      VAR_DECL for a variable template.  */
@@ -6246,7 +6251,8 @@ layout_var_decl (tree decl)
       && DECL_SIZE (decl) != NULL_TREE
       && ! TREE_CONSTANT (DECL_SIZE (decl)))
     {
-      if (TREE_CODE (DECL_SIZE (decl)) == INTEGER_CST)
+      if (TREE_CODE (DECL_SIZE (decl)) == INTEGER_CST
+	  && !DECL_LOCAL_DECL_P (decl))
 	constant_expression_warning (DECL_SIZE (decl));
       else
 	{
@@ -17843,12 +17849,11 @@ grokmethod (cp_decl_specifier_seq *declspecs,
      definitions in named module purview.  If the user explicitly
      made it inline, grokdeclarator will already have done the right
      things.  */
-  // FIXME: Should the override flag be born deprecated?
   if ((!named_module_purview_p ()
        || flag_module_implicit_inline
       /* Lambda's operator function remains inline.  */
        || LAMBDA_TYPE_P (DECL_CONTEXT (fndecl)))
-      /* If the User explicitly asked for this to be inline, we don't
+      /* If the user explicitly asked for this to be inline, we don't
 	 need to do more, but more importantly we want to warn if we
 	 can't inline it.  */
       && !DECL_DECLARED_INLINE_P (fndecl))

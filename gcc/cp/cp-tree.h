@@ -2180,10 +2180,6 @@ struct GTY(()) language_function {
   /* Tracking possibly infinite loops.  This is a vec<tree> only because
      vec<bool> doesn't work with gtype.  */
   vec<tree, va_gc> *infinite_loops;
-
-  /* Map of block-scope extern decls to the namespace-scope decl they
-     match.  Usually empty.  */
-  hash_table<cxx_decl_tree_map_hasher> *extern_decl_map;
 };
 
 /* The current C++-specific per-function global variables.  */
@@ -2321,7 +2317,7 @@ enum languages { lang_c, lang_cplusplus };
 #define CLASS_TYPE_P(T) \
   (RECORD_OR_UNION_CODE_P (TREE_CODE (T)) && TYPE_LANG_FLAG_5 (T))
 
-/* Nonzero if T is a class type but not an union.  */
+/* Nonzero if T is a class type but not a union.  */
 #define NON_UNION_CLASS_TYPE_P(T) \
   (TREE_CODE (T) == RECORD_TYPE && TYPE_LANG_FLAG_5 (T))
 
@@ -2965,6 +2961,7 @@ struct GTY(()) lang_decl_min {
      In a lambda-capture proxy VAR_DECL, this is DECL_CAPTURED_VARIABLE.
      In a function-scope TREE_STATIC VAR_DECL or IMPLICIT_TYPEDEF_P TYPE_DECL,
      this is DECL_DISCRIMINATOR.
+     In a DECL_LOCAL_DECL_P decl, this is the namespace decl it aliases.
      Otherwise, in a class-scope DECL, this is DECL_ACCESS.   */
   tree access;
 };
@@ -4357,6 +4354,10 @@ more_aggr_init_expr_args_p (const aggr_init_expr_arg_iterator *iter)
 #define DECL_LOCAL_DECL_P(NODE) \
   DECL_LANG_FLAG_0 (VAR_OR_FUNCTION_DECL_CHECK (NODE))
 
+/* The namespace-scope decl a DECL_LOCAL_DECL_P aliases.  */
+#define DECL_LOCAL_DECL_ALIAS(NODE)			\
+  DECL_ACCESS ((gcc_checking_assert (DECL_LOCAL_DECL_P (NODE)), NODE))
+
 /* Nonzero if NODE is the target for genericization of 'return' stmts
    in constructors/destructors of targetm.cxx.cdtor_returns_this targets.  */
 #define LABEL_DECL_CDTOR(NODE) \
@@ -4369,8 +4370,9 @@ more_aggr_init_expr_args_p (const aggr_init_expr_arg_iterator *iter)
 #define FNDECL_USED_AUTO(NODE) \
   TREE_LANG_FLAG_2 (FUNCTION_DECL_CHECK (NODE))
 
-/* True if NODE is a builtin decl.  */
-#define DECL_BUILTIN_P(NODE) \
+/* True if NODE is an undeclared builtin decl.  As soon as the user
+   declares it, the location will be updated.  */
+#define DECL_UNDECLARED_BUILTIN_P(NODE) \
   (DECL_SOURCE_LOCATION(NODE) == BUILTINS_LOCATION)
 
 /* True for artificial decls added for OpenMP privatized non-static
@@ -7236,8 +7238,7 @@ extern bitmap get_import_bitmap ();
 extern bitmap module_visible_instantiation_path (bitmap *);
 extern void module_begin_main_file (cpp_reader *, line_maps *,
 				    const line_map_ordinary *);
-extern char *module_translate_include (cpp_reader *, line_maps *,
-				       location_t, const char *);
+extern void module_preprocess_options (cpp_reader *);
 extern bool handle_module_option (unsigned opt, const char *arg, int value);
 
 /* Map from DECL to set of IDENTIFIER_NODEs representing restriction sets.  */

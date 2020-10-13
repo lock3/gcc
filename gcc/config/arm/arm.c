@@ -3391,6 +3391,20 @@ arm_configure_build_target (struct arm_build_target *target,
       bitmap_ior (target->isa, target->isa, fpu_bits);
     }
 
+  /* There may be implied bits which we still need to enable. These are
+     non-named features which are needed to complete other sets of features,
+     but cannot be enabled from arm-cpus.in due to being shared between
+     multiple fgroups. Each entry in all_implied_fbits is of the form
+     ante -> cons, meaning that if the feature "ante" is enabled, we should
+     implicitly enable "cons".  */
+  const struct fbit_implication *impl = all_implied_fbits;
+  while (impl->ante)
+    {
+      if (bitmap_bit_p (target->isa, impl->ante))
+	bitmap_set_bit (target->isa, impl->cons);
+      impl++;
+    }
+
   if (!arm_selected_tune)
     arm_selected_tune = arm_selected_cpu;
   else /* Validate the features passed to -mtune.  */
@@ -28950,6 +28964,30 @@ arm_preferred_simd_mode (scalar_mode mode)
       default:;
       }
 
+  if (TARGET_HAVE_MVE)
+    switch (mode)
+      {
+      case QImode:
+	return V16QImode;
+      case HImode:
+	return V8HImode;
+      case SImode:
+	return V4SImode;
+
+      default:;
+      }
+
+  if (TARGET_HAVE_MVE_FLOAT)
+    switch (mode)
+      {
+      case HFmode:
+	return V8HFmode;
+      case SFmode:
+	return V4SFmode;
+
+      default:;
+      }
+
   return word_mode;
 }
 
@@ -33237,9 +33275,7 @@ arm_expand_divmod_libfunc (rtx libfunc, machine_mode mode,
     = smallest_int_mode_for_size (2 * GET_MODE_BITSIZE (mode));
 
   rtx libval = emit_library_call_value (libfunc, NULL_RTX, LCT_CONST,
-					libval_mode,
-					op0, GET_MODE (op0),
-					op1, GET_MODE (op1));
+					libval_mode, op0, mode, op1, mode);
 
   rtx quotient = simplify_gen_subreg (mode, libval, libval_mode, 0);
   rtx remainder = simplify_gen_subreg (mode, libval, libval_mode,

@@ -3357,6 +3357,14 @@ public:
   /* Initializer.  */
   void init (const line_maps *lmaps, const line_map_ordinary *map);
 
+  /* Slightly skewed preprocessed files can cause us to miss an
+     initialization in some places.  Fallback initializer.  */
+  void maybe_init ()
+  {
+    if (!init_p ())
+      init (line_table, nullptr);
+  }
+
 public:
   enum {
     SPAN_RESERVED = 0,	/* Reserved (fixed) locations.  */
@@ -6122,8 +6130,8 @@ trees_out::core_vals (tree t)
       state->write_location (*this, t->block.locus);
       state->write_location (*this, t->block.end_locus);
       
-      // FIXME:This contains VAR_DECLS and FN_DECLS with extern. Those
-      // should be first met here and walked by value
+      /* DECL_LOCAL_DECL_P decls are first encountered here and
+         streamed by value.  */
       chained_decls (t->block.vars);
       /* nonlocalized_vars is a middle-end thing.  */
       WT (t->block.subblocks);
@@ -6549,6 +6557,9 @@ trees_in::core_vals (tree t)
     case PARM_DECL:
       if (DECL_HAS_VALUE_EXPR_P (t))
 	{
+	  /* The DECL_VALUE hash table is a cache, thus if we're
+	     reading a duplicate (which we end up discarding), the
+	     value expr will also be cleaned up at the next gc.  */
 	  tree val = tree_node ();
 	  SET_DECL_VALUE_EXPR (t, val);
 	}
@@ -7551,8 +7562,15 @@ trees_in::install_entity (tree decl)
 void
 trees_out::decl_value (tree decl, depset *dep)
 {
-  gcc_checking_assert (DECL_P (decl) && !DECL_CLONED_FUNCTION_P (decl)
+  /* We should not be writing clones or template parms.  */
+  gcc_checking_assert (DECL_P (decl)
+		       && !DECL_CLONED_FUNCTION_P (decl)
 		       && !DECL_TEMPLATE_PARM_P (decl));
+
+  /* We should never be writing non-typedef ptrmemfuncs by value.  */
+  gcc_checking_assert (TREE_CODE (decl) != TYPE_DECL
+		       || DECL_ORIGINAL_TYPE (decl)
+		       || !TYPE_PTRMEMFUNC_P (TREE_TYPE (decl)));
 
   merge_kind mk = get_merge_kind (decl, dep);
 
@@ -7945,6 +7963,17 @@ trees_in::decl_value ()
     {
       if (existing == error_mark_node)
 	goto bail;
+
+      if (TREE_CODE (STRIP_TEMPLATE (existing)) == TYPE_DECL)
+	{
+	  tree etype = TREE_TYPE (existing);
+	  if (TYPE_LANG_SPECIFIC (etype)
+	      && COMPLETE_TYPE_P (etype)
+	      && !CLASSTYPE_MEMBER_VEC (etype))
+	    /* Give it a member vec, we're likely gonna be looking
+	       inside it.  */
+	    set_class_bindings (etype, -1);
+	}
 
       /* Install the existing decl into the back ref array.  */
       register_duplicate (decl, existing);
@@ -8491,6 +8520,50 @@ trees_in::update_constraints (tree decl, constraint_cache_info *cci)
     }
 }
 
+/* DECL is an unnameable member of CTX.  Return a suitable identifying
+   index.  */
+
+static unsigned
+get_field_ident (tree ctx, tree decl)
+{
+  gcc_checking_assert (TREE_CODE (decl) == USING_DECL
+		       || !DECL_NAME (decl)
+		       || IDENTIFIER_ANON_P (DECL_NAME (decl)));
+
+  unsigned ix = 0;
+  for (tree fields = TYPE_FIELDS (ctx);
+       fields; fields = DECL_CHAIN (fields))
+    {
+      if (fields == decl)
+	return ix;
+
+      if (DECL_CONTEXT (fields) == ctx
+	  && (TREE_CODE (fields) == USING_DECL
+	      || (TREE_CODE (fields) == FIELD_DECL
+		  && (!DECL_NAME (fields)
+		      || IDENTIFIER_ANON_P (DECL_NAME (fields))))))
+	/* Count this field.  */
+	ix++;
+    }
+  gcc_unreachable ();
+}
+
+static tree
+lookup_field_ident (tree ctx, unsigned ix)
+{
+  for (tree fields = TYPE_FIELDS (ctx);
+       fields; fields = DECL_CHAIN (fields))
+    if (DECL_CONTEXT (fields) == ctx
+	&& (TREE_CODE (fields) == USING_DECL
+	    || (TREE_CODE (fields) == FIELD_DECL
+		&& (!DECL_NAME (fields)
+		    || IDENTIFIER_ANON_P (DECL_NAME (fields))))))
+      if (!ix--)
+	return fields;
+
+  return NULL_TREE;
+}
+
 /* Reference DECL.  REF indicates the walk kind we are performing.
    Return true if we should write this decl by value.  */
 
@@ -8534,7 +8607,7 @@ trees_out::decl_node (tree decl, walk_kind ref)
 	      // was instantiated from.  For instance deferred
 	      // noexcept and (probably?) default parms.  We need to
 	      // refer to that specific node in some way.  For now
-	      // just clone it.  We should preemptively puth those
+	      // just clone it.  We should preemptively put those
 	      // things in the map when we reference their template by
 	      // name.  See add_indirects.
 	      return true;
@@ -8741,7 +8814,7 @@ trees_out::decl_node (tree decl, walk_kind ref)
      TEMPLATE_DECL.  Note TI_TEMPLATE is not a TEMPLATE_DECL for
      (some) friends, so we need to check that.  */
   // FIXME: should local friend template specializations be by value?
-  // They don't get idents so we'll never know they;re imported, but I
+  // They don't get idents so we'll never know they're imported, but I
   // think we can only reach them from the TU that defines the
   // befriending class?
   if (ti && TREE_CODE (TI_TEMPLATE (ti)) == TEMPLATE_DECL
@@ -9781,8 +9854,15 @@ trees_in::tree_node (bool is_use)
 	if (!get_overrun ()
 	    && RECORD_OR_UNION_TYPE_P (ctx))
 	  {
-	    unsigned ix = name ? 0 : u ();
-	    res = lookup_field_ident (ctx, name, ix);
+	    if (name)
+	      res = lookup_class_binding (ctx, name);
+	    else
+	      res = lookup_field_ident (ctx, u ());
+
+	    if (!res
+		|| TREE_CODE (res) != FIELD_DECL
+		|| DECL_CONTEXT (res) != ctx)
+	      res = NULL_TREE;
 	  }
 
 	if (!res)
@@ -10328,7 +10408,7 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 
       if (TREE_CODE (decl) == TEMPLATE_DECL
 	  && DECL_UNINSTANTIATED_TEMPLATE_FRIEND_P (decl))
-	// FIXME:Discover whether these friends are also on the
+	// FIXME: Discover whether these friends are also on the
 	// DECL_FRIENDLIST, like the below friends.
 	return MK_local_friend;
 
@@ -10570,7 +10650,7 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
       if (streaming_p ())
 	u (get_mergeable_specialization_flags (entry->tmpl, decl));
 
-      // FIXME:variable templates with concepts need constraints from
+      // FIXME: Variable templates with concepts need constraints from
       // the specialization -- see spec_hasher::equal
       if (CHECKING_P)
 	{
@@ -11108,7 +11188,7 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 			gcc_unreachable ();
 
 		      case MK_named:
-			existing = mergeable_class_entities (ctx, name);
+			existing = lookup_class_binding (ctx, name);
 			if (existing)
 			  {
 			    tree inner = decl;
@@ -11335,7 +11415,7 @@ trees_in::is_matching_decl (tree existing, tree decl)
       // necessarily global module
     mismatch:
       if (DECL_IS_BUILTIN (existing))
-	// FIXME: it'd be nice if we had a way of determining
+	// FIXME: It'd be nice if we had a way of determining
 	// whether this builtin had already met a proper decl.  For
 	// now just copy the type.  Perhaps we should update
 	// SOURCE_LOCATION in those cases?
@@ -11350,17 +11430,20 @@ trees_in::is_matching_decl (tree existing, tree decl)
 	}
     }
 
-  if (DECL_BUILTIN_P (existing))
+  if (DECL_UNDECLARED_BUILTIN_P (existing)
+      && !DECL_UNDECLARED_BUILTIN_P (decl))
     {
-      // FIXME: Take the type from decl, see duplicate decls.  FIXME: Our
-      // DECL_ANTICIPATED_P machinery is broken for modules --
-      // HIDDENness is a property of the symbol table, distinct.  from
-      // DECL_ANTICIPATED_P which should just be for expected builtins
-      // I think I can fix that up when we convert the single
-      // symbol-table slot to a module-vector: Wrap the anticipated
-      // decl left behind in a hidden overload.  Then the decl itself
-      // need not be noted as anticipated, kind of.  Hm, not sure if
-      // that works right.
+      /* We're matching a builtin that the user has yet to declare.
+	 We are the one! */
+      DECL_SOURCE_LOCATION (existing) = DECL_SOURCE_LOCATION (decl);
+      if (TREE_CODE (decl) != TYPE_DECL)
+	{
+	  /* Propagate exceptions etc.  */
+	  TREE_TYPE (existing) = TREE_TYPE (decl);
+	  TREE_NOTHROW (existing) = TREE_NOTHROW (decl);
+	}
+      /* This is actually an import! */
+      DECL_MODULE_IMPORT_P (existing) = true;
     }
 
   if (VAR_OR_FUNCTION_DECL_P (decl)
@@ -11473,7 +11556,7 @@ has_definition (tree decl)
 	{
 	  int use_tpl = DECL_USE_TEMPLATE (decl);
 
-	  // FIXME: partial specializations have definitions too.
+	  // FIXME: Partial specializations have definitions too.
 	  if (use_tpl < 2)
 	    return true;
 	}
@@ -11753,7 +11836,7 @@ member_owned_by_class (tree member)
   int use_tpl = -1;
   if (tree ti = node_template_info (member, use_tpl))
     {
-      // FIXME: don't bail on things that CANNOT have their own
+      // FIXME: Don't bail on things that CANNOT have their own
       // template header.  No, make sure they're in the same cluster.
       if (use_tpl > 0)
 	return NULL_TREE;
@@ -11784,11 +11867,22 @@ trees_out::write_class_def (tree defn)
 
   vec_chained_decls (TYPE_FIELDS (type));
 
+  /* Every class but __as_base has a type-specific.  */
+  gcc_checking_assert (!TYPE_LANG_SPECIFIC (type) == IS_FAKE_BASE_TYPE (type));
+
   if (TYPE_LANG_SPECIFIC (type))
     {
       {
 	vec<tree, va_gc> *v = CLASSTYPE_MEMBER_VEC (type);
-	unsigned len = vec_safe_length (v);
+	if (!v)
+	  {
+	    gcc_checking_assert (!streaming_p ());
+	    /* Force a class vector.  */
+	    v = set_class_bindings (type, -1);
+	    gcc_checking_assert (v);
+	  }
+
+	unsigned len = v->length ();
 	if (streaming_p ())
 	  u (len);
 	for (unsigned ix = 0; ix != len; ix++)
@@ -13806,8 +13900,11 @@ loc_spans::init (const line_maps *lmaps, const line_map_ordinary *map)
   /* A span for command line & forced headers.  */
   interval.ordinary.first = interval.ordinary.second;
   interval.macro.second = interval.macro.first;
-  interval.ordinary.second = map->start_location;
-  interval.macro.first = LINEMAPS_MACRO_LOWEST_LOCATION (lmaps);
+  if (map)
+    {
+      interval.ordinary.second = map->start_location;
+      interval.macro.first = LINEMAPS_MACRO_LOWEST_LOCATION (lmaps);
+    }
   dump (dumper::LOCATION)
     && dump ("Pre span %u ordinary:[%u,%u) macro:[%u,%u)", spans.length (),
 	     interval.ordinary.first, interval.ordinary.second,
@@ -14087,7 +14184,8 @@ module_state::mangle (bool include_partition)
       if (include_partition || !is_partition ())
 	{
 	  char p = 0;
-	  if (is_partition () && !(parent && parent->is_partition ()))
+	  // Partitions are significant for global initializer functions
+	  if (is_partition () && !parent->is_partition ())
 	    p = 'P';
 	  substs.safe_push (this);
 	  subst = substs.length ();
@@ -16007,7 +16105,13 @@ module_state::read_prepare_maps (const module_state_config *cfg)
   ordinary_locs.first = ordinary_locs.second = 0;
   macro_locs.first = macro_locs.second = 0;
 
-  inform (loc, "unable to represent source locations in this module");
+  static bool informed = false;
+  if (!informed)
+    {
+      /* Just give the notice once.  */
+      informed = true;
+      inform (loc, "unable to represent further imported source locations");
+    }
 
   return false;
 }
@@ -16030,7 +16134,7 @@ module_state::write_ordinary_maps (elf_out *to, location_map_info &info,
   filenames.create (20);
 
   /* Determine the unique filenames.  */
-  // FIXME: should be found by the prepare fn as part of the
+  // FIXME: Should be found by the prepare fn as part of the
   // unreachable pruning
   for (unsigned ix = loc_spans::SPAN_FIRST; ix != spans.length (); ix++)
     {
@@ -19325,9 +19429,9 @@ void module_state::set_filename (const Cody::Packet &packet)
 
 /* Figure out whether to treat HEADER as an include or an import.  */
 
-char *
-module_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
-			  const char *path)
+static char *
+maybe_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
+			 const char *path)
 {
   if (!modules_p ())
     {
@@ -19526,6 +19630,7 @@ preprocess_module (module_state *module, location_t from_loc,
 	     needs to be smarter -- and this isn't much state.
 	     Remember, we've not parsed anything at this point, so
 	     our module state flags are inadequate.  */
+	  spans.maybe_init ();
 	  spans.close ();
 
 	  if (!module->filename)
@@ -19560,6 +19665,7 @@ preprocessed_module (cpp_reader *reader)
 {
   auto *mapper = get_mapper (cpp_main_loc (reader));
 
+  spans.maybe_init ();
   spans.close ();
 
   /* Stupid GTY doesn't grok a typedef here.  And using type = is, too
@@ -20530,6 +20636,18 @@ module_state::read_restriction_map (unsigned num_rxn)
     return false;
 
   return true;
+}
+
+/* Set preprocessor callbacks and options for modules.  */
+
+void
+module_preprocess_options (cpp_reader *reader)
+{
+  if (flag_modules)
+    {
+      cpp_get_callbacks (reader)->translate_include = maybe_translate_include;
+      cpp_get_options (reader)->module_directives = true;
+    }
 }
 
 #include "gt-cp-module.h"

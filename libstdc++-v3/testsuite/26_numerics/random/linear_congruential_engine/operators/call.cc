@@ -15,23 +15,50 @@
 // with this library; see the file COPYING3.  If not see
 // <http://www.gnu.org/licenses/>.
 
-// { dg-options "-std=gnu++2a" }
-// { dg-do compile { target c++2a } }
+// { dg-do run { target c++11 } }
 
-#include <ranges>
-#include <vector>
+#include <random>
+#include <testsuite_hooks.h>
 
 void
 test01()
 {
-  // LWG 3474. Nesting join_views is broken because of CTAD
-  std::vector<std::vector<std::vector<int>>> nested_vectors = {
-    {{1, 2, 3}, {4, 5}, {6}},
-    {{7},       {8, 9}, {10, 11, 12}},
-    {{13}}
-  };
-  auto joined = nested_vectors | std::views::join | std::views::join;
+  std::linear_congruential_engine<unsigned, 0, 0, 0> l;
+  auto r = l(); // this used to result in divide by zero
+  VERIFY( r == 0 );
+  l.seed(2);
+  r = l();
+  VERIFY( r == 0 );
+  VERIFY( l() == 0 );
+}
 
-  using V = decltype(joined);
-  static_assert( std::same_as<std::ranges::range_value_t<V>, int> );
+void
+test02()
+{
+  std::linear_congruential_engine<unsigned, 0, 0, 3> l;
+  auto r = l(); // this used to result in a different divide by zero
+  VERIFY( r == 0 );
+  l.seed(2);
+  r = l();
+  VERIFY( r == 0 );
+  VERIFY( l() == 0 );
+}
+
+void
+test03()
+{
+  std::linear_congruential_engine<unsigned, 0, 2, 3> l;
+  auto r = l();
+  VERIFY( r == 2 );
+  l.seed(4);
+  r = l();
+  VERIFY( r == 2 );
+  VERIFY( l() == 2 );
+}
+
+int main()
+{
+  test01();
+  test02();
+  test03();
 }

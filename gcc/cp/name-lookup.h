@@ -382,7 +382,6 @@ extern tree lookup_qualified_name (tree scope, tree name,
 extern tree lookup_qualified_name (tree scope, const char *name,
 				   LOOK_want = LOOK_want::NORMAL,
 				   bool = true);
-extern bool is_local_extern (tree);
 extern bool pushdecl_class_level (tree);
 extern tree pushdecl_namespace_level (tree, bool hiding = false);
 extern bool push_class_level_binding (tree, tree);
@@ -403,7 +402,7 @@ extern tree *find_member_slot (tree klass, tree name);
 extern tree *add_member_slot (tree klass, tree name);
 extern void resort_type_member_vec (void *, void *,
 				    gt_pointer_operator, void *);
-extern void set_class_bindings (tree, unsigned extra = 0);
+extern vec<tree, va_gc> *set_class_bindings (tree, int extra = 0);
 extern void insert_late_enum_def_bindings (tree, tree);
 extern tree innermost_non_namespace_value (tree);
 extern cxx_binding *outer_binding (tree, cxx_binding *, bool);
@@ -426,17 +425,11 @@ extern void maybe_save_operator_binding (tree);
 extern void push_operator_bindings (void);
 extern void discard_operator_bindings (tree);
 
-// FIXME: class symbol handling.  In transition
-extern tree lookup_class_member (tree, tree, bool);
-extern void set_class_bindings (tree, tree);
-extern void insert_late_enum_def_bindings (tree, tree);
-extern tree lookup_all_conversions (tree);
-
 /* Lower level interface for modules. */
 extern tree *mergeable_namespace_slots (tree ns, tree name, bool is_global,
 					tree *mvec);
 extern void add_mergeable_namespace_entity (tree *slot, tree decl);
-extern tree mergeable_class_entities (tree ctx, tree name);
+extern tree lookup_class_binding (tree ctx, tree name);
 extern bool import_module_binding (tree ctx, tree name, unsigned mod,
 				   unsigned snum);
 extern bool set_module_binding (tree ctx, tree name, unsigned mod,
@@ -449,9 +442,6 @@ extern unsigned walk_module_binding (tree binding, bitmap partitions,
 					      bool hiddenness,
 					      int usingness, void *data),
 				     void *data);
-// FIXME: These two should be local to module.cc
-extern unsigned get_field_ident (tree ctx, tree decl);
-extern tree lookup_field_ident (tree ctx, tree name, unsigned ix);
 extern tree add_imported_namespace (tree ctx, tree name, unsigned module,
 				    location_t, bool visible_p, bool inline_p,
 				    tree anon_name);

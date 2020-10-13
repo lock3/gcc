@@ -1,3 +1,125 @@
+2020-10-09  Nathan Sidwell  <nathan@acm.org>
+
+	libcpp/
+	* lex.c (do_peek_module): Update plan for unicode.
+
+	gcc/cp/
+	* decl.c (grokmethod): Remove comment about -fmodule-implicit-inline.
+
+	Block-scope externs disallowed
+	gcc/cp/
+	* decl.c (start_decl): Reject block-scope extern in module
+	purview.
+	gcc/testsuite/
+	* g++.dg/modules/local-extern-1.C: New.
+
+	Remove unused code
+	gcc/cp/
+	* friend.c (add_friend): Remove #if'd out code
+
+	Cleanup name-lookup interface
+	gcc/cp/
+	* name-lookup.h (get_field_ident, lookup_field_ident): Don't
+	declare.
+	(mergeable_class_entities): Rename to ...
+	(lookup_class_binding): ... here.
+	* name-lookup.c (mergeable_class_entities): Rename to ...
+	(lookup_class_binding): ... here.
+	(get_field_ident, lookup_field_ident): Move to module.cc
+	* module.cc (get_field_ident, lookup_field_ident): Moved here.
+	Only deal with anon fields.
+	(trees_{in,out}::tree_node): Adjust.
+	(trees_in::key_mergeable): Adjust.
+
+	Remove unneeded decls
+	gcc/cp/
+	* name-lookup.c (lookup_class_member, void set_class_bindings)
+	(tree lookup_all_conversions): Delete unused decls.
+	(insert_late_enum_def_bindings): Delete duplicate decl.
+
+	Clean up mangling documentation
+	gcc/cp/
+	* mangle.c (write_module): Update grammar description.
+	* module.cc (module_state::mangle): Clarify why partitions might
+	be significant.
+
+	Clean up some c-family pieces
+	gcc/
+	* langhooks.h (struct lang_hooks): Replace
+	preprocess_translate_include with preprocess_options.
+	* langhooks-def.h: Replace LANG_HOOKS_PREPROCESS_INCLUDE_TRANSLATE
+	with LANG_HOOKS_PREPROCESS_OPTIONS.
+	gcc/c-family/
+	* c-cppbuiltins.c (c_cpp_builtins): Comment __cpp_modules.
+	* c-opts.c (c_common_post_options): Replace include_translate hook
+	with more general preprocess_options hook.
+	gcc/cp/
+	* cp-lang.c: Replace LANG_HOOKS_PREPROCESS_TRANSLATE_INCLUDE with
+	LANG_HOOKS_PREPROCESS_OPTIONS.
+	* cp-tree.h (module_translate_include): Don't declare.
+	(module_preprocess_options): Declare.
+	* module.cc (module_translate_include): Rename to ..
+	(maybe_translate_include): ... here.  Make static.
+	(module_preprocess_options): New.
+
+2020-10-08  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk d1c566d72d9
+
+	Undeclared builtin merging
+	gcc/cp/
+	* module.cc (trees_in::is_matching_decl): Merge into undeclared
+	builtin.
+	* name-lookup.cc (check_module_override): Rename is_friend parm.
+	(do_pushdecl): Ignore hidden imports.
+	gcc/testsuite/
+	* g++.dg/modules/builtin-5_[ab].[HC]: New.
+
+2020-10-07  Nathan Sidwell  <nathan@acm.org>
+
+	Streamed classes always have a member vector.
+	gcc/cp/
+	* module.cc (trees_out::decl_value): Assert no pmfs.
+	(trees_in::decl_value): Ensure existing duplicate class has member
+	vector.
+	(tree_out::write_class_def): Ensure there's a method vector.
+	* name-lookup.c (set_class_bindings): Extra can be negative,
+	meaning always.  Return the member vector.
+	(mergeable_class_entities): Simplify.
+	(lookup_field_ident): Simplify.
+
+	gcc/cp/
+	* module.cc (module_state::read_prepare_maps): Only inform of
+	location shortage once.
+
+	Fix -save-temps & header units
+	gcc/cp/
+	* module.cc (loc_spans::maybe_init): New.
+	(loc_spans::init): Allow NULL map.
+	(preprocess_module, preprocessed_module): Call maybe_init.
+	gcc/libcpp/
+	* internal.h (enum include_type): Rename IT_MAIN_INJECT to IT_PRE_MAIN.
+	* init.c (cpp_read_main): Adjust _cpp_stack_file call.  Adjust
+	first line marker if no preprocessed marker found.
+	(read_original_filename): Peek characters in buffer, not token.
+	(read_original_directory): Likewise.
+	* files.c (_cpp_stack_file): Adjst.
+	gcc/testsuite/
+	* g++.dg/modules/preproc-2_[ab].[HC]: New.
+
+	Merge trunk 4e62aca0e05
+	c++: block-scope externs get an alias [PR95677,PR31775,PR95677]
+
+	Merge trunk e089e43365f
+
+	Merge trunk 255aa06d40d
+
+	Merge trunk bf490f06360
+
+2020-10-05  Nathan Sidwell  <nathan@acm.org>
+
+	Pick 255aa06d40d (c++: Make spell corrections consistent)
+
 2020-10-02  Nathan Sidwell  <nathan@acm.org>
 
 	Merge trunk 679dbc9dcec
