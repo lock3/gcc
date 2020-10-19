@@ -40,7 +40,7 @@ along with GCC; see the file COPYING3.  If not see
 
 static cxx_binding *cxx_binding_make (tree value, tree type);
 static cp_binding_level *innermost_nonclass_level (void);
-static tree do_pushdecl_with_scope (tree x, cp_binding_level *, bool hiding);
+static tree do_pushdecl (tree decl, bool hiding);
 static void set_identifier_type_value_with_scope (tree id, tree decl,
 						  cp_binding_level *b);
 static name_hint maybe_suggest_missing_std_header (location_t location,
@@ -274,15 +274,7 @@ get_fixed_binding_slot (tree *slot, tree name, unsigned ix, int create)
 	    {
 	      tree decl = *iter;
 
-	      tree not_tmpl = STRIP_TEMPLATE (decl);
-	      if ((TREE_CODE (not_tmpl) == FUNCTION_DECL
-		   || TREE_CODE (not_tmpl) == VAR_DECL)
-		  && DECL_THIS_STATIC (not_tmpl))
-		/* Internal linkage.  */
-		// FIXME: Is this right given the new header-unit
-		// meaning?
-		continue;
-
+	      /* Internal linkage entities are in deduplicateable.  */
 	      init_global_partition (cluster, decl);
 	    }
 
@@ -421,8 +413,13 @@ public:
 
 public:
   tree name;	/* The identifier being looked for.  */
+
+  /* Usually we just add things to the VALUE binding, but we record
+     (hidden) IMPLICIT_TYPEDEFs on the type binding, which is used for
+     using-decl resolution.  */
   tree value;	/* A (possibly ambiguous) set of things found.  */
   tree type;	/* A type that has been found.  */
+
   LOOK_want want;  /* What kind of entity we want.  */
 
   bool deduping; /* Full deduping is needed because using declarations
@@ -3616,8 +3613,9 @@ push_local_extern_decl_alias (tree decl)
 
 	  /* Expected default linkage is from the namespace.  */
 	  TREE_PUBLIC (alias) = TREE_PUBLIC (ns);
-	  alias = do_pushdecl_with_scope (alias, NAMESPACE_LEVEL (ns),
-					  /* hiding= */true);
+	  push_nested_namespace (ns);
+	  alias = do_pushdecl (alias, /* hiding= */true);
+	  pop_nested_namespace (ns);
 	}
     }
 
@@ -4090,9 +4088,7 @@ lookup_class_binding (tree klass, tree name)
 
 unsigned
 walk_module_binding (tree binding, bitmap partitions,
-		     bool (*callback) (tree decl, bool maybe_dup,
-				       bool hiddenness, int usingness,
-				       void *data),
+		     bool (*callback) (tree decl, WMB_Flags, void *data),
 		     void *data)
 {
   // FIXME: We don't quite deal with using decls naming stat hack
@@ -4107,7 +4103,10 @@ walk_module_binding (tree binding, bitmap partitions,
   bool decl_hidden = false;
   if (tree type = MAYBE_STAT_TYPE (current))
     {
-      count += callback (type, false, STAT_TYPE_HIDDEN_P (current), 0, data);
+      WMB_Flags flags = WMB_None;
+      if (STAT_TYPE_HIDDEN_P (current))
+	flags = WMB_Flags (flags | WMB_Hidden);
+      count += callback (type, flags, data);
       decl_hidden = STAT_DECL_HIDDEN_P (current);
     }
 
@@ -4116,10 +4115,18 @@ walk_module_binding (tree binding, bitmap partitions,
       if (iter.hidden_p ())
 	decl_hidden = true;
       if (!(decl_hidden && DECL_UNDECLARED_BUILTIN_P (*iter)))
-	count += callback (*iter, false, decl_hidden,
-			   !iter.using_p () ? 0
-			   : iter.exporting_p () ? -1 : +1,
-			   data);
+	{
+	  WMB_Flags flags = WMB_None;
+	  if (decl_hidden)
+	    flags = WMB_Flags (flags | WMB_Hidden);
+	  if (iter.using_p ())
+	    {
+	      flags = WMB_Flags (flags | WMB_Using);
+	      if (iter.exporting_p ())
+		flags = WMB_Flags (flags | WMB_Export);
+	    }
+	  count += callback (*iter, flags, data);
+	}
       decl_hidden = false;
     }
 
@@ -4153,14 +4160,24 @@ walk_module_binding (tree binding, bitmap partitions,
 		    /* Not a partition's namespace.  */
 		    continue;
 		  found:
-		    count += callback (bind, maybe_dups, false, 0, data);
+
+		    WMB_Flags flags = WMB_None;
+		    if (maybe_dups)
+		      flags = WMB_Flags (flags | WMB_Dups);
+		    count += callback (bind, flags, data);
 		  }
 		else if (STAT_HACK_P (bind) && MODULE_BINDING_PARTITION_P (bind))
 		  {
 		    if (tree btype = STAT_TYPE (bind))
-		      count += callback (btype, maybe_dups,
-					 STAT_TYPE_HIDDEN_P (bind),
-					 0, data);
+		      {
+			WMB_Flags flags = WMB_None;
+			if (maybe_dups)
+			  flags = WMB_Flags (flags | WMB_Dups);
+			if (STAT_TYPE_HIDDEN_P (bind))
+			  flags = WMB_Flags (flags | WMB_Hidden);
+
+			count += callback (btype, flags, data);
+		      }
 		    bool hidden = STAT_DECL_HIDDEN_P (bind);
 		    for (ovl_iterator iter (MAYBE_STAT_DECL (STAT_DECL (bind)));
 			 iter; ++iter)
@@ -4169,10 +4186,19 @@ walk_module_binding (tree binding, bitmap partitions,
 			  hidden = true;
 			gcc_checking_assert
 			  (!(hidden && DECL_UNDECLARED_BUILTIN_P (*iter)));
-			count += callback (*iter, maybe_dups, hidden,
-					   !iter.using_p () ? 0
-					   : iter.exporting_p () ? -1 : +1,
-					   data);
+
+			WMB_Flags flags = WMB_None;
+			if (maybe_dups)
+			  flags = WMB_Flags (flags | WMB_Dups);
+			if (decl_hidden)
+			  flags = WMB_Flags (flags | WMB_Hidden);
+			if (iter.using_p ())
+			  {
+			    flags = WMB_Flags (flags | WMB_Using);
+			    if (iter.exporting_p ())
+			      flags = WMB_Flags (flags | WMB_Export);
+			  }
+			count += callback (*iter, flags, data);
 			hidden = false;
 		      }
 		  }
@@ -4962,10 +4988,17 @@ constructor_name_p (tree name, tree type)
 /* Same as pushdecl, but define X in binding-level LEVEL.  We rely on the
    caller to set DECL_CONTEXT properly.
 
-   Note that this must only be used when X will be the new innermost
-   binding for its name, as we tack it onto the front of IDENTIFIER_BINDING
-   without checking to see if the current IDENTIFIER_BINDING comes from a
-   closer binding level than LEVEL.  */
+   Warning: For class and block-scope this must only be used when X
+   will be the new innermost binding for its name, as we tack it onto
+   the front of IDENTIFIER_BINDING without checking to see if the
+   current IDENTIFIER_BINDING comes from a closer binding level than
+   LEVEL.
+
+   Warning: For namespace scope, this will look in LEVEL for an
+   existing binding to match, but if not found will push the decl into
+   CURRENT_NAMESPACE.  Use push_nested_namespace/pushdecl/
+   pop_nested_namespace if you really need to push it into a foreign
+   namespace.  */
 
 static tree
 do_pushdecl_with_scope (tree x, cp_binding_level *level, bool hiding = false)
@@ -5013,22 +5046,6 @@ pushdecl_outermost_localscope (tree x)
   return ret;
 }
 
-static bool
-actually_has_external_linkage_p (tree d)
-{
-  /* Anything exported has module linkage.  */
-  if (DECL_MODULE_EXPORT_P (d))
-    return true;
-  
-  /* Declarations in the GMF have external linkage.  */
-  if (get_originating_module (d) <= 0
-      && !DECL_MODULE_PURVIEW_P (d))
-  return DECL_EXTERNAL_LINKAGE_P (d);
-
-  /* Presumably, all other declarations have internal or module linkage.  */
-  return false;
-}
-
 /* Process a local-scope or namespace-scope using declaration.  LOOKUP
    is the result of qualified lookup (both value & type are
    significant).  FN_SCOPE_P indicates if we're at function-scope (as
@@ -5061,8 +5078,10 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
   /* Only process exporting if we're going to be inserting.  */
   bool revealing_p = insert_p && !fn_scope_p && module_has_cmi_p ();
 
+  /* First do the value binding.  */
   if (!lookup.value)
-    /* Nothing.  */;
+    /* Nothing (only implicit typedef found).  */
+    gcc_checking_assert (lookup.type);
   else if (OVL_P (lookup.value) && (!value || OVL_P (value)))
     {
       for (lkp_iterator usings (lookup.value); usings; ++usings)
@@ -5072,8 +5091,10 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
 	  if (exporting)
 	    {
 	      /* If the using decl is exported, the things it refers
-		 to must also be exported.  */
-	      if (!actually_has_external_linkage_p (new_fn))
+		 to must also be exported (or not in module purview).  */
+	      if (!DECL_MODULE_EXPORT_P (new_fn)
+		  && (DECL_LANG_SPECIFIC (new_fn)
+		      && DECL_MODULE_PURVIEW_P (new_fn)))
 		{
 		  error ("%q#D does not have external linkage", new_fn);
 		  inform (DECL_SOURCE_LOCATION (new_fn),
@@ -5088,6 +5109,10 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
 	     scope has the same name and the same parameter types as a
 	     function introduced by a using declaration the program is
 	     ill-formed.  */
+	  /* This seems overreaching, asking core -- why do we care
+	     about decls in the namespace that we cannot name (because
+	     they are not transitively imported.  We just check the
+	     decls that are in this TU.  */
 	  bool found = false;
 	  for (ovl_iterator old (value); !found && old; ++old)
 	    {
@@ -5098,18 +5123,23 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
 		  /* The function already exists in the current
 		     namespace.  We will still want to insert it if
 		     it is revealing a not-revealed thing.  */
+		  found = true;
 		  if (!revealing_p)
-		    found = true;
+		    ;
 		  else if (old.using_p ())
 		    {
 		      if (exporting)
 			/* Update in place.  'tis ok.  */
 			OVL_EXPORT_P (old.get_using ()) = true;
-		      found = true;
+		      ;
 		    }
-		  // FIXME: This can cause the same decl to appear
-		  // twice on a single overload.  That very likely
-		  // breaks a dedup invariant.
+		  else if (DECL_MODULE_EXPORT_P (new_fn))
+		    ;
+		  else
+		    {
+		      value = old.remove_node (value);
+		      found = false;
+		    }
 		  break;
 		}
 	      else if (old.using_p ())
@@ -5149,12 +5179,13 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
       failed = true;
     }
   else if (insert_p)
-    // FIXME:exporting non fn?
+    // FIXME:what if we're newly exporting lookup.value
     value = lookup.value;
-
+  
+  /* Now the type binding.  */
   if (lookup.type && lookup.type != type)
     {
-      // FIXME: Exporting etc?
+      // FIXME: What if we're exporting lookup.type?
       if (type && !decls_match (lookup.type, type))
 	{
 	  diagnose_name_conflict (lookup.type, type);
@@ -8024,8 +8055,6 @@ lookup_elaborated_type_1 (tree name, TAG_how how)
 	     typedef struct C {} C;
 	   correctly.  */
 
-	tree found = NULL_TREE;
-	bool reveal = false;
 	if (tree type = iter->type)
 	  {
 	    if (qualify_lookup (type, LOOK_want::TYPE)
@@ -8033,9 +8062,11 @@ lookup_elaborated_type_1 (tree name, TAG_how how)
 		    || LOCAL_BINDING_P (iter)
 		    || DECL_CONTEXT (type) == iter->scope->this_entity))
 	      {
-		found = type;
 		if (how != TAG_how::HIDDEN_FRIEND)
-		  reveal = HIDDEN_TYPE_BINDING_P (iter);
+		  /* It is no longer a hidden binding.  */
+		  HIDDEN_TYPE_BINDING_P (iter) = false;
+
+		return type;
 	      }
 	  }
 	else
@@ -8044,32 +8075,12 @@ lookup_elaborated_type_1 (tree name, TAG_how how)
 		&& (how != TAG_how::CURRENT_ONLY
 		    || !INHERITED_VALUE_BINDING_P (iter)))
 	      {
-		found = iter->value;
-		if (how != TAG_how::HIDDEN_FRIEND)
-		  reveal = !iter->type && HIDDEN_TYPE_BINDING_P (iter);
+		if (how != TAG_how::HIDDEN_FRIEND && !iter->type)
+		  /* It is no longer a hidden binding.  */
+		  HIDDEN_TYPE_BINDING_P (iter) = false;
+
+		return iter->value;
 	      }
-	  }
-
-	if (found)
-	  {
-	    if (reveal)
-	      {
-		/* It is no longer a hidden binding.  */
-		HIDDEN_TYPE_BINDING_P (iter) = false;
-
-		/* Unanticipate the decl itself.  */
-		DECL_FRIEND_P (found) = false;
-
-		gcc_checking_assert (TREE_CODE (found) != TEMPLATE_DECL);
-
-		if (tree ti = TYPE_TEMPLATE_INFO (TREE_TYPE (found)))
-		  {
-		    tree tmpl = TI_TEMPLATE (ti);
-		    DECL_FRIEND_P (tmpl) = false;
-		  }
-	      }
-
-	    return found;
 	  }
       }
 
@@ -8085,9 +8096,6 @@ lookup_elaborated_type_1 (tree name, TAG_how how)
   tree ns = b->this_entity;
   if (tree *slot = find_namespace_slot (ns, name))
     {
-      tree found = NULL_TREE;
-      bool reveal = false;
-
       tree bind = *slot;
       if (TREE_CODE (bind) == MODULE_VECTOR)
 	bind = MODULE_VECTOR_CLUSTER (bind, 0).slots[MODULE_SLOT_CURRENT];
@@ -8097,61 +8105,34 @@ lookup_elaborated_type_1 (tree name, TAG_how how)
 	  /* If this is the kind of thing we're looking for, we're done.  */
 	  if (tree type = MAYBE_STAT_TYPE (bind))
 	    {
-	      found = type;
 	      if (how != TAG_how::HIDDEN_FRIEND)
-		{
-		  reveal = STAT_TYPE_HIDDEN_P (bind);
-		  STAT_TYPE_HIDDEN_P (bind) = false;
-		}
+		/* No longer hidden.  */
+		STAT_TYPE_HIDDEN_P (*slot) = false;
+	      
+	      return type;
 	    }
 	  else if (tree decl = MAYBE_STAT_DECL (bind))
 	    {
 	      if (qualify_lookup (decl, LOOK_want::TYPE))
 		{
-		  found = decl;
-
-		  if (how != TAG_how::HIDDEN_FRIEND  && STAT_HACK_P (bind))
+		  if (how != TAG_how::HIDDEN_FRIEND && STAT_HACK_P (bind)
+		      && STAT_DECL_HIDDEN_P (bind))
 		    {
-		      reveal = STAT_DECL_HIDDEN_P (bind);
-		      if (reveal)
+		      if (STAT_TYPE (bind))
+			STAT_DECL_HIDDEN_P (bind) = false;
+		      else
 			{
-			  if (STAT_TYPE (bind))
-			    STAT_DECL_HIDDEN_P (bind) = false;
+			  /* There is no type, just remove the stat
+			     hack.  */
+			  if (*slot == bind)
+			    *slot = decl;
 			  else
-			    {
-			      /* There is no type, just remove the stat
-				 hack.  */
-			      if (*slot == bind)
-				*slot = decl;
-			      else
-				MODULE_VECTOR_CLUSTER (bind, 0)
-				  .slots[MODULE_SLOT_CURRENT] = decl;
-			    }
+			    MODULE_VECTOR_CLUSTER (bind, 0)
+			      .slots[MODULE_SLOT_CURRENT] = decl;
 			}
 		    }
+		  return decl;
 		}
-	    }
-
-	  if (found)
-	    {
-	      if (reveal)
-		{
-		  /* Reveal the previously hidden thing.  */
-		  DECL_FRIEND_P (found) = false;
-
-		  if (TREE_CODE (found) == TEMPLATE_DECL)
-		    {
-		      tree res = DECL_TEMPLATE_RESULT (found);
-		      if (DECL_LANG_SPECIFIC (res))
-			DECL_FRIEND_P (res) = false;
-		    }
-		  else if (tree ti = TYPE_TEMPLATE_INFO (TREE_TYPE (found)))
-		    {
-		      tree tmpl = TI_TEMPLATE (ti);
-		      DECL_FRIEND_P (tmpl) = false;
-		    }
-		}
-	      return found;
 	    }
 	}
 
@@ -8198,9 +8179,6 @@ lookup_elaborated_type_1 (tree name, TAG_how how)
 		  /* Load errors could mean there's nothing here.  */
 		  continue;
 
-		// FIXME: if HOW is !GLOBAL, don't we need to inject
-		// this into the current tu's slot?
-		
 		/* Extract what we can see from here.  If there's no
 		   stat_hack, then everything was exported.  */
 		tree type = NULL_TREE;
@@ -8405,17 +8383,8 @@ do_pushtag (tree name, tree type, TAG_how how)
       DECL_CONTEXT (tdef) = FROB_CONTEXT (context);
       set_originating_module (tdef);
 
-      bool is_friend = how == TAG_how::HIDDEN_FRIEND;
-      if (is_friend)
-	{
-	  /* This is a friend.  Make this TYPE_DECL node hidden from
-	     ordinary name lookup.  Its corresponding TEMPLATE_DECL
-	     will be marked in push_template_decl.  */
-	  retrofit_lang_decl (tdef);
-	  DECL_FRIEND_P (tdef) = 1;
-	}
-
-      decl = maybe_process_template_type_declaration (type, is_friend, b);
+      decl = maybe_process_template_type_declaration
+	(type, how == TAG_how::HIDDEN_FRIEND, b);
       if (decl == error_mark_node)
 	return decl;
 

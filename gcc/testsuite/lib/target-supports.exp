@@ -86,7 +86,10 @@ proc check_compile {basename type contents args} {
     set f [open $src "w"]
     puts $f $contents
     close $f
+    global compiler_flags
+    set save_compiler_flags $compiler_flags
     set lines [${tool}_target_compile $src $output $compile_type "$options"]
+    set compiler_flags $save_compiler_flags 
     file delete $src
 
     set scan_output $output
@@ -7192,6 +7195,14 @@ proc check_effective_target_vect_load_lanes { } {
       expr { ([check_effective_target_arm_little_endian]
 	      && [check_effective_target_arm_neon_ok])
 	     || [istarget aarch64*-*-*] }}]
+}
+
+# Return 1 if the target supports vector masked loads.
+
+proc check_effective_target_vect_masked_load { } {
+    return [expr { [check_avx_available]
+		   || [check_effective_target_aarch64_sve]
+		   || [istarget amdgcn*-*-*] } ]
 }
 
 # Return 1 if the target supports vector masked stores.

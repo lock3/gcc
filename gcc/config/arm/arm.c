@@ -3429,8 +3429,9 @@ arm_option_override (void)
 {
   static const enum isa_feature fpu_bitlist_internal[]
     = { ISA_ALL_FPU_INTERNAL, isa_nobit };
+  /* isa_bit_mve_float is also part of FP bit list for arch v8.1-m.main.  */
   static const enum isa_feature fp_bitlist[]
-    = { ISA_ALL_FP, isa_nobit };
+    = { ISA_ALL_FP, isa_bit_mve_float, isa_nobit };
   static const enum isa_feature quirk_bitlist[] = { ISA_ALL_QUIRKS, isa_nobit};
   cl_target_option opts;
 
@@ -28967,11 +28968,11 @@ arm_preferred_simd_mode (scalar_mode mode)
   if (TARGET_HAVE_MVE)
     switch (mode)
       {
-      case QImode:
+      case E_QImode:
 	return V16QImode;
-      case HImode:
+      case E_HImode:
 	return V8HImode;
-      case SImode:
+      case E_SImode:
 	return V4SImode;
 
       default:;
@@ -28980,9 +28981,9 @@ arm_preferred_simd_mode (scalar_mode mode)
   if (TARGET_HAVE_MVE_FLOAT)
     switch (mode)
       {
-      case HFmode:
+      case E_HFmode:
 	return V8HFmode;
-      case SFmode:
+      case E_SFmode:
 	return V4SFmode;
 
       default:;

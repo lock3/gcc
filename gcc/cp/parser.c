@@ -14331,10 +14331,8 @@ cp_parser_declaration (cp_parser* parser)
 
   /* Try to figure out what kind of declaration is present.  */
   cp_token *token1 = cp_lexer_peek_token (parser->lexer);
-  cp_token *token2 = NULL;
-
-  if (token1->type != CPP_EOF)
-    token2 = cp_lexer_peek_nth_token (parser->lexer, 2);
+  cp_token *token2 = (token1->type == CPP_EOF
+		      ? token1 : cp_lexer_peek_nth_token (parser->lexer, 2));
 
   /* Get the high-water mark for the DECLARATOR_OBSTACK.  */
   void *p = obstack_alloc (&declarator_obstack, 0);
@@ -31400,7 +31398,7 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function,
   /* Similar to member functions, we cannot parse the contracts friend
      functions when we're inside the befriending type or otherwise
      incomplete.  This is partially handled by our caller.  */
-  if (DECL_FRIEND_P (function) && current_class_type
+  if (DECL_UNIQUE_FRIEND_P (function) && current_class_type
       && TYPE_BEING_DEFINED (current_class_type))
     return;
 

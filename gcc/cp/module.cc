@@ -2266,7 +2266,8 @@ private:
     DB_KIND_BITS = EK_BITS,
     DB_DEFN_BIT = DB_KIND_BIT + DB_KIND_BITS,
     DB_IS_MEMBER_BIT,		/* Is an out-of-class member.  */
-    DB_IS_INTERNAL_BIT,		/* It is an internal-linkage entity.  */
+    DB_IS_INTERNAL_BIT,		/* It is an (erroneous)
+				   internal-linkage entity.  */
     DB_REFS_INTERNAL_BIT,	/* Refers to an internal-linkage
 				   entity. */
     DB_IMPORTED_BIT,		/* An imported entity.  */
@@ -2534,7 +2535,7 @@ public:
 
   private:
     depset *add_partial_redirect (depset *partial, depset **slot = nullptr);
-    static bool add_binding_entity (tree, bool, bool, int, void *);
+    static bool add_binding_entity (tree, WMB_Flags, void *);
 
   public:
     bool add_namespace_entities (tree ns, bitmap partitions);
@@ -5316,9 +5317,19 @@ trees_out::core_bools (tree t)
     default:
       WB (t->base.u.bits.lang_flag_0);
       bool flag_1 = t->base.u.bits.lang_flag_1;
-      if (code == TEMPLATE_INFO)
+      if (!flag_1)
+	;
+      else if (code == TEMPLATE_INFO)
 	/* This is TI_PENDING_TEMPLATE_FLAG, not relevant to reader.  */
 	flag_1 = false;
+      else if (code == VAR_DECL)
+	{
+	  /* This is DECL_INITIALIZED_P.  */
+	  if (DECL_CONTEXT (t)
+	      && TREE_CODE (DECL_CONTEXT (t)) != FUNCTION_DECL)
+	    /* We'll set this when reading the definition.  */
+	    flag_1 = false;
+	}
       WB (flag_1);
       WB (t->base.u.bits.lang_flag_2);
       WB (t->base.u.bits.lang_flag_3);
@@ -5372,6 +5383,11 @@ trees_out::core_bools (tree t)
       WB (t->decl_common.decl_flag_0);
 
       {
+	/* DECL_EXTERNAL -> decl_flag_1
+	     == it is defined elsewhere
+	   DECL_NOT_REALLY_EXTERN -> base.not_really_extern
+	     == that was a lie, it is here  */
+
 	bool is_external = t->decl_common.decl_flag_1;
 	if (!is_external)
 	  /* decl_flag_1 is DECL_EXTERNAL. Things we emit here, might
@@ -5385,14 +5401,14 @@ trees_out::core_bools (tree t)
 	      break;
 
 	    case VAR_DECL:
-	      if (TREE_STATIC (t)
-		  && !header_module_p ()
+	      if (TREE_PUBLIC (t)
 		  && !DECL_VAR_DECLARED_INLINE_P (t))
 		is_external = true;
 	      break;
 
 	    case FUNCTION_DECL:
-	      if (!DECL_DECLARED_INLINE_P (t))
+	      if (TREE_PUBLIC (t)
+		  && !DECL_DECLARED_INLINE_P (t))
 		is_external = true;
 	      break;
 	    }
@@ -11537,7 +11553,9 @@ trees_in::install_implicit_member (tree fn)
 static bool
 has_definition (tree decl)
 {
-  decl = STRIP_TEMPLATE (decl);
+  bool is_tmpl = TREE_CODE (decl) == TEMPLATE_DECL;
+  if (is_tmpl)
+    decl = DECL_TEMPLATE_RESULT (decl);
 
   switch (TREE_CODE (decl))
     {
@@ -11550,6 +11568,12 @@ has_definition (tree decl)
 	break;
 
       if (DECL_DECLARED_INLINE_P (decl))
+	return true;
+
+      if (DECL_THIS_STATIC (decl)
+	  && (header_module_p ()
+	      || (!DECL_LANG_SPECIFIC (decl) || !DECL_MODULE_PURVIEW_P (decl))))
+	/* GM static function.  */
 	return true;
 
       if (DECL_TEMPLATE_INFO (decl))
@@ -11574,9 +11598,25 @@ has_definition (tree decl)
       break;
 
     case VAR_DECL:
-      if (!TREE_CONSTANT (decl))
-	return false;
-      /* Fallthrough.  */
+      if (DECL_TEMPLATE_INFO (decl)
+	  && DECL_USE_TEMPLATE (decl) < 2)
+	return DECL_INITIAL (decl);
+      else
+	{
+	  if (!DECL_INITIALIZED_P (decl))
+	    return false;
+
+	  if (header_module_p ()
+	      || (!DECL_LANG_SPECIFIC (decl) || !DECL_MODULE_PURVIEW_P (decl)))
+	    /* GM static variable.  */
+	    return true;
+
+	  if (!TREE_CONSTANT (decl))
+	    return false;
+
+	  return true;
+	}
+      break;
 
     case CONCEPT_DECL:
       if (DECL_INITIAL (decl))
@@ -11774,12 +11814,29 @@ trees_in::read_function_def (tree decl, tree maybe_template)
   return true;
 }
 
-// Also for CONCEPT_DECLs
+/* Also for CONCEPT_DECLs.  */
 
 void
 trees_out::write_var_def (tree decl)
 {
-  tree_node (DECL_INITIAL (decl));
+  tree init = DECL_INITIAL (decl);
+  tree_node (init);
+  if (!init)
+    {
+      tree dyn_init = NULL_TREE;
+
+      if (DECL_NONTRIVIALLY_INITIALIZED_P (decl))
+	{
+	  dyn_init = value_member (decl,
+				   CP_DECL_THREAD_LOCAL_P (decl)
+				   ? tls_aggregates : static_aggregates);
+	  gcc_checking_assert (dyn_init);
+	  /* Mark it so write_inits knows this is needed.  */
+	  TREE_LANG_FLAG_0 (dyn_init) = true;
+	  dyn_init = TREE_PURPOSE (dyn_init);
+	}
+      tree_node (dyn_init);
+    }
 }
 
 void
@@ -11794,18 +11851,29 @@ trees_in::read_var_def (tree decl, tree maybe_template)
   bool vtable = TREE_CODE (decl) == VAR_DECL && DECL_VTABLE_OR_VTT_P (decl);
   unused += vtable;
   tree init = tree_node ();
+  tree dyn_init = init ? NULL_TREE : tree_node ();
   unused -= vtable;
 
   if (get_overrun ())
     return false;
 
-  tree maybe_dup = odr_duplicate (maybe_template, DECL_INITIAL (decl));
-  bool installing = maybe_dup && !DECL_INITIAL (decl);
+  bool initialized = (VAR_P (decl) ? bool (DECL_INITIALIZED_P (decl))
+		      : bool (DECL_INITIAL (decl)));
+  tree maybe_dup = odr_duplicate (maybe_template, initialized);
+  bool installing = maybe_dup && !initialized;
   if (installing)
     {
       if (DECL_EXTERNAL (decl))
 	DECL_NOT_REALLY_EXTERN (decl) = true;
+      if (VAR_P (decl))
+	DECL_INITIALIZED_P (decl) = true;
       DECL_INITIAL (decl) = init;
+      if (!dyn_init)
+	;
+      else if (CP_DECL_THREAD_LOCAL_P (decl))
+	tls_aggregates = tree_cons (dyn_init, decl, tls_aggregates);
+      else
+	static_aggregates = tree_cons (dyn_init, decl, static_aggregates);
     }
   else if (maybe_dup)
     {
@@ -12759,19 +12827,10 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 	  else if (VAR_OR_FUNCTION_DECL_P (not_tmpl)
 		   && DECL_THIS_STATIC (not_tmpl))
 	    {
-	      /* An internal decl.  In global module permit
-		 extern "C" static inline functions
-		 ... because.  */
+	      /* An internal decl.  This is ok in a GM entity.  */
 	      if (!(header_module_p ()
-		    || (TREE_CODE (not_tmpl) == FUNCTION_DECL
-			&& DECL_DECLARED_INLINE_P (not_tmpl)
-#if 0
-			// FIXME: Disregard language linkage, because our
-			// std lib is borked.  Templates cannot
-			// have "C" linkage!
-			&& DECL_EXTERN_C_P (not_tmpl)
-#endif
-			&& true)))
+		    || !DECL_LANG_SPECIFIC (not_tmpl)
+		    || !DECL_MODULE_PURVIEW_P (not_tmpl)))
 		dep->set_flag_bit<DB_IS_INTERNAL_BIT> ();
 	    }
 
@@ -12883,11 +12942,7 @@ struct add_binding_data
 };
 
 bool
-depset::hash::add_binding_entity (tree decl, bool maybe_dups,
-				  bool hiddenness, int usingness,
-				  // FIXME: Make this API match the
-				  // new ovl_insert's
-				  void *data_)
+depset::hash::add_binding_entity (tree decl, WMB_Flags flags, void *data_)
 {
   auto data = static_cast <add_binding_data *> (data_);
 
@@ -12920,17 +12975,20 @@ depset::hash::add_binding_entity (tree decl, bool maybe_dups,
 	/* Ignore TINFO things.  */
 	return false;
 
-      if (!usingness && CP_DECL_CONTEXT (decl) != data->ns)
-	/* A using that lost its wrapper or an unscoped enum
-	   constant.  */
-	usingness = (DECL_MODULE_EXPORT_P (TREE_CODE (decl) == CONST_DECL
-					   ? TYPE_NAME (TREE_TYPE (decl))
-					   : STRIP_TEMPLATE (decl))
-		     ? -1 : +1);
+      if (!(flags & WMB_Using) && CP_DECL_CONTEXT (decl) != data->ns)
+	{
+	  /* A using that lost its wrapper or an unscoped enum
+	     constant.  */
+	  flags = WMB_Flags (flags | WMB_Using);
+	  if (DECL_MODULE_EXPORT_P (TREE_CODE (decl) == CONST_DECL
+				    ? TYPE_NAME (TREE_TYPE (decl))
+				    : STRIP_TEMPLATE (decl)))
+	    flags = WMB_Flags (flags | WMB_Export);
+	}
 
       if (!data->binding)
 	/* No binding to check.  */;
-      else if (usingness)
+      else if (flags & WMB_Using)
 	{
 	  /* Look in the binding to see if we already have this
 	     using.  */
@@ -12940,15 +12998,15 @@ depset::hash::add_binding_entity (tree decl, bool maybe_dups,
 	      if (d->get_entity_kind () == EK_USING
 		  && OVL_FUNCTION (d->get_entity ()) == decl)
 		{
-		  if (!hiddenness)
+		  if (!(flags & WMB_Hidden))
 		    d->clear_hidden_binding ();
-		  if (usingness < 0)
+		  if (flags & WMB_Export)
 		    OVL_EXPORT_P (d->get_entity ()) = true;
 		  return false;
 		}
 	    }
 	}
-      else if (maybe_dups)
+      else if (flags & WMB_Dups)
 	{
 	  /* Look in the binding to see if we already have this decl.  */
 	  for (unsigned ix = data->binding->deps.length (); --ix;)
@@ -12956,7 +13014,7 @@ depset::hash::add_binding_entity (tree decl, bool maybe_dups,
 	      depset *d = data->binding->deps[ix];
 	      if (d->get_entity () == decl)
 		{
-		  if (!hiddenness)
+		  if (!(flags & WMB_Hidden))
 		    d->clear_hidden_binding ();
 		  return false;
 		}
@@ -12975,16 +13033,16 @@ depset::hash::add_binding_entity (tree decl, bool maybe_dups,
 	  *slot = data->binding;
 	}
 
-      if (usingness)
+      if (flags & WMB_Using)
 	{
 	  decl = ovl_make (decl, NULL_TREE);
-	  if (usingness < 0)
+	  if (flags & WMB_Export)
 	    OVL_EXPORT_P (decl) = true;
 	}
 
       depset *dep = data->hash->make_dependency
-	(decl, usingness ? EK_USING : EK_FOR_BINDING);
-      if (hiddenness)
+	(decl, flags & WMB_Using ? EK_USING : EK_FOR_BINDING);
+      if (flags & WMB_Hidden)
 	dep->set_hidden_binding ();
       data->binding->deps.safe_push (dep);
       /* Binding and contents are mutually dependent.  */
@@ -13542,30 +13600,21 @@ depset::hash::finalize_dependencies ()
 	}
       else if (dep->refs_internal ())
 	{
+	  for (unsigned ix = dep->deps.length (); ix--;)
+	    {
+	      depset *rdep = dep->deps[ix];
+	      if (rdep->is_internal ())
+		{
+		  // FIXME: Better location information?  We're
+		  // losing, so it doesn't matter about efficiency
+		  tree decl = dep->get_entity ();
+		  error_at (DECL_SOURCE_LOCATION (decl),
+			    "%q#D references internal linkage entity %q#D",
+			    decl, rdep->get_entity ());
+		  break;
+		}
+	    }
 	  ok = false;
-	  tree decl = dep->get_entity ();
-#if 1
-	  // FIXME: __thread_active_p is borked, so allow it.
-	  if (CP_DECL_CONTEXT (decl) == global_namespace
-	      && DECL_NAME (decl)
-	      && !strcmp (IDENTIFIER_POINTER (DECL_NAME (decl)),
-			  "__gthread_active_p"))
-	    ok = true;
-#endif
-	  if (!ok)
-	    for (unsigned ix = dep->deps.length (); ix--;)
-	      {
-		depset *rdep = dep->deps[ix];
-		if (rdep->is_internal ())
-		  {
-		    // FIXME: Better location information?  We're
-		    // losing, so it doesn't matter about efficiency
-		    error_at (DECL_SOURCE_LOCATION (decl),
-			      "%q#D references internal linkage entity %q#D",
-			      decl, rdep->get_entity ());
-		    break;
-		  }
-	      }
 	}
     }
 
@@ -17317,31 +17366,37 @@ module_state::deferred_macro (cpp_reader *reader, location_t loc,
 /* Stream the static aggregates.  Sadly some headers (ahem:
    iostream) contain static vars, and rely on them to run global
    ctors.  */
-// FIXME: What about tls inits?
-// FIXME: Do I need to walk to add to dependency table?
 unsigned
 module_state::write_inits (elf_out *to, depset::hash &table, unsigned *crc_ptr)
 {
-  if (!static_aggregates)
+  if (!static_aggregates && !tls_aggregates)
     return 0;
 
   dump () && dump ("Writing initializers");
   dump.indent ();
 
   static_aggregates = nreverse (static_aggregates);
+  tls_aggregates = nreverse (tls_aggregates);
 
   unsigned count = 0;
   trees_out sec (to, this, table, ~0u);
   sec.begin ();
-  for (tree init = static_aggregates; init; init = TREE_CHAIN (init), count++)
+
+  tree list = static_aggregates;
+  for (int passes = 0; passes != 2; passes++)
     {
-      tree decl = TREE_VALUE (init);
+      for (tree init = list; init; init = TREE_CHAIN (init), count++)
+	if (TREE_LANG_FLAG_0 (init))
+	  {
+	    tree decl = TREE_VALUE (init);
 
-      dump ("Initializer:%u for %N", count, decl);
-      sec.tree_node (decl);
-      sec.tree_node (TREE_PURPOSE (init));
+	    dump ("Initializer:%u for %N", count, decl);
+	    sec.tree_node (decl);
+	  }
+
+      list = tls_aggregates;
     }
-
+  
   sec.end (to, to->name (MOD_SNAME_PFX ".ini"), crc_ptr);
   dump.outdent ();
 
@@ -17356,15 +17411,17 @@ module_state::read_inits (unsigned count)
     return false;
   dump () && dump ("Reading %u initializers", count);
   dump.indent ();
+
   for (unsigned ix = 0; ix != count; ix++)
     {
+      /* Merely referencing the decl causes its initializer to be read
+	 and added to the correct list.  */
       tree decl = sec.tree_node ();
-      tree init = sec.tree_node ();
 
       if (sec.get_overrun ())
 	break;
-      dump ("Initializer:%u for %N", count, decl);
-      static_aggregates = tree_cons (init, decl, static_aggregates);
+      if (decl)
+	dump ("Initializer:%u for %N", count, decl);
     }
   dump.outdent ();
   if (!sec.end (from ()))
@@ -18730,6 +18787,7 @@ set_instantiating_module (tree decl)
 	      || TREE_CODE (decl) == VAR_DECL
 	      || TREE_CODE (decl) == TYPE_DECL
 	      || TREE_CODE (decl) == CONCEPT_DECL
+	      || TREE_CODE (decl) == TEMPLATE_DECL
 	      || (TREE_CODE (decl) == NAMESPACE_DECL
 		  && DECL_NAMESPACE_ALIAS (decl)));
 
@@ -18743,6 +18801,13 @@ set_instantiating_module (tree decl)
       DECL_MODULE_PURVIEW_P (decl) = module_purview_p ();
       /* If this was imported, we'll still be in the entity_hash.  */
       DECL_MODULE_IMPORT_P (decl) = false;
+      if (TREE_CODE (decl) == TEMPLATE_DECL)
+	{
+	  tree res = DECL_TEMPLATE_RESULT (decl);
+	  retrofit_lang_decl (res);
+	  DECL_MODULE_PURVIEW_P (res) = DECL_MODULE_PURVIEW_P (decl);
+	  DECL_MODULE_IMPORT_P (res) = false;
+	}
     }
 }
 
