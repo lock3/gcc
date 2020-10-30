@@ -5357,6 +5357,8 @@ cp_parser_fold_expression (cp_parser *parser, tree expr1)
   // Left fold.
   if (cp_lexer_next_token_is (parser->lexer, CPP_ELLIPSIS))
     {
+      if (expr1)
+	return error_mark_node;
       cp_lexer_consume_token (parser->lexer);
       int op = cp_parser_fold_operator (parser);
       if (op == ERROR_MARK)
@@ -5856,6 +5858,8 @@ cp_parser_primary_expression (cp_parser *parser,
 	case RID_IS_UNION:
 	case RID_IS_ASSIGNABLE:
 	case RID_IS_CONSTRUCTIBLE:
+	case RID_IS_NOTHROW_ASSIGNABLE:
+	case RID_IS_NOTHROW_CONSTRUCTIBLE:
 	  return cp_parser_trait_expr (parser, token->keyword);
 
 	// C++ concepts
@@ -10710,6 +10714,14 @@ cp_parser_trait_expr (cp_parser* parser, enum rid keyword)
       break;
     case RID_IS_CONSTRUCTIBLE:
       kind = CPTK_IS_CONSTRUCTIBLE;
+      variadic = true;
+      break;
+    case RID_IS_NOTHROW_ASSIGNABLE:
+      kind = CPTK_IS_NOTHROW_ASSIGNABLE;
+      binary = true;
+      break;
+    case RID_IS_NOTHROW_CONSTRUCTIBLE:
+      kind = CPTK_IS_NOTHROW_CONSTRUCTIBLE;
       variadic = true;
       break;
     default:
@@ -18654,10 +18666,8 @@ cp_parser_explicit_instantiation (cp_parser* parser)
      instantiation.  */
   if (declares_class_or_enum && cp_parser_declares_only_class_p (parser))
     {
-      tree type;
-
-      type = check_tag_decl (&decl_specifiers,
-			     /*explicit_type_instantiation_p=*/true);
+      tree type = check_tag_decl (&decl_specifiers,
+				  /*explicit_type_instantiation_p=*/true);
       /* Turn access control back on for names used during
 	 template instantiation.  */
       pop_deferring_access_checks ();
@@ -22885,7 +22895,9 @@ cp_parser_direct_declarator (cp_parser* parser,
 	    open_paren = NULL;
 	}
       if (open_paren)
-	declarator->parenthesized = open_paren->location;
+	declarator->parenthesized = make_location (open_paren->location,
+						   open_paren->location,
+						   close_paren->location);
     }
 
   /* If we entered a scope, we must exit it now.  */
@@ -24813,13 +24825,10 @@ cp_parser_class_name (cp_parser *parser,
 		      bool enum_ok)
 {
   tree decl;
-  tree scope;
-  bool typename_p;
-  cp_token *token;
   tree identifier = NULL_TREE;
 
   /* All class-names start with an identifier.  */
-  token = cp_lexer_peek_token (parser->lexer);
+  cp_token *token = cp_lexer_peek_token (parser->lexer);
   if (token->type != CPP_NAME && token->type != CPP_TEMPLATE_ID)
     {
       cp_parser_error (parser, "expected class-name");
@@ -24835,14 +24844,16 @@ cp_parser_class_name (cp_parser *parser,
 
       where we first want to look up A<T>::a in the class of the object
       expression, as per [basic.lookup.classref].  */
-  scope = parser->scope ? parser->scope : parser->context->object_type;
+  tree scope = parser->scope ? parser->scope : parser->context->object_type;
   if (scope == error_mark_node)
     return error_mark_node;
 
   /* Any name names a type if we're following the `typename' keyword
      in a qualified name where the enclosing scope is type-dependent.  */
-  typename_p = (typename_keyword_p && scope && TYPE_P (scope)
-		&& dependent_type_p (scope));
+  const bool typename_p = (typename_keyword_p
+			   && parser->scope
+			   && TYPE_P (parser->scope)
+			   && dependent_type_p (parser->scope));
   /* Handle the common case (an identifier, but not a template-id)
      efficiently.  */
   if (token->type == CPP_NAME
@@ -26194,14 +26205,12 @@ cp_parser_member_declaration (cp_parser* parser)
 	}
       else
 	{
-	  tree type;
-
 	  /* See if this declaration is a friend.  */
 	  friend_p = cp_parser_friend_p (&decl_specifiers);
 	  /* If there were decl-specifiers, check to see if there was
 	     a class-declaration.  */
-	  type = check_tag_decl (&decl_specifiers,
-				 /*explicit_type_instantiation_p=*/false);
+	  tree type = check_tag_decl (&decl_specifiers,
+				      /*explicit_type_instantiation_p=*/false);
 	  /* Nested classes have already been added to the class, but
 	     a `friend' needs to be explicitly registered.  */
 	  if (friend_p)
@@ -35601,6 +35610,8 @@ cp_parser_omp_clause_name (cp_parser *parser)
 	case 'a':
 	  if (!strcmp ("aligned", p))
 	    result = PRAGMA_OMP_CLAUSE_ALIGNED;
+	  else if (!strcmp ("allocate", p))
+	    result = PRAGMA_OMP_CLAUSE_ALLOCATE;
 	  else if (!strcmp ("async", p))
 	    result = PRAGMA_OACC_CLAUSE_ASYNC;
 	  else if (!strcmp ("attach", p))
@@ -37756,6 +37767,47 @@ cp_parser_omp_clause_aligned (cp_parser *parser, tree list)
   return nlist;
 }
 
+/* OpenMP 5.0:
+   allocate ( variable-list )
+   allocate ( expression : variable-list )  */
+
+static tree
+cp_parser_omp_clause_allocate (cp_parser *parser, tree list)
+{
+  tree nlist, c, allocator = NULL_TREE;
+  bool colon;
+
+  matching_parens parens;
+  if (!parens.require_open (parser))
+    return list;
+
+  cp_parser_parse_tentatively (parser);
+  bool saved_colon_corrects_to_scope_p = parser->colon_corrects_to_scope_p;
+  parser->colon_corrects_to_scope_p = false;
+  allocator = cp_parser_assignment_expression (parser);
+  parser->colon_corrects_to_scope_p = saved_colon_corrects_to_scope_p;
+  if (cp_lexer_next_token_is (parser->lexer, CPP_COLON))
+    {
+      cp_parser_parse_definitely (parser);
+      cp_lexer_consume_token (parser->lexer);
+      if (allocator == error_mark_node)
+	allocator = NULL_TREE;
+    }
+  else
+    {
+      cp_parser_abort_tentative_parse (parser);
+      allocator = NULL_TREE;
+    }
+
+  nlist = cp_parser_omp_var_list_no_open (parser, OMP_CLAUSE_ALLOCATE, list,
+					  &colon);
+
+  for (c = nlist; c != list; c = OMP_CLAUSE_CHAIN (c))
+    OMP_CLAUSE_ALLOCATE_ALLOCATOR (c) = allocator;
+
+  return nlist;
+}
+
 /* OpenMP 2.5:
    lastprivate ( variable-list )
 
@@ -39072,6 +39124,10 @@ cp_parser_omp_all_clauses (cp_parser *parser, omp_clause_mask mask,
 	case PRAGMA_OMP_CLAUSE_ALIGNED:
 	  clauses = cp_parser_omp_clause_aligned (parser, clauses);
 	  c_name = "aligned";
+	  break;
+	case PRAGMA_OMP_CLAUSE_ALLOCATE:
+	  clauses = cp_parser_omp_clause_allocate (parser, clauses);
+	  c_name = "allocate";
 	  break;
 	case PRAGMA_OMP_CLAUSE_LINEAR:
 	  {
@@ -41092,6 +41148,7 @@ cp_parser_omp_simd (cp_parser *parser, cp_token *pragma_tok,
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_SCHEDULE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_NOWAIT)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_COLLAPSE)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ORDER))
 
 static tree
@@ -41376,6 +41433,7 @@ cp_parser_omp_sections_scope (cp_parser *parser)
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_FIRSTPRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_LASTPRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_REDUCTION)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_NOWAIT))
 
 static tree
@@ -41426,6 +41484,7 @@ cp_parser_omp_sections (cp_parser *parser, cp_token *pragma_tok,
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_COPYIN)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_REDUCTION)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_NUM_THREADS)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_PROC_BIND))
 
 static tree
@@ -41571,6 +41630,7 @@ cp_parser_omp_parallel (cp_parser *parser, cp_token *pragma_tok,
 	( (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_PRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_FIRSTPRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_COPYPRIVATE)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_NOWAIT))
 
 static tree
@@ -41603,6 +41663,7 @@ cp_parser_omp_single (cp_parser *parser, cp_token *pragma_tok, bool *if_p)
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_MERGEABLE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_DEPEND)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_PRIORITY)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_IN_REDUCTION))
 
 static tree
@@ -41667,7 +41728,8 @@ cp_parser_omp_taskyield (cp_parser *parser, cp_token *pragma_tok)
    # pragma omp taskgroup taskgroup-clause[optseq] new-line  */
 
 #define OMP_TASKGROUP_CLAUSE_MASK				\
-	( (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_TASK_REDUCTION))
+	( (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_TASK_REDUCTION))
 
 static tree
 cp_parser_omp_taskgroup (cp_parser *parser, cp_token *pragma_tok, bool *if_p)
@@ -41776,6 +41838,7 @@ cp_parser_omp_cancellation_point (cp_parser *parser, cp_token *pragma_tok,
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_FIRSTPRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_LASTPRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_DIST_SCHEDULE)\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_COLLAPSE))
 
 static tree
@@ -41874,6 +41937,7 @@ cp_parser_omp_distribute (cp_parser *parser, cp_token *pragma_tok,
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_REDUCTION)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_NUM_TEAMS)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_THREAD_LIMIT)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_DEFAULT))
 
 static tree
@@ -42280,6 +42344,7 @@ cp_parser_omp_target_update (cp_parser *parser, cp_token *pragma_tok,
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_PRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_FIRSTPRIVATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_DEFAULTMAP)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_IS_DEVICE_PTR))
 
 static bool
@@ -44118,15 +44183,19 @@ cp_parser_omp_declare_reduction (cp_parser *parser, cp_token *pragma_tok,
       DECL_ATTRIBUTES (fndecl)
 	= tree_cons (get_identifier ("gnu_inline"), NULL_TREE,
 		     DECL_ATTRIBUTES (fndecl));
-      if (processing_template_decl)
-	fndecl = push_template_decl (fndecl);
       bool block_scope = false;
-      tree block = NULL_TREE;
       if (current_function_decl)
 	{
 	  block_scope = true;
 	  DECL_CONTEXT (fndecl) = current_function_decl;
 	  DECL_LOCAL_DECL_P (fndecl) = true;
+	}
+
+      if (processing_template_decl)
+	fndecl = push_template_decl (fndecl);
+
+      if (block_scope)
+	{
 	  if (!processing_template_decl)
 	    pushdecl (fndecl);
 	}
@@ -44154,6 +44223,8 @@ cp_parser_omp_declare_reduction (cp_parser *parser, cp_token *pragma_tok,
 	  /* We should never meet a matched duplicate decl.  */
 	  gcc_checking_assert (d == error_mark_node || d == fndecl);
 	}
+
+      tree block = NULL_TREE;
       if (!block_scope)
 	start_preparsed_function (fndecl, NULL_TREE, SF_PRE_PARSED);
       else
@@ -44429,6 +44500,7 @@ cp_parser_omp_requires (cp_parser *parser, cp_token *pragma_tok)
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_MERGEABLE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_NOGROUP)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_PRIORITY)	\
+	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_ALLOCATE)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_REDUCTION)	\
 	| (OMP_CLAUSE_MASK_1 << PRAGMA_OMP_CLAUSE_IN_REDUCTION))
 

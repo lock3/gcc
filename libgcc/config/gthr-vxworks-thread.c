@@ -27,9 +27,10 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    exposed by gthr-vxworks.h, using APIs exposed by regular (!AE/653)
    VxWorks kernels.  */
 
-#if __GTHREAD_CXX0X
-
 #include "gthr.h"
+
+#if __GTHREADS_CXX0X
+
 #include <taskLib.h>
 #include <stdlib.h>
 

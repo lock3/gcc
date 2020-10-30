@@ -2082,7 +2082,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 			newdecl);
 	      inform (olddecl_loc,
 		      "previous declaration %q#D", olddecl);
-	      return NULL_TREE;
+	      return error_mark_node;
 	    }
 	  /* For function versions, params and types match, but they
 	     are not ambiguous.  */
@@ -2306,6 +2306,9 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
   if (TREE_CODE (olddecl) == TYPE_DECL
       && (DECL_IMPLICIT_TYPEDEF_P (olddecl)
 	  || DECL_IMPLICIT_TYPEDEF_P (newdecl)))
+    return NULL_TREE;
+
+  if (DECL_TEMPLATE_PARM_P (olddecl) != DECL_TEMPLATE_PARM_P (newdecl))
     return NULL_TREE;
 
   if (!validate_constexpr_redeclaration (olddecl, newdecl))
@@ -3010,19 +3013,20 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  if (DECL_BUILT_IN_CLASS (newdecl) == BUILT_IN_NORMAL)
 	    {
 	      enum built_in_function fncode = DECL_FUNCTION_CODE (newdecl);
-	      switch (fncode)
+	      if (builtin_decl_explicit_p (fncode))
 		{
-		  /* If a compatible prototype of these builtin functions
-		     is seen, assume the runtime implements it with the
-		     expected semantics.  */
-		case BUILT_IN_STPCPY:
-		  if (builtin_decl_explicit_p (fncode))
-		    set_builtin_decl_implicit_p (fncode, true);
-		  break;
-		default:
-		  if (builtin_decl_explicit_p (fncode))
-		    set_builtin_decl_declared_p (fncode, true);
-		  break;
+		  /* A compatible prototype of these builtin functions
+		     is seen, assume the runtime implements it with
+		     the expected semantics.  */
+		  switch (fncode)
+		    {
+		    case BUILT_IN_STPCPY:
+		      set_builtin_decl_implicit_p (fncode, true);
+		      break;
+		    default:
+		      set_builtin_decl_declared_p (fncode, true);
+		      break;
+		    }
 		}
 
 	      copy_attributes_to_builtin (newdecl);
@@ -12487,8 +12491,17 @@ grokdeclarator (const cp_declarator *declarator,
 	       && inner_declarator->u.id.qualifying_scope
 	       && (MAYBE_CLASS_TYPE_P (type)
 		   || TREE_CODE (type) == ENUMERAL_TYPE)))
-	warning_at (declarator->parenthesized, OPT_Wparentheses,
-		    "unnecessary parentheses in declaration of %qs", name);
+	{
+	  if (warning_at (declarator->parenthesized, OPT_Wparentheses,
+			  "unnecessary parentheses in declaration of %qs",
+			  name))
+	    {
+	      gcc_rich_location iloc (declarator->parenthesized);
+	      iloc.add_fixit_remove (get_start (declarator->parenthesized));
+	      iloc.add_fixit_remove (get_finish (declarator->parenthesized));
+	      inform (&iloc, "remove parentheses");
+	    }
+	}
       if (declarator->kind == cdk_id || declarator->kind == cdk_decomp)
 	break;
 

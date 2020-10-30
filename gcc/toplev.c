@@ -2518,6 +2518,7 @@ toplev::finalize (void)
 
   cgraph_c_finalize ();
   cgraphunit_c_finalize ();
+  symtab_thunks_cc_finalize ();
   dwarf2out_c_finalize ();
   gcse_c_finalize ();
   ipa_cp_c_finalize ();

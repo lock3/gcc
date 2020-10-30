@@ -1415,7 +1415,7 @@ define(gcc_UNLOCKED_FUNCS, clearerr_unlocked feof_unlocked dnl
 AC_CHECK_FUNCS(times clock kill getrlimit setrlimit atoq \
 	popen sysconf strsignal getrusage nl_langinfo \
 	gettimeofday mbstowcs wcswidth mmap memrchr posix_fallocate setlocale \
-	gcc_UNLOCKED_FUNCS madvise mallinfo execv mallinfo2)
+	gcc_UNLOCKED_FUNCS madvise mallinfo execv mallinfo2 fstatat)
 
 if test x$ac_cv_func_mbstowcs = xyes; then
   AC_CACHE_CHECK(whether mbstowcs works, gcc_cv_func_mbstowcs_works,
@@ -1584,6 +1584,17 @@ return fcntl (1, F_SETLKW, &fl);]])],
 if test $ac_cv_f_setlkw = yes; then
   AC_DEFINE(HOST_HAS_F_SETLKW, 1,
   [Define if F_SETLKW supported by fcntl.])
+fi
+
+# Check if O_CLOEXEC is defined by fcntl
+AC_CACHE_CHECK(for O_CLOEXEC, ac_cv_o_cloexec, [
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <fcntl.h>]], [[
+return open ("/dev/null", O_RDONLY | O_CLOEXEC);]])],
+[ac_cv_o_cloexec=yes],[ac_cv_o_cloexec=no])])
+if test $ac_cv_o_cloexec = yes; then
+  AC_DEFINE(HOST_HAS_O_CLOEXEC, 1,
+  [Define if O_CLOEXEC supported by fcntl.])
 fi
 
 # C++ Modules would like some networking features to provide the mapping
@@ -5499,7 +5510,7 @@ foo:
      gcc_GAS_CHECK_FEATURE([assembly of compiler generated 32-bit .debug_line],
       gcc_cv_as_debug_line_32_flag,
       [elf,2,36,0], [], [$conftest_s],,
-      [success=yes])
+      [dwarf4_success=yes])
    else
      gcc_GAS_CHECK_FEATURE([assembly of compiler generated 64-bit .debug_line],
       gcc_cv_as_debug_line_64_flag,
@@ -5507,11 +5518,11 @@ foo:
       [dwarf4_success=yes])
    fi
    if test $dwarf4_success = yes; then
+     dwarf4_success=no
      gcc_GAS_CHECK_FEATURE([--gdwarf-4 not refusing compiler generated .debug_line],
       gcc_cv_as_dwarf_4_debug_line_flag,
       [elf,2,36,0], [--gdwarf-4], [$conftest_s],,
-      [AC_DEFINE(HAVE_AS_WORKING_DWARF_4_FLAG, 1,
-[Define if your assembler supports --gdwarf-4 even with compiler generated .debug_line])])
+      [dwarf4_success=yes])
      break
    fi
    dwarf4_debug_info_size=0x36
@@ -5519,6 +5530,59 @@ foo:
    dwarf4_debug_aranges_size=0x1c
    dwarf4_line_sz=5
  done
+
+ if test $dwarf4_success = yes; then
+   conftest_s="\
+	.file	\"foo.c\"
+	.text
+bar:
+#APP
+# 82 \"xxx.h\" 1
+	$insn
+# 0 \"\" 2
+#NO_APP
+	$insn
+foo:
+	.file 1 \"foo.c\"
+	$insn
+	.file 2 \"foo.h\"
+	ret
+"
+   dwarf4_success=no
+   gcc_GAS_CHECK_FEATURE([--gdwarf-4 with the APP marker],
+     gcc_cv_as_dwarf_4_app_flag,,
+     [--gdwarf-4], [$conftest_s],, [dwarf4_success=yes])
+ fi
+
+ if test $dwarf4_success = yes; then
+   conftest_s="\
+	.text
+	.globl	foo
+	.type	foo, %function
+foo:
+	$insn
+	.size	foo, .-foo
+	.file	1 \"foo.c\"
+"
+   gcc_GAS_CHECK_FEATURE([working --gdwarf-4/--gdwarf-5 for all sources],
+     gcc_cv_as_working_gdwarf_n_flag,,
+     [--gdwarf-4],
+     [$conftest_s],
+     [changequote(,)dnl
+      if test x$gcc_cv_readelf != x \
+	 && $gcc_cv_readelf -w conftest.o 2>&1 \
+		| grep conftest.s > /dev/null 2>&1; then
+	gcc_cv_as_working_gdwarf_n_flag=no
+      else
+	gcc_cv_as_working_gdwarf_n_flag=yes
+      fi
+      changequote([,])dnl])
+   if test $gcc_cv_as_working_gdwarf_n_flag = yes; then
+     AC_DEFINE(HAVE_AS_WORKING_DWARF_N_FLAG, 1,
+[Define if your assembler supports --gdwarf-4/--gdwarf-5 even with
+ compiler generated .debug_line.])
+   fi
+ fi
 
  gcc_GAS_CHECK_FEATURE([--gstabs option],
   gcc_cv_as_gstabs_flag,
@@ -7010,9 +7074,6 @@ AC_ARG_VAR(ISLINC,[How to find isl include files])
 if test "x${ISLLIBS}" != "x" ; then 
    AC_DEFINE(HAVE_isl, 1, [Define if isl is in use.])
 fi
-
-AC_ARG_VAR(CODYLIB,[How to link Cody])
-AC_ARG_VAR(CODYLIBINC,[How to find Cody include files])
 
 GCC_ENABLE_PLUGINS
 AC_SUBST(pluginlibs)

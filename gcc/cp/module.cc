@@ -245,6 +245,16 @@ Classes used:
 #define MAPPED_READING 0
 #define MAPPED_WRITING 0
 #endif
+#if 0 // for testing
+#undef MAPPED_READING
+#undef MAPPED_WRITING
+#define MAPPED_READING 0
+#define MAPPED_WRITING 0
+#endif
+
+#if !HOST_HAS_O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
 
 static inline cpp_hashnode *cpp_node (tree id)
 {
@@ -1311,7 +1321,7 @@ public:
   bool defrost (const char *);
 
   /* If BYTES is in the mmapped area, allocate a new buffer for it.  */
-  void preserve (bytes_in &bytes)
+  void preserve (bytes_in &bytes ATTRIBUTE_UNUSED)
   {
 #if MAPPED_READING
     if (hdr.buffer && bytes.buffer >= hdr.buffer
@@ -1325,7 +1335,7 @@ public:
   }
   /* If BYTES is not in SELF's mmapped area, free it.  SELF might be
      NULL. */
-  static void release (elf_in *self, bytes_in &bytes)
+  static void release (elf_in *self ATTRIBUTE_UNUSED, bytes_in &bytes)
   {
 #if MAPPED_READING
     if (!(self && self->hdr.buffer && bytes.buffer >= self->hdr.buffer
@@ -1725,8 +1735,9 @@ elf_in::begin (location_t loc)
       set_error (errno);
       return false;
     }
-  /* We'll be hopping over this randomly.  */
-  if (madvise (mapping, size, MADV_RANDOM))
+  /* We'll be hopping over this randomly.  Some systems declare the
+     first parm as char *, and other declare it as void *.  */
+  if (madvise (reinterpret_cast <char *> (mapping), size, MADV_RANDOM))
     goto fail;
 
   hdr.buffer = (char *)mapping;
@@ -1879,24 +1890,10 @@ elf_out::remove_mapping ()
 char *
 elf_out::grow (char *data, unsigned needed)
 {
-  if (!hdr.buffer)
-    return NULL;
-
   if (!data)
     {
-      /* First allocation, align to SECTION_ALIGN now.  */
-      if (unsigned padding = pos & (SECTION_ALIGN - 1))
-	{
-	  padding = SECTION_ALIGN - padding;
-#if !MAPPED_WRITING
-	  /* Align the section on disk, should help the necessary copies.
-	     fseeking to extend is non-portable.  */
-	  static char zero[SECTION_ALIGN];
-	  if (::write (fd, &zero, padding) != padding)
-	    set_error (errno);
-#endif
-	  pos += padding;
-	}
+      /* First allocation, check we're aligned.  */
+      gcc_checking_assert (!(pos & (SECTION_ALIGN - 1)));
 #if MAPPED_WRITING
       data = hdr.buffer + (pos - offset);
 #endif
@@ -2066,6 +2063,18 @@ elf_out::write (const data &buffer)
 #endif
   unsigned res = pos;
   pos += buffer.pos;
+
+  if (unsigned padding = -pos & (SECTION_ALIGN - 1))
+    {
+#if !MAPPED_WRITING
+      /* Align the section on disk, should help the necessary copies.
+	 fseeking to extend is non-portable.  */
+      static char zero[SECTION_ALIGN];
+      if (::write (fd, &zero, padding) != padding)
+	set_error (errno);
+#endif
+      pos += padding;
+    }
   return res;
 }
 
@@ -2081,6 +2090,10 @@ elf_out::write (const bytes_out &buf)
 		       && buf.buffer - hdr.buffer + buf.size <= extent);
   unsigned res = pos;
   pos += buf.pos;
+
+  /* Align up.  We're not going to advance into the next page. */
+  pos += -pos & (SECTION_ALIGN - 1);
+
   return res;
 }
 #endif
@@ -2823,7 +2836,7 @@ enum tree_tag {
   tt_tinfo_typedef,	/* Typeinfo typedef.  */
   tt_ptrmem_type,	/* Pointer to member type.  */
 
-  tt_parm,		/* Function paramter or result.  */
+  tt_parm,		/* Function parameter or result.  */
   tt_enum_value,	/* An enum value.  */
   tt_enum_decl,		/* An enum decl.  */
   tt_data_member,	/* Data member/using-decl.  */
@@ -2853,16 +2866,21 @@ enum merge_kind
   MK_vtable,	/* Found by CTX and index on TYPE_VTABLES  */
   MK_as_base,	/* Found by CTX.  */
 
-  MK_indirect_lwm = 0x5,
-  MK_local_friend = MK_indirect_lwm, /* Found by CTX, index.  */
+  MK_partial,
+
   MK_enum,	/* Found by CTX, & 1stMemberNAME.  */
   MK_attached,  /* Found by attachee & index.  */
 
+  MK_friend_spec,  /* Like named, but has a tmpl & args too.  */
+  MK_local_friend, /* Found by CTX, index.  */
+
+  MK_indirect_lwm = MK_enum,
+  
   /* Template specialization kinds below. These are all found via
      primary template and specialization args.  */
-  MK_template_mask = 0x8,  /* A template specialization.  */
+  MK_template_mask = 0x10,  /* A template specialization.  */
 
-  MK_tmpl_decl_mask = 0x4, /* In decl table (not a type specialization).  */
+  MK_tmpl_decl_mask = 0x8, /* In decl table (not a type specialization).  */
 
   /* Following bit has meaning dependent on MK_tmpl_decl_mask. */
   MK_tmpl_alias_mask = 0x2, /* An alias specialization (in both).  */
@@ -2879,24 +2897,25 @@ enum merge_kind
 
   MK_alias_spec = MK_decl_spec | MK_tmpl_alias_mask,
 
-  // FIXME: perhaps the MK_field, MK_vtable, MK_as_base can all be
-  // combined, so that this can be put up there?
-  MK_partial = 16,
-  MK_friend_spec = 17,  /* Like named, but has a tmpl & args too.  */
-  MK_hwm
+  MK_hwm = 0x20
 };
 /* This is more than a debugging array.  NULLs are used to determine
    an invalid merge_kind number.  */
 static char const *const merge_kind_name[MK_hwm] =
   {
-    "unique", "named", "field", "vtable",		/* 0...3  */
-    "asbase", "local friend", "enum", "attached",	/* 4...7  */
-    "type spec", "type tmpl spec",	/*  8,9 type (template).  */
-    NULL, "type partial spec",		/* 10,11 partial template. */
-    "decl spec", "decl tmpl spec",	/* 12,13 decl (template).  */
-    "alias spec", NULL,			/* 14,15 alias. */
-    "partial",				/* 16 constrained partial */
-    "friend spec",			/* 17 friend specialization.  */
+    "unique", "named", "field", "vtable",	/* 0...3  */
+    "asbase", "partial", "enum", "attached",	/* 4...7  */
+
+    "friend spec", "local friend", NULL, NULL,  /* 8...11 */
+    NULL, NULL, NULL, NULL,
+
+    "type spec", "type tmpl spec",	/* 16,17 type (template).  */
+    NULL, "type partial spec",		/* 18,19 partial template. */
+    NULL, NULL, NULL, NULL,
+
+    "decl spec", "decl tmpl spec",	/* 24,25 decl (template).  */
+    "alias spec", NULL,			/* 26,27 alias. */
+    NULL, NULL, NULL, NULL,
   };
 
 /* Mergeable entity location data.  */
@@ -3044,6 +3063,7 @@ private:
   vec<tree, va_heap> *vec_chained_decls ();
   vec<tree, va_gc> *tree_vec (); /* vec of tree.  */
   vec<tree_pair_s, va_gc> *tree_pair_vec (); /* vec of tree_pair.  */
+  tree tree_list (bool has_purpose);
 
 public:
   /* Read a tree node.  */
@@ -3208,6 +3228,7 @@ private:
   void vec_chained_decls (tree);
   void tree_vec (vec<tree, va_gc> *);
   void tree_pair_vec (vec<tree_pair_s, va_gc> *);
+  void tree_list (tree, bool has_purpose);
 
 public:
   /* Mark a node for by-value walking.  */
@@ -3398,8 +3419,8 @@ static loc_spans spans;
 /* Data needed by a module during the process of loading.  */
 struct GTY(()) slurping {
 
-  /* Remap numbers are shifted by 1.  Bit0 encodes if the import is
-     direct.  */
+  /* Remap import's module numbering to our numbering.  Values are
+     shifted by 1.  Bit0 encodes if the import is direct.  */
   vec<unsigned, va_heap, vl_embed> *
     GTY((skip)) remap;			/* Module owner remapping.  */
 
@@ -3407,8 +3428,9 @@ struct GTY(()) slurping {
 
   /* This map is only for header imports themselves -- the global
      headers bitmap hold it for the current TU.  */
-  // FIXME: Do we need this, now we hold directness info in the remap array?
-  bitmap headers;	/* Transitive direct header import graph. */
+  bitmap headers;	/* Transitive set of direct imports, including
+			   self.  Used for macro visibility and
+			   priority.  */
 
   /* These objects point into the mmapped area, unless we're not doing
      that, or we got frozen or closed.  In those cases they point to
@@ -4979,29 +5001,19 @@ tree
 trees_in::chained_decls ()
 {
   tree decls = NULL_TREE;
-  for (tree *chain = &decls; chain && !get_overrun ();)
+  for (tree *chain = &decls;;)
     if (tree decl = tree_node ())
       {
-	if (!DECL_P (decl))
-	  set_overrun ();
-	else
+	if (!DECL_P (decl) || DECL_CHAIN (decl))
 	  {
-	    if (*chain)
-	      {
-		// FIXME: suspicious, perhaps chain only when we know
-		// not the definition?
-		gcc_checking_assert (TREE_CODE (decl) == PARM_DECL
-				     && TREE_CODE (*chain) == PARM_DECL);
-	      }
-	    *chain = decl;
-	    chain = &DECL_CHAIN (decl);
+	    set_overrun ();
+	    break;
 	  }
+	*chain = decl;
+	chain = &DECL_CHAIN (decl);
       }
     else
-      {
-	gcc_checking_assert (!*chain);
-	chain = NULL;
-      }
+      break;
 
   return decls;
 }
@@ -5021,7 +5033,15 @@ trees_out::vec_chained_decls (tree decls)
     }
 
   for (tree decl = decls; decl; decl = DECL_CHAIN (decl))
-    tree_node (decl);
+    {
+      if (DECL_IMPLICIT_TYPEDEF_P (decl)
+	  && TYPE_NAME (TREE_TYPE (decl)) != decl)
+	/* An anonynmous struct with a typedef name.  An odd thing to
+	   write.  */
+	tree_node (NULL_TREE);
+      else
+	tree_node (decl);
+    }
 }
 
 vec<tree, va_heap> *
@@ -5036,7 +5056,7 @@ trees_in::vec_chained_decls ()
       for (unsigned ix = 0; ix < len; ix++)
 	{
 	  tree decl = tree_node ();
-	  if (!decl || !DECL_P (decl))
+	  if (decl && !DECL_P (decl))
 	    {
 	      set_overrun ();
 	      break;
@@ -5114,6 +5134,33 @@ trees_in::tree_pair_vec ()
   return v;
 }
 
+void
+trees_out::tree_list (tree list, bool has_purpose)
+{
+  for (; list; list = TREE_CHAIN (list))
+    {
+      gcc_checking_assert (TREE_VALUE (list));
+      tree_node (TREE_VALUE (list));
+      if (has_purpose)
+	tree_node (TREE_PURPOSE (list));
+    }
+  tree_node (NULL_TREE);
+}
+
+tree
+trees_in::tree_list (bool has_purpose)
+{
+  tree res = NULL_TREE;
+
+  for (tree *chain = &res; tree value = tree_node ();
+       chain = &TREE_CHAIN (*chain))
+    {
+      tree purpose = has_purpose ? tree_node () : NULL_TREE;
+      *chain = build_tree_list (purpose, value);
+    }
+
+  return res;
+}
 /* Start tree write.  Write information to allocate the receiving
    node.  */
 
@@ -5392,9 +5439,8 @@ trees_out::core_bools (tree t)
 	if (!is_external)
 	  /* decl_flag_1 is DECL_EXTERNAL. Things we emit here, might
 	     well be external from the POV of an importer.  */
-	  // FIXME: p1815? static variables become external.
-	  // We might need to know if this is a TEMPLATE_RESULT -- a
-	  // flag from the caller?
+	  // FIXME: Do we need to know if this is a TEMPLATE_RESULT --
+	  // a flag from the caller?
 	  switch (code)
 	    {
 	    default:
@@ -5976,9 +6022,9 @@ trees_out::core_vals (tree t)
 	}
 
       WT (t->decl_common.attributes);
-      // FIXME: Check this doesn't introduce cross-decl links,  for
-      // instance from instantiation to the template.  If so, we'll
-      // need more deduplication logic
+      // FIXME: Does this introduce cross-decl links?  For instance
+      // from instantiation to the template.  If so, we'll need more
+      // deduplication logic
       WT (t->decl_common.abstract_origin);
     }
 
@@ -6082,16 +6128,13 @@ trees_out::core_vals (tree t)
       break;
 
       /* Decls.  */
-    case RESULT_DECL:
-      // FIXME?
-      break;
-
     case VAR_DECL:
       if (DECL_CONTEXT (t)
 	  && TREE_CODE (DECL_CONTEXT (t)) != FUNCTION_DECL)
 	break;
       /* FALLTHROUGH  */
 
+    case RESULT_DECL:
     case PARM_DECL:
       if (DECL_HAS_VALUE_EXPR_P (t))
 	WT (DECL_VALUE_EXPR (t));
@@ -6124,7 +6167,6 @@ trees_out::core_vals (tree t)
 	{
 	  /* Builtins can be streamed by value when a header declares
 	     them.  */
-	  // FIXME: Perhaps it's just BUILT_IN_NORMAL that's needed here?
 	  WU (DECL_BUILT_IN_CLASS (t));
 	  if (DECL_BUILT_IN_CLASS (t) != NOT_BUILT_IN)
 	    WU (DECL_UNCHECKED_FUNCTION_CODE (t));
@@ -6152,11 +6194,12 @@ trees_out::core_vals (tree t)
       /* nonlocalized_vars is a middle-end thing.  */
       WT (t->block.subblocks);
       WT (t->block.supercontext);
-      // FIXME: Same as for decl's abstract_origin
+      // FIXME: As for decl's abstract_origin, does this introduce crosslinks?
       WT (t->block.abstract_origin);
       /* fragment_origin, fragment_chain are middle-end things.  */
       WT (t->block.chain);
-      // FIXME: block_num, die?
+      /* nonlocalized_vars, block_num & die are middle endy/debug
+	 things.  */
       break;
 
     case CALL_EXPR:
@@ -6193,10 +6236,6 @@ trees_out::core_vals (tree t)
       }
       break;
 
-    case OPTIMIZATION_NODE:
-      gcc_unreachable (); // FIXME
-      break;
-
     case STATEMENT_LIST:
       for (tree_stmt_iterator iter = tsi_start (t);
 	   !tsi_end_p (iter); tsi_next (&iter))
@@ -6205,8 +6244,16 @@ trees_out::core_vals (tree t)
       WT (NULL_TREE);
       break;
 
+    case OPTIMIZATION_NODE:
     case TARGET_OPTION_NODE:
-      gcc_unreachable (); // FIXME
+      // FIXME: Our representation for these two nodes is a cache of
+      // the resulting set of options.  Not a record of the options
+      // that got changed by a particular attribute or pragma.  Should
+      // we record that, or should we record the diff from the command
+      // line options?  The latter seems the right behaviour, but is
+      // (a) harder, and I guess could introduce strangeness if the
+      // importer has set some incompatible set of optimization flags?
+      gcc_unreachable ();
       break;
 
     case TREE_BINFO:
@@ -6406,8 +6453,11 @@ trees_out::core_vals (tree t)
 #undef WU
 }
 
-// FIXME: Not 100% sure I'm marking all the TREE_USED's that need to
-// be marked
+// Streaming in a reference to a decl can cause that decl to be
+// TREE_USED, which is the mark_used behaviour we need most of the
+// time.  The trees_in::unused can be incremented to inhibit this,
+// which is at least needed for vtables.
+
 bool
 trees_in::core_vals (tree t)
 {
@@ -6560,16 +6610,13 @@ trees_in::core_vals (tree t)
       break;
 
       /* Decls.  */
-    case RESULT_DECL:
-      // FIXME?
-      break;
-
     case VAR_DECL:
       if (DECL_CONTEXT (t)
 	  && TREE_CODE (DECL_CONTEXT (t)) != FUNCTION_DECL)
 	break;
       /* FALLTHROUGH  */
 
+    case RESULT_DECL:
     case PARM_DECL:
       if (DECL_HAS_VALUE_EXPR_P (t))
 	{
@@ -6633,7 +6680,8 @@ trees_in::core_vals (tree t)
       RT (t->block.abstract_origin);
       /* fragment_origin, fragment_chain are middle-end.  */
       RT (t->block.chain);
-      // block_num, die?
+      /* nonlocalized_vars, block_num, die are middle endy/debug
+	 things.  */
       break;
 
     case CALL_EXPR:
@@ -6666,10 +6714,6 @@ trees_in::core_vals (tree t)
       }
       break;
 
-    case OPTIMIZATION_NODE:
-      gcc_unreachable (); // FIXME
-      break;
-
     case STATEMENT_LIST:
       {
 	tree_stmt_iterator iter = tsi_start (t);
@@ -6678,8 +6722,10 @@ trees_in::core_vals (tree t)
       }
       break;
 
+    case OPTIMIZATION_NODE:
     case TARGET_OPTION_NODE:
-      gcc_unreachable (); // FIXME
+      /* Not yet implemented, see trees_out::core_vals.  */
+      gcc_unreachable ();
       break;
 
     case TREE_BINFO:
@@ -7261,10 +7307,11 @@ trees_out::add_indirects (tree decl)
 {
   unsigned count = 0;
 
-  // FIXME: We'll eventually want default fn parms of templates and
-  // perhaps default template parms too.  I think the former can be
-  // referenced from instantiations (as they are lazily instantiated).
-  // Also (deferred?) exception specifications of templates.
+  // FIXME:OPTIMIZATION We'll eventually want default fn parms of
+  // templates and perhaps default template parms too.  The former can
+  // be referenced from instantiations (as they are lazily
+  // instantiated).  Also (deferred?) exception specifications of
+  // templates.  See the note about PARM_DECLs in trees_out::decl_node.
   tree inner = decl;
   if (TREE_CODE (decl) == TEMPLATE_DECL)
     {
@@ -7285,6 +7332,8 @@ trees_out::add_indirects (tree decl)
 	 different RECORD_TYPEs for the same type, and things go
 	 south.  */
       tree type = TREE_TYPE (inner);
+      gcc_checking_assert (DECL_ORIGINAL_TYPE (inner)
+			   || TYPE_NAME (type) == inner);
       int tag = insert (type);
       if (streaming_p ())
 	dump (dumper::TREE) && dump ("Indirect:%d decl's type %C:%N", tag,
@@ -7320,6 +7369,8 @@ trees_in::add_indirects (tree decl)
   if (TREE_CODE (inner) == TYPE_DECL)
     {
       tree type = TREE_TYPE (inner);
+      gcc_checking_assert (DECL_ORIGINAL_TYPE (inner)
+			   || TYPE_NAME (type) == inner);
       int tag = insert (type);
       dump (dumper::TREE)
 	&& dump ("Indirect:%d decl's type %C:%N", tag, TREE_CODE (type), type);
@@ -7560,17 +7611,13 @@ trees_in::install_entity (tree decl)
   if (pending & 2)
     {
       DECL_MODULE_PENDING_MEMBERS_P (decl) = true;
-      if (TREE_CODE (decl) == TEMPLATE_DECL)
-	{
-	  // FIXME: DECL_MODULE_PENDING_MEMBERS_P requires a
-	  // TYPE_DECL, what was I thinking?
-	  gcc_unreachable ();
-	  DECL_MODULE_PENDING_MEMBERS_P (DECL_TEMPLATE_RESULT (decl)) = true;
-	}
+      gcc_checking_assert (TREE_CODE (decl) != TEMPLATE_DECL);
     }
 
   return true;
 }
+
+static bool has_definition (tree decl);
 
 /* DECL is a decl node that must be written by value.  DEP is the
    decl's depset.  */
@@ -7637,9 +7684,6 @@ trees_out::decl_value (tree decl, depset *dep)
     dump (dumper::TREE)
       && dump ("Writing %s:%d %C:%N%S", merge_kind_name[mk], tag,
 	       TREE_CODE (decl), decl, decl);
-
-  // FIXME: If mergeable, mark function parms etc as mergeable too
-  // Don't I already do this now?
 
   tree inner = decl;
   int inner_tag = 0;
@@ -7737,7 +7781,6 @@ trees_out::decl_value (tree decl, depset *dep)
 	       merge_kind_name[mk], TREE_CODE (decl), decl);
 
   if (inner && TREE_CODE (inner) == FUNCTION_DECL)
-    // FIXME: Stream in the type here as that's where the default args are?
     fn_parms_fini (inner);
 
   if (!is_key_order ())
@@ -7802,10 +7845,11 @@ trees_out::decl_value (tree decl, depset *dep)
 	}
     }
 
-  if (!type && inner
-      && TREE_CODE (inner) == TYPE_DECL
-      && DECL_ORIGINAL_TYPE (inner)
-      && TYPE_NAME (TREE_TYPE (inner)) == inner)
+  bool is_typedef = (!type && inner
+		     && TREE_CODE (inner) == TYPE_DECL
+		     && DECL_ORIGINAL_TYPE (inner)
+		     && TYPE_NAME (TREE_TYPE (inner)) == inner);
+  if (is_typedef)
     {
       /* A typedef type.  */
       int type_tag = insert (TREE_TYPE (inner));
@@ -7835,6 +7879,22 @@ trees_out::decl_value (tree decl, depset *dep)
   if (streaming_p ())
     dump (dumper::TREE) && dump ("Written decl:%d %C:%N", tag,
 				 TREE_CODE (decl), decl);
+
+  if (!inner || NAMESPACE_SCOPE_P (inner))
+    gcc_checking_assert (!inner
+			 || !dep == (VAR_OR_FUNCTION_DECL_P (inner)
+				     && DECL_LOCAL_DECL_P (inner)));
+  else if ((TREE_CODE (inner) == TYPE_DECL
+	    && TYPE_NAME (TREE_TYPE (inner)) == inner
+	    && !is_typedef)
+	   || TREE_CODE (inner) == FUNCTION_DECL)
+    {
+      bool write_defn = !dep && has_definition (decl);
+      if (streaming_p ())
+	u (write_defn);
+      if (write_defn)
+	write_definition (decl);
+    }
 }
 
 tree
@@ -7975,6 +8035,7 @@ trees_in::decl_value ()
     parm_tag = fn_parms_init (inner);
 
   tree existing = key_mergeable (tag, mk, decl, inner, type, container, is_mod);
+  tree existing_inner = existing;
   if (existing)
     {
       if (existing == error_mark_node)
@@ -7996,8 +8057,8 @@ trees_in::decl_value ()
       back_refs[~tag] = existing;
       if (inner_tag != 0)
 	{
-	  existing = DECL_TEMPLATE_RESULT (existing);
-	  back_refs[~inner_tag] = existing;
+	  existing_inner = DECL_TEMPLATE_RESULT (existing);
+	  back_refs[~inner_tag] = existing_inner;
 	}
 
       if (type_tag != 0)
@@ -8010,9 +8071,7 @@ trees_in::decl_value ()
     }
 
   if (parm_tag)
-    // FIXME: Is this comment 100% accurate?
-    /* EXISTING is the template result (or NULL).  */
-    fn_parms_fini (parm_tag, inner, existing, has_defn);
+    fn_parms_fini (parm_tag, inner, existing_inner, has_defn);
 
   if (!tree_node_vals (decl))
     goto bail;
@@ -8193,6 +8252,8 @@ trees_in::decl_value ()
 		 tag, TREE_CODE (TREE_TYPE (decl)), TREE_TYPE (decl));
     }
 
+  unused = saved_unused;
+
   if (DECL_MAYBE_IN_CHARGE_CDTOR_P (decl))
     {
       unsigned flags = u ();
@@ -8211,7 +8272,15 @@ trees_in::decl_value ()
 	}
     }
 
-  unused = saved_unused;
+  if (inner
+      && !NAMESPACE_SCOPE_P (inner)
+      && ((TREE_CODE (inner) == TYPE_DECL
+	   && TYPE_NAME (TREE_TYPE (inner)) == inner
+	   && !is_typedef)
+	  || TREE_CODE (inner) == FUNCTION_DECL)
+      && u ())
+    read_definition (decl);
+
   return decl;
 }
 
@@ -8606,7 +8675,8 @@ trees_out::decl_node (tree decl, walk_kind ref)
       break;
 
     case RESULT_DECL:
-      // FIXME: Like a parm?
+      /* Unlike PARM_DECLs, RESULT_DECLs are only generated and
+         referenced when we're inside the function itself.  */
       return true;
 
     case PARM_DECL:
@@ -8619,14 +8689,15 @@ trees_out::decl_node (tree decl, walk_kind ref)
 	    /* That must have put this in the map.  */
 	    walk_kind ref = ref_node (decl);
 	    if (ref != WK_none)
-	      // FIXME: We can wander into bits of the template this
-	      // was instantiated from.  For instance deferred
-	      // noexcept and (probably?) default parms.  We need to
-	      // refer to that specific node in some way.  For now
-	      // just clone it.  We should preemptively put those
-	      // things in the map when we reference their template by
-	      // name.  See add_indirects.
+	      // FIXME:OPTIMIZATION We can wander into bits of the
+	      // template this was instantiated from.  For instance
+	      // deferred noexcept and default parms.  Currently we'll
+	      // end up cloning those bits of tree.  It would be nice
+	      // to reference those specific nodes.  I think putting
+	      // those things in the map when we reference their
+	      // template by name.  See the note in add_indirects.
 	      return true;
+
 	    dump (dumper::TREE)
 	      && dump ("Wrote %s reference %N",
 		       TREE_CODE (decl) == PARM_DECL ? "parameter" : "result",
@@ -8829,7 +8900,7 @@ trees_out::decl_node (tree decl, walk_kind ref)
   /* If this is the TEMPLATE_DECL_RESULT of a TEMPLATE_DECL, get the
      TEMPLATE_DECL.  Note TI_TEMPLATE is not a TEMPLATE_DECL for
      (some) friends, so we need to check that.  */
-  // FIXME: should local friend template specializations be by value?
+  // FIXME: Should local friend template specializations be by value?
   // They don't get idents so we'll never know they're imported, but I
   // think we can only reach them from the TU that defines the
   // befriending class?
@@ -8944,7 +9015,7 @@ trees_out::type_node (tree type)
       tree_node (root);
 
       int flags = -1;
-      
+
       if (TREE_CODE (type) == FUNCTION_TYPE
 	  || TREE_CODE (type) == METHOD_TYPE)
 	{
@@ -8961,7 +9032,8 @@ trees_out::type_node (tree type)
 	}
       else
 	{
-	  // FIXME: Align
+	  if (TYPE_USER_ALIGN (type))
+	    flags = exact_log2 (TYPE_ALIGN (type));
 	}
 
       if (streaming_p ())
@@ -8978,7 +9050,7 @@ trees_out::type_node (tree type)
 	  tree_node (raises);
 	}
 
-      tree_node (error_mark_node);  // FIXME: Attribs
+      tree_node (TYPE_ATTRIBUTES (type));
 
       if (streaming_p ())
 	{
@@ -9069,15 +9141,10 @@ trees_out::type_node (tree type)
       /* No additional data.  */
       break;
 
-    case DECLTYPE_TYPE:
-    case TYPEOF_TYPE:
-    case UNDERLYING_TYPE:
-      tree_node (TYPE_VALUES_RAW (type));
-      if (TREE_CODE (type) == DECLTYPE_TYPE)
-	/* We stash a whole bunch of things into decltype's
-	   flags.  */
-	if (streaming_p ())
-	  tree_node_bools (type);
+    case BOOLEAN_TYPE:
+      /* A non-standard boolean type.  */
+      if (streaming_p ())
+	u (TYPE_PRECISION (type));
       break;
 
     case INTEGER_TYPE:
@@ -9126,6 +9193,17 @@ trees_out::type_node (tree type)
     case REFERENCE_TYPE:
       if (streaming_p ())
 	u (TYPE_REF_IS_RVALUE (type));
+      break;
+
+    case DECLTYPE_TYPE:
+    case TYPEOF_TYPE:
+    case UNDERLYING_TYPE:
+      tree_node (TYPE_VALUES_RAW (type));
+      if (TREE_CODE (type) == DECLTYPE_TYPE)
+	/* We stash a whole bunch of things into decltype's
+	   flags.  */
+	if (streaming_p ())
+	  tree_node_bools (type);
       break;
 
     case TYPE_ARGUMENT_PACK:
@@ -9189,7 +9267,8 @@ trees_out::type_node (tree type)
   return;
 }
 
-/* T is a non-mergeable node that must be written by value.   */
+/* T is (mostly*) a non-mergeable node that must be written by value.
+   The mergeable case is a BINFO, which are as-if DECLSs.   */
 
 void
 trees_out::tree_value (tree t)
@@ -9217,8 +9296,6 @@ trees_out::tree_value (tree t)
     }
 
   if  (TREE_CODE (t) == TREE_BINFO)
-    // FIXME: We could elide this when we know the dominating type
-    // must be unique.  See how we do so for regular key_mergeable.
     /* Binfos are decl-like and need merging information.  */
     binfo_mergeable (t);
 
@@ -9577,6 +9654,14 @@ trees_in::tree_node (bool is_use)
 	      res = build_complex_type (res);
 	    break;
 
+	  case BOOLEAN_TYPE:
+	    {
+	      unsigned precision = u ();
+	      if (!get_overrun ())
+		res = build_nonstandard_boolean_type (precision);
+	    }
+	    break;
+
 	  case INTEGER_TYPE:
 	    if (res)
 	      {
@@ -9594,22 +9679,6 @@ trees_in::tree_node (bool is_use)
 		if (!get_overrun ())
 		  res = build_nonstandard_integer_type (enc >> 1, enc & 1);
 	      }
-	    break;
-
-	  case DECLTYPE_TYPE:
-	  case TYPEOF_TYPE:
-	  case UNDERLYING_TYPE:
-	    {
-	      tree expr = tree_node ();
-	      if (!get_overrun ())
-		{
-		  res = cxx_make_type (code);
-		  TYPE_VALUES_RAW (res) = expr;
-		  if (code == DECLTYPE_TYPE)
-		    tree_node_bools (res);
-		  SET_TYPE_STRUCTURAL_EQUALITY (res);
-		}
-	    }
 	    break;
 
 	  case FUNCTION_TYPE:
@@ -9645,6 +9714,22 @@ trees_in::tree_node (bool is_use)
 	      bool rval = bool (u ());
 	      if (!get_overrun ())
 		res = cp_build_reference_type (res, rval);
+	    }
+	    break;
+
+	  case DECLTYPE_TYPE:
+	  case TYPEOF_TYPE:
+	  case UNDERLYING_TYPE:
+	    {
+	      tree expr = tree_node ();
+	      if (!get_overrun ())
+		{
+		  res = cxx_make_type (code);
+		  TYPE_VALUES_RAW (res) = expr;
+		  if (code == DECLTYPE_TYPE)
+		    tree_node_bools (res);
+		  SET_TYPE_STRUCTURAL_EQUALITY (res);
+		}
 	    }
 	    break;
 
@@ -9744,13 +9829,11 @@ trees_in::tree_node (bool is_use)
 	  }
 	else
 	  {
-	    res = build_aligned_type (res, flags);
+	    res = build_aligned_type (res, 1u << flags);
 	    TYPE_USER_ALIGN (res) = true;
 	  }
 
-	tree attribs = tree_node ();
-	if (attribs != error_mark_node
-	    && !get_overrun ())
+	if (tree attribs = tree_node ())
 	  res = cp_build_type_attribute_variant (res, attribs);
 
 	int quals = i ();
@@ -10041,8 +10124,6 @@ trees_in::tree_node (bool is_use)
 
       if (DECL_CLONED_FUNCTION_P (res))
 	TREE_USED (DECL_CLONED_FUNCTION (res)) = true;
-
-      // FIXME: What about the enum const debug thingy?
     }
 
   dump.outdent ();
@@ -10399,22 +10480,22 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 {
   if (!dep)
     {
-      if (VAR_OR_FUNCTION_DECL_P (decl)
-	  && DECL_LOCAL_DECL_P (decl))
-	return MK_unique;
+      if (VAR_OR_FUNCTION_DECL_P (decl))
+	{
+	  /* Any var or function with template info should have DEP.  */
+	  gcc_checking_assert (!DECL_LANG_SPECIFIC (decl)
+			       || !DECL_TEMPLATE_INFO (decl));
+	  if (DECL_LOCAL_DECL_P (decl))
+	    return MK_unique;
+	}
 
       /* Either unique, or some member of a class that cannot have an
 	 out-of-class definition.  For instance a FIELD_DECL.  */
       tree ctx = CP_DECL_CONTEXT (decl);
       if (TREE_CODE (ctx) == FUNCTION_DECL)
 	{
-	  // FIXME: This not right if DECL has a template header.  For
-	  // those will have instantiations pointing at it.  I think the
-	  // only case is class definitions inside templates (including
-	  // lambdas).  At least those have an ABI-mandated
-	  // disambiguation mechanism that we can leverage.  Hm, do
-	  // such class definitions show up in the instantiation
-	  // table, and hence have DEP non-null?
+	  /* USING_DECLs cannot have DECL_TEMPLATE_INFO -- this isn't
+	     permitting them to have one.   */
 	  gcc_checking_assert (TREE_CODE (decl) == USING_DECL
 			       || !DECL_LANG_SPECIFIC (decl)
 			       || !DECL_TEMPLATE_INFO (decl));
@@ -10424,17 +10505,7 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 
       if (TREE_CODE (decl) == TEMPLATE_DECL
 	  && DECL_UNINSTANTIATED_TEMPLATE_FRIEND_P (decl))
-	// FIXME: Discover whether these friends are also on the
-	// DECL_FRIENDLIST, like the below friends.
 	return MK_local_friend;
-
-      if (TREE_CODE (decl) == FUNCTION_DECL
-	  && DECL_TEMPLATE_INFO (decl)
-	  && TREE_CODE (DECL_TI_TEMPLATE (decl)) != TEMPLATE_DECL)
-	/* A template specialization friend, we can treat as-if
-	   unique.  */
-	// FIXME: Isn't this now MK_friend_spec?
-	return MK_unique;
 
       gcc_checking_assert (TYPE_P (ctx));
       if (TREE_CODE (decl) == USING_DECL)
@@ -10464,6 +10535,7 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 				   == INTEGER_TYPE);
 	      return MK_unique;
 	    }
+
 	  return MK_field;
 	}
 
@@ -10480,6 +10552,7 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	   thunks), or it's a duplicate (so it will be dropped).  */
 	return MK_unique;
 
+      /* There should be no other cases.  */
       gcc_unreachable ();
     }
 
@@ -10504,12 +10577,12 @@ trees_out::get_merge_kind (tree decl, depset *dep)
       gcc_unreachable ();
 
     case depset::EK_DECL:
-      if (dep->is_partial ())
-	{
-	  mk = MK_partial;
-	  break;
-	}
       {
+	if (dep->is_partial ())
+	  {
+	    mk = MK_partial;
+	    break;
+	  }
 	tree ctx = CP_DECL_CONTEXT (decl);
 
 	switch (TREE_CODE (ctx))
@@ -10518,7 +10591,16 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	    gcc_unreachable ();
 
 	  case FUNCTION_DECL:
-	    // FIXME: What if it's voldemorty?
+	    // FIXME: This can occur for (a) voldemorty TYPE_DECLS
+	    // (which are returned from a function), or (b)
+	    // block-scope class definitions in template functions.
+	    // These are as unique as the containing function.  While
+	    // on read-back we can discover if the CTX was a
+	    // duplicate, we don't have a mechanism to get from the
+	    // existing CTX to the existing version of this decl.
+	    gcc_checking_assert
+	      (DECL_IMPLICIT_TYPEDEF_P (STRIP_TEMPLATE (decl)));
+
 	    mk = MK_unique;
 	    break;
 
@@ -10548,14 +10630,14 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	      mk = MK_local_friend;
 	    else if (IDENTIFIER_ANON_P (DECL_NAME (decl)))
 	      {
-		/* Usually no way to merge it.  */
-		mk = MK_unique;
-
-		if (TREE_CODE (decl) == TYPE_DECL
+		if (DECL_IMPLICIT_TYPEDEF_P (decl)
 		    && UNSCOPED_ENUM_P (TREE_TYPE (decl))
 		    && TYPE_VALUES (TREE_TYPE (decl)))
-		  /* Keyed by first enum value.  */
+		  /* Keyed by first enum value, and underlying type.  */
 		  mk = MK_enum;
+		else
+		  /* No way to merge it, it is an ODR land-mine.  */
+		  mk = MK_unique;
 	      }
 	  }
       }
@@ -10567,8 +10649,8 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	spec_entry *entry = reinterpret_cast <spec_entry *> (dep->deps[0]);
 
 	if (TREE_CODE (DECL_CONTEXT (decl)) == FUNCTION_DECL)
-	  // FIXME: Doesn't this need some kind of deduplication using
-	  // the uniqueness of the context?
+	  /* An block-scope classes of templates are themselves
+	     templates.  */
 	  gcc_checking_assert (DECL_IMPLICIT_TYPEDEF_P (decl));
 
 	if (dep->is_friend_spec ())
@@ -10666,8 +10748,8 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
       if (streaming_p ())
 	u (get_mergeable_specialization_flags (entry->tmpl, decl));
 
-      // FIXME: Variable templates with concepts need constraints from
-      // the specialization -- see spec_hasher::equal
+      // FIXME: Do variable templates with concepts need constraints
+      // from the specialization? -- see spec_hasher::equal
       if (CHECKING_P)
 	{
 	  /* Make sure we can locate the decl.  */
@@ -10767,10 +10849,6 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	  break;
 
 	case MK_field:
-	  // FIXME: Much like tt_data_member -- commonize?
-	  // lookup named FIELD_DECLs by name, not iteration
-	  // FIXME: Probably need to ignore implicit member fns as
-	  // their presence and location is unstable
 	  {
 	    unsigned ix = 0;
 	    if (TREE_CODE (inner) != FIELD_DECL)
@@ -10794,7 +10872,6 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	  break;
 
 	case MK_vtable:
-	  // FIXME: Much like tt_vtable -- commonize?
 	  {
 	    tree vtable = CLASSTYPE_VTABLES (TREE_TYPE (container));
 	    for (unsigned ix = 0; ; vtable = DECL_CHAIN (vtable), ix++)
@@ -10831,11 +10908,18 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	  break;
 
 	case MK_enum:
-	  /* Anonymous enums are located by their first identifier.  */
-	  // FIXME: Post-Prague, also underlying type
-	  gcc_checking_assert (UNSCOPED_ENUM_P (TREE_TYPE (decl)));
-	  if (tree values = TYPE_VALUES (TREE_TYPE (decl)))
-	    name = DECL_NAME (TREE_VALUE (values));
+	  {
+	    /* Anonymous enums are located by their first identifier,
+	       and underlying type.  */
+	    tree type = TREE_TYPE (decl);
+
+	    gcc_checking_assert (UNSCOPED_ENUM_P (type));
+	    /* Using the type name drops the bit precision we might
+	       have been using on the enum.  */
+	    key.ret = TYPE_NAME (ENUM_UNDERLYING_TYPE (type));
+	    if (tree values = TYPE_VALUES (type))
+	      name = DECL_NAME (TREE_VALUE (values));
+	  }
 	  break;
 
 	case MK_attached:
@@ -10874,8 +10958,11 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	  u (code);
 	}
 
-      if (mk == MK_partial
-	  || (mk == MK_named && inner && TREE_CODE (inner) == FUNCTION_DECL))
+      if (mk == MK_enum)
+	tree_node (key.ret);
+      else if (mk == MK_partial
+	       || (mk == MK_named && inner
+		   && TREE_CODE (inner) == FUNCTION_DECL))
 	{
 	  tree_node (key.ret);
 	  tree arg = key.args;
@@ -10920,13 +11007,6 @@ check_mergeable_decl (merge_kind mk, tree decl, tree ovl, merge_key const &key)
 	    /* Namespaces are never overloaded.  */
 	    return match;
 
-	  if (mk == MK_enum
-	      && TREE_CODE (m_inner) == CONST_DECL
-	      && TREE_CODE (TREE_TYPE (m_inner)) == ENUMERAL_TYPE)
-	    {
-	      tree enum_decl = TYPE_STUB_DECL (TREE_TYPE (m_inner));
-	      return enum_decl;
-	    }
 	  continue;
 	}
 
@@ -10949,7 +11029,12 @@ check_mergeable_decl (merge_kind mk, tree decl, tree ovl, merge_key const &key)
 	    if ((!key.ret
 		 || same_type_p (key.ret, fndecl_declared_return_type (m_inner)))
 		&& type_memfn_rqual (m_type) == key.ref_q
-		&& compparms (key.args, TYPE_ARG_TYPES (m_type)))
+		&& compparms (key.args, TYPE_ARG_TYPES (m_type))
+		/* Reject if old is a "C" builtin and new is not "C".
+		   Matches decls_match behaviour.  */
+		&& (!DECL_IS_BUILTIN (m_inner)
+		    || !DECL_EXTERN_C_P (m_inner)
+		    || DECL_EXTERN_C_P (d_inner)))
 	      {
 		tree m_reqs = get_constraints (m_inner);
 		if (m_reqs)
@@ -10968,7 +11053,14 @@ check_mergeable_decl (merge_kind mk, tree decl, tree ovl, merge_key const &key)
 	case TYPE_DECL:
 	  if (DECL_IMPLICIT_TYPEDEF_P (d_inner)
 	      == DECL_IMPLICIT_TYPEDEF_P (m_inner))
-	    return match;
+	    {
+	      if (!IDENTIFIER_ANON_P (DECL_NAME (m_inner)))
+		return match;
+	      else if (mk == MK_enum
+		       && (TYPE_NAME (ENUM_UNDERLYING_TYPE (TREE_TYPE (m_inner)))
+			   == key.ret))
+		return match;
+	    }
 	  break;
 
 	default:
@@ -11068,9 +11160,11 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
       key.ref_q = cp_ref_qualifier ((code >> 0) & 3);
       key.index = code >> 2;
 
-      if (mk == MK_partial
-	  || ((mk == MK_named || mk == MK_friend_spec)
-	      && inner && TREE_CODE (inner) == FUNCTION_DECL))
+      if (mk == MK_enum)
+	key.ret = tree_node ();
+      else if (mk == MK_partial
+	       || ((mk == MK_named || mk == MK_friend_spec)
+		   && inner && TREE_CODE (inner) == FUNCTION_DECL))
 	{
 	  key.ret = tree_node ();
 	  tree arg, *arg_ptr = &key.args;
@@ -11088,7 +11182,7 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
       if (get_overrun ())
 	return error_mark_node;
 
-      if (mk < MK_indirect_lwm || mk == MK_partial)
+      if (mk < MK_indirect_lwm)
 	{
 	  DECL_NAME (decl) = name;
 	  DECL_CONTEXT (decl) = FROB_CONTEXT (container);
@@ -11152,12 +11246,7 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 		tree *vslot = mergeable_namespace_slots (container, name,
 							 !is_mod, &mvec);
 		existing = check_mergeable_decl (mk, decl, *vslot, key);
-		if (mk == MK_enum)
-		  /* We do not need to register enum-keyed types here,
-		     as they'll be entered when we deal with the enumerator
-		     itself.  */
-		  ;
-		else if (!existing)
+		if (!existing)
 		  add_mergeable_namespace_entity (vslot, decl);
 		else
 		  {
@@ -11274,7 +11363,7 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 			break;
 		      }
 
-		    if (existing && mk < MK_indirect_lwm
+		    if (existing && mk < MK_indirect_lwm && mk != MK_partial
 			&& TREE_CODE (decl) == TEMPLATE_DECL
 			&& !DECL_MEMBER_TEMPLATE_P (decl))
 		      {
@@ -11376,6 +11465,9 @@ trees_in::is_matching_decl (tree existing, tree decl)
       tree e_type = TREE_TYPE (existing);
       tree d_type = TREE_TYPE (decl);
 
+      if (DECL_EXTERN_C_P (decl) != DECL_EXTERN_C_P (existing))
+	goto mismatch;
+
       for (tree e_args = TYPE_ARG_TYPES (e_type),
 	     d_args = TYPE_ARG_TYPES (d_type);
 	   e_args != d_args && (e_args || d_args);
@@ -11427,17 +11519,15 @@ trees_in::is_matching_decl (tree existing, tree decl)
      that shouldn't go to duplicate_decls (FIELD_DECLs etc).   */
   else if (!cp_tree_equal (TREE_TYPE (existing), TREE_TYPE (decl)))
     {
-      // FIXME: Might be template specialization from a module, not
-      // necessarily global module
     mismatch:
-      if (DECL_IS_BUILTIN (existing))
-	// FIXME: It'd be nice if we had a way of determining
-	// whether this builtin had already met a proper decl.  For
-	// now just copy the type.  Perhaps we should update
-	// SOURCE_LOCATION in those cases?
+      if (DECL_UNDECLARED_BUILTIN_P (existing))
+	/* Just like duplicate_decls, presum the user knows what
+	   they're doing in overriding a builtin.   */
 	TREE_TYPE (existing) = TREE_TYPE (decl);
       else
 	{
+	  // FIXME:QOI Might be template specialization from a module,
+	  // not necessarily global module
 	  error_at (DECL_SOURCE_LOCATION (decl),
 		    "conflicting global module declaration %#qD", decl);
 	  inform (DECL_SOURCE_LOCATION (existing),
@@ -11450,7 +11540,8 @@ trees_in::is_matching_decl (tree existing, tree decl)
       && !DECL_UNDECLARED_BUILTIN_P (decl))
     {
       /* We're matching a builtin that the user has yet to declare.
-	 We are the one! */
+	 We are the one!  This is very much duplicate-decl
+	 shenanigans. */
       DECL_SOURCE_LOCATION (existing) = DECL_SOURCE_LOCATION (decl);
       if (TREE_CODE (decl) != TYPE_DECL)
 	{
@@ -11460,6 +11551,38 @@ trees_in::is_matching_decl (tree existing, tree decl)
 	}
       /* This is actually an import! */
       DECL_MODULE_IMPORT_P (existing) = true;
+
+      /* Yay, sliced!  */
+      existing->base = decl->base;
+
+      if (TREE_CODE (decl) == FUNCTION_DECL)
+	{
+	  /* Ew :(  */
+	  memcpy (&existing->decl_common.size,
+		  &decl->decl_common.size,
+		  (offsetof (tree_decl_common, pt_uid)
+		   - offsetof (tree_decl_common, size)));
+	  auto bltin_class = DECL_BUILT_IN_CLASS (decl);
+	  existing->function_decl.built_in_class = bltin_class;
+	  auto fncode = DECL_UNCHECKED_FUNCTION_CODE (decl);
+	  DECL_UNCHECKED_FUNCTION_CODE (existing) = fncode;
+	  if (existing->function_decl.built_in_class == BUILT_IN_NORMAL)
+	    {
+	      if (builtin_decl_explicit_p (built_in_function (fncode)))
+		switch (fncode)
+		  {
+		  case BUILT_IN_STPCPY:
+		    set_builtin_decl_implicit_p
+		      (built_in_function (fncode), true);
+		    break;
+		  default:
+		    set_builtin_decl_declared_p
+		      (built_in_function (fncode), true);
+		    break;
+		  }
+	      copy_attributes_to_builtin (decl);
+	    }
+	}
     }
 
   if (VAR_OR_FUNCTION_DECL_P (decl)
@@ -11751,16 +11874,21 @@ trees_in::read_function_def (tree decl, tree maybe_template)
   tree context = tree_node ();
   constexpr_fundef cexpr;
 
+  tree maybe_dup = odr_duplicate (maybe_template, DECL_SAVED_TREE (decl));
+  bool installing = maybe_dup && !DECL_SAVED_TREE (decl);
+
+  if (maybe_dup)
+    for (auto parm = DECL_ARGUMENTS (maybe_dup); parm; parm = DECL_CHAIN (parm))
+      DECL_CONTEXT (parm) = decl;
+
   if (int wtag = i ())
     {
       int tag = 1;
       cexpr.result = error_mark_node;
 
-      if (wtag)
-	{
-	  cexpr.result = copy_decl (result);
-	  tag = insert (cexpr.result);
-	}
+      cexpr.result = copy_decl (result);
+      tag = insert (cexpr.result);
+
       if (wtag != tag)
 	set_overrun ();
       dump (dumper::TREE)
@@ -11769,7 +11897,7 @@ trees_in::read_function_def (tree decl, tree maybe_template)
       cexpr.parms = NULL_TREE;
       tree *chain = &cexpr.parms;
       unsigned ix = 0;
-      for (tree parm = DECL_ARGUMENTS (decl);
+      for (tree parm = DECL_ARGUMENTS (maybe_dup ? maybe_dup : decl);
 	   parm; parm = DECL_CHAIN (parm), ix++)
 	{
 	  tree p = copy_decl (parm);
@@ -11790,16 +11918,15 @@ trees_in::read_function_def (tree decl, tree maybe_template)
   if (get_overrun ())
     return NULL_TREE;
 
-  /* Oh for C++20 structured bindings.  */
-  tree maybe_dup = odr_duplicate (maybe_template, DECL_SAVED_TREE (decl));
-  bool installing = maybe_dup && !DECL_SAVED_TREE (decl);
-
   if (installing)
     {
       DECL_NOT_REALLY_EXTERN (decl) = flags & 1;
       DECL_RESULT (decl) = result;
       DECL_INITIAL (decl) = initial;
       DECL_SAVED_TREE (decl) = saved;
+      if (maybe_dup)
+	DECL_ARGUMENTS (decl) = DECL_ARGUMENTS (maybe_dup);
+
       if (context)
 	SET_DECL_FRIEND_CONTEXT (decl, context);
       if (cexpr.decl)
@@ -11808,7 +11935,7 @@ trees_in::read_function_def (tree decl, tree maybe_template)
     }
   else if (maybe_dup)
     {
-      // FIXME: Check matching defn
+      // FIXME:QOI Check matching defn
     }
   
   return true;
@@ -11877,7 +12004,7 @@ trees_in::read_var_def (tree decl, tree maybe_template)
     }
   else if (maybe_dup)
     {
-      // FIXME: Check matching defn
+      // FIXME:QOI Check matching defn
     }
 
   return true;
@@ -11959,7 +12086,8 @@ trees_out::write_class_def (tree defn)
 	    if (TREE_CODE (m) == TYPE_DECL
 		&& DECL_ARTIFICIAL (m)
 		&& TYPE_STUB_DECL (TREE_TYPE (m)) == m)
-	      /* This is a using-decl for a type.  Write the type.  */
+	      /* This is a using-decl for a type, or an anonymous
+		 struct (maybe with a typedef name).  Write the type.  */
 	      m = TREE_TYPE (m);
 	    tree_node (m);
 	  }
@@ -12001,12 +12129,7 @@ trees_out::write_class_def (tree defn)
 	write_definition (vtables);
 
       /* Write the friend classes.  */
-      for (tree friends = CLASSTYPE_FRIEND_CLASSES (type);
-	   friends; friends = TREE_CHAIN (friends))
-	/* TREE_VALUE is what we want.  */
-	tree_node (TREE_VALUE (friends));
-      /* End of friends.  */
-      tree_node (NULL_TREE);
+      tree_list (CLASSTYPE_FRIEND_CLASSES (type), false);
 
       /* Write the friend functions.  */
       for (tree friends = DECL_FRIENDLIST (defn);
@@ -12014,26 +12137,13 @@ trees_out::write_class_def (tree defn)
 	{
 	  /* Name of these friends.  */
 	  tree_node (TREE_PURPOSE (friends));
-	  for (tree decls = TREE_VALUE (friends);
-	       decls; decls = TREE_CHAIN (decls))
-	    tree_node (TREE_VALUE (decls));
-	  /* End of these friends called this.  */
-	  tree_node (NULL_TREE);
+	  tree_list (TREE_VALUE (friends), false);
 	}
-      /* End of friends.  */
+      /* End of friend fns.  */
       tree_node (NULL_TREE);
 
       /* Write the decl list.  */
-      for (tree decls = CLASSTYPE_DECL_LIST (type); decls;
-	   decls = TREE_CHAIN (decls))
-	{
-	  tree value = TREE_VALUE (decls);
-	  gcc_checking_assert (value);
-	  tree_node (value);
-	  tree_node (TREE_PURPOSE (decls));
-	}
-      /* End of decls.  */
-      tree_node (NULL_TREE);
+      tree_list (CLASSTYPE_DECL_LIST (type), true);
 
       if (TYPE_CONTAINS_VPTR_P (type))
 	{
@@ -12051,8 +12161,6 @@ trees_out::write_class_def (tree defn)
 	  tree_node (NULL_TREE);
 	}
     }
-
-  // FIXME: lang->nested_udts
 }
 
 void
@@ -12141,7 +12249,7 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 	      if (get_overrun ())
 		break;
 	      if (TYPE_P (m))
-		m = TYPE_NAME (m);
+		m = TYPE_STUB_DECL (m);
 	      member_vec->quick_push (m);
 	    }
 	}
@@ -12171,8 +12279,6 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 	}
     }
 
-  // FIXME: Read more stuff!
-  // lang->nested_udts
   tree maybe_dup = odr_duplicate (maybe_template, TYPE_SIZE (type));
   bool installing = maybe_dup && !TYPE_SIZE (type);
   if (installing)
@@ -12189,7 +12295,7 @@ trees_in::read_class_def (tree defn, tree maybe_template)
       if (maybe_dup != defn)
 	{
 	  // FIXME: This is needed on other defns too, almost
-	  // duplicate-decl like?
+	  // duplicate-decl like?  See is_matching_decl too.
 	  /* Copy flags from the duplicate.  */
 	  tree type_dup = TREE_TYPE (maybe_dup);
 
@@ -12236,6 +12342,15 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 	    {
 	      tree decl = (*fields)[ix];
 
+	      if (!decl)
+		{
+		  /* An anonymous struct with typedef name.  */
+		  tree tdef = (*fields)[ix+1];
+		  decl = TYPE_STUB_DECL (TREE_TYPE (tdef));
+		  gcc_checking_assert (IDENTIFIER_ANON_P (DECL_NAME (decl))
+				       && decl != tdef);
+		}
+
 	      gcc_checking_assert (!*chain == !DECL_CLONED_FUNCTION_P (decl));
 	      *chain = decl;
 	      chain = &DECL_CHAIN (decl);
@@ -12245,7 +12360,6 @@ trees_in::read_class_def (tree defn, tree maybe_template)
       TYPE_VFIELD (type) = vfield;
       TYPE_BINFO (type) = binfo;
 
-      // FIXME: Do I need to rewire DECL_CHAIN on template clones?
       if (TYPE_LANG_SPECIFIC (type))
 	{
 	  CLASSTYPE_LAMBDA_EXPR (type) = lambda;
@@ -12264,7 +12378,7 @@ trees_in::read_class_def (tree defn, tree maybe_template)
     }
   else if (maybe_dup)
     {
-      // FIXME: Check matching defn
+      // FIXME:QOI Check matching defn
     }
 
   if (TYPE_LANG_SPECIFIC (type))
@@ -12287,30 +12401,15 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 	    }
 	}
 
-      // FIXME: We should be able to reverse the lists in the writer
-      tree friend_classes = NULL_TREE;
-      while (tree val = tree_node ())
-	friend_classes = tree_cons (NULL_TREE, val, friend_classes);
-      friend_classes = nreverse (friend_classes);
-
+      tree friend_classes = tree_list (false);
       tree friend_functions = NULL_TREE;
-      while (tree name = tree_node ())
+      for (tree *chain = &friend_functions;
+	   tree name = tree_node (); chain = &TREE_CHAIN (*chain))
 	{
-	  tree val = NULL_TREE;
-	  while (tree decl = tree_node ())
-	    val = tree_cons (NULL_TREE, decl, val);
-	  nreverse (val);
-	  friend_functions = tree_cons (name, val, friend_functions);
+	  tree val = tree_list (false);
+	  *chain = build_tree_list (name, val);
 	}
-      friend_functions = nreverse (friend_functions);
-
-      tree decl_list = NULL_TREE;
-      while (tree decl = tree_node ())
-	{
-	  tree purpose = tree_node ();
-	  decl_list = tree_cons (purpose, decl, decl_list);
-	}
-      decl_list = nreverse (decl_list);
+      tree decl_list = tree_list (true);
 
       if (installing)
 	{
@@ -12817,10 +12916,6 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 	  tree ctx = CP_DECL_CONTEXT (decl);
 	  tree not_tmpl = STRIP_TEMPLATE (decl);
 
-	  // FIXME: I think I have to defer some internal linkage
-	  // checking until later, as we can be inside a member of an
-	  // internal linkage entity, and we don't want to complain
-	  // about that touching internal things itself.
 	  if (!TREE_PUBLIC (ctx))
 	    /* Member of internal namespace.  */
 	    dep->set_flag_bit<DB_IS_INTERNAL_BIT> ();
@@ -12966,7 +13061,6 @@ depset::hash::add_binding_entity (tree decl, WMB_Flags flags, void *data_)
 	  if (!header_module_p ())
 	    /* Ignore internal-linkage entitites.  */
 	    return false;
-	  // FIXME: Promote here?  Or should we have done that already?
 	}
 
       if ((TREE_CODE (decl) == VAR_DECL
@@ -13332,7 +13426,7 @@ depset::hash::add_specializations (bool decl_p)
 	/* Likewise, GMF explicit or partial specializations.  */
 	needs_reaching = true;
 
-#if 0 && CHECKING_P
+#if false && CHECKING_P
       /* The instantiation isn't always on
 	 DECL_TEMPLATE_INSTANTIATIONS, */
       // FIXME: we probably need to remember this information?
@@ -13507,9 +13601,8 @@ depset::hash::find_dependencies ()
   unreached.release ();
 }
 
-/* Compare two binding entries.  TYPE_DECL before non-exported before
-   exported.  */
-// FIXME: Reachable globals are not findable by name
+/* Compare two entries of a single binding.  TYPE_DECL before
+   non-exported before exported.  */
 
 static int
 binding_cmp (const void *a_, const void *b_)
@@ -13605,7 +13698,7 @@ depset::hash::finalize_dependencies ()
 	      depset *rdep = dep->deps[ix];
 	      if (rdep->is_internal ())
 		{
-		  // FIXME: Better location information?  We're
+		  // FIXME:QOI Better location information?  We're
 		  // losing, so it doesn't matter about efficiency
 		  tree decl = dep->get_entity ();
 		  error_at (DECL_SOURCE_LOCATION (decl),
@@ -13711,9 +13804,7 @@ depset_cmp (const void *a_, const void *b_)
 
   if (a_kind == depset::EK_BINDING)
     {
-      /* Both are bindings.  */
-      /* Order by identifier hash (hey, it's a consistent number).  */
-      // FIXME: strcmp for user-meaningful order?
+      /* Both are bindings.  Order by identifier hash.  */
       gcc_checking_assert (a->get_name () != b->get_name ());
       return (IDENTIFIER_HASH_VALUE (a->get_name ())
 	      < IDENTIFIER_HASH_VALUE (b->get_name ())
@@ -13733,11 +13824,16 @@ depset_cmp (const void *a_, const void *b_)
 
 /* Sort the clusters in SCC such that those that depend on one another
    are placed later.   */
-// FIXME: I am still not convinced this is both needed and sufficient.
-// We emit the decls in this order but that emission could walk into
-// later decls (from the body of the decl, or default arg-like
-// things).  Why doesn't that walk do the right thing?  And if it DTRT
-// why do we need to sort here -- won't things naturally work?
+
+// FIXME: I am not convinced this is needed and, if needed,
+// sufficient.  We emit the decls in this order but that emission
+// could walk into later decls (from the body of the decl, or default
+// arg-like things).  Why doesn't that walk do the right thing?  And
+// if it DTRT why do we need to sort here -- won't things naturally
+// work?  I think part of the issue is that when we're going to refer
+// to an entity by name, and that entity is in the same cluster as us,
+// we need to actually walk that entity, if we've not already walked
+// it.
 static void
 sort_cluster (depset::hash *original, depset *scc[], unsigned size)
 {
@@ -15306,11 +15402,6 @@ module_state::write_namespaces (elf_out *to, vec<depset *> spaces,
 		       inline_p ? ", inline" : "");
       sec.u (b->cluster);
       sec.u (to->name (DECL_NAME (ns)));
-      if (!DECL_NAME (ns))
-	{
-	  gcc_checking_assert (DECL_ASSEMBLER_NAME_SET_P (ns));
-	  sec.u (to->name (DECL_ASSEMBLER_NAME_RAW (ns)));
-	}
       write_namespace (sec, b->deps[0]);
 
       /* Don't use bools, because this can be near the end of the
@@ -15341,7 +15432,6 @@ module_state::read_namespaces (unsigned num)
     {
       unsigned entity_index = sec.u ();
       unsigned name = sec.u ();
-      unsigned anon_name = name ? 0 : sec.u ();
 
       tree parent = read_namespace (sec);
 
@@ -15355,8 +15445,6 @@ module_state::read_namespaces (unsigned num)
 	break;
 
       tree id = name ? get_identifier (from ()->name (name)) : NULL_TREE;
-      tree anon_id = anon_name
-	? get_identifier (from ()->name (anon_name)) : NULL_TREE;
       bool public_p = flags & 4;
       bool inline_p = flags & 2;
       bool export_p = flags & 1;
@@ -15368,15 +15456,11 @@ module_state::read_namespaces (unsigned num)
       bool visible_p = (export_p
 			|| (public_p && (is_partition () || is_module ())));
       tree inner = add_imported_namespace (parent, id, mod,
-					   src_loc, visible_p, inline_p,
-					   anon_id);
+					   src_loc, visible_p, inline_p);
       if (export_p && is_partition ())
 	DECL_MODULE_EXPORT_P (inner) = true;
 
       /* Install the namespace.  */
-      // FIXME: Probably a helper function trying to escape?
-      // Have add_imported_namespace return an indicator that WE
-      // created the namespace?
       (*entity_ary)[entity_lwm + entity_index] = inner;
       if (DECL_MODULE_IMPORT_P (inner))
 	{
@@ -15585,10 +15669,10 @@ module_state::write_pendings (elf_out *to, vec<depset *> depsets,
 	      key = TI_TEMPLATE (ti);
 	}
 
-      // FIXME: More than likely when there is one pending member,
-      // there will be others.  All written in the same section and
-      // keyed to the same class.  We only need to record one of
-      // them.  The same is not true for specializations
+      // FIXME:OPTIMIZATION More than likely when there is one pending
+      // member, there will be others.  All written in the same
+      // section and keyed to the same class.  We only need to record
+      // one of them.  The same is not true for specializations
 
       if (key)
 	{
@@ -16021,10 +16105,16 @@ module_state::read_location (bytes_in &sec) const
 }
 
 /* Prepare the span adjustments.  */
-// FIXME: The location streaming does not consider running out of
-// locations in either the module interface, nor in the importers.
-// At least we fail with a hard error though.  This routine should
-// fill in the module_state_config, not the individual writers.
+
+// FIXME:OPTIMIZATION I do not prune the unreachable locations.
+// Modules with textually-large GMFs could well cause us to run out of
+// locations.  Regular single-file modules could also be affected.  We
+// should determine which locations we need to represent, so that we
+// do not grab more locations than necessary.  An example is in
+// write_macro_maps where we work around macro expansions that are not
+// covering any locations -- the macro expands to nothing.  Perhaps we
+// should decompose locations so that we can have a more graceful
+// degradation upon running out?
 
 location_map_info
 module_state::write_prepare_maps (module_state_config *)
@@ -16144,7 +16234,7 @@ module_state::read_prepare_maps (const module_state_config *cfg)
   ordinary += cfg->ordinary_locs;
 
   location_t macro = LINEMAPS_MACRO_LOWEST_LOCATION (line_table);
-  macro += cfg->macro_locs;
+  macro -= cfg->macro_locs;
 
   if (ordinary < LINE_MAP_MAX_LOCATION_WITH_COLS
       && macro >= LINE_MAP_MAX_LOCATION)
@@ -16167,9 +16257,6 @@ module_state::read_prepare_maps (const module_state_config *cfg)
 
 /* Write the location maps.  This also determines the shifts for the
    location spans.  */
-// FIXME: I do not prune the unreachable locations.  Modules with
-// textually-large GMFs could well cause us to run out of locations.
-// Regular single-file modules could also be affected.
 
 void
 module_state::write_ordinary_maps (elf_out *to, location_map_info &info,
@@ -16350,11 +16437,8 @@ module_state::write_macro_maps (elf_out *to, location_map_info &info,
 	    {
 	      /* We're ending on an empty macro expansion.  The
 		 preprocessor doesn't prune such things.  */
-	      // FIXME: This goes to show we should be eliding all
-	      // macro expansions that are not covering any location
-	      // we need to output (just like non-macro locations,
-	      // mentioned above).  They also happen in #if
-	      // conditionals, that we don't care about at all.
+	      // FIXME:OPTIMIZATION This is an example of the non-pruning of
+	      // locations.  See write_prepare_maps.
 	      gcc_checking_assert (!mmap->n_tokens);
 	      continue;
 	    }
@@ -16398,7 +16482,7 @@ module_state::write_macro_maps (elf_out *to, location_map_info &info,
   sec.u (offset);
   gcc_assert (macro_num == info.num_maps.second);
 
-  cfg->macro_locs = offset;
+  cfg->macro_locs = MAX_LOCATION_T + 1 - offset;
 
   sec.end (to, to->name (MOD_SNAME_PFX ".mlm"), crc_p);
   dump.outdent ();
@@ -18041,8 +18125,8 @@ module_state::write (elf_out *to, cpp_reader *reader)
 
   /* Human-readable info.  */
   write_readme (to, config.dialect_str, extensions);
-  // FIXME: Write ths info to the 'reproducer' file yet to be implemented
-  // write_env (to);
+  // FIXME: Write this info to the 'reproducer' file yet to be
+  // implemented write_env (to);
 
   trees_out::instrument ();
   dump () && dump ("Wrote %u sections", to->get_section_limit ());

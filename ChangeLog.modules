@@ -1,3 +1,282 @@
+2020-10-29  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* module.cc: Address a bunch of FIXMEs.
+
+	Prague anon-enum keying by underlying type
+	gcc/cp/
+	* module.cc (trees_{in,out}::key_mergeable): Stream MK_enum
+	underlying type decl.
+	(check_mergeable_decl): The enum itself is on the ovl list.
+	* name-lookup.c (init_global_partition): Copy the enum for the
+	first member of an anonymous enum.
+	gcc/testsuite/
+	* g++.dg/modules/enum-8_[abcd].[CH]: New.
+
+	gcc/cp/
+	* module.cc (trees_out::get_merge_kind): Resolve FIXMEs.
+	(trees_out::key_mergeable): Likewise.
+
+	gcc/cp/
+	* module.cc (trees_out::get_merge_kind): Only function-scope
+	entities we meet are implicit TYPE_DECLs.
+
+	Merge trunk 9703b8d98c1
+	c++: Stop (most) function-scope entities having a template header
+
+	Merge trunk bafcf452c79
+	opts: Sanity check for param names.
+	gcc/
+	* params.opt: Fixup lazy-load parm name.
+	gcc/testsuite/
+	* g++.dg/modules/freeze-1_d.C: Adjust.
+	* g++.dg/modules/nest-1_c.C: Adjust.
+
+	Merge trunk 53dede0f04b
+	CSE conversions within sincos [Alexandre Oliva]
+
+2020-10-28  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 4289e488ddd
+	c++: Make OMP UDR DECL_LOCAL_DECL_P earlier
+
+	Merge trunk 7d5f38e49e5
+	c++: Refactor push_template_decl
+
+	gcc/cp/
+	* module.cc: More FIXME addressing.
+	(trees_out::get_merge_kind): Assert function-scope entities are
+	not unexpected.
+
+	gcc/cp/
+	* module.cc: More FIXME fixing.
+
+	gcc/cp/
+	* lang-specs.h: Fix -xc++-{,user-,system-}header.
+
+2020-10-27  Nathan Sidwell  <nathan@acm.org>
+
+	No special anon-namespace naming
+	gcc/cp/
+	* name-lookup.h (add_imported_namespace): Drop anon name parm.
+	* name-lookup.c (anon_name): Delete.
+	(make_namespace): Nothing special for anonymous namespace.
+	(add_imported_namespace): Likewise.
+	* module.cc (module_state::{read,write}_namespaces): Anon
+	namepspace does not need naming.
+
+	gcc/testsuite/
+	* g++.dg/modules/xtreme-tr1{.h,_a.H,_b.C}: New.
+
+	gcc/cp/
+	* module.cc (trees_out::vec_chained_decls): Detect anonymous
+	struct with typedef name.
+	(trees_{in,out}::add_indirect): Assert TYPE_DECL is typedef or
+	type's TYPE_NAME.
+	(trees_{in,out}::{read,write}_class_def): Cope with anon-structs
+	with typedef names.
+	gcc/testsuite/
+	* g++.dg/modules/tdef-8_[ab].C: New.
+
+	gcc/cp/
+	* module.cc (depset_cmp): Decide strcmp question.
+	(module_state::write_prepare_maps): Document pruning question.
+
+	gcc/cp/
+	* module.cc (trees_{in,out}::{read,write}_class_def): Remove
+	nested udt FIXMEs.  They are no longer a thing.
+
+	Merge trunk 54380d42e6f
+	c++: Kill nested_udts
+
+2020-10-26  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* module.cc (trees_{in,out{::type_node): Stream attribs.
+
+	gcc/cp/
+	* module.cc (trees_out::type_node): Stream alignment.
+	(trees_in::type_node): Alignment is a log.
+	gcc/testsuite/
+	* g++.dg/modules/align-type-1_[ab].C: New.
+
+	gcc/cp/
+	* module.cc (trees_{in,out}::tree_list): Address more Fixmes,
+	either by obsoleting them, or coding around their confusion.
+
+	libcody/
+	Rebase on upstream, robustify enable-checking.
+
+	gcc/cp/
+	* module.cc (trees_{in,out}::tree_list): New streamers.
+	(trees_{in,out}::{read,write}_class_def): Use them.
+
+	gcc/cp/
+	* module.cc: Remove or clarify more now-obsolete FIXMEs.
+
+	gcc/cp/
+	* module.cc (trees_{in,out}::core_vals): Document
+	middle-endy/debugy BLOCK fields.  Document OPTIMIZATION_NODE &
+	TARGET_OPTION_NODE issue.
+
+	gcc/cp/
+	* module.cc (trees_{in,out}::core_vals): RESULT_DECL is like PARM_DECL.
+
+	libcody/
+	Rebase on upstream, fix enable-checking & bootstrap
+
+	gcc/cp/
+	* module.cc (trees_in::chained_decls): Chain should always be null.
+
+	libcody/
+	Rebase on upstream, collect new autoconf bits.
+
+2020-10-23  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* module.cc: Address 3 now-irrelevant FIXMES.
+
+	gcc/cp/
+	* module.cc (enum merge_kind): Reorder.
+	(merge_kind_name): Likewise.
+
+	Merge trunk cd8b7d7b24c
+	Link with the configured net lib on vxworks7
+
+	Merge trunk e957b86ca26
+	libstdc++: Rebase include/pstl to current upstream
+	gcc/testsuite/
+	PR 97549 workaround
+	* g++.dg/modules/xtream-header{,-2}.h: Don't include <exception>.
+
+	Merge trunk 310fe80babe
+	Fortran: class.c - update vtable comment
+
+	gcc/cp/
+	* mapper-server.cc: Disable networking when not available.
+
+2020-10-22  Nathan Sidwell  <nathan@acm.org>
+
+	libcody/  9e71a7c Avoid fstatat when unavailable
+	gcc/
+	* configure.ac: Check for fstatat & O_CLOEXEC.
+	* configure: Regenerated.
+	* config.in: Regenerated.
+	gcc/cp/
+	* mapper-resolver.cc: Include config.h, system.h.  Cope with lack
+	of fstatat.
+	* module.cc: Workaround lack of O_CLOEXEC.
+
+	Block-scope structures, like wow, why worked so far?
+	gcc/cp/
+	* module.cc (trees_{in,out}::decl_value): Stream local struct
+	definitions.
+	gcc/testsuite/
+	* g++.dg/modules/local-struct-1_[ab].C: New.
+
+	gcc/cp/
+	* module.cc (trees_in::is_matching_decl): Add builtin data
+	copying.
+	(trees_in::read_function_def): Recontextualize parms.
+	* decl.c (duplicate_decls): Refactor builtin copying.
+	gcc/testsuite/
+	* g++.dg/modules/builtin-7_[ab].[HC]: New.
+
+	libcody/
+	* fatal.cc: noexcept fix from Iain Sandoe.
+
+	gcc/cp/
+	* gcc/cp/decl.c (duplicate_decls_): Return error_mark_node for
+	extern "C" collision.
+	* gcc/cp/module.cc (check_mergeable_decl): Check extern "C"-ness.
+	(trees_in::is_matching_decl): Check extern "C" builtin mismatch.
+	Propagate flags on smashing a builtin.
+	gcc/testsuite/
+	* g++.dg/modules/builtin-6_[ab].[HC]: New.
+
+	gcc/cp/
+	* mapper-client.cc: Enable networking only when CODY_NETWORKING
+	* mapper-server.cc: Likewise.
+	libcody/
+	Rebase b26a54f | Enable networking only on known-good systems
+
+2020-10-21  Nathan Sidwell  <nathan@acm.org>
+
+	* Makefile.def: Don't build libcody for build.  Do not install it
+	either.
+	* Makefile.in: Rebuilt.
+
+	gcc/testsuite/
+	* g++.dg/modules/builtin-3_[ab].C: Scans for darwin, thanks Iain
+
+	AIX fixinclude
+	fixincludes/
+	* inclhack.def (aix_physadr_t): New.
+	* fixincl.x: Regenerated.
+
+	Vector bools
+	gcc/cp/
+	* module.cc (trees_{in,out}::type_node): Deal with non-standard bools.
+	gcc/testsuite/
+	* g++.dg/modules/bool-1{,_[abc]}.[CHh]: New.
+
+	AIX test fix
+	gcc/testsuite/
+	* g++.dg/modules/literals-1_[ab].C: Add -Wno-psabi
+
+2020-10-20  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/
+	* Makefile.in (INCLUDES): Add $(CODYINC).
+
+	gcc/cp/
+	* Make-lang.in (GIT_INFO): Support stricter seds.
+
+	Local-extern fix
+	gcc/cp
+	* name-lookup.c (push_local_extern_decl_alias): Fix default arg bug.
+
+	Local-extern fix
+	gcc/cp
+	* name-lookup.c (push_local_extern_decl_alias): Recontextualize
+	alias' parms, drop any default args.
+	gcc/testsuite/
+	* g++.dg/modules/local-extern-2.H: New.
+
+	Libcody by value
+	* Makefile.def: Add libcody as a component library.
+	* Makefile.in: Change libcody from an external library to a
+	component.
+	* Makfile.tpl: Likewise.
+	* configure.ac: Likewise.
+	* configure: Regenerated.
+	gcc/
+	* Makefile.in: Likewise.
+	* configure.ac: Likewise.
+	* configure: Regenerated.
+
+	* libcody/: Import by value.
+
+	gcc/cp/
+	* module.cc (elf_in::begin): Fix madvise on AIX.
+
+2020-10-19  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* module.cc: Add testing for non-mmapped access.
+	(elf_out::grow): Assert aligned at start.
+	(elf_out::write): Align afterwards.
+
+	gcc/testsuite/
+	* g++.dg/modules/sym-subst-3_a.C: Some assemblers say .global.
+
+	gcc/cp/
+	* module.cc (module_state::write_macro_locs): Macro loc count is a
+	count.
+	(module_state::read_prepare_maps): Adjust.
+	gcc/testsuite/
+	* g++.dg/modules/macloc-2_[ab].[HC]: New.
+
 2020-10-16  Nathan Sidwell  <nathan@acm.org>
 
 	Merge trunk ccb4f20cbee
