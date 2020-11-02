@@ -175,6 +175,8 @@ enum cp_tree_index
     CPTI_HEAP_UNINIT_IDENTIFIER,
     CPTI_HEAP_IDENTIFIER,
     CPTI_HEAP_DELETED_IDENTIFIER,
+    CPTI_HEAP_VEC_UNINIT_IDENTIFIER,
+    CPTI_HEAP_VEC_IDENTIFIER,
 
     CPTI_LANG_NAME_C,
     CPTI_LANG_NAME_CPLUSPLUS,
@@ -335,6 +337,8 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
 #define heap_uninit_identifier		cp_global_trees[CPTI_HEAP_UNINIT_IDENTIFIER]
 #define heap_identifier			cp_global_trees[CPTI_HEAP_IDENTIFIER]
 #define heap_deleted_identifier		cp_global_trees[CPTI_HEAP_DELETED_IDENTIFIER]
+#define heap_vec_uninit_identifier	cp_global_trees[CPTI_HEAP_VEC_UNINIT_IDENTIFIER]
+#define heap_vec_identifier		cp_global_trees[CPTI_HEAP_VEC_IDENTIFIER]
 #define lang_name_c			cp_global_trees[CPTI_LANG_NAME_C]
 #define lang_name_cplusplus		cp_global_trees[CPTI_LANG_NAME_CPLUSPLUS]
 
@@ -6442,6 +6446,13 @@ struct GTY((chain_next ("%h.next"))) tinst_level {
      arguments.  */
   tree tldcl, targs;
 
+  /* For modules we need to know (a) the modules on the path of
+     instantiation and (b) the transitive imports along that path.
+     Note that these two bitmaps may be inherited from NEXT, if this
+     decl is in the same module as NEXT (or has no new information).  */
+  bitmap path;
+  bitmap visible;
+
  private:
   /* Return TRUE iff the original node is a split list.  */
   bool split_list_p () const { return targs; }
@@ -7233,6 +7244,7 @@ extern cpp_macro *module_cpp_deferred_macro (cpp_reader *,
 					     location_t, cpp_hashnode *);
 extern void init_modules (cpp_reader *);
 extern void fini_modules ();
+extern void maybe_check_all_macros (cpp_reader *);
 extern void finish_module_processing (cpp_reader *);
 extern char const *module_name (unsigned, bool header_ok);
 extern char const *primary_module_name(unsigned);
@@ -8381,8 +8393,8 @@ extern tree find_template_parameters		(tree, tree);
 extern bool equivalent_constraints              (tree, tree);
 extern bool equivalently_constrained            (tree, tree);
 extern bool subsumes_constraints                (tree, tree);
-extern bool strictly_subsumes			(tree, tree, tree);
-extern bool weakly_subsumes			(tree, tree, tree);
+extern bool strictly_subsumes			(tree, tree);
+extern bool weakly_subsumes			(tree, tree);
 extern int more_constrained                     (tree, tree);
 extern bool at_least_as_constrained             (tree, tree);
 extern bool constraints_equivalent_p            (tree, tree);

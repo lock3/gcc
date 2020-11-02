@@ -3462,6 +3462,9 @@ struct GTY(()) slurping {
   }
 
  public:
+  void release_macros ();
+
+ public:
   void alloc_remap (unsigned size)
   {
     gcc_assert (!remap);
@@ -3500,11 +3503,16 @@ slurping::~slurping ()
 {
   vec_free (remap);
   remap = NULL;
+  release_macros ();
+  close ();
+}
+
+void slurping::release_macros ()
+{
   if (macro_defs.size)
     elf_in::release (from, macro_defs);
   if (macro_tbl.size)
     elf_in::release (from, macro_tbl);
-  close ();
 }
 
 /* Information about location maps used during writing.  */
@@ -6178,8 +6186,14 @@ trees_out::core_vals (tree t)
       WT (t->function_decl.vindex);
       break;
 
-    case TYPE_DECL: /* DECL_ORIGINAL_TYPE */
-    case USING_DECL: /* USING_DECL_SCOPE  */
+    case USING_DECL:
+      /* USING_DECL_DECLS  */
+      WT (t->decl_common.initial);
+      /* FALLTHROUGH  */
+
+    case TYPE_DECL:
+      /* USING_DECL: USING_DECL_SCOPE  */
+      /* TYPE_DECL: DECL_ORIGINAL_TYPE */
       WT (t->decl_non_common.result);
       break;
 
@@ -6664,8 +6678,14 @@ trees_in::core_vals (tree t)
       }
       break;
 
-    case TYPE_DECL: /* DECL_ORIGINAL_TYPE */
-    case USING_DECL: /* USING_DECL_SCOPE  */
+    case USING_DECL:
+      /* USING_DECL_DECLS  */
+      RT (t->decl_common.initial);
+      /* FALLTHROUGH  */
+
+    case TYPE_DECL:
+      /* USING_DECL: USING_DECL_SCOPE  */
+      /* TYPE_DECL: DECL_ORIGINAL_TYPE */
       RT (t->decl_non_common.result);
       break;
 
@@ -6921,7 +6941,18 @@ trees_out::lang_decl_vals (tree t)
     case lds_min:  /* lang_decl_min.  */
     lds_min:
       WT (lang->u.min.template_info);
-      WT (lang->u.min.access);
+      {
+	tree access = lang->u.min.access;
+
+	/* DECL_ACCESS needs to be maintained by the definition of the
+	   (derived) class that changes the access.  The other users
+	   of DECL_ACCESS need to write it here.  */
+	if (!DECL_THUNK_P (t)
+	    && (DECL_CONTEXT (t) && TYPE_P (DECL_CONTEXT (t))))
+	  access = NULL_TREE;
+
+	WT (access);
+      }
       break;
 
     case lds_ns:  /* lang_decl_ns.  */
@@ -10749,7 +10780,7 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	u (get_mergeable_specialization_flags (entry->tmpl, decl));
 
       // FIXME: Do variable templates with concepts need constraints
-      // from the specialization? -- see spec_hasher::equal
+      // from the specialization?  See spec_hasher::equal
       if (CHECKING_P)
 	{
 	  /* Make sure we can locate the decl.  */
@@ -12042,11 +12073,6 @@ member_owned_by_class (tree member)
   return member;
 }
 
-// FIXME: Handle DECL_ACCESS of members.  They will have USING_DECLS
-// on the TYPE_FIELDS chain, from whence we can find the right
-// DECL_ACCESS.  Also the used decls will be in the member_vector.
-// Stream out and reconstruct on readin.
-
 void
 trees_out::write_class_def (tree defn)
 {
@@ -12354,6 +12380,25 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 	      gcc_checking_assert (!*chain == !DECL_CLONED_FUNCTION_P (decl));
 	      *chain = decl;
 	      chain = &DECL_CHAIN (decl);
+
+	      if (TREE_CODE (decl) == USING_DECL
+		  && TREE_CODE (USING_DECL_SCOPE (decl)) == RECORD_TYPE)
+		{
+		  /* Reconstruct DECL_ACCESS.  */
+		  tree decls = USING_DECL_DECLS (decl);
+		  tree access = declared_access (decl);
+
+		  for (ovl_iterator iter (decls); iter; ++iter)
+		    {
+		      tree d = *iter;
+
+		      retrofit_lang_decl (d);
+		      tree list = DECL_ACCESS (d);
+
+		      if (!purpose_member (type, list))
+			DECL_ACCESS (d) = tree_cons (type, access, list);
+		    }
+		}
 	    }
 	}
 
@@ -16106,11 +16151,11 @@ module_state::read_location (bytes_in &sec) const
 
 /* Prepare the span adjustments.  */
 
-// FIXME:OPTIMIZATION I do not prune the unreachable locations.
-// Modules with textually-large GMFs could well cause us to run out of
-// locations.  Regular single-file modules could also be affected.  We
-// should determine which locations we need to represent, so that we
-// do not grab more locations than necessary.  An example is in
+// FIXME:QOI I do not prune the unreachable locations.  Modules with
+// textually-large GMFs could well cause us to run out of locations.
+// Regular single-file modules could also be affected.  We should
+// determine which locations we need to represent, so that we do not
+// grab more locations than necessary.  An example is in
 // write_macro_maps where we work around macro expansions that are not
 // covering any locations -- the macro expands to nothing.  Perhaps we
 // should decompose locations so that we can have a more graceful
@@ -16270,8 +16315,8 @@ module_state::write_ordinary_maps (elf_out *to, location_map_info &info,
   filenames.create (20);
 
   /* Determine the unique filenames.  */
-  // FIXME: Should be found by the prepare fn as part of the
-  // unreachable pruning
+  // FIXME:QOI We should find the set of filenames when working out
+  // which locations we actually need.  See write_prepare_maps.
   for (unsigned ix = loc_spans::SPAN_FIRST; ix != spans.length (); ix++)
     {
       loc_spans::span &span = spans[ix];
@@ -16437,7 +16482,7 @@ module_state::write_macro_maps (elf_out *to, location_map_info &info,
 	    {
 	      /* We're ending on an empty macro expansion.  The
 		 preprocessor doesn't prune such things.  */
-	      // FIXME:OPTIMIZATION This is an example of the non-pruning of
+	      // FIXME:QOI This is an example of the non-pruning of
 	      // locations.  See write_prepare_maps.
 	      gcc_checking_assert (!mmap->n_tokens);
 	      continue;
@@ -17934,10 +17979,6 @@ module_state::write (elf_out *to, cpp_reader *reader)
 
   /* Now join everything up.  */
   table.find_dependencies ();
-  // FIXME: Find reachable GMF entities from non-emitted pieces.  It'd
-  // be nice to have a flag telling us this walk's necessary.  Even
-  // better to not do it (why are we making visible implementation
-  // details?) Fight the spec!
 
   dump("-----Finalizing Dependencies");
 
@@ -18125,8 +18166,13 @@ module_state::write (elf_out *to, cpp_reader *reader)
 
   /* Human-readable info.  */
   write_readme (to, config.dialect_str, extensions);
-  // FIXME: Write this info to the 'reproducer' file yet to be
-  // implemented write_env (to);
+
+  // FIXME:QOI:  Have a command line switch to control more detailed
+  // information (which might leak data you do not want to leak).
+  // Perhaps (some of) the write_readme contents should also be
+  // so-controlled.
+  if (false)
+    write_env (to);
 
   trees_out::instrument ();
   dump () && dump ("Wrote %u sections", to->get_section_limit ());
@@ -18360,11 +18406,12 @@ module_state::read_language (bool outermost)
 	  gcc_assert (!(*entity_ary)[ix + entity_lwm].is_lazy ());
     }
 
-  // FIXME: Belfast order-of-initialization means this may be
-  // inadequate.  We only need the inits from directly imported header
-  // units.  Even if they're also indirectly imported, because they
-  // might be providing us a static decl with a dynamic init (looking
-  // at you _Ioinit).
+  // If the import is a header-unit, we need to register initializers
+  // of any static objects it contains (looking at you _Ioinit).
+  // Notice, the ordering of these initializers will be that of a
+  // dynamic initializer at this point in the current TU.  (Other
+  // instances of these objects in other TUs will be initialized as
+  // part of that TU's global initializers.)
   if (ok && counts[MSC_inits] && !read_inits (counts[MSC_inits]))
     ok = false;
 
@@ -18458,17 +18505,12 @@ module_state::maybe_completed_reading ()
   if (loadedness == ML_LANGUAGE && slurp->current == ~0u && !slurp->remaining)
     {
       lazy_open--;
-      // FIXME: Can we just keep the file mapped until after
-      // preprocessing?  I think that's what the above load_state ==
-      // ML_LANGUAGE is ensuring?
-      if (slurp->macro_defs.size)
-	from ()->preserve (slurp->macro_defs);
-      if (slurp->macro_tbl.size)
-	from ()->preserve (slurp->macro_tbl);
+      /* We no longer need the macros, all tokenizing has been done.  */
+      slurp->release_macros ();
+
       from ()->end ();
       slurp->close ();
-      if (!is_header ())
-	slurped ();
+      slurped ();
     }
 }
 
@@ -18583,12 +18625,75 @@ get_import_bitmap ()
   return (*modules)[0]->imports;
 }
 
+/* Return the visible imports and path of instantiation for an
+   instantiation at TINST.  If TINST is nullptr, we're not in an
+   instantiation, and thus will return the visible imports of the
+   current TU (and NULL *PATH_MAP_P).   We cache the information on
+   the tinst level itself.  */
+
+static bitmap
+path_of_instantiation (tinst_level *tinst,  bitmap *path_map_p)
+{
+  gcc_checking_assert (modules_p ());
+
+  if (!tinst)
+    {
+      /* Not inside an instantiation, just the regular case.  */
+      *path_map_p = nullptr;
+      return get_import_bitmap ();
+    }
+
+  if (!tinst->path)
+    {
+      /* Calculate.  */
+      bitmap visible = path_of_instantiation (tinst->next, path_map_p);
+      bitmap path_map = *path_map_p;
+
+      if (!path_map)
+	{
+	  path_map = BITMAP_GGC_ALLOC ();
+	  bitmap_set_bit (path_map, 0);
+	}
+
+      tree decl = tinst->tldcl;
+      if (TREE_CODE (decl) == TREE_LIST)
+	decl = TREE_PURPOSE (decl);
+      if (TYPE_P (decl))
+	decl = TYPE_NAME (decl);
+
+      if (unsigned mod = get_originating_module (decl))
+	if (!bitmap_bit_p (path_map, mod))
+	  {
+	    /* This is brand new information!  */
+	    bitmap new_path = BITMAP_GGC_ALLOC ();
+	    bitmap_copy (new_path, path_map);
+	    bitmap_set_bit (new_path, mod);
+	    path_map = new_path;
+
+	    bitmap imports = (*modules)[mod]->imports;
+	    if (bitmap_intersect_compl_p (imports, visible))
+	      {
+		/* IMPORTS contains additional modules to VISIBLE.  */
+		bitmap new_visible = BITMAP_GGC_ALLOC ();
+
+		bitmap_ior (new_visible, visible, imports);
+		visible = new_visible;
+	      }
+	  }
+
+      tinst->path = path_map;
+      tinst->visible = visible;
+    }
+
+  *path_map_p = tinst->path;
+  return tinst->visible;
+}
+
 /* Return the bitmap describing what modules are visible along the
-   path of instantiation.  If we're not instantiation, this will be
+   path of instantiation.  If we're not an instantiation, this will be
    the visible imports of the TU.  *PATH_MAP_P is filled in with the
-   modules owning the instantiation path -- wee see the
-   module-linkage entities of those modules.  */
-// FIXME: Should we cache this?  smoosh it into tinst_level?
+   modules owning the instantiation path -- we see the module-linkage
+   entities of those modules.  */
 
 bitmap
 module_visible_instantiation_path (bitmap *path_map_p)
@@ -18596,35 +18701,7 @@ module_visible_instantiation_path (bitmap *path_map_p)
   if (!modules_p ())
     return NULL;
 
-  bitmap visible = (*modules)[0]->imports;
-
-  if (tinst_level *path = current_instantiation ())
-    {
-      bitmap path_map = BITMAP_GGC_ALLOC ();
-      bitmap_set_bit (path_map, 0);
-
-      bitmap tmp = BITMAP_GGC_ALLOC ();
-      bitmap_copy (tmp, visible);
-      visible = tmp;
-      for (; path; path = path->next)
-	{
-	  tree decl = path->tldcl;
-	  if (TREE_CODE (decl) == TREE_LIST)
-	    decl = TREE_PURPOSE (decl);
-	  if (TYPE_P (decl))
-	    decl = TYPE_NAME (decl);
-	  if (unsigned mod = get_originating_module (decl))
-	    if (!bitmap_bit_p (path_map, mod))
-	      {
-		bitmap_set_bit (path_map, mod);
-		bitmap imports = (*modules)[mod]->imports;
-		bitmap_ior_into (visible, imports);
-	      }
-	}
-      *path_map_p = path_map;
-    }
-
-  return visible;
+  return path_of_instantiation (current_instantiation (), path_map_p);
 }
 
 /* We've just directly imported IMPORT.  Update our import/export
@@ -18744,8 +18821,6 @@ get_importing_module (tree decl, bool flexible)
 }
 
 /* Is it permissible to redeclare DECL.  */
-// FIXME: This needs extending? see its use in decl.c  Perhaps we
-// should emit the errors here?
 
 bool
 module_may_redeclare (tree decl)
@@ -18785,8 +18860,6 @@ module_may_redeclare (tree decl)
 	  // caller's given us the right thing.  An alternative would
 	  // be to put both the template and the result into the
 	  // entity hash, but that seems expensive?
-	  // Also look at xref_tag_1's unhinding of friends, which
-	  // just looks at TYPE_TEMPLATE_INFO.
 	}
       unsigned index = import_entity_index (decl);
       them = import_entity_module (index);
@@ -19098,9 +19171,6 @@ try_increase_lazy (unsigned want)
 }
 
 /* Pick a victim module to freeze its reader.  */
-// FIXME: Verify this works across reading phases.  If there's a phase
-// left to do, we must preserve the whole elf file.  Not just the tree
-// sections.
 
 void
 module_state::freeze_an_elf ()
@@ -19268,7 +19338,6 @@ lazy_load_members (tree decl)
       decl = tmpl;
     }
 
-  // FIXME: This looks like the specialization load, modulo a bit invert
   timevar_start (TV_MODULE_IMPORT);
   unsigned ident = import_entity_index (decl);
   if (pendset *set = pending_table->get (~ident, true))
@@ -19391,9 +19460,12 @@ declare_module (module_state *module, location_t from_loc, bool exporting_p,
       if (module->is_header ())
 	module_kind |= MK_GLOBAL | MK_EXPORTING;
 
-      /* Copy the importing information we may have already done.  */
-      // FIXME: We have to separate out the imports that only happen
-      // in the GMF.  Unless 2191 succeeds (which it better)
+      /* Copy the importing information we may have already done.  We
+	 do not need to separate out the imports that only happen in
+	 the GMF, inspite of what the literal wording of the std
+	 might imply.  See p2191, the core list had a discussion
+	 where the module implementors agreed that the GMF of a named
+	 module is invisible to importers.  */
       module->imports = current->imports;
 
       module->mod = 0;
@@ -19426,10 +19498,12 @@ module_initializer_kind ()
 }
 
 /* Emit calls to each direct import's global initializer.  Including
-   direct imports of directly imported header units.  */
-
-// FIXME: We should probably call the initializers brought in by
-// header units too.  But ordering is important for them.
+   direct imports of directly imported header units.  The initializers
+   of (static) entities in header units will be called by their
+   importing modules (for the instance contained within that), or by
+   the current TU (for the instances we've brought in).  Of course
+   such header unit behaviour is evil, but iostream went through that
+   door some time ago.  */
 
 void
 module_add_import_initializers ()
@@ -20135,6 +20209,22 @@ load_macros (cpp_reader *reader, cpp_hashnode *node, void *)
   return 1;
 }
 
+/* At the end of tokenizing, we no longer need the macro tables of
+   imports.  But the user might have requested some checking.  */
+
+void
+maybe_check_all_macros (cpp_reader *reader)
+{
+  if (!warn_imported_macros)
+    return;
+
+  /* Force loading of any remaining deferred macros.  This will
+     produce diagnostics if they are ill-formed.  */
+  unsigned n = dump.push (NULL);
+  cpp_forall_identifiers (reader, load_macros, NULL);
+  dump.pop (n);
+}
+
 /* Write the CMI, if we're a module interface.  */
 
 void
@@ -20142,15 +20232,6 @@ finish_module_processing (cpp_reader *reader)
 {
   if (header_module_p ())
     module_kind &= ~MK_EXPORTING;
-
-  if (warn_imported_macros)
-    {
-      /* Force loading of any remaining deferred macros.  This will
-	 produce diagnostics if they are ill-formed.  */
-      unsigned n = dump.push (NULL);
-      cpp_forall_identifiers (reader, load_macros, NULL);
-      dump.pop (n);
-    }
 
   if (!modules || !(*modules)[0]->name)
     {
@@ -20175,7 +20256,6 @@ finish_module_processing (cpp_reader *reader)
 
       unsigned n = dump.push (state);
       state->announce ("creating");
-      // FIXME: A default for the -fmodule-header case?
       if (state->filename)
 	{
 	  size_t len = 0;
