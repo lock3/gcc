@@ -26,3 +26,14 @@ T fn_t(T t)
 
 export int fn_int(int n);
 
+export template<typename T>
+T fn_t_inner(T t)
+{
+  [[ assert: t > 0 ]];
+  [[ assert audit %custom: t > 0 ]];
+  printf("%s(%d)\n", "fn_t", t);
+  return t;
+}
+
+export int fn_int_inner(int n);
+

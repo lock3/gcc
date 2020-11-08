@@ -12,7 +12,7 @@ export int violation_count{0};
 export void handle_contract_violation(const std::contract_violation &violation)
 {
   violation_count++;
-  printf("violation_count: %d\n", violation_count);
+  printf("violation_count: %d, on %d\n", violation_count, violation.line_number());
 }
 
 export template<typename T>
@@ -25,4 +25,15 @@ T fn_t(T t)
 }
 
 export int fn_int(int n);
+
+export template<typename T>
+T fn_t_inner(T t)
+{
+  [[ assert: t > 0 ]];
+  [[ assert audit %custom: t > 0 ]];
+  printf("%s(%d)\n", "fn_t", t);
+  return t;
+}
+
+export int fn_int_inner(int n);
 

@@ -218,10 +218,10 @@ contract_semantic_to_char (contract_semantic semantic)
   switch (semantic)
     {
       case CCS_INVALID: return 'x';
-      case CCS_IGNORE: return 'i';
-      case CCS_ASSUME: return 'a';
-      case CCS_NEVER: return 'n';
-      case CCS_MAYBE: return 'm';
+      case CCS_IGNORE: return 'I';
+      case CCS_ASSUME: return 'A';
+      case CCS_NEVER: return 'E';
+      case CCS_MAYBE: return 'O';
     }
   return 'x';
 }

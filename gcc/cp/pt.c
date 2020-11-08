@@ -18186,7 +18186,15 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
       {
 	r = tsubst_contract (t, args, complain, in_decl);
 	if (r != error_mark_node)
-	  add_stmt (r);
+	  {
+	    add_stmt (r);
+	    /* Include the substituted contract in the list of attributes so
+	       we can find them for name mangling purposes.  */
+	    tree attr = build_tree_list (
+		build_tree_list (NULL_TREE, get_identifier ("assert")), r);
+	    DECL_ATTRIBUTES (current_function_decl)
+	      = chainon (DECL_ATTRIBUTES (current_function_decl), attr);
+	  }
 	RETURN (r);
       }
       break;
@@ -20953,11 +20961,12 @@ tsubst_contract_conditions_r (tree t, tree args, tsubst_flags_t complain,
   /* We may be substituting just the decl without having the fully deduced
      return type for postcondition substitution (handled by a second call into
      tsubst_contract_conditions later).  */
-  if (TREE_CODE (contract) != POSTCONDITION_STMT || !skip_post)
+  if (TREE_CODE (contract) != ASSERTION_STMT
+      && (TREE_CODE (contract) != POSTCONDITION_STMT || !skip_post))
     contract = tsubst_contract (contract, args, tf_warning_or_error, in_decl);
   if (contract == error_mark_node)
     return error_mark_node;
-  tree chain = tsubst_contract_conditions_r (TREE_CHAIN (t), args, complain,
+  tree chain = tsubst_contract_conditions_r (CONTRACT_CHAIN (t), args, complain,
 					     in_decl, skip_post);
   if (chain == error_mark_node)
     return error_mark_node;

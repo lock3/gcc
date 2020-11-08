@@ -15,7 +15,12 @@ int main(int, char**)
   printf("calling bar_fn_int\n");
   bar_fn_int(x--);
 
-  return violation_count - 2;
+  printf("calling fn_int_inner\n");
+  fn_int_inner(x--);
+  printf("calling bar_fn_int_inner\n");
+  bar_fn_int_inner(x--);
+
+  return violation_count - 4;
 }
 
 // FIXME verify dg-output as well once the testsuite supports it

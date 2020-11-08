@@ -789,6 +789,40 @@ mangle_return_type_p (tree decl)
 	  && maybe_template_info (decl));
 }
 
+/* Write the encoding for versioned contract semantics on DECL, if versioned
+   contracts exist.
+
+   <encoding>		::= .VC_ <lex order contract semantics>
+
+   ignore          I ignore
+   never continue  E enforce
+   maybe continue  O observe
+   assume          A assume  */
+
+static void
+write_versioned_contract_semantics (const tree decl)
+{
+  if (!DECL_VERSION_CONTRACTS_P (decl))
+    return;
+
+  // FIXME catch this higher up?
+  /* Symbol mangling is dependent on the concrete semantics of asserts in the
+     function body, so we must have the complete definition.  */
+  gcc_assert (DECL_SAVED_TREE (decl));
+
+  // TODO would ABI tags be a better option? potential for collision?
+  /* Vendor specific portion follows period.  */
+  write_string (".VC_");
+
+  for (tree contract_attr = DECL_CONTRACTS (decl);
+      contract_attr != NULL_TREE;
+      contract_attr = CONTRACT_CHAIN (contract_attr))
+    {
+      tree contract = TREE_VALUE (contract_attr);
+      write_char (contract_semantic_to_char (get_contract_semantic (contract)));
+    }
+}
+
 /*   <encoding>		::= <function name> <bare-function-type>
 			::= <data name>  */
 
@@ -832,6 +866,9 @@ write_encoding (const tree decl)
       write_bare_function_type (fn_type,
 				mangle_return_type_p (decl),
 				d);
+
+      if (DECL_VERSION_CONTRACTS_P (decl))
+	write_versioned_contract_semantics (decl);
     }
 }
 

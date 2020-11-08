@@ -17509,8 +17509,9 @@ finish_function (bool inline_p)
     }
 
   bool versioned_p = !processing_template_decl && function_versioned_p (fndecl);
-  /* If the function is being versioned, it should have internal linkage to
-     avoid ODR issues.  */
+  /* If the function is being versioned, ensure that its contracts have their
+     concrete semantic set to what they would map to under the current TU
+     instead of their owning TU.  */
   if (versioned_p)
     {
       TREE_PUBLIC (fndecl) = false;

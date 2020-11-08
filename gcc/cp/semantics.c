@@ -1071,7 +1071,7 @@ version_contracts (tree checked)
 {
   for (tree contract_attr = DECL_CONTRACTS (checked);
       contract_attr;
-      contract_attr = TREE_CHAIN (contract_attr))
+      contract_attr = CONTRACT_CHAIN (contract_attr))
     {
       tree contract = TREE_VALUE (contract_attr);
       contract_semantic computed =
@@ -1238,8 +1238,9 @@ contract_any_active_p (tree fndecl)
   bool versioned_p = function_versioned_p (fndecl);
   for (tree contract_attr = DECL_CONTRACTS (fndecl);
       contract_attr != NULL_TREE;
-      contract_attr = TREE_CHAIN (contract_attr))
-    if (contract_active_p (TREE_VALUE (contract_attr), versioned_p))
+      contract_attr = CONTRACT_CHAIN (contract_attr))
+    if (TREE_CODE (TREE_VALUE (contract_attr)) != ASSERTION_STMT
+	&& contract_active_p (TREE_VALUE (contract_attr), versioned_p))
       return true;
   return false;
 }

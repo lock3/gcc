@@ -7,3 +7,8 @@ export int bar_fn_int(int n)
   return fn_t(n);
 }
 
+export int bar_fn_int_inner(int n)
+{
+  return fn_t_inner(n);
+}
+
