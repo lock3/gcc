@@ -17962,8 +17962,6 @@ module_state::write (elf_out *to, cpp_reader *reader)
   /* Find the set of decls we must write out.  */
   depset::hash table (DECL_NAMESPACE_BINDINGS (global_namespace)->size () * 8);
 
-  dump("-----Adding Entities");
-
   /* Add the specializations before the writables, so that we can
      detect injected friend specializations.  */
   table.add_specializations (true);
@@ -17975,12 +17973,8 @@ module_state::write (elf_out *to, cpp_reader *reader)
       class_members = NULL;
     }
 
-  dump("-----Finding Dependencies");
-
   /* Now join everything up.  */
   table.find_dependencies ();
-
-  dump("-----Finalizing Dependencies");
 
   if (!table.finalize_dependencies ())
     {
@@ -17995,7 +17989,6 @@ module_state::write (elf_out *to, cpp_reader *reader)
 #endif
 
   /* Determine Strongy Connected Components.  */
-  dump("-----Connecting Dependencies");
   vec<depset *> sccs = table.connect ();
 
   unsigned crc = 0;
@@ -18104,7 +18097,6 @@ module_state::write (elf_out *to, cpp_reader *reader)
 	     out -- we don't want to start writing decls in different
 	     sections.  */
 	  table.section = base[0]->section;
-      dump("-----Writing Cluster");
 	  bytes += write_cluster (to, base, size, table, counts, &crc);
 	  table.section = 0;
 	}
