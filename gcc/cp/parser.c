@@ -11666,9 +11666,12 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 
   /* FIXME: move fallthrough up here so it applies to decls/etc?  */
   /* Check that assertions are null statements.  */
-  if (attribute_contract_assert_p (contract_attrs))
-    if (token->type != CPP_SEMICOLON)
+  if (attribute_contract_assert_p (contract_attrs)
+      && token->type != CPP_SEMICOLON)
+    {
       error_at (token->location, "assertions must be followed by %<;%>");
+      contract_attrs = NULL_TREE;
+    }
 
   /* Remember the location of the first token in the statement.  */
   cp_token *statement_token = token;
