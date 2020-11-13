@@ -562,7 +562,7 @@ map_arguments (tree parms, tree args)
 /* Build the parameter mapping for EXPR using ARGS.  */
 
 static tree
-build_parameter_mapping (tree expr, tree args, tree decl)
+build_parameter_map (tree expr, tree args, tree decl)
 {
   tree ctx_parms = NULL_TREE;
   if (decl)
@@ -596,11 +596,51 @@ parameter_mapping_equivalent_p (tree t1, tree t2)
       tree arg1 = TREE_PURPOSE (map1);
       tree arg2 = TREE_PURPOSE (map2);
       if (!template_args_equal (arg1, arg2))
-        return false;
+	return false;
       map1 = TREE_CHAIN (map1);
       map2 = TREE_CHAIN (map2);
     }
   return true;
+}
+
+/* 17.4.1.2p2. Two constraints are identical if they are formed
+   from the same expression and the targets of the parameter mapping
+   are equivalent.  */
+
+bool
+atomic_constraints_identical_p (tree t1, tree t2)
+{
+  gcc_assert (TREE_CODE (t1) == ATOMIC_CONSTR);
+  gcc_assert (TREE_CODE (t2) == ATOMIC_CONSTR);
+
+  if (ATOMIC_CONSTR_EXPR (t1) != ATOMIC_CONSTR_EXPR (t2))
+    return false;
+
+  if (!parameter_mapping_equivalent_p (t1, t2))
+    return false;
+
+  return true;
+}
+
+/* Compute the hash value for T.  */
+
+hashval_t
+hash_atomic_constraint (tree t)
+{
+  gcc_assert (TREE_CODE (t) == ATOMIC_CONSTR);
+
+  /* Hash the identity of the expression.  */
+  hashval_t val = htab_hash_pointer (ATOMIC_CONSTR_EXPR (t));
+
+  /* Hash the targets of the parameter map.  */
+  tree p = ATOMIC_CONSTR_MAP (t);
+  while (p)
+    {
+      val = iterative_hash_template_arg (TREE_PURPOSE (p), val);
+      p = TREE_CHAIN (p);
+    }
+
+  return val;
 }
 
 /* Provides additional context for normalization.  */
@@ -636,7 +676,7 @@ struct norm_info : subst_info
   {
     if (generate_diagnostics ())
       {
-	tree map = build_parameter_mapping (expr, args, in_decl);
+	tree map = build_parameter_map (expr, args, in_decl);
 	context = tree_cons (map, expr, context);
       }
     in_decl = get_concept_check_template (expr);
@@ -656,6 +696,55 @@ struct norm_info : subst_info
   tree orig_decl = NULL_TREE;
 };
 
+/* Canonicalized constraints. All identical atomic constraints have
+   the same identity (pointer value).  */
+
+static GTY((deletable)) hash_table<atomic_constraint_hasher>
+  *canonical_atomic_constraints;
+
+
+static tree
+build_canonical_atomic_constraint (tree t, tree map, norm_info info)
+{
+  tree ci = build_tree_list (t, NULL_TREE);
+  tree atom = build1 (ATOMIC_CONSTR, ci, map);
+  /* Cache the ATOMIC_CONSTRs that we return, so that
+     satisfaction_hasher::equal later can cheaply compare two atoms using just
+     pointer equality.  */
+  if (!canonical_atomic_constraints)
+    canonical_atomic_constraints
+      = hash_table<atomic_constraint_hasher>::create_ggc (31);
+  tree *slot = canonical_atomic_constraints->find_slot (atom, INSERT);
+  if (*slot)
+    {
+      ggc_free (atom);
+      return *slot;
+    }
+
+  /* Find all template parameters used in the targets of the parameter
+     mapping, and store a list of them in the TREE_TYPE of the mapping.
+     This list will be used by satisfaction_hasher to determine the subset of
+     supplied template arguments that the satisfaction value of the atom
+     depends on.  */
+  if (map)
+    {
+      tree targets = make_tree_vec (list_length (map));
+      int i = 0;
+      for (tree node = map; node; node = TREE_CHAIN (node))
+	{
+	  tree target = TREE_PURPOSE (node);
+	  TREE_VEC_ELT (targets, i++) = target;
+	}
+      tree ctx_parms = (info.orig_decl
+			? DECL_TEMPLATE_PARMS (info.orig_decl)
+			: current_template_parms);
+      tree target_parms = find_template_parameters (targets, ctx_parms);
+      TREE_TYPE (map) = target_parms;
+    }
+
+  return *slot = atom;
+}
+
 static tree normalize_expression (tree, tree, norm_info);
 
 /* Transform a logical-or or logical-and expression into either
@@ -667,8 +756,8 @@ normalize_logical_operation (tree t, tree args, tree_code c, norm_info info)
   tree t0 = normalize_expression (TREE_OPERAND (t, 0), args, info);
   tree t1 = normalize_expression (TREE_OPERAND (t, 1), args, info);
 
-  /* Build a new info object for the constraint.  */
-  tree ci = info.generate_diagnostics()
+  /* When building diagnostics, don't canonicalize the tree.  */
+  tree ci = info.generate_diagnostics ()
     ? build_tree_list (t, info.context)
     : NULL_TREE;
 
@@ -717,10 +806,6 @@ normalize_concept_check (tree check, tree args, norm_info info)
   return normalize_expression (def, subst, info);
 }
 
-/* Used by normalize_atom to cache ATOMIC_CONSTRs.  */
-
-static GTY((deletable)) hash_table<atom_hasher> *atom_cache;
-
 /* The normal form of an atom depends on the expression. The normal
    form of a function call to a function concept is a check constraint
    for that concept. The normal form of a reference to a variable
@@ -734,47 +819,32 @@ normalize_atom (tree t, tree args, norm_info info)
   if (concept_check_p (t))
     return normalize_concept_check (t, args, info);
 
-  /* Build the parameter mapping for the atom.  */
-  tree map = build_parameter_mapping (t, args, info.in_decl);
+  /* Build a canonical parameter mapping for the atom.  */
+  tree map = build_parameter_map (t, args, info.in_decl);
 
-  /* Build a new info object for the atom.  */
-  tree ci = build_tree_list (t, info.context);
-
-  tree atom = build1 (ATOMIC_CONSTR, ci, map);
-  if (!info.generate_diagnostics ())
+  /* Don't generate canonical constraints for diagnostics. */
+  if (info.generate_diagnostics ())
     {
-      /* Cache the ATOMIC_CONSTRs that we return, so that sat_hasher::equal
-	 later can cheaply compare two atoms using just pointer equality.  */
-      if (!atom_cache)
-	atom_cache = hash_table<atom_hasher>::create_ggc (31);
-      tree *slot = atom_cache->find_slot (atom, INSERT);
-      if (*slot)
-	return *slot;
-
-      /* Find all template parameters used in the targets of the parameter
-	 mapping, and store a list of them in the TREE_TYPE of the mapping.
-	 This list will be used by sat_hasher to determine the subset of
-	 supplied template arguments that the satisfaction value of the atom
-	 depends on.  */
-      if (map)
-	{
-	  tree targets = make_tree_vec (list_length (map));
-	  int i = 0;
-	  for (tree node = map; node; node = TREE_CHAIN (node))
-	    {
-	      tree target = TREE_PURPOSE (node);
-	      TREE_VEC_ELT (targets, i++) = target;
-	    }
-	  tree ctx_parms = (info.orig_decl
-			    ? DECL_TEMPLATE_PARMS (info.orig_decl)
-			    : current_template_parms);
-	  tree target_parms = find_template_parameters (targets, ctx_parms);
-	  TREE_TYPE (map) = target_parms;
-	}
-
-      *slot = atom;
+      tree ci = build_tree_list (t, info.context);
+      return build1 (ATOMIC_CONSTR, ci, map);
     }
-  return atom;
+
+  return build_canonical_atomic_constraint (t, map, info);
+}
+
+static tree
+normalize_expression_1 (tree t, tree args, norm_info info)
+{
+  switch (TREE_CODE (t))
+    {
+    case TRUTH_ANDIF_EXPR:
+      return normalize_logical_operation (t, args, CONJ_CONSTR, info);
+    case TRUTH_ORIF_EXPR:
+      return normalize_logical_operation (t, args, DISJ_CONSTR, info);
+    default:
+      return normalize_atom (t, args, info);
+    }
+  gcc_unreachable();
 }
 
 /* Returns the normal form of an expression. */
@@ -788,15 +858,9 @@ normalize_expression (tree t, tree args, norm_info info)
   if (t == error_mark_node)
     return error_mark_node;
 
-  switch (TREE_CODE (t))
-    {
-    case TRUTH_ANDIF_EXPR:
-      return normalize_logical_operation (t, args, CONJ_CONSTR, info);
-    case TRUTH_ORIF_EXPR:
-      return normalize_logical_operation (t, args, DISJ_CONSTR, info);
-    default:
-      return normalize_atom (t, args, info);
-    }
+  tree r = normalize_expression_1 (t, args, info);
+
+  return r;
 }
 
 /* Cache of the normalized form of constraints.  Marked as deletable because it
@@ -956,24 +1020,6 @@ normalize_constraint_expression (tree expr, bool diag)
   return norm;
 }
 
-/* 17.4.1.2p2. Two constraints are identical if they are formed
-   from the same expression and the targets of the parameter mapping
-   are equivalent.  */
-
-bool
-atomic_constraints_identical_p (tree t1, tree t2)
-{
-  gcc_assert (TREE_CODE (t1) == ATOMIC_CONSTR);
-  gcc_assert (TREE_CODE (t2) == ATOMIC_CONSTR);
-
-  if (ATOMIC_CONSTR_EXPR (t1) != ATOMIC_CONSTR_EXPR (t2))
-    return false;
-
-  if (!parameter_mapping_equivalent_p (t1, t2))
-    return false;
-
-  return true;
-}
 
 /* True if T1 and T2 are equivalent, meaning they have the same syntactic
    structure and all corresponding constraints are identical.  */
@@ -1006,27 +1052,6 @@ constraints_equivalent_p (tree t1, tree t2)
   return true;
 }
 
-/* Compute the hash value for T.  */
-
-hashval_t
-hash_atomic_constraint (tree t)
-{
-  gcc_assert (TREE_CODE (t) == ATOMIC_CONSTR);
-
-  /* Hash the identity of the expression.  */
-  hashval_t val = htab_hash_pointer (ATOMIC_CONSTR_EXPR (t));
-
-  /* Hash the targets of the parameter map.  */
-  tree p = ATOMIC_CONSTR_MAP (t);
-  while (p)
-    {
-      val = iterative_hash_template_arg (TREE_PURPOSE (p), val);
-      p = TREE_CHAIN (p);
-    }
-
-  return val;
-}
-
 namespace inchash
 {
 
@@ -1051,7 +1076,11 @@ add_constraint (tree t, hash& h)
 
 }
 
-/* Computes a hash code for the constraint T.  */
+/* Computes a hash code for the constraint T. This is used to hash pairs
+   of constraints in the subsumption cache.
+
+   FIXME: This should not need to be recursive after canonicalizing atomic
+   constraints.  */
 
 hashval_t
 iterative_hash_constraint (tree t, hashval_t val)
@@ -2342,7 +2371,7 @@ struct GTY((for_user)) sat_entry
   tree result;
 };
 
-struct sat_hasher : ggc_ptr_hash<sat_entry>
+struct satisfaction_hasher : ggc_ptr_hash<sat_entry>
 {
   static hashval_t hash (sat_entry *e)
   {
@@ -2384,7 +2413,7 @@ struct sat_hasher : ggc_ptr_hash<sat_entry>
 	!= ATOMIC_CONSTR_MAP_INSTANTIATED_P (e2->constr))
       return false;
 
-    /* See sat_hasher::hash.  */
+    /* See satisfaction_hasher::hash.  */
     if (ATOMIC_CONSTR_MAP_INSTANTIATED_P (e1->constr))
       {
 	gcc_assert (!e1->args && !e2->args);
@@ -2412,13 +2441,13 @@ struct sat_hasher : ggc_ptr_hash<sat_entry>
 };
 
 /* Cache the result of satisfy_atom.  */
-static GTY((deletable)) hash_table<sat_hasher> *sat_cache;
+static GTY((deletable)) hash_table<satisfaction_hasher> *sat_cache;
 
 /* Cache the result of constraint_satisfaction_value.  */
 static GTY((deletable)) hash_map<tree, tree> *decl_satisfied_cache;
 
 static tree
-get_satisfaction (tree constr, tree args)
+lookup_satisfaction (tree constr, tree args)
 {
   if (!sat_cache)
     return NULL_TREE;
@@ -2431,10 +2460,10 @@ get_satisfaction (tree constr, tree args)
 }
 
 static void
-save_satisfaction (tree constr, tree args, tree result)
+memoize_satisfication (tree constr, tree args, tree result)
 {
   if (!sat_cache)
-    sat_cache = hash_table<sat_hasher>::create_ggc (31);
+    sat_cache = hash_table<satisfaction_hasher>::create_ggc (31);
   sat_entry elt = {constr, args, result};
   sat_entry** slot = sat_cache->find_slot (&elt, INSERT);
   sat_entry* entry = ggc_alloc<sat_entry> ();
@@ -2445,23 +2474,23 @@ save_satisfaction (tree constr, tree args, tree result)
 /* A tool to help manage satisfaction caching in satisfy_constraint_r.
    Note the cache is only used when not diagnosing errors.  */
 
-struct satisfaction_cache
+struct satisfaction_table
 {
-  satisfaction_cache (tree constr, tree args, tsubst_flags_t complain)
+  satisfaction_table (tree constr, tree args, tsubst_flags_t complain)
     : constr(constr), args(args), complain(complain)
   { }
 
   tree get ()
   {
     if (complain == tf_none)
-      return get_satisfaction (constr, args);
+      return lookup_satisfaction (constr, args);
     return NULL_TREE;
   }
 
   tree save (tree result)
   {
     if (complain == tf_none)
-      save_satisfaction (constr, args, result);
+      memoize_satisfication (constr, args, result);
     return result;
   }
 
@@ -2675,7 +2704,7 @@ static void diagnose_atomic_constraint (tree, tree, tree, subst_info);
 static tree
 satisfy_atom (tree t, tree args, subst_info info)
 {
-  satisfaction_cache cache (t, args, info.complain);
+  satisfaction_table cache (t, args, info.complain);
   if (tree r = cache.get ())
     return r;
 
@@ -2706,7 +2735,7 @@ satisfy_atom (tree t, tree args, subst_info info)
   ATOMIC_CONSTR_MAP (t) = map;
   gcc_assert (!ATOMIC_CONSTR_MAP_INSTANTIATED_P (t));
   ATOMIC_CONSTR_MAP_INSTANTIATED_P (t) = true;
-  satisfaction_cache inst_cache (t, /*args=*/NULL_TREE, info.complain);
+  satisfaction_table inst_cache (t, /*args=*/NULL_TREE, info.complain);
   if (tree r = inst_cache.get ())
     return cache.save (r);
 

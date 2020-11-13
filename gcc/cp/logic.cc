@@ -204,10 +204,10 @@ struct clause
   }
 
   std::list<tree> m_terms; /* The list of terms.  */
-  hash_set<tree, false, atom_hasher> m_set; /* The set of atomic constraints.  */
+  /* The set of atomic constraints.  */
+  hash_set<tree, false, atomic_constraint_hasher> m_set;
   iterator m_current; /* The current term.  */
 };
-
 
 /* A proof state owns a list of goals and tracks the
    current sub-goal. The class also provides facilities

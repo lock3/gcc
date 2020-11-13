@@ -36,7 +36,7 @@ struct data
   void f1() {}
 
   template<typename U>
-    requires requires { requires integer<U> || subst<U&>; } // { dg-message in requirements" }
+    requires requires { requires integer<U> || subst<U&>; } // { dg-message "in requirements" }
   void f2() {}
 
   static_assert(requires { requires subst<T&>; }); // { dg-error "forming reference|failed" }

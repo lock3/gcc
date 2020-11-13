@@ -7859,7 +7859,7 @@ extern void diagnose_constraints                (location_t, tree, tree);
 
 /* A structural hasher for ATOMIC_CONSTRs.  */
 
-struct atom_hasher : default_hash_traits<tree>
+struct atomic_constraint_hasher : default_hash_traits<tree>
 {
   static hashval_t hash (tree t)
   {
