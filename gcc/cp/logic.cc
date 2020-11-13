@@ -47,21 +47,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "toplev.h"
 #include "type-utils.h"
 
-/* Hash functions for atomic constrains.  */
-
-struct constraint_hash : default_hash_traits<tree>
-{
-  static hashval_t hash (tree t)
-  {
-    return hash_atomic_constraint (t);
-  }
-
-  static bool equal (tree t1, tree t2)
-  {
-    return atomic_constraints_identical_p (t1, t2);
-  }
-};
-
 /* A conjunctive or disjunctive clause.
 
    Each clause maintains an iterator that refers to the current
@@ -219,10 +204,9 @@ struct clause
   }
 
   std::list<tree> m_terms; /* The list of terms.  */
-  hash_set<tree, false, constraint_hash> m_set; /* The set of atomic constraints.  */
+  hash_set<tree> m_set; /* The set of atomic constraints.  */
   iterator m_current; /* The current term.  */
 };
-
 
 /* A proof state owns a list of goals and tracks the
    current sub-goal. The class also provides facilities
@@ -797,16 +781,16 @@ struct subsumption_hasher : ggc_ptr_hash<subsumption_entry>
   static hashval_t hash (subsumption_entry *e)
   {
     hashval_t val = 0;
-    val = iterative_hash_constraint (e->lhs, val);
-    val = iterative_hash_constraint (e->rhs, val);
+    val = iterative_hash_object (e->lhs, val);
+    val = iterative_hash_object (e->rhs, val);
     return val;
   }
 
   static bool equal (subsumption_entry *e1, subsumption_entry *e2)
   {
-    if (!constraints_equivalent_p (e1->lhs, e2->lhs))
+    if (e1->lhs != e2->lhs)
       return false;
-    if (!constraints_equivalent_p (e1->rhs, e2->rhs))
+    if (e1->rhs != e2->rhs)
       return false;
     return true;
   }
