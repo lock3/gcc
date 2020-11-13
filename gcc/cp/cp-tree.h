@@ -7857,21 +7857,6 @@ extern hashval_t iterative_hash_constraint      (tree, hashval_t);
 extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
-/* A structural hasher for ATOMIC_CONSTRs.  */
-
-struct atomic_constraint_hasher : default_hash_traits<tree>
-{
-  static hashval_t hash (tree t)
-  {
-    return hash_atomic_constraint (t);
-  }
-
-  static bool equal (tree t1, tree t2)
-  {
-    return atomic_constraints_identical_p (t1, t2);
-  }
-};
-
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);
 
