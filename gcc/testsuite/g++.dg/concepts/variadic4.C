@@ -7,14 +7,17 @@ template<typename...> struct list {};
 template<typename Seq>
 concept bool Sequence = true;
 
-template<Sequence... Seqs> // requires (Sequence<Seqs> && ...)
+template<Sequence... Seqs>
+  // requires (Sequence<Seqs> && ...)
 struct zip;
 
 template<Sequence... Seqs>
-    requires requires { typename list<Seqs...>; } // && (Sequence<Seqs> && ...)
+  requires true
+  // requires (Sequence<Seqs> && ...) && requires { typename list<Seqs...>; }
 struct zip<Seqs...> {}; // { dg-error "does not specialize" }
-// The constraints of the specialization and the sequence are not
-// comparable; the specializations are unordered.
+// The constraints of the primary template and specialization are not
+// comparable because the generated fold expressions do not form identical
+// atomic constraints. The specializations are unordered.
 
 int main()
 {
