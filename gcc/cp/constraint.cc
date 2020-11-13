@@ -2514,30 +2514,30 @@ struct GTY((for_user)) sat_entry
   tree result;
 };
 
-struct sat_hasher : ggc_ptr_hash<sat_entry>
+struct satisfaction_hasher : ggc_ptr_hash<sat_entry>
 {
   static hashval_t hash (sat_entry *e)
   {
-    hashval_t value = hash_atomic_constraint (e->constr);
-    return iterative_hash_template_arg (e->args, value);
+    hashval_t val = iterative_hash_object (e->constr, 0);
+    return iterative_hash_template_arg (e->args, val);
   }
 
   static bool equal (sat_entry *e1, sat_entry *e2)
   {
-    if (!atomic_constraints_identical_p (e1->constr, e2->constr))
+    if (e1->constr != e2->constr)
       return false;
-    return template_args_equal (e1->args, e2->args);
+    return comp_template_args (e1->args, e2->args);
   }
 };
 
 /* Cache the result of satisfy_atom.  */
-static GTY((deletable)) hash_table<sat_hasher> *sat_cache;
+static GTY((deletable)) hash_table<satisfaction_hasher> *sat_cache;
 
 /* Cache the result of constraint_satisfaction_value.  */
 static GTY((deletable)) hash_map<tree, tree> *decl_satisfied_cache;
 
 static tree
-get_satisfaction (tree constr, tree args)
+lookup_satisfaction (tree constr, tree args)
 {
   if (!sat_cache)
     return NULL_TREE;
@@ -2550,10 +2550,10 @@ get_satisfaction (tree constr, tree args)
 }
 
 static void
-save_satisfaction (tree constr, tree args, tree result)
+memoize_satisfication (tree constr, tree args, tree result)
 {
   if (!sat_cache)
-    sat_cache = hash_table<sat_hasher>::create_ggc (31);
+    sat_cache = hash_table<satisfaction_hasher>::create_ggc (31);
   sat_entry elt = {constr, args, result};
   sat_entry** slot = sat_cache->find_slot (&elt, INSERT);
   sat_entry* entry = ggc_alloc<sat_entry> ();
@@ -2564,23 +2564,23 @@ save_satisfaction (tree constr, tree args, tree result)
 /* A tool to help manage satisfaction caching in satisfy_constraint_r.
    Note the cache is only used when not diagnosing errors.  */
 
-struct satisfaction_cache
+struct satisfaction_table
 {
-  satisfaction_cache (tree constr, tree args, tsubst_flags_t complain)
+  satisfaction_table (tree constr, tree args, tsubst_flags_t complain)
     : constr(constr), args(args), complain(complain)
   { }
 
   tree get ()
   {
     if (complain == tf_none)
-      return get_satisfaction (constr, args);
+      return lookup_satisfaction (constr, args);
     return NULL_TREE;
   }
 
   tree save (tree result)
   {
     if (complain == tf_none)
-      save_satisfaction (constr, args, result);
+      memoize_satisfication (constr, args, result);
     return result;
   }
 
@@ -2794,10 +2794,6 @@ static void diagnose_atomic_constraint (tree, tree, tree, subst_info);
 static tree
 satisfy_atom (tree t, tree args, subst_info info)
 {
-  satisfaction_cache cache (t, args, info.complain);
-  if (tree r = cache.get ())
-    return r;
-
   /* Perform substitution quietly.  */
   subst_info quiet (tf_none, NULL_TREE);
 
@@ -2814,7 +2810,7 @@ satisfy_atom (tree t, tree args, subst_info info)
          is ill-formed.  */
       if (info.noisy())
 	tsubst_parameter_mapping (ATOMIC_CONSTR_MAP (t), args, info);
-      return cache.save (boolean_false_node);
+      return boolean_false_node;
     }
 
   /* Rebuild the argument vector from the parameter mapping.  */
@@ -2829,19 +2825,19 @@ satisfy_atom (tree t, tree args, subst_info info)
 	 is not satisfied. Replay the substitution.  */
       if (info.noisy ())
 	tsubst_expr (expr, args, info.complain, info.in_decl, false);
-      return cache.save (boolean_false_node);
+      return boolean_false_node;
     }
 
   /* [17.4.1.2] ... lvalue-to-rvalue conversion is performed as necessary,
      and EXPR shall be a constant expression of type bool.  */
   result = force_rvalue (result, info.complain);
   if (result == error_mark_node)
-    return cache.save (error_mark_node);
+    return error_mark_node;
   if (!same_type_p (TREE_TYPE (result), boolean_type_node))
     {
       if (info.noisy ())
 	diagnose_atomic_constraint (t, map, result, info);
-      return cache.save (error_mark_node);
+      return error_mark_node;
     }
 
   /* Compute the value of the constraint.  */
@@ -2858,7 +2854,24 @@ satisfy_atom (tree t, tree args, subst_info info)
   if (result == boolean_false_node && info.noisy ())
     diagnose_atomic_constraint (t, map, result, info);
 
-  return cache.save (result);
+  return result;
+}
+
+static tree
+satisfy_constraint_1 (tree t, tree args, subst_info info)
+{
+  switch (TREE_CODE (t))
+    {
+    case CONJ_CONSTR:
+      return satisfy_conjunction (t, args, info);
+    case DISJ_CONSTR:
+      return satisfy_disjunction (t, args, info);
+    case ATOMIC_CONSTR:
+      return satisfy_atom (t, args, info);
+    default:
+      break;
+    }
+  gcc_unreachable ();
 }
 
 /* Determine if the normalized constraint T is satisfied.
@@ -2878,17 +2891,11 @@ satisfy_constraint_r (tree t, tree args, subst_info info)
   if (t == error_mark_node)
     return error_mark_node;
 
-  switch (TREE_CODE (t))
-    {
-    case CONJ_CONSTR:
-      return satisfy_conjunction (t, args, info);
-    case DISJ_CONSTR:
-      return satisfy_disjunction (t, args, info);
-    case ATOMIC_CONSTR:
-      return satisfy_atom (t, args, info);
-    default:
-      gcc_unreachable ();
-    }
+  satisfaction_table cache (t, args, info.complain);
+  if (tree r = cache.get ())
+    return r;
+  tree sat = satisfy_constraint_1 (t, args, info);
+  return cache.save (sat);
 }
 
 /* Check that the normalized constraint T is satisfied for ARGS.  */
