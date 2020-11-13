@@ -204,8 +204,7 @@ struct clause
   }
 
   std::list<tree> m_terms; /* The list of terms.  */
-  /* The set of atomic constraints.  */
-  hash_set<tree, false, atomic_constraint_hasher> m_set;
+  hash_set<tree> m_set; /* The set of atomic constraints.  */
   iterator m_current; /* The current term.  */
 };
 
@@ -782,16 +781,16 @@ struct subsumption_hasher : ggc_ptr_hash<subsumption_entry>
   static hashval_t hash (subsumption_entry *e)
   {
     hashval_t val = 0;
-    val = iterative_hash_constraint (e->lhs, val);
-    val = iterative_hash_constraint (e->rhs, val);
+    val = iterative_hash_object (e->lhs, val);
+    val = iterative_hash_object (e->rhs, val);
     return val;
   }
 
   static bool equal (subsumption_entry *e1, subsumption_entry *e2)
   {
-    if (!constraints_equivalent_p (e1->lhs, e2->lhs))
+    if (e1->lhs != e2->lhs)
       return false;
-    if (!constraints_equivalent_p (e1->rhs, e2->rhs))
+    if (e1->rhs != e2->rhs)
       return false;
     return true;
   }
