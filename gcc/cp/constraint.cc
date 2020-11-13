@@ -45,6 +45,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "decl.h"
 #include "toplev.h"
 #include "type-utils.h"
+#include "print-tree.h"
 
 static tree satisfaction_value (tree t);
 
@@ -562,7 +563,7 @@ map_arguments (tree parms, tree args)
 /* Build the parameter mapping for EXPR using ARGS.  */
 
 static tree
-build_parameter_mapping (tree expr, tree args, tree decl)
+build_parameter_map (tree expr, tree args, tree decl)
 {
   tree ctx_parms = NULL_TREE;
   if (decl)
@@ -584,23 +585,209 @@ build_parameter_mapping (tree expr, tree args, tree decl)
   return map;
 }
 
+/* Accumulate the hash value for a parameter MAP.  */
+
+static hashval_t
+iterative_hash_parameter_map (tree map, hashval_t val)
+{
+  /* Hash the targets of the parameter map.  */
+  while (map)
+    {
+      val = iterative_hash_template_arg (TREE_VALUE (map), val);
+      val = iterative_hash_template_arg (TREE_PURPOSE (map), val);
+      map = TREE_CHAIN (map);
+    }
+  return val;
+}
+
+/* Hash the parameter MAP.  */
+
+static hashval_t
+hash_parameter_map (tree map)
+{
+  return iterative_hash_parameter_map (map, 0);
+}
+
 /* True if the parameter mappings of two atomic constraints are equivalent.  */
 
 static bool
-parameter_mapping_equivalent_p (tree t1, tree t2)
+equivalent_parameter_maps_p (tree map1, tree map2)
 {
-  tree map1 = ATOMIC_CONSTR_MAP (t1);
-  tree map2 = ATOMIC_CONSTR_MAP (t2);
   while (map1 && map2)
     {
-      tree arg1 = TREE_PURPOSE (map1);
-      tree arg2 = TREE_PURPOSE (map2);
-      if (!template_args_equal (arg1, arg2))
-        return false;
+      if (!cp_tree_equal (TREE_VALUE (map1), TREE_VALUE (map2)))
+	return false;
+      if (!template_args_equal (TREE_PURPOSE (map1), TREE_PURPOSE (map2)))
+	return false;
       map1 = TREE_CHAIN (map1);
       map2 = TREE_CHAIN (map2);
     }
+  return (bool)map1 == (bool)map2;
+}
+
+/* 17.4.1.2p2. Two constraints are identical if they are formed
+   from the same expression and the targets of the parameter mapping
+   are equivalent.  */
+
+bool
+atomic_constraints_identical_p (tree t1, tree t2)
+{
+  gcc_assert (TREE_CODE (t1) == ATOMIC_CONSTR);
+  gcc_assert (TREE_CODE (t2) == ATOMIC_CONSTR);
+  if (ATOMIC_CONSTR_EXPR (t1) != ATOMIC_CONSTR_EXPR (t2))
+    return false;
+  if (ATOMIC_CONSTR_MAP (t1) != ATOMIC_CONSTR_MAP (t2))
+    return false;
   return true;
+}
+
+/* Compute the hash value for T.  */
+
+hashval_t
+hash_atomic_constraint (tree t)
+{
+  gcc_assert (TREE_CODE (t) == ATOMIC_CONSTR);
+  hashval_t val = htab_hash_pointer (ATOMIC_CONSTR_EXPR (t));
+  val = iterative_hash_object (ATOMIC_CONSTR_MAP (t), val);
+  return val;
+}
+
+/* Compute the hash value for T.  */
+
+hashval_t
+hash_logical_operation (tree t)
+{
+  gcc_assert (TREE_CODE (t) == CONJ_CONSTR || TREE_CODE (t) == DISJ_CONSTR);
+  tree_code c = TREE_CODE (t);
+  hashval_t val = iterative_hash_object (c, 0);
+  val = iterative_hash_object (TREE_OPERAND (t, 0), val);
+  val = iterative_hash_object (TREE_OPERAND (t, 1), val);
+  return val;
+}
+
+/* Returns true if T1 and T2 are the same logical operation. */
+
+bool same_logical_operations_p (tree t1, tree t2)
+{
+  if (TREE_CODE (t1) != TREE_CODE (t2))
+    return false;
+  if (TREE_OPERAND (t1, 0) != TREE_OPERAND (t2, 0))
+    return false;
+  if (TREE_OPERAND (t1, 1) != TREE_OPERAND (t2, 1))
+    return false;
+  return true;
+}
+
+struct parameter_map_hasher : ggc_ptr_hash<tree_node>
+{
+  static hashval_t hash (tree t)
+  {
+    return hash_parameter_map (t);
+  }
+
+  static bool equal (tree t1, tree t2)
+  {
+    return equivalent_parameter_maps_p (t1, t2);
+  }
+};
+
+struct atomic_constraint_hasher : ggc_ptr_hash<tree_node>
+{
+  static hashval_t hash (tree t)
+  {
+    return hash_atomic_constraint (t);
+  }
+
+  static bool equal (tree t1, tree t2)
+  {
+    return atomic_constraints_identical_p (t1, t2);
+  }
+};
+
+struct logical_operation_hasher : ggc_ptr_hash<tree_node>
+{
+  static hashval_t hash (tree t)
+  {
+    return hash_logical_operation (t);
+  }
+
+  static bool equal (tree t1, tree t2)
+  {
+    return same_logical_operations_p (t1, t2);
+  }
+};
+
+/* Canonicalized constraints. All identical atomic constraints have
+   the same identity (pointer value).  */
+
+static GTY((deletable)) hash_table<parameter_map_hasher>
+  *canonical_parameter_maps;
+
+static GTY((deletable)) hash_table<atomic_constraint_hasher>
+  *canonical_atomic_constraints;
+
+static GTY((deletable)) hash_table<logical_operation_hasher>
+  *canonical_logical_operations;
+
+static tree
+build_canonical_parameter_map (tree expr, tree args, tree decl)
+{
+  /* Lazily allocate the constraint cache.  */
+  if (!canonical_parameter_maps)
+    canonical_parameter_maps =
+      hash_table<parameter_map_hasher>::create_ggc (31);
+
+  /* Find or insert the parameter map.  */
+  tree map = build_parameter_map (expr, args, decl);
+  hashval_t hash = hash_parameter_map (map);
+  tree* found =
+    canonical_parameter_maps->find_slot_with_hash (map, hash, INSERT);
+  if (!*found)
+    *found = map;
+  else
+    ggc_free (map);
+  return *found;
+}
+
+static tree
+build_canonical_atomic_constraint (tree t, tree map)
+{
+  /* Lazily allocate the constraint cache.  */
+  if (!canonical_atomic_constraints)
+    canonical_atomic_constraints =
+      hash_table<atomic_constraint_hasher>::create_ggc (31);
+
+  /* Find or insert the constraint.  */
+  tree info = build_tree_list (t, NULL_TREE);
+  tree constr = build1 (ATOMIC_CONSTR, info, map);
+  hashval_t hash = hash_atomic_constraint (constr);
+  tree* found =
+    canonical_atomic_constraints->find_slot_with_hash (constr, hash, INSERT);
+  if (!*found)
+    *found = constr;
+  else
+    ggc_free (constr);
+  return *found;
+}
+
+static tree
+build_canonical_logical_operator (tree_code c, tree t1, tree t2)
+{
+  /* Lazily allocate the constraint cache.  */
+  if (!canonical_logical_operations)
+    canonical_logical_operations =
+      hash_table<logical_operation_hasher>::create_ggc (31);
+
+  /* Find or insert the constraint.  */
+  tree constr = build2 (c, NULL_TREE, t1, t2);
+  hashval_t hash = hash_logical_operation (constr);
+  tree* found =
+    canonical_logical_operations->find_slot_with_hash (constr, hash, INSERT);
+  if (!*found)
+    *found = constr;
+  else
+    ggc_free (constr);
+  return *found;
 }
 
 /* Provides additional context for normalization.  */
@@ -635,7 +822,7 @@ struct norm_info : subst_info
   {
     if (generate_diagnostics ())
       {
-	tree map = build_parameter_mapping (expr, args, in_decl);
+	tree map = build_parameter_map (expr, args, in_decl);
 	context = tree_cons (map, expr, context);
       }
     in_decl = get_concept_check_template (expr);
@@ -660,12 +847,15 @@ normalize_logical_operation (tree t, tree args, tree_code c, norm_info info)
   tree t0 = normalize_expression (TREE_OPERAND (t, 0), args, info);
   tree t1 = normalize_expression (TREE_OPERAND (t, 1), args, info);
 
-  /* Build a new info object for the constraint.  */
-  tree ci = info.generate_diagnostics()
-    ? build_tree_list (t, info.context)
-    : NULL_TREE;
+  /* When building diagnostics, don't canonicalize the tree.  */
+  if (info.generate_diagnostics())
+    {
+      tree ci = build_tree_list (t, info.context);
+      return build2 (c, ci, t0, t1);
+    }
 
-  return build2 (c, ci, t0, t1);
+  /* Build a canonical operation.  */
+  return build_canonical_logical_operator (c, t0, t1);
 }
 
 static tree
@@ -723,13 +913,17 @@ normalize_atom (tree t, tree args, norm_info info)
   if (concept_check_p (t))
     return normalize_concept_check (t, args, info);
 
-  /* Build the parameter mapping for the atom.  */
-  tree map = build_parameter_mapping (t, args, info.in_decl);
+  /* Build a canonical parameter mapping for the atom.  */
+  tree map = build_canonical_parameter_map (t, args, info.in_decl);
 
-  /* Build a new info object for the atom.  */
-  tree ci = build_tree_list (t, info.context);
+  /* Don't generate canonical constraints for diagnostics. */
+  if (info.generate_diagnostics ())
+    {
+      tree ci = build_tree_list (t, info.context);
+      return build1 (ATOMIC_CONSTR, ci, map);
+    }
 
-  return build1 (ATOMIC_CONSTR, ci, map);
+  return build_canonical_atomic_constraint (t, map);
 }
 
 /* Returns the normal form of an expression. */
@@ -904,24 +1098,6 @@ normalize_constraint_expression (tree expr, bool diag)
   return norm;
 }
 
-/* 17.4.1.2p2. Two constraints are identical if they are formed
-   from the same expression and the targets of the parameter mapping
-   are equivalent.  */
-
-bool
-atomic_constraints_identical_p (tree t1, tree t2)
-{
-  gcc_assert (TREE_CODE (t1) == ATOMIC_CONSTR);
-  gcc_assert (TREE_CODE (t2) == ATOMIC_CONSTR);
-
-  if (ATOMIC_CONSTR_EXPR (t1) != ATOMIC_CONSTR_EXPR (t2))
-    return false;
-
-  if (!parameter_mapping_equivalent_p (t1, t2))
-    return false;
-
-  return true;
-}
 
 /* True if T1 and T2 are equivalent, meaning they have the same syntactic
    structure and all corresponding constraints are identical.  */
@@ -954,27 +1130,6 @@ constraints_equivalent_p (tree t1, tree t2)
   return true;
 }
 
-/* Compute the hash value for T.  */
-
-hashval_t
-hash_atomic_constraint (tree t)
-{
-  gcc_assert (TREE_CODE (t) == ATOMIC_CONSTR);
-
-  /* Hash the identity of the expression.  */
-  hashval_t val = htab_hash_pointer (ATOMIC_CONSTR_EXPR (t));
-
-  /* Hash the targets of the parameter map.  */
-  tree p = ATOMIC_CONSTR_MAP (t);
-  while (p)
-    {
-      val = iterative_hash_template_arg (TREE_PURPOSE (p), val);
-      p = TREE_CHAIN (p);
-    }
-
-  return val;
-}
-
 namespace inchash
 {
 
@@ -999,7 +1154,11 @@ add_constraint (tree t, hash& h)
 
 }
 
-/* Computes a hash code for the constraint T.  */
+/* Computes a hash code for the constraint T. This is used to hash pairs
+   of constraints in the subsumption cache.
+
+   FIXME: This should not need to be recursive after canonicalizing atomic
+   constraints.  */
 
 hashval_t
 iterative_hash_constraint (tree t, hashval_t val)
