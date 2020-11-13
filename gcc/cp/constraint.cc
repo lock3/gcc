@@ -832,6 +832,63 @@ normalize_atom (tree t, tree args, norm_info info)
   return build_canonical_atomic_constraint (t, map, info);
 }
 
+struct GTY((for_user)) normalization_entry
+{
+  tree expr;
+  tree args;
+  tree constr;
+};
+
+struct normalization_hasher : ggc_ptr_hash<normalization_entry>
+{
+  static hashval_t hash (normalization_entry* e)
+  {
+    hashval_t val = 0;
+    iterative_hash_object (e->expr, val);
+    iterative_hash_template_arg (e->args, val);
+    return val;
+  }
+
+  static bool equal (normalization_entry* e1, normalization_entry* e2)
+  {
+    if (e1->expr != e2->expr)
+      return false;
+    if (!comp_template_args (e1->args, e2->args))
+      return false;
+    return true;
+  }
+};
+
+/* Maps an expression/argument list to its normalized constraint.  */
+
+static GTY((deletable)) hash_table<normalization_hasher>
+  *normalization_table;
+
+static tree
+lookup_normalization (tree expr, tree args)
+{
+  if (!normalization_table)
+    return NULL_TREE;
+  normalization_entry elt = { expr, args, NULL_TREE };
+  normalization_entry* found = normalization_table->find (&elt);
+  if (found)
+    return found->constr;
+  else
+    return NULL_TREE;
+}
+
+static void
+memoize_normalization (tree expr, tree args, tree constr)
+{
+  if (!normalization_table)
+    normalization_table = hash_table<normalization_hasher>::create_ggc (31);
+  normalization_entry elt = {expr, args, constr};
+  normalization_entry** slot = normalization_table->find_slot (&elt, INSERT);
+  normalization_entry* entry = ggc_alloc<normalization_entry> ();
+  *entry = elt;
+  *slot = entry;
+}
+
 static tree
 normalize_expression_1 (tree t, tree args, norm_info info)
 {
@@ -858,7 +915,16 @@ normalize_expression (tree t, tree args, norm_info info)
   if (t == error_mark_node)
     return error_mark_node;
 
+  /* Check that we haven't previously normalized the constraint.  */
+  if (!info.generate_diagnostics ())
+    if (tree c = lookup_normalization (t, args))
+      return c;
+
   tree r = normalize_expression_1 (t, args, info);
+
+  /* Memoize the freshly computed constraint.  */
+  if (!info.generate_diagnostics ())
+    memoize_normalization (t, args, r);
 
   return r;
 }
