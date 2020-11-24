@@ -2502,39 +2502,21 @@ clear_satisfaction_cache ()
 */     
 }
 
-/* Calls CB for each entry in the decl satisfaction cache when DECL_P is true 
-   or the atomic satisfaction cache otherwise.  */
+/* Calls CB for each entry in the atomic constraint satisfaction cache.  */
 
 void
-walk_satisfaction_cache (bool decl_p,
-                       bool (*cb) (bool, tree, tree, tree, void *), void *ctx)
+walk_atom_cache (bool (*cb) (tree, tree, tree, void *), void *ctx)
 {
-  if (decl_p)
-    {
-      if (!decl_satisfied_cache)
-        return;
+  if (!sat_cache)
+    return;
 
-      hash_map<tree, tree>::iterator end = decl_satisfied_cache->end ();
-      for (hash_map<tree, tree>::iterator i = decl_satisfied_cache->begin ();
-           i != end; ++i)
-        {
-          if (!cb (decl_p, (*i).first, NULL, (*i).second, ctx))
-            return;
-        }
-    }
-  else
+  hash_table<sat_hasher>::iterator end = sat_cache->end ();
+  for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end; ++i)
     {
-      if (!sat_cache)
+      // FIXME: pass sat_entry rather than trees
+      sat_entry *e = *i;
+      if (!cb (e->constr, e->args, e->result, ctx))
         return;
-
-      hash_table<sat_hasher>::iterator end = sat_cache->end ();
-      for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end;
-           ++i)
-        {
-          sat_entry *e = *i;
-          if (!cb (decl_p, e->constr, e->args, e->result, ctx))
-            return;
-        }
     }
 }
 

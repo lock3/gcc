@@ -8329,9 +8329,7 @@ extern hashval_t iterative_hash_constraint      (tree, hashval_t);
 extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
-extern void walk_satisfaction_cache               (bool, 
-                                                 bool (*) (bool, 
-                                                           tree, 
+extern void walk_atom_cache                     (bool (*) (tree, 
                                                            tree, 
                                                            tree, 
                                                            void *), 

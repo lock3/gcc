@@ -2257,6 +2257,7 @@ public:
     EK_DECL,		/* A decl.  */
     EK_SPECIALIZATION,  /* A specialization.  */
     EK_PARTIAL,		/* A partial specialization.  */
+    EK_ATOM,            /* An atomic constraint. */
     EK_USING,		/* A using declaration (at namespace scope).  */
     EK_NAMESPACE,	/* A namespace.  */
     EK_REDIRECT,	/* Redirect to a template_decl.  */
@@ -2352,6 +2353,7 @@ public:
       return EK_BINDING;
     return entity_kind ((discriminator >> DB_KIND_BIT) & ((1u << EK_BITS) - 1));
   }
+  static const char *entity_kind_name (entity_kind kind);
   const char *entity_kind_name () const;
 
 public:
@@ -2548,6 +2550,7 @@ public:
     bool add_namespace_entities (tree ns, bitmap partitions);
     void add_specializations (bool decl_p);
     void add_partial_entities (vec<tree, va_gc> *);
+    void add_atoms ();
     void add_class_entities (vec<tree, va_gc> *);
 
   public:    
@@ -2592,16 +2595,21 @@ depset::~depset ()
   deps.release ();
 }
 
-const char *
-depset::entity_kind_name () const
+const char *depset::entity_kind_name (entity_kind kind)
 {
   /* Same order as entity_kind.  */
   static const char *const names[] = 
-    {"decl", "specialization", "partial", "using",
+    {"decl", "specialization", "partial", "atom", "using",
      "namespace", "redirect", "binding"};
   entity_kind kind = get_entity_kind ();
   gcc_checking_assert (kind < sizeof (names) / sizeof(names[0]));
   return names[kind];
+}
+
+const char *
+depset::entity_kind_name () const
+{
+  return entity_kind_name (get_entity_kind ());
 }
 
 /* Create a depset for a namespace binding NS::NAME.  */
@@ -3038,14 +3046,7 @@ private:
   tree tpl_parm_value ();
 
 private:
-  // FIXME: don't need this anymore
-  struct constraint_cache_info
-  {
-    cache_kind flags;
-    tree constr;
-  };
-  void decl_constraints (tree decl, constraint_cache_info *cci);
-  void update_constraints (tree decl, constraint_cache_info *cci);
+  void decl_constraints (tree decl, cache_kind flags, tree *constr, tree *norm);
 
 private:
   tree chained_decls ();  /* Follow DECL_CHAIN.  */
@@ -8140,9 +8141,8 @@ trees_in::decl_value ()
 	       || (stub_decl && !tree_node_vals (stub_decl))))
     goto bail;
 
-  constraint_cache_info cci;
-  cci.flags = (cache_kind)state->get_cache_kind ();
-  decl_constraints (decl, &cci);
+  tree constr, norm;
+  decl_constraints (decl, (cache_kind)state->get_cache_kind (), &constr, &norm);
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
 
@@ -8209,8 +8209,13 @@ trees_in::decl_value ()
 	    }
 	}
 
-      update_constraints (decl, &cci);
-
+      if (constr)
+        {
+          set_constraints (decl, constr);
+          if (norm)
+            set_normalized_constraints (decl, norm);
+        }
+ 
       if (TREE_CODE (decl) == INTEGER_CST && !TREE_OVERFLOW (decl))
 	{
 	  decl = cache_integer_cst (decl, true);
@@ -8347,9 +8352,6 @@ trees_out::decl_constraints (tree decl)
         }
     }
 
-  sat_cache_out_context ctx;
-  ctx.out = this;
-
   // For these three modes of serialization, the normalized constraints must be
   // known. Let's precompute that here.
   tree norm = NULL_TREE;
@@ -8394,41 +8396,21 @@ save_constraint_satisfactions (tree t, void *p)
 }
 
 void
-trees_in::decl_constraints (tree decl, constraint_cache_info *cci)
+trees_in::decl_constraints (tree decl, cache_kind flags, tree *constr, tree *norm)
 {
-  cci->constr = NULL_TREE;
-  cci->norm = NULL_TREE;
-  cci->decl_results = NULL_TREE;
-
-  cci->constr = tree_node ();
-  if (!cci->constr)
+  *constr = tree_node ();
+  *norm = NULL_TREE;
+  if (!*constr)
     return;
 
   dump (dumper::TREE) && dump ("Read constraint info for %N", decl);
 
-  if (cci->flags && dump (dumper::TREE))
-    dump.indent ();
-
-  if (cci->flags & CK_normalizations)
+  if (flags & CK_normalizations)
     {
-      cci->norm = tree_node ();
-      dump(dumper::TREE) && dump ("Read normalized constraint for %N", decl);
+      *norm = tree_node ();
+      if (norm)
+        dump(dumper::TREE) && dump ("Read normalized constraint for %N", decl);
     }
-
-  if (cci->flags && dump (dumper::TREE))
-    dump.outdent ();
-}
-
-void
-trees_in::update_constraints (tree decl, constraint_cache_info *cci)
-{
-  if (!cci->constr)
-    return;
-
-  set_constraints (decl, cci->constr);
-
-  if (cci->norm)
-    set_normalized_constraints (decl, cci->norm);
 }
 
 /* DECL is an unnameable member of CTX.  Return a suitable identifying
@@ -13309,6 +13291,45 @@ depset::hash::add_specializations (bool decl_p)
 	  if (is_friend)
 	    dep->set_flag_bit<DB_FRIEND_SPEC_BIT> ();
 	}
+    }
+  data.release ();
+}
+
+// TY: use sat_entry
+// FIXME: args will be canonicalized.
+struct atom_entry 
+{
+  tree constr;
+  tree args;
+  tree result;
+};
+
+static bool atom_add(tree constr, tree args, tree result, void *ctx)
+{
+ vec<atom_entry *> *data =  (vec<atom_entry *> *)ctx;
+ atom_entry *entry = new atom_entry;
+ entry->constr = constr;
+ entry->args = args;
+ entry->result = result;
+ data->safe_push(entry);
+ return true;
+}
+// TY: how do we compare these?
+static int atom_cmp (const void *p1, const void *p2)
+{
+  return 0;
+}
+
+void depset::hash::add_atoms ()
+{
+  vec<atom_entry *> data;
+  data.create (100);
+  walk_atom_cache (atom_add, &data);
+  //data.qsort (atom_cmp);
+  while (data.length ())
+    {
+      atom_entry *entry = data.pop ();
+      depset *dep = make_dependency (entry->constr, depset::EK_ATOM);
     }
   data.release ();
 }
