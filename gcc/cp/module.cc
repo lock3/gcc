@@ -2542,6 +2542,7 @@ public:
     void add_mergeable (depset *);
     depset *add_dependency (tree decl, entity_kind);
     void add_namespace_context (depset *, tree ns);
+    void add_atom (depset *);
 
   private:
     static bool add_binding_entity (tree, WMB_Flags, void *);
@@ -12730,7 +12731,7 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 				   && !(*eslot)->deps.length ());
 	}
 
-      if (ek != EK_USING
+      if (ek != EK_USING && ek != EK_ATOM 
 	  && DECL_LANG_SPECIFIC (decl)
 	  && DECL_MODULE_IMPORT_P (decl))
 	{
@@ -13295,7 +13296,6 @@ depset::hash::add_specializations (bool decl_p)
   data.release ();
 }
 
-// TY: use sat_entry
 // FIXME: args will be canonicalized.
 struct atom_entry 
 {
@@ -13314,7 +13314,7 @@ static bool atom_add(tree constr, tree args, tree result, void *ctx)
  data->safe_push(entry);
  return true;
 }
-// TY: how do we compare these?
+
 static int atom_cmp (const void *p1, const void *p2)
 {
   return 0;
@@ -13325,7 +13325,8 @@ void depset::hash::add_atoms ()
   vec<atom_entry *> data;
   data.create (100);
   walk_atom_cache (atom_add, &data);
-  //data.qsort (atom_cmp);
+  fprintf (stderr, "atomic constraints: %d\n", data.length ());
+  // data.qsort (atom_cmp);
   while (data.length ())
     {
       atom_entry *entry = data.pop ();
@@ -13389,8 +13390,10 @@ depset::hash::find_dependencies ()
 	      walker.begin ();
 	      if (current->get_entity_kind () == EK_USING)
 		walker.tree_node (OVL_FUNCTION (decl));
-	      else if (TREE_VISITED (decl))
-		/* A global tree.  */;
+              else if (current->get_entity_kind () == EK_ATOM)
+                walker.tree_node (decl); // TY: probably gotta store sat_entry in current.deps[0]
+              else if (TREE_VISITED (decl))
+                /* A global tree.  */;
 	      else if (TREE_CODE (decl) == NAMESPACE_DECL
 		       && !DECL_NAMESPACE_ALIAS (decl))
 		add_namespace_context (current, CP_DECL_CONTEXT (decl));
@@ -13737,6 +13740,7 @@ sort_cluster (depset::hash *original, depset *scc[], unsigned size)
 	case depset::EK_DECL:
 	case depset::EK_SPECIALIZATION:
 	case depset::EK_PARTIAL:
+        case depset::EK_ATOM: // TY - are these mergeable? they should be.
 	  table.add_mergeable (dep);
 	  ix++;
 	  break;
@@ -14798,7 +14802,12 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 		     b->has_defn () ? "definition" : "declaration",
 		     b->get_entity ());
 	  break;
-	}
+
+        case depset::EK_ATOM:
+          dump (dumper::CLUSTER)
+	    && dump ("[%u]=%s", ix, b->entity_kind_name ());
+          break;
+        }
     }
   dump (dumper::CLUSTER) && (dump.outdent (), true);
 
@@ -14915,7 +14924,11 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	  dump () && dump ("Wrote declaration entity:%u %C:%N",
 			   b->cluster, TREE_CODE (decl), decl);
 	  break;
-	}
+
+        case depset::EK_ATOM:
+          sec.tree_node (decl);
+          break;
+        }
     }
 
   depset *namer = NULL;
@@ -17807,6 +17820,7 @@ module_state::write (elf_out *to, cpp_reader *reader)
       table.add_partial_entities (partial_specializations);
       partial_specializations = NULL;
     }
+  table.add_atoms (); // TY
   table.add_namespace_entities (global_namespace, partitions);
   if (class_members)
     {
