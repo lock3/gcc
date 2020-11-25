@@ -3766,6 +3766,11 @@ public:
   bool read_pendings (unsigned count);
 
  private:
+  unsigned write_atoms (elf_out *to, vec<depset *> depsets, unsigned *crc_p);
+  bool read_atoms (unsigned num, unsigned lwm, unsigned hwm);
+  bool load_atoms (unsigned snum);
+
+private:
   void write_entities (elf_out *to, vec<depset *> depsets,
 		       unsigned count, unsigned *crc_ptr);
   bool read_entities (unsigned count, unsigned lwm, unsigned hwm);
@@ -14667,6 +14672,7 @@ enum module_state_counts
   MSC_macros,
   MSC_inits,
   MSC_restrict,
+  MSC_atoms,
   MSC_HWM
 };
 
@@ -14730,6 +14736,7 @@ enum cluster_tag {
   ct_decl,	/* A decl.  */
   ct_defn,	/* A definition.  */
   ct_bind,	/* A binding.  */
+  ct_atom,      /* An atomic constraint. */
   ct_hwm
 };
 
@@ -14926,6 +14933,7 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	  break;
 
         case depset::EK_ATOM:
+          sec.u (ct_atom);
           sec.tree_node (decl);
           break;
         }
@@ -15129,7 +15137,13 @@ module_state::read_cluster (unsigned snum)
 	    sec.read_definition (decl);
 	  }
 	  break;
-	}
+
+        case ct_atom:
+          tree decl = sec.tree_node ();
+          fprintf(stderr, "Read atomic constraint\n");
+          // TODO: update atom cache data.
+          break;
+        }
     }
 
   /* When lazy loading is in effect, we can be in the middle of
@@ -15429,6 +15443,93 @@ module_state::read_bindings (unsigned num, unsigned lwm, unsigned hwm)
   if (!sec.end (from ()))
     return false;
   return true;
+}
+
+/* Write the atomic constraint TABLE to MOD_SNAME_PFX.cache.
+   FIXME: we can write references to other cached items stored in 
+   unnamed sections here. */
+
+unsigned
+module_state::write_atoms (elf_out *to, vec<depset *> sccs, unsigned *crc_p)
+{
+  dump () && dump ("Writing atomic constraints table");
+  dump.indent ();
+
+  unsigned num = 0;
+  bytes_out sec (to);
+  sec.begin ();
+
+  for (unsigned ix = 0; ix != sccs.length (); ix++)
+    {
+      depset *b = sccs[ix];
+      if (b->get_entity_kind () == depset::EK_ATOM)
+	{
+	  tree ns = b->get_entity ();
+	  dump () && dump ("Atomic constraint section:%u", b->section);
+	  sec.u (b->section);
+	  num++;
+	}
+    }
+
+  sec.end (to, to->name (MOD_SNAME_PFX ".cache"), crc_p);
+  dump.outdent ();
+
+  return num;
+}
+
+bool
+module_state::read_atoms (unsigned num, unsigned lwm, unsigned hwm)
+{
+ bytes_in sec;
+
+  if (!sec.begin (loc, from (), MOD_SNAME_PFX ".cache"))
+    return false;
+
+  dump () && dump ("Reading atomic constraints table");
+  dump.indent ();
+  for (; !sec.get_overrun () && num--;)
+    {
+      unsigned snum = sec.u ();
+
+      if ((snum - lwm) >= (hwm - lwm))
+	sec.set_overrun ();
+      
+      if (!sec.get_overrun ())
+	{
+	  dump () && dump ("Atomic constraint section:%u", snum);
+          load_atoms(snum);
+	}
+    }
+
+  dump.outdent ();
+  if (!sec.end (from ()))
+    return false;
+  return true;
+}
+
+bool
+module_state::load_atoms (unsigned snum)
+{
+  if (from ()->get_error ())
+    return false;
+
+//  if (snum >= slurp->current)
+//    from ()->set_error (elf::E_BAD_LAZY);
+
+  // FIXME: does maybe_defrost cause loading to fail?
+  bool ok = maybe_defrost ();
+  if (ok)
+    {
+      unsigned old_current = slurp->current;
+      slurp->current = snum;
+      slurp->lru = 0;  /* Do not swap out.  */
+      slurp->remaining--;
+      ok = read_cluster (snum);
+      slurp->lru = ++lazy_lru;
+      slurp->current = old_current;
+    }
+ 
+  return ok;
 }
 
 /* Write the entity table to MOD_SNAME_PFX.ent
@@ -17978,6 +18079,8 @@ module_state::write (elf_out *to, cpp_reader *reader)
   if (counts[MSC_pendings])
     write_pendings (to, sccs, table, counts[MSC_pendings], &crc);
 
+  counts[MSC_atoms] = write_atoms (to, sccs, &crc);
+
   /* Write the import table.  */
   if (config.num_imports > 1)
     write_imports (to, &crc);
@@ -18216,6 +18319,11 @@ module_state::read_language (bool outermost)
 
   /* And unnamed.  */
   if (ok && counts[MSC_pendings] && !read_pendings (counts[MSC_pendings]))
+    ok = false;
+
+  if (ok
+      && !read_atoms (counts[MSC_atoms], counts[MSC_sec_lwm],
+                         counts[MSC_sec_hwm]))
     ok = false;
 
   if (ok)
