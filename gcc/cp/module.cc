@@ -32,7 +32,7 @@ along with GCC; see the file COPYING3.  If not see
    exception is the current TU, which always occupies slot zero (even
    when it is not a module).
 
-   Imported decls occupy an entity_ary, an array of mc_slots, indexed
+   Imported decls occupy an entity_ary, an array of binding_slots, indexed
    by importing module and index within that module.  A flat index is
    used, as each module reserves a contiguous range of indices.
    Initially each slot indicates the CMI section containing the
@@ -3700,9 +3700,9 @@ public:
 
  public:
   /* Read a section.  */
-  bool load_section (unsigned snum, mc_slot *mslot);
+  bool load_section (unsigned snum, binding_slot *mslot);
   /* Lazily read a section.  */
-  bool lazy_load (unsigned index, mc_slot *mslot);
+  bool lazy_load (unsigned index, binding_slot *mslot);
 
  public:
   /* Juggle a limited number of file numbers.  */
@@ -3997,7 +3997,7 @@ static entity_map_t *entity_map;
 /* Doesn't need GTYing, because any tree referenced here is also
    findable by, symbol table, specialization table, return type of
    reachable function.  */
-static vec<mc_slot, va_heap, vl_embed> *entity_ary;
+static vec<binding_slot, va_heap, vl_embed> *entity_ary;
 
 /* Members entities of imported classes that are defined in this TU.
    These are where the entity's context is not from the current TU.
@@ -5693,7 +5693,8 @@ trees_out::lang_decl_bools (tree t)
   WB (lang->u.base.var_declared_inline_p);
   WB (lang->u.base.dependent_init_p);
   WB (lang->u.base.module_purview_p);
-  WB (lang->u.base.attached_decls_p);
+  if (VAR_OR_FUNCTION_DECL_P (t))
+    WB (lang->u.base.module_pending_p);
   switch (lang->u.base.selector)
     {
     default:
@@ -5762,7 +5763,8 @@ trees_in::lang_decl_bools (tree t)
   RB (lang->u.base.var_declared_inline_p);
   RB (lang->u.base.dependent_init_p);
   RB (lang->u.base.module_purview_p);
-  RB (lang->u.base.attached_decls_p);
+  if (VAR_OR_FUNCTION_DECL_P (t))
+    RB (lang->u.base.module_pending_p);
   switch (lang->u.base.selector)
     {
     default:
@@ -5969,6 +5971,7 @@ trees_out::core_vals (tree t)
 
   if (CODE_CONTAINS_STRUCT (code, TS_TYPE_COMMON))
     {
+      /* The only types we write also have TYPE_NON_COMMON.  */
       gcc_checking_assert (CODE_CONTAINS_STRUCT (code, TS_TYPE_NON_COMMON));
 
       /* We only stream the main variant.  */
@@ -6031,7 +6034,9 @@ trees_out::core_vals (tree t)
       WT (t->decl_common.attributes);
       // FIXME: Does this introduce cross-decl links?  For instance
       // from instantiation to the template.  If so, we'll need more
-      // deduplication logic
+      // deduplication logic.  I think we'll need to walk the blocks
+      // of the owning function_decl's abstract origin in tandem, to
+      // generate the locating data needed?
       WT (t->decl_common.abstract_origin);
     }
 
@@ -6048,8 +6053,13 @@ trees_out::core_vals (tree t)
 	 things.  */
       if (!RECORD_OR_UNION_CODE_P (code) && code != ENUMERAL_TYPE)
 	{
-	  /* Don't write the cached values vector.  */
-	  WT (TYPE_CACHED_VALUES_P (t) ? NULL_TREE : t->type_non_common.values);
+	  // FIXME: These are from tpl_parm_value's 'type' writing.
+	  // Perhaps it should just be doing them directly?
+	  gcc_checking_assert (code == TEMPLATE_TYPE_PARM
+			       || code == TEMPLATE_TEMPLATE_PARM
+			       || code == BOUND_TEMPLATE_TEMPLATE_PARM);
+	  gcc_checking_assert (!TYPE_CACHED_VALUES_P (t));
+	  WT (t->type_non_common.values);
 	  WT (t->type_non_common.maxval);
 	  WT (t->type_non_common.minval);
 	}
@@ -6091,7 +6101,7 @@ trees_out::core_vals (tree t)
     case DEFERRED_PARSE:	/* Expanded upon completion of
 				   outermost class.  */
     case IDENTIFIER_NODE:	/* Streamed specially.  */
-    case MODULE_VECTOR:		/* Only in namespace-scope symbol
+    case BINDING_VECTOR:		/* Only in namespace-scope symbol
 				   table.  */
     case SSA_NAME:
     case TRANSLATION_UNIT_DECL: /* There is only one, it is a
@@ -6547,7 +6557,7 @@ trees_in::core_vals (tree t)
       if (!RECORD_OR_UNION_CODE_P (code) && code != ENUMERAL_TYPE)
 	{
 	  /* This is not clobbering TYPE_CACHED_VALUES, because this
-	     is a new type being read in, so there aren't any.  */
+	     is a type that doesn't have any.  */
 	  gcc_checking_assert (!TYPE_CACHED_VALUES_P (t));
 	  RT (t->type_non_common.values);
 	  RT (t->type_non_common.maxval);
@@ -6578,7 +6588,7 @@ trees_in::core_vals (tree t)
     case ARGUMENT_PACK_SELECT:
     case DEFERRED_PARSE:
     case IDENTIFIER_NODE:
-    case MODULE_VECTOR:
+    case BINDING_VECTOR:
     case SSA_NAME:
     case TRANSLATION_UNIT_DECL:
     case USERDEF_LITERAL:
@@ -7603,7 +7613,7 @@ trees_in::install_entity (tree decl)
 
   /* Insert the real decl into the entity ary.  */
   unsigned ident = state->entity_lwm + entity_index - 1;
-  mc_slot &elt = (*entity_ary)[ident];
+  binding_slot &elt = (*entity_ary)[ident];
 
   /* See module_state::read_pendings for how this got set.  */
   int pending = elt.get_lazy () & 3;
@@ -7857,7 +7867,10 @@ trees_out::decl_value (tree decl, depset *dep)
       install_entity (decl, dep);
     }
 
-  if (inner && DECL_LANG_SPECIFIC (inner) && DECL_ATTACHED_DECLS_P (inner)
+  if (inner
+      && VAR_OR_FUNCTION_DECL_P (inner)
+      && DECL_LANG_SPECIFIC (inner)
+      && DECL_MODULE_ATTACHMENTS_P (inner)
       && !is_key_order ())
     {
       /* Stream the attached entities.  */
@@ -8152,7 +8165,10 @@ trees_in::decl_value ()
   bool installed = install_entity (existing);
   bool is_new = existing == decl;
 
-  if (inner && DECL_LANG_SPECIFIC (inner) && DECL_ATTACHED_DECLS_P (inner))
+  if (inner
+      && VAR_OR_FUNCTION_DECL_P (inner)
+      && DECL_LANG_SPECIFIC (inner)
+      && DECL_MODULE_ATTACHMENTS_P (inner))
     {
       /* Read and maybe install the attached entities.  */
       attachset *set
@@ -10107,7 +10123,7 @@ trees_in::tree_node (bool is_use)
 	  set_overrun ();
 	if (!get_overrun ())
 	  {
-	    mc_slot *slot = &(*entity_ary)[from->entity_lwm + ident];
+	    binding_slot *slot = &(*entity_ary)[from->entity_lwm + ident];
 	    if (slot->is_lazy ())
 	      if (!from->lazy_load (ident, slot))
 		set_overrun ();
@@ -10649,7 +10665,7 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 		  = LAMBDA_EXPR_EXTRA_SCOPE (CLASSTYPE_LAMBDA_EXPR
 					     (TREE_TYPE (decl))))
 		if (TREE_CODE (scope) == VAR_DECL
-		    && DECL_ATTACHED_DECLS_P (scope))
+		    && DECL_MODULE_ATTACHMENTS_P (scope))
 		  {
 		    mk = MK_attached;
 		    break;
@@ -10716,8 +10732,17 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 tree
 trees_out::decl_container (tree decl)
 {
-  tree container = NULL_TREE;
+  int use_tpl;
+  tree tpl = NULL_TREE;
+  if (tree template_info = node_template_info (decl, use_tpl))
+    tpl = TI_TEMPLATE (template_info);
+  if (tpl == decl)
+    tpl = nullptr;
 
+  /* Stream the template we're instantiated from.  */
+  tree_node (tpl);
+
+  tree container = NULL_TREE;
   if (TREE_CODE (decl) == TEMPLATE_DECL
       && DECL_UNINSTANTIATED_TEMPLATE_FRIEND_P (decl))
     container = DECL_CHAIN (decl);
@@ -10727,22 +10752,20 @@ trees_out::decl_container (tree decl)
   if (TYPE_P (container))
     container = TYPE_NAME (container);
 
-  int use_tpl;
-  if (tree template_info = node_template_info (container, use_tpl))
-    if (!use_tpl)
-      container = TI_TEMPLATE (template_info);
-
   tree_node (container);
 
-  return STRIP_TEMPLATE (container);
+  return container;
 }
 
 tree
 trees_in::decl_container ()
 {
+  /* The maybe-template.  */
+  (void)tree_node ();
+
   tree container = tree_node ();
 
-  return STRIP_TEMPLATE (container);
+  return container;
 }
 
 /* Write out key information about a mergeable DEP.  Does not write
@@ -11250,7 +11273,8 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	    if (mk == MK_attached)
 	      {
 		if (DECL_LANG_SPECIFIC (name)
-		    && DECL_ATTACHED_DECLS_P (name))
+		    && VAR_OR_FUNCTION_DECL_P (name)
+		    && DECL_MODULE_ATTACHMENTS_P (name))
 		  if (attachset *set = attached_table->get (DECL_UID (name)))
 		    if (key.index < set->num)
 		      {
@@ -11281,9 +11305,9 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 		    /* Note that we now have duplicates to deal with in
 		       name lookup.  */
 		    if (is_mod)
-		      MODULE_VECTOR_PARTITION_DUPS_P (mvec) = true;
+		      BINDING_VECTOR_PARTITION_DUPS_P (mvec) = true;
 		    else
-		      MODULE_VECTOR_GLOBAL_DUPS_P (mvec) = true;
+		      BINDING_VECTOR_GLOBAL_DUPS_P (mvec) = true;
 		  }
 	      }
 	    break;
@@ -14039,7 +14063,7 @@ pendset_lazy_load (pendset *pendings, bool specializations_p)
       else
 	{
 	  module_state *module = import_entity_module (index);
-	  mc_slot *slot = &(*entity_ary)[index];
+	  binding_slot *slot = &(*entity_ary)[index];
 	  if (!slot->is_lazy ())
 	    dump () && dump ("Specialiation %M[%u] already loaded",
 			     module, index - module->entity_lwm);
@@ -15388,7 +15412,7 @@ module_state::read_namespace (bytes_in &sec)
 	  module_state *from = (*modules)[origin];
 	  if (ns_num < from->entity_num)
 	    {
-	      mc_slot &slot = (*entity_ary)[from->entity_lwm + ns_num];
+	      binding_slot &slot = (*entity_ary)[from->entity_lwm + ns_num];
 
 	      if (!slot.is_lazy ())
 		ns = slot;
@@ -15665,7 +15689,7 @@ module_state::read_entities (unsigned count, unsigned lwm, unsigned hwm)
       if (sec.get_overrun ())
 	break;
 
-      mc_slot slot;
+      binding_slot slot;
       slot.u.binding = NULL_TREE;
       if (snum)
 	slot.set_lazy (snum << 2);
@@ -15810,7 +15834,7 @@ module_state::read_pendings (unsigned count)
       if (pending_table->add (ns ? key_ident : ~key_ident,
 			      ent_index + entity_lwm))
 	{
-	  mc_slot &slot = (*entity_ary)[key_ident];
+	  binding_slot &slot = (*entity_ary)[key_ident];
 	  if (slot.is_lazy ())
 	    slot.or_lazy (ns ? 1 : 2);
 	  else
@@ -17961,7 +17985,7 @@ module_state::write (elf_out *to, cpp_reader *reader)
 	  if (CHECKING_P)
 	    for (unsigned jx = 0; jx != imp->entity_num; jx++)
 	      {
-		mc_slot *slot = &(*entity_ary)[imp->entity_lwm + jx];
+		binding_slot *slot = &(*entity_ary)[imp->entity_lwm + jx];
 		gcc_checking_assert (!slot->is_lazy ());
 	      }
 	}
@@ -18470,7 +18494,7 @@ module_state::maybe_defrost ()
    when reading back in.  */
 
 bool
-module_state::load_section (unsigned snum, mc_slot *mslot)
+module_state::load_section (unsigned snum, binding_slot *mslot)
 {
   if (from ()->get_error ())
     return false;
@@ -19058,7 +19082,7 @@ maybe_attach_decl (tree ctx, tree decl)
   if (attached_table->add (DECL_UID (ctx), decl))
     {
       retrofit_lang_decl (ctx);
-      DECL_ATTACHED_DECLS_P (ctx) = true;
+      DECL_MODULE_ATTACHMENTS_P (ctx) = true;
     }
 }
 
@@ -19220,7 +19244,7 @@ module_state::freeze_an_elf ()
 /* Load the lazy slot *MSLOT, INDEX'th slot of the module.  */
 
 bool
-module_state::lazy_load (unsigned index, mc_slot *mslot)
+module_state::lazy_load (unsigned index, binding_slot *mslot)
 {
   unsigned n = dump.push (this);
 
@@ -19242,7 +19266,7 @@ module_state::lazy_load (unsigned index, mc_slot *mslot)
    for diagnostics).  */
 
 void
-lazy_load_binding (unsigned mod, tree ns, tree id, mc_slot *mslot)
+lazy_load_binding (unsigned mod, tree ns, tree id, binding_slot *mslot)
 {
   int count = errorcount + warningcount;
 
@@ -19664,13 +19688,13 @@ maybe_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
   auto packet = mapper->IncludeTranslate (path, Cody::Flags::None, len);
   int xlate = false;
   if (packet.GetCode () == Cody::Client::PC_BOOL)
-    xlate = packet.GetInteger ();
+    xlate = -int (packet.GetInteger ());
   else if (packet.GetCode () == Cody::Client::PC_PATHNAME)
     {
       /* Record the CMI name for when we do the import.  */
       module_state *import = get_module (build_string (len, path));
       import->set_filename (packet);
-      xlate = true;
+      xlate = +1;
     }
   else
     {
@@ -19680,7 +19704,9 @@ maybe_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
     }
 
   bool note = false;
-  if (note_include_translate && xlate)
+  if (note_include_translate_yes && xlate > 1)
+    note = true;
+  else if (note_include_translate_no && xlate == 0)
     note = true;
   else if (note_includes)
     {
@@ -19706,7 +19732,7 @@ maybe_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
 		   : "Keeping include as include");
   dump.pop (0);
 
-  if (!xlate)
+  if (!(xlate > 0))
     return nullptr;
   
   /* Create the translation text.  */
@@ -20487,12 +20513,12 @@ hash_set<tree, true> *get_member_ids (tree scope)
       for (hash_table<named_decl_hash>::iterator it = bindings->begin ();
 	  it != bindings->end ();
 	  ++it)
-	{
-	  if (TREE_CODE (*it) == MODULE_VECTOR)
-	    member_ids->add (MODULE_VECTOR_NAME (*it));
-	  else
-	    member_ids->add (OVL_NAME (*it));
-	}
+      {
+	if (TREE_CODE (*it) == BINDING_VECTOR)
+	  member_ids->add (BINDING_VECTOR_NAME (*it));
+	else
+	  member_ids->add (OVL_NAME (*it));
+      }
     return member_ids;
   }
   gcc_assert (COMPLETE_TYPE_P (scope));

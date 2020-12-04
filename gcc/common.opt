@@ -218,7 +218,7 @@ unsigned int flag_sanitize
 
 ; What sanitizers should recover from errors
 Variable
-unsigned int flag_sanitize_recover = (SANITIZE_UNDEFINED | SANITIZE_UNDEFINED_NONDEFAULT | SANITIZE_KERNEL_ADDRESS) & ~(SANITIZE_UNREACHABLE | SANITIZE_RETURN)
+unsigned int flag_sanitize_recover = (SANITIZE_UNDEFINED | SANITIZE_UNDEFINED_NONDEFAULT | SANITIZE_KERNEL_ADDRESS | SANITIZE_KERNEL_HWADDRESS) & ~(SANITIZE_UNREACHABLE | SANITIZE_RETURN)
 
 ; What the coverage sanitizers should instrument
 Variable
@@ -3182,6 +3182,14 @@ gdwarf-
 Common Driver Joined UInteger Var(dwarf_version) Init(4) Negative(gstabs)
 Generate debug information in DWARF v2 (or later) format.
 
+gdwarf32
+Common Driver Var(dwarf_offset_size,4) Init(4) RejectNegative
+Use 32-bit DWARF format when emitting DWARF debug information.
+
+gdwarf64
+Common Driver Var(dwarf_offset_size,8) RejectNegative
+Use 64-bit DWARF format when emitting DWARF debug information.
+
 ggdb
 Common Driver JoinedOrMissing
 Generate debug information in default extended format.
@@ -3450,6 +3458,9 @@ Driver
 ; Documented for Go, but always accepted by driver.
 
 static-libasan
+Driver
+
+static-libhwasan
 Driver
 
 static-libtsan

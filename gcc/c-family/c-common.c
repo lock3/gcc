@@ -374,6 +374,7 @@ const struct c_common_resword c_common_reswords[] =
   { "__auto_type",	RID_AUTO_TYPE,	D_CONLY },
   { "__bases",          RID_BASES, D_CXXONLY },
   { "__builtin_addressof", RID_ADDRESSOF, D_CXXONLY },
+  { "__builtin_bit_cast", RID_BUILTIN_BIT_CAST, D_CXXONLY },
   { "__builtin_call_with_static_chain",
     RID_BUILTIN_CALL_WITH_STATIC_CHAIN, D_CONLY },
   { "__builtin_choose_expr", RID_CHOOSE_EXPR, D_CONLY },
@@ -6202,6 +6203,39 @@ check_builtin_function_arguments (location_t loc, vec<location_t> arg_loc,
 	    {
 	      error_at (ARG_LOCATION (2), "argument 3 in call to function "
 			"%qE has boolean type", fndecl);
+	      return false;
+	    }
+	  return true;
+	}
+      return false;
+
+    case BUILT_IN_CLEAR_PADDING:
+      if (builtin_function_validate_nargs (loc, fndecl, nargs, 1))
+	{
+	  if (!POINTER_TYPE_P (TREE_TYPE (args[0])))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function "
+			"%qE does not have pointer type", 1, fndecl);
+	      return false;
+	    }
+	  else if (!COMPLETE_TYPE_P (TREE_TYPE (TREE_TYPE (args[0]))))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function "
+			"%qE points to incomplete type", 1, fndecl);
+	      return false;
+	    }
+	  else if (TYPE_READONLY (TREE_TYPE (TREE_TYPE (args[0]))))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function %qE "
+			"has pointer to %qs type (%qT)", 1, fndecl, "const",
+			TREE_TYPE (args[0]));
+	      return false;
+	    }
+	  else if (TYPE_ATOMIC (TREE_TYPE (TREE_TYPE (args[0]))))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function %qE "
+			"has pointer to %qs type (%qT)", 1, fndecl,
+			"_Atomic", TREE_TYPE (args[0]));
 	      return false;
 	    }
 	  return true;

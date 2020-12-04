@@ -1,3 +1,124 @@
+2020-12-04  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 5a26d4a204c
+	c++: Revert dependent-array changes
+
+	Merge trunk 97eaf8c92f9
+	c++: Module API declarations
+
+2020-12-03  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 62fb1b9e0da
+	c++: Fix array type dependency [PR 98107]
+
+	c++tools/
+	* configure.ac: Need ACX_NONCANONICAL_TARGET
+	* configure: Rebuilt.
+
+	c++tools/
+	* Makefile.in (libexecdir): Fix typo.
+
+2020-12-02  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/
+	* doc/invoke.texi (C++ Modules): Add CMI section.
+
+	gcc/cp/
+	* cp-tree.h (DECL_MODULE_PURVIEW_P, DECL_MODULE_IMPORT_P)
+	(DECL_MODULE_ENTITY_P): New.
+	(DECL_MODULE_PENDING_SPECIALIZATIONS_P): New.
+	(DECL_MODULE_PENDING_MEMBERS_P): New.
+	(DECL_MODULE_ATTACHMENTS_P): New.
+	(DECL_MODULE_EXPORT_P): New.
+	(struct lang_decl_base): Shrink sel field.  Add new
+	module-specific fields.
+
+	gcc/cp/
+	* cp-tree.h (DECL_MODULE_PENDING_SPECIALIZATIONS_P)
+	(DECL_MODULE_PENDING_MEMBERS_P): Use same module_pending_p field.
+	(DECL_ATTACHED_DECLS_P): Rename to ...
+	(DECL_MODULE_ATTACHEMENTS_P): ... this.  Use module_pending_p
+	field.
+	(struct lang_decl_base): Replace module_pending_specializations_p,
+	module_pending_members_p, attached_decls_p fields with single
+	module_pending_p field.
+	* module.cc (trees_{in,out}::lang_decl_bools): Only stream
+	module_pending_p for vars & fns.
+	(trees_{in,out}::decl_value): Adjust DECL_MODULE_ATTACHMENTS_P
+	changes.
+	(trees_out::get_merge_kind): Likewise.
+	(trees_in::key_mergeable, maybe_attach_decl): Likewise.
+	* lex.c (cxx_dup_lang_specific_decl): Directly clear some module flags.
+
+	Merge trunk 05f7a2afe8f
+	C++ Module Binding Vector
+
+	Merge trunk 41676a36a04
+	C++ Module keywords
+
+	gcc/cp/
+	* name-lookup.h: Rename MODULE_VECTOR and associated structs &
+	macros to BINDING_VECTOR.
+	* cp-tree.h: Adjust.
+	* cp-tree.def: Adjust.
+	* decl.c: Adjust.
+	* module.cc: Adjust.
+	* name-lookup.c: Adjust.
+	* ptree.c: Adjust.
+	* decl.c: Adjust.
+
+	gcc/cp/
+	* cp-tree.h (struct tree_module_vec): Move to ...
+	* name-lookup.h (struct tree_module_vec): ... here.
+
+	gcc/cp/
+	* lex.c (struct token_coro): Rename to ...
+	(struct module_token_filter): ... here.  Adjust through out.
+
+2020-12-01  Nathan Sidwell  <nathan@acm.org>
+
+	libcody/
+	Update from upstream, removing deprecated functions.
+
+	Merge trunk 855bb43f6d0
+
+	Merge trunk eae68c434f2
+	testsuite: Adjust pruning
+
+	Merge trunk 83a1beee276
+	libstdc++: Add C++2a synchronization support
+
+	gcc/cp/
+	* module.cc (trees_{in,out}::decl_container): Stream template as
+	well as container.  Do not strip (no nudity!)
+	gcc/testsuite/
+	* g++.dg/modules/noexcept-1{.h,_[ab].[HC]}: New.
+
+2020-11-30  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/
+	* doc/invoke.texi: Updates from review.
+
+2020-11-24  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 89d9c634dc5
+
+2020-11-23  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* Make-lang.in: Don't depend VERSION on src dir.
+	* module.cc: Note some potential issues.
+
+	gcc/
+	* doc/invoke.texi (-flang-include-translate-not): Document.
+	gcc/cp/
+	* module.cc (maybe_translate_include): Add not-translate noting.
+	gcc/c-family/
+	* c.opt (flang-include-translate-not): New.
+
+	libcody/
+	Update from upstream, INCLUDE_TRANSLATE response meaning change
+
 2020-11-20  Nathan Sidwell  <nathan@acm.org>
 
 	gcc/

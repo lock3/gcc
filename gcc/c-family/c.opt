@@ -813,6 +813,16 @@ Wmisleading-indentation
 C C++ Common Var(warn_misleading_indentation) Warning LangEnabledBy(C C++,Wall)
 Warn when the indentation of the code does not reflect the block structure.
 
+Wmismatched-dealloc
+C ObjC C++ ObjC++ Var(warn_mismatched_alloc) Warning LangEnabledBy(C ObjC C++ ObjC++,Wall)
+Warn for deallocation calls with arguments returned from mismatched allocation
+functions.
+
+Wmismatched-new-delete
+C++ ObjC++ Var(warn_mismatched_new_delete) Warning LangEnabledBy(C ObjC C++ ObjC++,Wall)
+Warn for mismatches between calls to operator new or delete and the corrsponding
+call to the allocation or deallocation function.
+
 Wmismatched-tags
 C++ ObjC++ Var(warn_mismatched_tags) Warning
 Warn when a class is redeclared or referenced using a mismatched class-key.
@@ -1777,7 +1787,7 @@ Member functions defined within their class are inline in module purview.
 
 fmodule-only
 C++ ObjC RejectNegative Var(flag_module_only) Integer
-Only emit Binary Module Interface.
+Only emit Compiled Module Interface.
 
 fmodule-mapper=
 C++ ObjC++ Joined RejectNegative MissingArgError(missing mapper)
@@ -1796,8 +1806,12 @@ C++ ObjC++ Var(warn_imported_macros)
 Warn about macros that have conflicting header units definitions.
 
 flang-info-include-translate
-C++ Var(note_include_translate)
+C++ Var(note_include_translate_yes)
 Note #include directives translated to import declarations.
+
+flang-info-include-translate-not
+C++ Var(note_include_translate_no)
+Note #include directives not translated to import declarations, and not known to be textual.
 
 flang-info-include-translate=
 C++ Joined RejectNegative MissingArgError(missing header name)

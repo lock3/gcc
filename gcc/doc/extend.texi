@@ -3233,20 +3233,63 @@ this reason the attribute is not allowed on types to annotate indirect
 calls.
 
 @item malloc
+@item malloc (@var{deallocator})
+@item malloc (@var{deallocator}, @var{ptr-index})
 @cindex @code{malloc} function attribute
 @cindex functions that behave like malloc
-This tells the compiler that a function is @code{malloc}-like, i.e.,
-that the pointer @var{P} returned by the function cannot alias any
+Attribute @code{malloc} indicates that a function is @code{malloc}-like,
+i.e., that the pointer @var{P} returned by the function cannot alias any
 other pointer valid when the function returns, and moreover no
 pointers to valid objects occur in any storage addressed by @var{P}.
 
-Using this attribute can improve optimization.  Compiler predicts
-that a function with the attribute returns non-null in most cases.
-Functions like
-@code{malloc} and @code{calloc} have this property because they return
-a pointer to uninitialized or zeroed-out storage.  However, functions
-like @code{realloc} do not have this property, as they can return a
-pointer to storage containing pointers.
+Independently, the form of the attribute with one or two arguments
+associates @code{deallocator} as a suitable deallocation function for
+pointers returned from the @code{malloc}-like function.  @var{ptr-index}
+denotes the positional argument to which when the pointer is passed in
+calls to @code{deallocator} has the effect of deallocating it.
+
+Using the attribute with no arguments is designed to improve optimization.
+The compiler predicts that a function with the attribute returns non-null
+in most cases.  Functions like @code{malloc} and @code{calloc} have this
+property because they return a pointer to uninitialized or zeroed-out
+storage.  However, functions like @code{realloc} do not have this property,
+as they may return pointers to storage containing pointers to existing
+objects.
+
+Associating a function with a @var{deallocator} helps detect calls to
+mismatched allocation and deallocation functions and diagnose them
+under the control of options such as @option{-Wmismatched-dealloc}.
+To indicate that an allocation function both satisifies the nonaliasing
+property and has a deallocator associated with it, both the plain form
+of the attribute and the one with the @var{deallocator} argument must
+be used.
+
+For example, besides stating that the functions return pointers that do
+not alias any others, the following declarations make the @code{fclose}
+and @code{frepen} functions suitable deallocators for pointers returned
+from all the functions that return them, and the @code{pclose} function
+as the only other suitable deallocator besides @code{freopen} for pointers
+returned from @code{popen}.  The deallocator functions must declared
+before they can be referenced in the attribute.
+
+@smallexample
+int   fclose (FILE*);
+FILE* freopen (const char*, const char*, FILE*);
+int   pclose (FILE*);
+
+__attribute__ ((malloc, malloc (fclose), malloc (freopen, 3)))
+  FILE* fdopen (int);
+__attribute__ ((malloc, malloc (fclose), malloc (freopen, 3)))
+  FILE* fopen (const char*, const char*);
+__attribute__ ((malloc, malloc (fclose), malloc (freopen, 3)))
+  FILE* fmemopen(void *, size_t, const char *);
+__attribute__ ((malloc, malloc (fclose), malloc (freopen, 3)))
+  FILE* freopen (const char*, const char*, FILE*);
+__attribute__ ((malloc, malloc (pclose), malloc (freopen, 3)))
+  FILE* popen (const char*, const char*);
+__attribute__ ((malloc, malloc (fclose), malloc (freopen, 3)))
+  FILE* tmpfile (void);
+@end smallexample
 
 @item no_icf
 @cindex @code{no_icf} function attribute
@@ -7426,9 +7469,23 @@ The @code{weak} attribute is described in
 @cindex @code{noinit} variable attribute
 Any data with the @code{noinit} attribute will not be initialized by
 the C runtime startup code, or the program loader.  Not initializing
-data in this way can reduce program startup times.  This attribute is
-specific to ELF targets and relies on the linker to place such data in
-the right location
+data in this way can reduce program startup times.
+
+This attribute is specific to ELF targets and relies on the linker
+script to place sections with the @code{.noinit} prefix in the right
+location.
+
+@item persistent
+@cindex @code{persistent} variable attribute
+Any data with the @code{persistent} attribute will not be initialized by
+the C runtime startup code, but will be initialized by the program
+loader.  This enables the value of the variable to @samp{persist}
+between processor resets.
+
+This attribute is specific to ELF targets and relies on the linker
+script to place the sections with the @code{.persistent} prefix in the
+right location.  Specifically, some type of non-volatile, writeable
+memory is required.
 
 @item objc_nullability (@var{nullability kind}) @r{(Objective-C and Objective-C++ only)}
 @cindex @code{objc_nullability} variable attribute
@@ -7849,23 +7906,6 @@ The @code{shared} attribute is only available on Microsoft Windows@.
 @subsection MSP430 Variable Attributes
 
 @table @code
-@item noinit
-@cindex @code{noinit} variable attribute, MSP430 
-Any data with the @code{noinit} attribute will not be initialised by
-the C runtime startup code, or the program loader.  Not initialising
-data in this way can reduce program startup times.
-
-@item persistent
-@cindex @code{persistent} variable attribute, MSP430 
-Any variable with the @code{persistent} attribute will not be
-initialised by the C runtime startup code.  Instead its value will be
-set once, when the application is loaded, and then never initialised
-again, even if the processor is reset or the program restarts.
-Persistent data is intended to be placed into FLASH RAM, where its
-value will be retained across resets.  The linker script being used to
-create the application should ensure that persistent data is correctly
-placed.
-
 @item upper
 @itemx either
 @cindex @code{upper} variable attribute, MSP430 
@@ -13575,6 +13615,21 @@ bits that are padding bits for all the union members.
 This built-in-function is useful if the padding bits of an object might
 have intederminate values and the object representation needs to be
 bitwise compared to some other object, for example for atomic operations.
+@end deftypefn
+
+@deftypefn {Built-in Function} @var{type} __builtin_bit_cast (@var{type}, @var{arg})
+The @code{__builtin_bit_cast} function is available only
+in C++.  The built-in is intended to be used by implementations of
+the @code{std::bit_cast} C++ template function.  Programs should make
+use of the latter function rather than invoking the built-in directly.
+
+This built-in function allows reinterpreting the bits of the @var{arg}
+argument as if it had type @var{type}.  @var{type} and the type of the
+@var{arg} argument need to be trivially copyable types with the same size.
+When manifestly constant-evaluated, it performs extra diagnostics required
+for @code{std::bit_cast} and returns a constant expression if @var{arg}
+is a constant expression.  For more details
+refer to the latest revision of the C++ standard.
 @end deftypefn
 
 @deftypefn {Built-in Function} long __builtin_expect (long @var{exp}, long @var{c})

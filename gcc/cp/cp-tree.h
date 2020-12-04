@@ -498,10 +498,9 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       CALL_EXPR_ORDERED_ARGS (in CALL_EXPR, AGGR_INIT_EXPR)
       DECLTYPE_FOR_REF_CAPTURE (in DECLTYPE_TYPE)
       CONSTRUCTOR_C99_COMPOUND_LITERAL (in CONSTRUCTOR)
-      DECL_MODULE_EXPORT_P (in _DECL)
       OVL_NESTED_P (in OVERLOAD)
       LAMBDA_EXPR_INSTANTIATED (in LAMBDA_EXPR)
-      Reserved for DECL_MODULE_EXPORT (in DECL_)
+      DECL_MODULE_EXPORT_P (in _DECL)
    4: IDENTIFIER_MARKED (IDENTIFIER_NODEs)
       TREE_HAS_CONSTRUCTOR (in INDIRECT_REF, SAVE_EXPR, CONSTRUCTOR,
 	  CALL_EXPR, or FIELD_DECL).
@@ -514,7 +513,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       FUNCTION_RVALUE_QUALIFIED (in FUNCTION_TYPE, METHOD_TYPE)
       CALL_EXPR_REVERSE_ARGS (in CALL_EXPR, AGGR_INIT_EXPR)
       CONSTRUCTOR_PLACEHOLDER_BOUNDARY (in CONSTRUCTOR)
-      OVL_EXPORT_P (in OVL_USING_P OVERLOAD)
+      OVL_EXPORT_P (in OVERLOAD)
       DECL_MODULE_ACCESS (in FIELD_DECL)
       contract_versioned (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    6: TYPE_MARKED_P (in _TYPE)
@@ -878,11 +877,6 @@ class ovl_iterator {
   {
     return TREE_CODE (ovl) == OVERLOAD && OVL_HIDDEN_P (ovl);
   }
-  void set_dedup ()
-  {
-    if (TREE_CODE (ovl) == OVERLOAD)
-      OVL_DEDUP_P (ovl) = true;
-  }
 
  public:
   tree remove_node (tree head)
@@ -973,84 +967,6 @@ struct named_decl_hash : ggc_remove <tree> {
   static void mark_deleted (value_type) { gcc_unreachable (); }
 };
 
-/* Bindings for modules are held in a sparse array.  There is always a
-   current TU slot, others are allocated as needed.  By construction
-   of the importing mechanism we only ever need to append to the
-   array.  Rather than have straight index/slot tuples, we bunch them
-   up for greater packing.
-
-   The cluster representation packs well on a 64-bit system.  */
-
-#define MODULE_VECTOR_SLOTS_PER_CLUSTER 2
-struct mc_index {
-  unsigned short base;
-  unsigned short span;
-};
-
-struct GTY(()) module_cluster
-{
-  mc_index GTY((skip)) indices[MODULE_VECTOR_SLOTS_PER_CLUSTER];
-  mc_slot slots[MODULE_VECTOR_SLOTS_PER_CLUSTER];
-};
-
-/* These two fields overlay lang flags.  So don't use those.  */
-#define MODULE_VECTOR_ALLOC_CLUSTERS(NODE) \
-  (MODULE_VECTOR_CHECK (NODE)->base.u.dependence_info.clique)
-#define MODULE_VECTOR_NUM_CLUSTERS(NODE) \
-  (MODULE_VECTOR_CHECK (NODE)->base.u.dependence_info.base)
-#define MODULE_VECTOR_CLUSTER_BASE(NODE) \
-  (((tree_module_vec *)MODULE_VECTOR_CHECK (NODE))->vec)
-#define MODULE_VECTOR_CLUSTER_LAST(NODE) \
-  (&MODULE_VECTOR_CLUSTER (NODE, MODULE_VECTOR_NUM_CLUSTERS (NODE) - 1))
-#define MODULE_VECTOR_CLUSTER(NODE,IX) \
-  (((tree_module_vec *)MODULE_VECTOR_CHECK (NODE))->vec[IX])
-
-struct GTY(()) tree_module_vec {
-  struct tree_base base;
-  tree name;
-  module_cluster GTY((length ("%h.base.u.dependence_info.base"))) vec[1];
-};
-
-/* The name of a module vector.  */
-#define MODULE_VECTOR_NAME(NODE) \
-  (((tree_module_vec *)MODULE_VECTOR_CHECK (NODE))->name)
-
-/* tree_module_vec does uses  base.u.dependence_info.base field for
-   length.  It does not have lang_flag etc available!  */
-
-/* These two flags note if a module-vector contains deduplicated
-   bindings (i.e. multiple declarations in different imports).  */
-/* This binding contains duplicate references to a global module
-   entity.  */
-#define MODULE_VECTOR_GLOBAL_DUPS_P(NODE) \
-  (MODULE_VECTOR_CHECK (NODE)->base.static_flag)
-/* This binding contains duplicate references to a partioned module
-   entity.  */
-#define MODULE_VECTOR_PARTITION_DUPS_P(NODE) \
-  (MODULE_VECTOR_CHECK (NODE)->base.volatile_flag)
-
-/* These two flags indicate the provenence of the bindings on this
-   particular vector slot.  We can of course determine this from slot
-   number, but that's a relatively expensive lookup.  This avoids
-   that when iterating.  */
-/* This slot is part of the global module (a header unit).  */
-#define MODULE_BINDING_GLOBAL_P(NODE) \
-  (OVERLOAD_CHECK (NODE)->base.static_flag)
-/* This slot is part of the current module (a partition or primary).  */
-#define MODULE_BINDING_PARTITION_P(NODE)		\
-  (OVERLOAD_CHECK (NODE)->base.volatile_flag)
-
-/* There are specializations of a template keyed to this binding.  */
-#define MODULE_VECTOR_PENDING_SPECIALIZATIONS_P(NODE) \
-  (MODULE_VECTOR_CHECK (NODE)->base.public_flag)
-/* The key is in a header unit (not a named module partition or
-   primary).  */
-#define MODULE_VECTOR_PENDING_IS_HEADER_P(NODE) \
-  (MODULE_VECTOR_CHECK (NODE)->base.protected_flag)
-/* The key is in a named module (primary or partition).  */
-#define MODULE_VECTOR_PENDING_IS_PARTITION_P(NODE) \
-  (MODULE_VECTOR_CHECK (NODE)->base.private_flag)
-
 /* Simplified unique_ptr clone to release a tree vec on exit.  */
 
 class releasing_vec
@@ -1072,8 +988,10 @@ public:
   operator vec_t *() const { return v; }
   vec_t ** operator& () { return &v; }
 
-  /* Breaks pointer/value consistency for convenience.  */
-  tree& operator[] (unsigned i) const { return (*v)[i]; }
+  /* Breaks pointer/value consistency for convenience.  This takes ptrdiff_t
+     rather than unsigned to avoid ambiguity with the built-in operator[]
+     (bootstrap/91828).  */
+  tree& operator[] (ptrdiff_t i) const { return (*v)[i]; }
 
   ~releasing_vec() { release_tree_vector (v); }
 private:
@@ -1860,26 +1778,24 @@ check_constraint_info (tree t)
 /* True if there are unloaded specializations keyed to this template.  */
 #define DECL_MODULE_PENDING_SPECIALIZATIONS_P(NODE)	\
   (DECL_LANG_SPECIFIC (TEMPLATE_DECL_CHECK (NODE))	\
-   ->u.base.module_pending_specializations_p)
+   ->u.base.module_pending_p)
 
 /* True if this class has unloaded members.  These should be loaded
-   before we do member lookups.  While this may be better on the
-   classtype, I think we can get this behaviour for enums too.  But
-   perhaps those need to be immediately loaded?  (Particularly if
-   unscoped).  */
+   before we do member lookups.   */
 #define DECL_MODULE_PENDING_MEMBERS_P(NODE)		\
   (DECL_LANG_SPECIFIC (TYPE_DECL_CHECK (NODE))		\
-   ->u.base.module_pending_members_p)
+   ->u.base.module_pending_p)
+
+/* DECL that has attached decls for ODR-relatedness.  */
+#define DECL_MODULE_ATTACHMENTS_P(NODE)			\
+  (DECL_LANG_SPECIFIC (TREE_CHECK2(NODE,FUNCTION_DECL,VAR_DECL))\
+   ->u.base.module_pending_p)
 
 /* Whether this is an exported DECL.  Held on any decl that can appear
    at namespace scope (function, var, type, template, const or
    namespace).  templates copy from their template_result, consts have
    it for unscoped enums.  */
 #define DECL_MODULE_EXPORT_P(NODE) TREE_LANG_FLAG_3 (NODE)
-
-/* DECL that has attached decls for ODR-relatedness.  */
-#define DECL_ATTACHED_DECLS_P(NODE)			\
-  (DECL_LANG_SPECIFIC (NODE)->u.base.attached_decls_p)
 
 /* Whether this field _DECL has module restricted access.  */
 #define DECL_MODULE_ACCESS(NODE) TREE_LANG_FLAG_5 (NODE)
@@ -1906,7 +1822,7 @@ enum cp_tree_node_structure_enum {
   TS_CP_TPI,
   TS_CP_PTRMEM,
   TS_CP_OVERLOAD,
-  TS_CP_MODULE_VECTOR,
+  TS_CP_BINDING_VECTOR,
   TS_CP_BASELINK,
   TS_CP_TEMPLATE_DECL,
   TS_CP_DEFERRED_PARSE,
@@ -1928,7 +1844,7 @@ union GTY((desc ("cp_tree_node_structure (&%h)"),
   struct template_parm_index GTY ((tag ("TS_CP_TPI"))) tpi;
   struct ptrmem_cst GTY ((tag ("TS_CP_PTRMEM"))) ptrmem;
   struct tree_overload GTY ((tag ("TS_CP_OVERLOAD"))) overload;
-  struct tree_module_vec GTY ((tag ("TS_CP_MODULE_VECTOR"))) module_vec;
+  struct tree_binding_vec GTY ((tag ("TS_CP_BINDING_VECTOR"))) binding_vec;
   struct tree_baselink GTY ((tag ("TS_CP_BASELINK"))) baselink;
   struct tree_template_decl GTY ((tag ("TS_CP_TEMPLATE_DECL"))) template_decl;
   struct tree_deferred_parse GTY ((tag ("TS_CP_DEFERRED_PARSE"))) deferred_parse;
@@ -2917,18 +2833,18 @@ struct GTY(()) lang_decl_base {
   unsigned var_declared_inline_p : 1;	   /* var */
   unsigned dependent_init_p : 1;	   /* var */
 
+  /* The following apply to VAR, FUNCTION, TYPE, CONCEPT, TEMPLATE,
+     NAMESPACE decls.  */
   unsigned module_purview_p : 1;	   /* in module purview (not GMF) */
   unsigned module_import_p : 1;     	   /* from an import */
   unsigned module_entity_p : 1;		   /* is in the entitity ary &
 					      hash.  */
-  /* Has specializations or members yet to load.  */
-  unsigned module_pending_specializations_p : 1;
-  unsigned module_pending_members_p : 1;
+  /* TEMPLATE_DECL has specializations or,
+     TYPE_DECL has class members yet to load, or
+     VAR_DECL or FUNCTION_DECL has attached decls.     */
+  unsigned module_pending_p : 1;
 
-  /* Is in the decl-attached hash table, (with attached decls).  */
-  unsigned attached_decls_p : 1;
-  
-  /* 10 spare bits.  */
+  /* 12 spare bits.  */
 };
 
 /* True for DECL codes which have template info and access.  */
@@ -3617,7 +3533,7 @@ struct GTY(()) lang_decl {
 
 /* 1 iff VAR_DECL node NODE is a type-info decl.  This flag is set for
    both the primary typeinfo object and the associated NTBS name.  */
-#define DECL_TINFO_P(NODE) \
+#define DECL_TINFO_P(NODE)			\
   TREE_LANG_FLAG_4 (TREE_CHECK2 (NODE,VAR_DECL,TYPE_DECL))
 
 /* 1 iff VAR_DECL node NODE is virtual table or VTT.  We forward to
@@ -7118,7 +7034,6 @@ extern bool maybe_add_lang_decl_raw		(tree, bool decomp_p);
 extern bool maybe_add_lang_type_raw		(tree);
 extern void retrofit_lang_decl			(tree);
 extern void fit_decomposition_lang_decl		(tree, tree);
-extern void fit_ptrmem_type_decl		(tree, tree);
 extern tree copy_decl				(tree CXX_MEM_STAT_INFO);
 extern tree copy_type				(tree CXX_MEM_STAT_INFO);
 extern tree cxx_make_type			(enum tree_code CXX_MEM_STAT_INFO);
@@ -7169,19 +7084,25 @@ extern tree implicitly_declare_fn               (special_function_kind, tree,
 class module_state; /* Forward declare.  */
 inline bool modules_p () { return flag_modules != 0; }
 
-#define MK_MODULE (1 << 0)     /* This TU is a module.  */
-#define MK_GLOBAL (1 << 1)     /* Entities are in the global module.  */
-#define MK_INTERFACE (1 << 2)  /* This TU is an interface.  */
-#define MK_PARTITION (1 << 3)  /* This TU is a partition.  */
-#define MK_EXPORTING (1 << 4)  /* We are in an export region.  */
+/* The kind of module or part thereof that we're in.  */
+enum module_kind_bits
+{
+  MK_MODULE = 1 << 0,     /* This TU is a module.  */
+  MK_GLOBAL = 1 << 1,     /* Entities are in the global module.  */
+  MK_INTERFACE = 1 << 2,  /* This TU is an interface.  */
+  MK_PARTITION = 1 << 3,  /* This TU is a partition.  */
+  MK_EXPORTING = 1 << 4,  /* We are in an export region.  */
+};
+
+/* We do lots of bit-manipulation, so an unsigned is easier.  */
 extern unsigned module_kind;
 
 /*  MK_MODULE & MK_GLOBAL have the following combined meanings:
  MODULE GLOBAL
-   0	  0    not a module
-   0      1    GMF of named module (we've not yet seen module-decl)
-   1      0    purview of named module
-   1      1    header unit.   */
+   0	  0	not a module
+   0	  1	GMF of named module (we've not yet seen module-decl)
+   1	  0	purview of named module
+   1	  1	header unit.   */
 
 inline bool module_purview_p ()
 { return module_kind & MK_MODULE; }
@@ -7232,7 +7153,8 @@ extern void maybe_attach_decl (tree ctx, tree decl);
 
 extern void mangle_module (int m, bool include_partition);
 extern void mangle_module_fini ();
-extern void lazy_load_binding (unsigned mod, tree ns, tree id, mc_slot *mslot);
+extern void lazy_load_binding (unsigned mod, tree ns, tree id,
+			       binding_slot *bslot);
 extern void lazy_load_specializations (tree tmpl);
 extern void lazy_load_members (tree decl);
 extern bool lazy_specializations_p (unsigned, bool, bool);
@@ -7823,6 +7745,8 @@ extern tree finish_builtin_launder		(location_t, tree,
 						 tsubst_flags_t);
 extern tree cp_build_vec_convert		(tree, location_t, tree,
 						 tsubst_flags_t);
+extern tree cp_build_bit_cast			(location_t, tree, tree,
+						 tsubst_flags_t);
 extern void start_lambda_scope			(tree);
 extern void record_lambda_scope			(tree);
 extern void record_null_lambda_scope		(tree);
@@ -7901,7 +7825,7 @@ extern tree hash_tree_cons			(tree, tree, tree);
 extern tree hash_tree_chain			(tree, tree);
 extern tree build_qualified_name		(tree, tree, tree, bool);
 extern tree build_ref_qualified_type		(tree, cp_ref_qualifier);
-extern tree make_module_vec			(tree, unsigned clusters);
+extern tree make_binding_vec			(tree, unsigned clusters);
 inline tree ovl_first				(tree) ATTRIBUTE_PURE;
 extern tree ovl_make				(tree fn,
 						 tree next = NULL_TREE);
@@ -7929,6 +7853,7 @@ extern tree bind_template_template_parm		(tree, tree);
 extern tree array_type_nelts_total		(tree);
 extern tree array_type_nelts_top		(tree);
 extern bool array_of_unknown_bound_p		(const_tree);
+extern bool source_location_current_p		(tree);
 extern tree break_out_target_exprs		(tree, bool = false);
 extern tree build_ctor_subob_ref		(tree, tree, tree);
 extern tree replace_placeholders		(tree, tree, bool * = NULL);
@@ -8487,7 +8412,7 @@ extern tree maybe_fold_non_dependent_expr	(tree,
 						 tsubst_flags_t = tf_warning_or_error);
 extern tree fold_non_dependent_init		(tree,
 						 tsubst_flags_t = tf_warning_or_error,
-						 bool = false);
+						 bool = false, tree = NULL_TREE);
 extern tree fold_simple				(tree);
 extern bool reduced_constant_expression_p       (tree);
 extern bool is_instantiation_of_constexpr       (tree);
@@ -8556,16 +8481,16 @@ type_unknown_p (const_tree expr)
 inline hashval_t
 named_decl_hash::hash (const value_type decl)
 {
-  tree name = (TREE_CODE (decl) == MODULE_VECTOR
-	       ? MODULE_VECTOR_NAME (decl) : OVL_NAME (decl));
+  tree name = (TREE_CODE (decl) == BINDING_VECTOR
+	       ? BINDING_VECTOR_NAME (decl) : OVL_NAME (decl));
   return name ? IDENTIFIER_HASH_VALUE (name) : 0;
 }
 
 inline bool
 named_decl_hash::equal (const value_type existing, compare_type candidate)
 {
-  tree name = (TREE_CODE (existing) == MODULE_VECTOR
-	       ? MODULE_VECTOR_NAME (existing) : OVL_NAME (existing));
+  tree name = (TREE_CODE (existing) == BINDING_VECTOR
+	       ? BINDING_VECTOR_NAME (existing) : OVL_NAME (existing));
   return candidate == name;
 }
 
