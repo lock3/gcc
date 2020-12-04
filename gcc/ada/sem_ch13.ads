@@ -25,6 +25,7 @@
 
 with Table;
 with Types; use Types;
+with Sem_Disp; use Sem_Disp;
 with Uintp; use Uintp;
 
 package Sem_Ch13 is
@@ -147,6 +148,11 @@ package Sem_Ch13 is
    --  used to verify the structure of the aspect, and resolve and expand an
    --  aggregate for a container type that carries the aspect.
 
+   function Parse_Aspect_Stable_Properties
+     (Aspect_Spec : Node_Id; Negated : out Boolean) return Subprogram_List;
+   --  Utility to unpack the subprograms in a Stable_Properties list;
+   --  in the case of the aspect of a type, Negated will always be False.
+
    function Rep_Item_Too_Early (T : Entity_Id; N : Node_Id) return Boolean;
    --  Called at start of processing a representation clause/pragma. Used to
    --  check that the representation item is not being applied to an incomplete
@@ -164,6 +170,11 @@ package Sem_Ch13 is
    --  parameter does the actual replacement of node N, which is either a
    --  simple direct reference to T, or a selected component that represents
    --  an appropriately qualified occurrence of T.
+   --
+   --  This also replaces each reference to a component, entry, or protected
+   --  procedure with a selected component whose prefix is the parameter.
+   --  For example, Component_Name becomes Parameter.Component_Name, where
+   --  Parameter is the parameter, which is of type T.
 
    function Rep_Item_Too_Late
      (T     : Entity_Id;
@@ -176,7 +187,7 @@ package Sem_Ch13 is
    --  is the pragma or representation clause itself, used for placing error
    --  messages if the item is too late.
    --
-   --  Fonly is a flag that causes only the freezing rule (para 9) to be
+   --  FOnly is a flag that causes only the freezing rule (para 9) to be
    --  applied, and the tests of para 10 are skipped. This is appropriate for
    --  both subtype related attributes (Alignment and Size) and for stream
    --  attributes, which, although certainly not subtype related attributes,

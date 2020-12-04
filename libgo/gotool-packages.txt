@@ -43,6 +43,7 @@ cmd/internal/buildid
 cmd/internal/diff
 cmd/internal/edit
 cmd/internal/objabi
+cmd/internal/pkgpath
 cmd/internal/sys
 cmd/internal/test2json
 golang.org/x/crypto/ed25519
@@ -70,6 +71,7 @@ golang.org/x/tools/go/analysis/passes/copylock
 golang.org/x/tools/go/analysis/passes/ctrlflow
 golang.org/x/tools/go/analysis/passes/errorsas
 golang.org/x/tools/go/analysis/passes/httpresponse
+golang.org/x/tools/go/analysis/passes/ifaceassert
 golang.org/x/tools/go/analysis/passes/inspect
 golang.org/x/tools/go/analysis/passes/internal/analysisutil
 golang.org/x/tools/go/analysis/passes/loopclosure
@@ -79,6 +81,7 @@ golang.org/x/tools/go/analysis/passes/pkgfact
 golang.org/x/tools/go/analysis/passes/printf
 golang.org/x/tools/go/analysis/passes/shift
 golang.org/x/tools/go/analysis/passes/stdmethods
+golang.org/x/tools/go/analysis/passes/stringintconv
 golang.org/x/tools/go/analysis/passes/structtag
 golang.org/x/tools/go/analysis/passes/tests
 golang.org/x/tools/go/analysis/passes/unmarshal
@@ -91,5 +94,6 @@ golang.org/x/tools/go/ast/inspector
 golang.org/x/tools/go/cfg
 golang.org/x/tools/go/types/objectpath
 golang.org/x/tools/go/types/typeutil
+golang.org/x/tools/internal/analysisinternal
 golang.org/x/xerrors
 golang.org/x/xerrors/internal

@@ -724,9 +724,6 @@ case ,${enable_languages}, in
     ;;
   *)
     case "${target}" in
-      *-*-darwin*)
-	unsupported_languages="$unsupported_languages d"
-        ;;
       bpf-*-*)
 	unsupported_languages="$unsupported_languages d"
 	;;
@@ -1038,6 +1035,7 @@ case "${target}" in
     ;;
   *-*-freebsd*)
     if test "x$with_gmp" = x && test "x$with_gmp_dir" = x \
+	&& ! test -d ${srcdir}/gmp \
 	&& test -f /usr/local/include/gmp.h; then
       with_gmp=/usr/local
     fi
@@ -1470,6 +1468,10 @@ if test "$enable_bootstrap:$GXX" = "yes:yes"; then
   CXX="$CXX -std=c++11"
 elif test "$have_compiler" = yes; then
   AX_CXX_COMPILE_STDCXX(11)
+
+  if test "${build}" != "${host}"; then
+    AX_CXX_COMPILE_STDCXX(11, [], [], [_FOR_BUILD])
+  fi
 fi
 
 # Used for setting $lt_cv_objdir
@@ -2809,7 +2811,7 @@ fi
 # or bootstrap-ubsan, bootstrap it.
 if echo " ${target_configdirs} " | grep " libsanitizer " > /dev/null 2>&1; then
   case "$BUILD_CONFIG" in
-    *bootstrap-asan* | *bootstrap-ubsan* )
+    *bootstrap-hwasan* | *bootstrap-asan* | *bootstrap-ubsan* )
       bootstrap_target_libs=${bootstrap_target_libs}target-libsanitizer,
       bootstrap_fixincludes=yes
       ;;

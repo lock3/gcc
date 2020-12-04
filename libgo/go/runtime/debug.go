@@ -26,12 +26,12 @@ func GOMAXPROCS(n int) int {
 		return ret
 	}
 
-	stopTheWorld("GOMAXPROCS")
+	stopTheWorldGC("GOMAXPROCS")
 
 	// newprocs will be processed by startTheWorld
 	newprocs = int32(n)
 
-	startTheWorld()
+	startTheWorldGC()
 	return ret
 }
 
@@ -66,7 +66,7 @@ func NumGoroutine() int {
 // added.
 func Fieldtrack(map[string]bool)
 
-//go:linkname debug_modinfo runtime..z2fdebug.modinfo
+//go:linkname debug_modinfo runtime_1debug.modinfo
 func debug_modinfo() string {
 	return modinfo
 }

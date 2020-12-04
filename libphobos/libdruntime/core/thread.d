@@ -52,6 +52,7 @@ version (Solaris)
 version (GNU)
 {
     import gcc.builtins;
+    import gcc.config;
     version (GNU_StackGrowsDown)
         version = StackGrowsDown;
 }
@@ -3586,30 +3587,39 @@ private
     }
     else version (X86)
     {
-        version = AsmExternal;
+        version = AlignFiberStackTo16Byte;
 
-        version (MinGW)
+        version (CET)
         {
-            version = GNU_AsmX86_Windows;
-            version = AlignFiberStackTo16Byte;
+            // fiber_switchContext does not support shadow stack from
+            // Intel CET.  So use ucontext implementation.
         }
-        else version (Posix)
+        else
         {
-            version = AsmX86_Posix;
-            version (OSX)
-                version = AlignFiberStackTo16Byte;
+            version = AsmExternal;
+
+            version (MinGW)
+                version = GNU_AsmX86_Windows;
+            else version (Posix)
+                version = AsmX86_Posix;
         }
     }
     else version (X86_64)
     {
-        version (D_X32)
+        version = AlignFiberStackTo16Byte;
+
+        version (CET)
+        {
+            // fiber_switchContext does not support shadow stack from
+            // Intel CET.  So use ucontext implementation.
+        }
+        else version (D_X32)
         {
             // let X32 be handled by ucontext swapcontext
         }
         else
         {
             version = AsmExternal;
-            version = AlignFiberStackTo16Byte;
 
             version (MinGW)
                 version = GNU_AsmX86_64_Windows;
@@ -5110,6 +5120,15 @@ private:
     {
         // NOTE: The static ucontext instance is used to represent the context
         //       of the executing thread.
+        static ucontext_t       sm_utxt = void;
+        ucontext_t              m_utxt  = void;
+        ucontext_t*             m_ucur  = null;
+    }
+    else static if (GNU_Enable_CET)
+    {
+        // When libphobos was built with --enable-cet, these fields need to
+        // always be present in the Fiber class layout.
+        import core.sys.posix.ucontext;
         static ucontext_t       sm_utxt = void;
         ucontext_t              m_utxt  = void;
         ucontext_t*             m_ucur  = null;

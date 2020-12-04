@@ -81,7 +81,7 @@ const (
 	bucketCnt     = 1 << bucketCntBits
 
 	// Maximum average load of a bucket that triggers growth is 6.5.
-	// Represent as loadFactorNum/loadFactDen, to allow integer math.
+	// Represent as loadFactorNum/loadFactorDen, to allow integer math.
 	loadFactorNum = 13
 	loadFactorDen = 2
 
@@ -1417,7 +1417,7 @@ func reflect_maplen(h *hmap) int {
 	return h.count
 }
 
-//go:linkname reflectlite_maplen internal..z2freflectlite.maplen
+//go:linkname reflectlite_maplen internal_1reflectlite.maplen
 func reflectlite_maplen(h *hmap) int {
 	if h == nil {
 		return 0

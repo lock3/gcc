@@ -208,7 +208,7 @@ Expression::is_same_variable(Expression* a, Expression* b)
 // assignment.
 
 Expression*
-Expression::convert_for_assignment(Gogo*, Type* lhs_type,
+Expression::convert_for_assignment(Gogo* gogo, Type* lhs_type,
 				   Expression* rhs, Location location)
 {
   Type* rhs_type = rhs->type();
@@ -229,7 +229,7 @@ Expression::convert_for_assignment(Gogo*, Type* lhs_type,
                                                         location);
     }
   else if (!are_identical && rhs_type->interface_type() != NULL)
-    return Expression::convert_interface_to_type(lhs_type, rhs, location);
+    return Expression::convert_interface_to_type(gogo, lhs_type, rhs, location);
   else if (lhs_type->is_slice_type() && rhs_type->is_nil_type())
     {
       // Assigning nil to a slice.
@@ -498,7 +498,7 @@ Expression::convert_interface_to_interface(Type *lhs_type, Expression* rhs,
 // non-interface type.
 
 Expression*
-Expression::convert_interface_to_type(Type *lhs_type, Expression* rhs,
+Expression::convert_interface_to_type(Gogo* gogo, Type *lhs_type, Expression* rhs,
                                       Location location)
 {
   // We are going to evaluate RHS multiple times.
@@ -507,8 +507,11 @@ Expression::convert_interface_to_type(Type *lhs_type, Expression* rhs,
   // Build an expression to check that the type is valid.  It will
   // panic with an appropriate runtime type error if the type is not
   // valid.
-  // (lhs_type != rhs_type ? panicdottype(lhs_type, rhs_type, inter_type) :
-  //    nil /*dummy*/)
+  // (lhs_type == rhs_type ? nil /*dummy*/ :
+  //    panicdottype(lhs_type, rhs_type, inter_type))
+  // For some Oses, we need to call runtime.eqtype instead of
+  // lhs_type == rhs_type, as we may have unmerged type descriptors
+  // from shared libraries.
   Expression* lhs_type_expr = Expression::make_type_descriptor(lhs_type,
                                                                 location);
   Expression* rhs_descriptor =
@@ -518,15 +521,23 @@ Expression::convert_interface_to_type(Type *lhs_type, Expression* rhs,
   Expression* rhs_inter_expr = Expression::make_type_descriptor(rhs_type,
                                                                 location);
 
-  Expression* cond = Expression::make_binary(OPERATOR_NOTEQ, lhs_type_expr,
-                                             rhs_descriptor, location);
+  Expression* cond;
+  if (gogo->need_eqtype()) {
+    cond = Runtime::make_call(Runtime::EQTYPE, location,
+                              2, lhs_type_expr,
+                              rhs_descriptor);
+  } else {
+    cond = Expression::make_binary(OPERATOR_EQEQ, lhs_type_expr,
+                                   rhs_descriptor, location);
+  }
+
   rhs_descriptor = Expression::get_interface_type_descriptor(rhs);
   Expression* panic = Runtime::make_call(Runtime::PANICDOTTYPE, location,
                                          3, lhs_type_expr->copy(),
                                          rhs_descriptor,
                                          rhs_inter_expr);
   Expression* nil = Expression::make_nil(location);
-  Expression* check = Expression::make_conditional(cond, panic, nil,
+  Expression* check = Expression::make_conditional(cond, nil, panic,
                                                    location);
 
   // If the conversion succeeds, pull out the value.
@@ -556,7 +567,10 @@ Expression::get_backend(Translate_context* context)
 {
   // The child may have marked this expression as having an error.
   if (this->classification_ == EXPRESSION_ERROR)
-    return context->backend()->error_expression();
+    {
+      go_assert(saw_errors());
+      return context->backend()->error_expression();
+    }
 
   return this->do_get_backend(context);
 }
@@ -1582,7 +1596,8 @@ Func_descriptor_expression::do_get_backend(Translate_context* context)
     return context->backend()->var_expression(this->dvar_, loc);
 
   Gogo* gogo = context->gogo();
-  std::string var_name(gogo->function_descriptor_name(no));
+  Backend_name bname;
+  gogo->function_descriptor_backend_name(no, &bname);
   bool is_descriptor = false;
   if (no->is_function_declaration()
       && !no->func_declaration_value()->asm_name().empty()
@@ -1602,10 +1617,11 @@ Func_descriptor_expression::do_get_backend(Translate_context* context)
   Btype* btype = this->type()->get_backend(gogo);
 
   Bvariable* bvar;
-  std::string asm_name(go_selectively_encode_id(var_name));
   if (no->package() != NULL || is_descriptor)
-    bvar = context->backend()->immutable_struct_reference(var_name, asm_name,
-                                                          btype, loc);
+    bvar =
+      context->backend()->immutable_struct_reference(bname.name(),
+						     bname.optional_asm_name(),
+						     btype, loc);
   else
     {
       Location bloc = Linemap::predeclared_location();
@@ -1621,17 +1637,17 @@ Func_descriptor_expression::do_get_backend(Translate_context* context)
 	      || no->name().find("equal") != std::string::npos))
 	is_exported_runtime = true;
 
-      bool is_referenced_by_inline =
-	no->is_function() && no->func_value()->is_referenced_by_inline();
-
       bool is_hidden = ((no->is_function()
 			 && no->func_value()->enclosing() != NULL)
 			|| (Gogo::is_hidden_name(no->name())
-			    && !is_exported_runtime
-			    && !is_referenced_by_inline)
+			    && !is_exported_runtime)
 			|| Gogo::is_thunk(no));
 
-      bvar = context->backend()->immutable_struct(var_name, asm_name,
+      if (no->is_function() && no->func_value()->is_referenced_by_inline())
+	is_hidden = false;
+
+      bvar = context->backend()->immutable_struct(bname.name(),
+						  bname.optional_asm_name(),
                                                   is_hidden, false,
 						  btype, bloc);
       Expression_list* vals = new Expression_list();
@@ -1641,8 +1657,9 @@ Func_descriptor_expression::do_get_backend(Translate_context* context)
       Translate_context bcontext(gogo, NULL, NULL, NULL);
       bcontext.set_is_const();
       Bexpression* binit = init->get_backend(&bcontext);
-      context->backend()->immutable_struct_set_init(bvar, var_name, is_hidden,
-						    false, btype, bloc, binit);
+      context->backend()->immutable_struct_set_init(bvar, bname.name(),
+						    is_hidden, false, btype,
+						    bloc, binit);
     }
 
   this->dvar_ = bvar;
@@ -1810,6 +1827,31 @@ Expression::make_unknown_reference(Named_object* no, Location location)
   return new Unknown_expression(no, location);
 }
 
+// Start exporting a type conversion for a constant, if needed.  This
+// returns whether we need to export a closing parenthesis.
+
+bool
+Expression::export_constant_type(Export_function_body* efb, Type* type)
+{
+  if (type == NULL
+      || type->is_abstract()
+      || type == efb->type_context())
+    return false;
+  efb->write_c_string("$convert(");
+  efb->write_type(type);
+  efb->write_c_string(", ");
+  return true;
+}
+
+// Finish a type conversion for a constant.
+
+void
+Expression::finish_export_constant_type(Export_function_body* efb, bool needed)
+{
+  if (needed)
+    efb->write_c_string(")");
+}
+
 // A boolean expression.
 
 class Boolean_expression : public Expression
@@ -1865,8 +1907,7 @@ class Boolean_expression : public Expression
   { return 1; }
 
   void
-  do_export(Export_function_body* efb) const
-  { efb->write_c_string(this->val_ ? "$true" : "$false"); }
+  do_export(Export_function_body* efb) const;
 
   void
   do_dump_expression(Ast_dump_context* ast_dump_context) const
@@ -1911,6 +1952,16 @@ Boolean_expression::do_determine_type(const Type_context* context)
     this->type_ = context->type;
   else if (!context->may_be_abstract)
     this->type_ = Type::lookup_bool_type();
+}
+
+// Export a boolean constant.
+
+void
+Boolean_expression::do_export(Export_function_body* efb) const
+{
+  bool exported_type = Expression::export_constant_type(efb, this->type_);
+  efb->write_c_string(this->val_ ? "$true" : "$false");
+  Expression::finish_export_constant_type(efb, exported_type);
 }
 
 // Import a boolean constant.
@@ -2042,7 +2093,9 @@ String_expression::export_string(String_dump* exp,
 void
 String_expression::do_export(Export_function_body* efb) const
 {
+  bool exported_type = Expression::export_constant_type(efb, this->type_);
   String_expression::export_string(efb, this);
+  Expression::finish_export_constant_type(efb, exported_type);
 }
 
 // Import a string expression.
@@ -2534,16 +2587,7 @@ Integer_expression::export_integer(String_dump* exp, const mpz_t val)
 void
 Integer_expression::do_export(Export_function_body* efb) const
 {
-  bool added_type = false;
-  if (this->type_ != NULL
-      && !this->type_->is_abstract()
-      && this->type_ != efb->type_context())
-    {
-      efb->write_c_string("$convert(");
-      efb->write_type(this->type_);
-      efb->write_c_string(", ");
-      added_type = true;
-    }
+  bool exported_type = Expression::export_constant_type(efb, this->type_);
 
   Integer_expression::export_integer(efb, this->val_);
   if (this->is_character_constant_)
@@ -2551,8 +2595,7 @@ Integer_expression::do_export(Export_function_body* efb) const
   // A trailing space lets us reliably identify the end of the number.
   efb->write_c_string(" ");
 
-  if (added_type)
-    efb->write_c_string(")");
+  Expression::finish_export_constant_type(efb, exported_type);
 }
 
 // Import an integer, floating point, or complex value.  This handles
@@ -2940,23 +2983,13 @@ Float_expression::export_float(String_dump *exp, const mpfr_t val)
 void
 Float_expression::do_export(Export_function_body* efb) const
 {
-  bool added_type = false;
-  if (this->type_ != NULL
-      && !this->type_->is_abstract()
-      && this->type_ != efb->type_context())
-    {
-      efb->write_c_string("$convert(");
-      efb->write_type(this->type_);
-      efb->write_c_string(", ");
-      added_type = true;
-    }
+  bool exported_type = Expression::export_constant_type(efb, this->type_);
 
   Float_expression::export_float(efb, this->val_);
   // A trailing space lets us reliably identify the end of the number.
   efb->write_c_string(" ");
 
-  if (added_type)
-    efb->write_c_string(")");
+  Expression::finish_export_constant_type(efb, exported_type);
 }
 
 // Dump a floating point number to the dump file.
@@ -3171,23 +3204,13 @@ Complex_expression::export_complex(String_dump* exp, const mpc_t val)
 void
 Complex_expression::do_export(Export_function_body* efb) const
 {
-  bool added_type = false;
-  if (this->type_ != NULL
-      && !this->type_->is_abstract()
-      && this->type_ != efb->type_context())
-    {
-      efb->write_c_string("$convert(");
-      efb->write_type(this->type_);
-      efb->write_c_string(", ");
-      added_type = true;
-    }
+  bool exported_type = Expression::export_constant_type(efb, this->type_);
 
   Complex_expression::export_complex(efb, this->val_);
   // A trailing space lets us reliably identify the end of the number.
   efb->write_c_string(" ");
 
-  if (added_type)
-    efb->write_c_string(")");
+  Expression::finish_export_constant_type(efb, exported_type);
 }
 
 // Dump a complex expression to the dump file.
@@ -4001,8 +4024,16 @@ Type_conversion_expression::do_string_constant_value(std::string* val) const
 	  unsigned long ival;
 	  if (nc.to_unsigned_long(&ival) == Numeric_constant::NC_UL_VALID)
 	    {
+	      unsigned int cval = static_cast<unsigned int>(ival);
+	      if (static_cast<unsigned long>(cval) != ival)
+		{
+		  go_warning_at(this->location(), 0,
+				"unicode code point 0x%lx out of range",
+				ival);
+		  cval = 0xfffd; // Unicode "replacement character."
+		}
 	      val->clear();
-	      Lex::append_char(ival, true, val, this->location());
+	      Lex::append_char(cval, true, val, this->location());
 	      return true;
 	    }
 	}
@@ -5171,11 +5202,9 @@ Unary_expression::do_get_backend(Translate_context* context)
 	      copy_to_heap = (context->function() != NULL
                               || context->is_const());
 	    }
-	  std::string asm_name(go_selectively_encode_id(var_name));
 	  Bvariable* implicit =
-              gogo->backend()->implicit_variable(var_name, asm_name,
-                                                 btype, true, copy_to_heap,
-                                                 false, 0);
+              gogo->backend()->implicit_variable(var_name, "", btype, true,
+						 copy_to_heap, false, 0);
 	  gogo->backend()->implicit_variable_set_init(implicit, var_name, btype,
 						      true, copy_to_heap, false,
 						      bexpr);
@@ -5200,10 +5229,9 @@ Unary_expression::do_get_backend(Translate_context* context)
 	       && this->expr_->is_static_initializer())
         {
 	  std::string var_name(gogo->initializer_name());
-	  std::string asm_name(go_selectively_encode_id(var_name));
           Bvariable* decl =
-              gogo->backend()->immutable_struct(var_name, asm_name,
-                                                true, false, btype, loc);
+              gogo->backend()->immutable_struct(var_name, "", true, false,
+						btype, loc);
           gogo->backend()->immutable_struct_set_init(decl, var_name, true,
 						     false, btype, loc, bexpr);
           bexpr = gogo->backend()->var_expression(decl, loc);
@@ -5211,9 +5239,8 @@ Unary_expression::do_get_backend(Translate_context* context)
       else if (this->expr_->is_constant())
         {
           std::string var_name(gogo->initializer_name());
-          std::string asm_name(go_selectively_encode_id(var_name));
           Bvariable* decl =
-              gogo->backend()->implicit_variable(var_name, asm_name, btype,
+              gogo->backend()->implicit_variable(var_name, "", btype,
                                                  true, true, false, 0);
           gogo->backend()->implicit_variable_set_init(decl, var_name, btype,
                                                       true, true, false,
@@ -6080,6 +6107,8 @@ Binary_expression::do_lower(Gogo* gogo, Named_object*,
               Type* result_type = (left->type()->named_type() != NULL
                                    ? left->type()
                                    : right->type());
+	      delete left;
+	      delete right;
               return Expression::make_string_typed(left_string + right_string,
                                                    result_type, location);
             }
@@ -6087,6 +6116,8 @@ Binary_expression::do_lower(Gogo* gogo, Named_object*,
 	    {
 	      int cmp = left_string.compare(right_string);
 	      bool r = Binary_expression::cmp_to_bool(op, cmp);
+	      delete left;
+	      delete right;
 	      return Expression::make_boolean(r, location);
 	    }
 	}
@@ -6256,8 +6287,21 @@ Binary_expression::lower_array_comparison(Gogo* gogo,
   args->push_back(this->operand_address(inserter, this->left_));
   args->push_back(this->operand_address(inserter, this->right_));
 
-  Expression* ret = Expression::make_call(func, args, false, loc);
+  Call_expression* ce = Expression::make_call(func, args, false, loc);
 
+  // Record that this is a call to a generated equality function.  We
+  // need to do this because a comparison returns an abstract boolean
+  // type, but the function necessarily returns "bool".  The
+  // difference shows up in code like
+  //     type mybool bool
+  //     var b mybool = [10]string{} == [10]string{}
+  // The comparison function returns "bool", but since a comparison
+  // has an abstract boolean type we need an implicit conversion to
+  // "mybool".  The implicit conversion is inserted in
+  // Call_expression::do_flatten.
+  ce->set_is_equal_function();
+
+  Expression* ret = ce;
   if (this->op_ == OPERATOR_NOTEQ)
     ret = Expression::make_unary(OPERATOR_NOT, ret, loc);
 
@@ -6947,27 +6991,6 @@ Binary_expression::do_get_backend(Translate_context* context)
   // The only binary operation for string is +, and that should have
   // been converted to a String_concat_expression in do_lower.
   go_assert(!left_type->is_string_type());
-
-  // For complex division Go might want slightly different results than the
-  // backend implementation provides, so we have our own runtime routine.
-  if (this->op_ == OPERATOR_DIV && this->left_->type()->complex_type() != NULL)
-    {
-      Runtime::Function complex_code;
-      switch (this->left_->type()->complex_type()->bits())
-	{
-	case 64:
-          complex_code = Runtime::COMPLEX64_DIV;
-	  break;
-	case 128:
-          complex_code = Runtime::COMPLEX128_DIV;
-	  break;
-	default:
-	  go_unreachable();
-	}
-      Expression* complex_div =
-          Runtime::make_call(complex_code, loc, 2, this->left_, this->right_);
-      return complex_div->get_backend(context);
-    }
 
   Bexpression* left = this->left_->get_backend(context);
   Bexpression* right = this->right_->get_backend(context);
@@ -8862,8 +8885,8 @@ Builtin_call_expression::flatten_append(Gogo* gogo, Named_object* function,
           // We will optimize this to directly zeroing the tail,
           // instead of allocating a new slice then copy.
 
-          // Retrieve the length. Cannot reference s2 as we will remove
-          // the makeslice call.
+          // Retrieve the length and capacity. Cannot reference s2 as
+          // we will remove the makeslice call.
           Expression* len_arg = makecall->args()->at(1);
           len_arg = Expression::make_cast(int_type, len_arg, loc);
           l2tmp = Statement::make_temporary(int_type, len_arg, loc);
@@ -8876,28 +8899,19 @@ Builtin_call_expression::flatten_append(Gogo* gogo, Named_object* function,
           inserter->insert(c2tmp);
 
           // Check bad len/cap here.
-          // if len2 < 0 { panicmakeslicelen(); }
+	  // checkmakeslice(type, len, cap)
+	  // (Note that if len and cap are constants, we won't see a
+	  // makeslice call here, as it will be rewritten to a stack
+	  // allocated array by Mark_address_taken::expression.)
+	  Expression* elem = Expression::make_type_descriptor(element_type,
+							      loc);
           len2 = Expression::make_temporary_reference(l2tmp, loc);
-          Expression* zero = Expression::make_integer_ul(0, int_type, loc);
-          Expression* cond = Expression::make_binary(OPERATOR_LT, len2,
-                                                     zero, loc);
-	  Expression* call = Runtime::make_call(Runtime::PANIC_MAKE_SLICE_LEN,
-						loc, 0);
-          cond = Expression::make_conditional(cond, call, zero->copy(), loc);
-          gogo->lower_expression(function, inserter, &cond);
-          gogo->flatten_expression(function, inserter, &cond);
-          Statement* s = Statement::make_statement(cond, false);
-          inserter->insert(s);
-
-          // if cap2 < 0 { panicmakeslicecap(); }
           Expression* cap2 = Expression::make_temporary_reference(c2tmp, loc);
-          cond = Expression::make_binary(OPERATOR_LT, cap2,
-                                         zero->copy(), loc);
-	  call = Runtime::make_call(Runtime::PANIC_MAKE_SLICE_CAP, loc, 0);
-          cond = Expression::make_conditional(cond, call, zero->copy(), loc);
-          gogo->lower_expression(function, inserter, &cond);
-          gogo->flatten_expression(function, inserter, &cond);
-          s = Statement::make_statement(cond, false);
+	  Expression* check = Runtime::make_call(Runtime::CHECK_MAKE_SLICE,
+						 loc, 3, elem, len2, cap2);
+          gogo->lower_expression(function, inserter, &check);
+          gogo->flatten_expression(function, inserter, &check);
+          Statement* s = Statement::make_statement(check, false);
           inserter->insert(s);
 
           // Remove the original makeslice call.
@@ -11162,6 +11176,13 @@ Call_expression::do_flatten(Gogo* gogo, Named_object*,
         return ret;
     }
 
+  // Add an implicit conversion to a boolean type, if needed.  See the
+  // comment in Binary_expression::lower_array_comparison.
+  if (this->is_equal_function_
+      && this->type_ != NULL
+      && this->type_ != Type::lookup_bool_type())
+    return Expression::make_cast(this->type_, this, this->location());
+
   return this;
 }
 
@@ -11937,7 +11958,7 @@ Call_expression::do_type()
 // parameter types to set the types of the arguments.
 
 void
-Call_expression::do_determine_type(const Type_context*)
+Call_expression::do_determine_type(const Type_context* context)
 {
   if (!this->determining_types())
     return;
@@ -11983,6 +12004,22 @@ Call_expression::do_determine_type(const Type_context*)
 	  else
 	    (*pa)->determine_type_no_context();
 	}
+    }
+
+  // If this is a call to a generated equality function, we determine
+  // the type based on the context.  See the comment in
+  // Binary_expression::lower_array_comparison.
+  if (this->is_equal_function_
+      && !context->may_be_abstract
+      && context->type != NULL
+      && context->type->is_boolean_type()
+      && context->type != Type::lookup_bool_type())
+    {
+      go_assert(this->type_ == NULL
+		|| this->type_ == Type::lookup_bool_type()
+		|| this->type_ == context->type
+		|| this->type_->is_error());
+      this->type_ = context->type;
     }
 }
 
@@ -12771,24 +12808,11 @@ Array_index_expression::do_determine_type(const Type_context*)
   this->array_->determine_type_no_context();
 
   Type_context index_context(Type::lookup_integer_type("int"), false);
-  if (this->start_->is_constant())
-    this->start_->determine_type(&index_context);
-  else
-    this->start_->determine_type_no_context();
+  this->start_->determine_type(&index_context);
   if (this->end_ != NULL)
-    {
-      if (this->end_->is_constant())
-        this->end_->determine_type(&index_context);
-      else
-        this->end_->determine_type_no_context();
-    }
+    this->end_->determine_type(&index_context);
   if (this->cap_ != NULL)
-    {
-      if (this->cap_->is_constant())
-        this->cap_->determine_type(&index_context);
-      else
-        this->cap_->determine_type_no_context();
-    }
+    this->cap_->determine_type(&index_context);
 }
 
 // Check types of an array index.
@@ -13457,17 +13481,9 @@ String_index_expression::do_determine_type(const Type_context*)
   this->string_->determine_type_no_context();
 
   Type_context index_context(Type::lookup_integer_type("int"), false);
-  if (this->start_->is_constant())
-    this->start_->determine_type(&index_context);
-  else
-    this->start_->determine_type_no_context();
+  this->start_->determine_type(&index_context);
   if (this->end_ != NULL)
-    {
-      if (this->end_->is_constant())
-        this->end_->determine_type(&index_context);
-      else
-        this->end_->determine_type_no_context();
-    }
+    this->end_->determine_type(&index_context);
 }
 
 // Check types of a string index.
@@ -14512,21 +14528,19 @@ Selector_expression::lower_method_expression(Gogo* gogo)
       is_pointer = true;
       type = type->points_to();
     }
-  Named_type* nt = type->named_type();
-  if (nt == NULL)
-    {
-      go_error_at(location,
-                  ("method expression requires named type or "
-                   "pointer to named type"));
-      return Expression::make_error(location);
-    }
 
+  Named_type* nt = type->named_type();
+  Struct_type* st = type->struct_type();
   bool is_ambiguous;
-  Method* method = nt->method_function(name, &is_ambiguous);
+  Method* method = NULL;
+  if (nt != NULL)
+    method = nt->method_function(name, &is_ambiguous);
+  else if (st != NULL)
+    method = st->method_function(name, &is_ambiguous);
   const Typed_identifier* imethod = NULL;
   if (method == NULL && !is_pointer)
     {
-      Interface_type* it = nt->interface_type();
+      Interface_type* it = type->interface_type();
       if (it != NULL)
 	imethod = it->find_method(name);
     }
@@ -14534,16 +14548,28 @@ Selector_expression::lower_method_expression(Gogo* gogo)
   if ((method == NULL && imethod == NULL)
       || (left_type->named_type() != NULL && left_type->points_to() != NULL))
     {
-      if (!is_ambiguous)
-	go_error_at(location, "type %<%s%s%> has no method %<%s%>",
-                    is_pointer ? "*" : "",
-                    nt->message_name().c_str(),
-                    Gogo::message_name(name).c_str());
+      if (nt != NULL)
+	{
+	  if (!is_ambiguous)
+	    go_error_at(location, "type %<%s%s%> has no method %<%s%>",
+			is_pointer ? "*" : "",
+			nt->message_name().c_str(),
+			Gogo::message_name(name).c_str());
+	  else
+	    go_error_at(location, "method %<%s%s%> is ambiguous in type %<%s%>",
+			Gogo::message_name(name).c_str(),
+			is_pointer ? "*" : "",
+			nt->message_name().c_str());
+	}
       else
-	go_error_at(location, "method %<%s%s%> is ambiguous in type %<%s%>",
-                    Gogo::message_name(name).c_str(),
-                    is_pointer ? "*" : "",
-                    nt->message_name().c_str());
+	{
+	  if (!is_ambiguous)
+	    go_error_at(location, "type has no method %<%s%>",
+			Gogo::message_name(name).c_str());
+	  else
+	    go_error_at(location, "method %<%s%> is ambiguous",
+			Gogo::message_name(name).c_str());
+	}
       return Expression::make_error(location);
     }
 
@@ -14640,7 +14666,7 @@ Selector_expression::lower_method_expression(Gogo* gogo)
   Expression* ve = Expression::make_var_reference(vno, location);
   Expression* bm;
   if (method != NULL)
-    bm = Type::bind_field_or_method(gogo, nt, ve, name, location);
+    bm = Type::bind_field_or_method(gogo, type, ve, name, location);
   else
     bm = Expression::make_interface_field_reference(ve, name, location);
 
@@ -15262,9 +15288,22 @@ Array_construction_expression::do_is_static_initializer() const
 void
 Array_construction_expression::do_determine_type(const Type_context*)
 {
+  if (this->is_error_expression())
+    {
+      go_assert(saw_errors());
+      return;
+    }
+
   if (this->vals() == NULL)
     return;
-  Type_context subcontext(this->type_->array_type()->element_type(), false);
+  Array_type* at = this->type_->array_type();
+  if (at == NULL || at->is_error() || at->element_type()->is_error())
+    {
+      go_assert(saw_errors());
+      this->set_is_error();
+      return;
+    }
+  Type_context subcontext(at->element_type(), false);
   for (Expression_list::const_iterator pv = this->vals()->begin();
        pv != this->vals()->end();
        ++pv)
@@ -15279,10 +15318,22 @@ Array_construction_expression::do_determine_type(const Type_context*)
 void
 Array_construction_expression::do_check_types(Gogo*)
 {
+  if (this->is_error_expression())
+    {
+      go_assert(saw_errors());
+      return;
+    }
+
   if (this->vals() == NULL)
     return;
 
   Array_type* at = this->type_->array_type();
+  if (at == NULL || at->is_error() || at->element_type()->is_error())
+    {
+      go_assert(saw_errors());
+      this->set_is_error();
+      return;
+    }
   int i = 0;
   Type* element_type = at->element_type();
   for (Expression_list::const_iterator pv = this->vals()->begin();
@@ -15307,6 +15358,12 @@ Expression*
 Array_construction_expression::do_flatten(Gogo*, Named_object*,
 					   Statement_inserter* inserter)
 {
+  if (this->is_error_expression())
+    {
+      go_assert(saw_errors());
+      return this;
+    }
+
   if (this->vals() == NULL)
     return this;
 
@@ -15343,6 +15400,12 @@ Array_construction_expression::do_flatten(Gogo*, Named_object*,
 void
 Array_construction_expression::do_add_conversions()
 {
+  if (this->is_error_expression())
+    {
+      go_assert(saw_errors());
+      return;
+    }
+
   if (this->vals() == NULL)
     return;
 
@@ -18218,9 +18281,8 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
     {
       // The interface conversion table is defined elsewhere.
       Btype* btype = this->type()->get_backend(gogo);
-      std::string asm_name(go_selectively_encode_id(mangled_name));
       this->bvar_ =
-          gogo->backend()->immutable_struct_reference(mangled_name, asm_name,
+          gogo->backend()->immutable_struct_reference(mangled_name, "",
                                                       btype, loc);
       return gogo->backend()->var_expression(this->bvar_, this->location());
     }
@@ -18290,8 +18352,7 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
   Bexpression* ctor =
       gogo->backend()->constructor_expression(btype, ctor_bexprs, loc);
 
-  std::string asm_name(go_selectively_encode_id(mangled_name));
-  this->bvar_ = gogo->backend()->immutable_struct(mangled_name, asm_name, false,
+  this->bvar_ = gogo->backend()->immutable_struct(mangled_name, "", false,
 						  !is_public, btype, loc);
   gogo->backend()->immutable_struct_set_init(this->bvar_, mangled_name, false,
                                              !is_public, btype, loc, ctor);

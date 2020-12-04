@@ -351,7 +351,7 @@ use_thunk (tree thunk_fndecl, bool emit_p)
 	  resolve_unique_section (thunk_fndecl, 0, flag_function_sections);
 
 	  /* Output the thunk into the same section as function.  */
-	  set_decl_section_name (thunk_fndecl, DECL_SECTION_NAME (fn));
+	  set_decl_section_name (thunk_fndecl, fn);
 	  symtab_node::get (thunk_fndecl)->implicit_section
 	    = symtab_node::get (fn)->implicit_section;
 	}
@@ -551,29 +551,49 @@ inherited_ctor_binfo (tree fndecl)
   return inherited_ctor_binfo (binfo, fndecl);
 }
 
+
+/* True if we should omit all user-declared parameters from a base
+   construtor built from complete constructor FN.
+   That's when the ctor is inherited from a virtual base.  */
+
+bool
+base_ctor_omit_inherited_parms (tree comp_ctor)
+{
+  gcc_checking_assert (DECL_MAYBE_IN_CHARGE_CONSTRUCTOR_P (comp_ctor));
+
+  if (!flag_new_inheriting_ctors)
+    /* We only optimize away the parameters in the new model.  */
+    return false;
+
+  if (!CLASSTYPE_VBASECLASSES (DECL_CONTEXT (comp_ctor)))
+    return false;
+
+  if (FUNCTION_FIRST_USER_PARMTYPE (comp_ctor) == void_list_node)
+    /* No user-declared parameters to omit.  */
+    return false;
+
+  for (tree binfo = inherited_ctor_binfo (comp_ctor);
+       binfo;
+       binfo = BINFO_INHERITANCE_CHAIN (binfo))
+    if (BINFO_VIRTUAL_P (binfo))
+      return true;
+
+  return false;
+}
+
+
 /* True if we should omit all user-declared parameters from constructor FN,
    because it is a base clone of a ctor inherited from a virtual base.  */
 
 bool
 ctor_omit_inherited_parms (tree fn)
 {
-  if (!flag_new_inheriting_ctors)
-    /* We only optimize away the parameters in the new model.  */
-    return false;
-  if (!DECL_BASE_CONSTRUCTOR_P (fn)
-      || !CLASSTYPE_VBASECLASSES (DECL_CONTEXT (fn)))
+  gcc_checking_assert (TREE_CODE (fn) == FUNCTION_DECL);
+
+  if (!DECL_BASE_CONSTRUCTOR_P (fn))
     return false;
 
-  if (FUNCTION_FIRST_USER_PARMTYPE (DECL_ORIGIN (fn)) == void_list_node)
-    /* No user-declared parameters to omit.  */
-    return false;
-
-  tree binfo = inherited_ctor_binfo (fn);
-  for (; binfo; binfo = BINFO_INHERITANCE_CHAIN (binfo))
-    if (BINFO_VIRTUAL_P (binfo))
-      return true;
-
-  return false;
+  return base_ctor_omit_inherited_parms (DECL_CLONED_FUNCTION (fn));
 }
 
 /* True iff constructor(s) INH inherited into BINFO initializes INIT_BINFO.
@@ -1904,13 +1924,24 @@ is_xible_helper (enum tree_code code, tree to, tree from, bool trivial)
 bool
 is_trivially_xible (enum tree_code code, tree to, tree from)
 {
-  tree expr;
-  expr = is_xible_helper (code, to, from, /*trivial*/true);
-
+  tree expr = is_xible_helper (code, to, from, /*trivial*/true);
   if (expr == NULL_TREE || expr == error_mark_node)
     return false;
   tree nt = cp_walk_tree_without_duplicates (&expr, check_nontriv, NULL);
   return !nt;
+}
+
+/* Returns true iff TO is nothrow assignable (if CODE is MODIFY_EXPR) or
+   constructible (otherwise) from FROM, which is a single type for
+   assignment or a list of types for construction.  */
+
+bool
+is_nothrow_xible (enum tree_code code, tree to, tree from)
+{
+  tree expr = is_xible_helper (code, to, from, /*trivial*/false);
+  if (expr == NULL_TREE || expr == error_mark_node)
+    return false;
+  return expr_noexcept_p (expr, tf_none);
 }
 
 /* Returns true iff TO is assignable (if CODE is MODIFY_EXPR) or

@@ -24,10 +24,21 @@
 
 
 #define _GLIBCXX_THREAD_ABI_COMPAT 1
+#include <memory> // include this first so <thread> can use shared_ptr
 #include <thread>
 #include <system_error>
 #include <cerrno>
 #include <cxxabi_forced.h>
+
+#ifndef _GLIBCXX_USE_NANOSLEEP
+# ifdef _GLIBCXX_HAVE_SLEEP
+#  include <unistd.h>
+# elif defined(_GLIBCXX_HAVE_WIN32_SLEEP)
+#  include <windows.h>
+# else
+#  error "No sleep function known for this target"
+# endif
+#endif
 
 #ifdef _GLIBCXX_HAS_GTHREADS
 
@@ -57,16 +68,6 @@ static inline int get_nprocs()
 # define _GLIBCXX_NPROCS sysconf(_SC_NPROC_ONLN)
 #else
 # define _GLIBCXX_NPROCS 0
-#endif
-
-#ifndef _GLIBCXX_USE_NANOSLEEP
-# ifdef _GLIBCXX_HAVE_SLEEP
-#  include <unistd.h>
-# elif defined(_GLIBCXX_HAVE_WIN32_SLEEP)
-#  include <windows.h>
-# else
-#  error "No sleep function known for this target"
-# endif
 #endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -132,6 +133,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   void
   thread::_M_start_thread(_State_ptr state, void (*)())
   {
+    if (!__gthread_active_p())
+      {
+#if __cpp_exceptions
+	throw system_error(make_error_code(errc::operation_not_permitted),
+			   "Enable multithreading to use std::thread");
+#else
+	__builtin_abort();
+#endif
+      }
+
     const int err = __gthread_create(&_M_id._M_thread,
 				     &execute_native_thread_routine,
 				     state.get());
@@ -180,13 +191,21 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     return __n;
   }
 
+_GLIBCXX_END_NAMESPACE_VERSION
+} // namespace std
+
+#endif // _GLIBCXX_HAS_GTHREADS
+
+namespace std _GLIBCXX_VISIBILITY(default)
+{
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
 namespace this_thread
 {
   void
   __sleep_for(chrono::seconds __s, chrono::nanoseconds __ns)
   {
 #ifdef _GLIBCXX_USE_NANOSLEEP
-    __gthread_time_t __ts =
+    struct ::timespec __ts =
       {
 	static_cast<std::time_t>(__s.count()),
 	static_cast<long>(__ns.count())
@@ -231,8 +250,5 @@ namespace this_thread
 #endif
   }
 }
-
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
-
-#endif // _GLIBCXX_HAS_GTHREADS

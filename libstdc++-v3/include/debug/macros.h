@@ -38,25 +38,15 @@
  * the user error and where the error is reported.
  *
  */
-#if 0 /* defined _GLIBCXX_HAVE_BUILTIN_IS_CONSTANT_EVALUATED */
-# define _GLIBCXX_DEBUG_VERIFY_COND_AT(_Cond,_ErrMsg,_File,_Line,_Func)	\
-  if (__builtin_is_constant_evaluated())				\
-    /* FIXME: Compilation error here when !_Cond. */			\
-    break;								\
-  if (! (_Cond))							\
+#define _GLIBCXX_DEBUG_VERIFY_COND_AT(_Cond,_ErrMsg,_File,_Line,_Func)	\
+  if (__builtin_expect(!bool(_Cond), false))				\
     __gnu_debug::_Error_formatter::_S_at(_File, _Line, _Func)		\
       ._ErrMsg._M_error()
-#else
-# define _GLIBCXX_DEBUG_VERIFY_COND_AT(_Cond,_ErrMsg,_File,_Line,_Func)	\
-  if (! (_Cond))							\
-    __gnu_debug::_Error_formatter::_S_at(_File, _Line, _Func)		\
-      ._ErrMsg._M_error()
-#endif
 
 #define _GLIBCXX_DEBUG_VERIFY_AT_F(_Cond,_ErrMsg,_File,_Line,_Func)	\
-  do									\
-  {									\
-    _GLIBCXX_DEBUG_VERIFY_COND_AT(_Cond,_ErrMsg,_File,_Line,_Func);	\
+  do {									\
+    __glibcxx_assert_1(_Cond)						\
+    { _GLIBCXX_DEBUG_VERIFY_COND_AT(_Cond,_ErrMsg,_File,_Line,_Func); } \
   } while (false)
 
 #define _GLIBCXX_DEBUG_VERIFY_AT(_Cond,_ErrMsg,_File,_Line)		\
@@ -446,12 +436,6 @@ _GLIBCXX_DEBUG_VERIFY(__gnu_debug::__check_partitioned_upper(		\
                       ._M_iterator(_First, #_First)			\
 		      ._M_iterator(_Last, #_Last)			\
 		      ._M_string(#_Pred))
-
-// Verify that the container is not self move assigned
-#define __glibcxx_check_self_move_assign(_Other)			\
-_GLIBCXX_DEBUG_VERIFY(this != &_Other,					\
-		      _M_message(__gnu_debug::__msg_self_move_assign)	\
-                      ._M_sequence(*this, "this"))
 
 // Verify that load factor is positive
 #define __glibcxx_check_max_load_factor(_F)				\

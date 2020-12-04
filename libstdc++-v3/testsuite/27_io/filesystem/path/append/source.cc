@@ -92,8 +92,8 @@ test02()
 void
 test03()
 {
-  for (const path& p : __gnu_test::test_paths)
-    for (const path& q : __gnu_test::test_paths)
+  for (const path p : __gnu_test::test_paths)
+    for (const path q : __gnu_test::test_paths)
     {
       test(p, q.c_str());
       if constexpr (!std::is_same_v<path::value_type, char>)
@@ -161,6 +161,15 @@ test06()
   test(p2, s.c_str());
 }
 
+void
+test07()
+{
+  path p, p0;
+  std::string_view s;
+  p /= s; // PR libstdc++/97167
+  compare_paths(p, p0);
+}
+
 int
 main()
 {
@@ -170,4 +179,5 @@ main()
   test04();
   test05();
   test06();
+  test07();
 }

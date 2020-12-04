@@ -81,7 +81,7 @@ extern int lhd_gimplify_expr (tree *, gimple_seq *, gimple_seq *);
 extern enum omp_clause_default_kind lhd_omp_predetermined_sharing (tree);
 extern enum omp_clause_defaultmap_kind lhd_omp_predetermined_mapping (tree);
 extern tree lhd_omp_assignment (tree, tree, tree);
-extern void lhd_omp_finish_clause (tree, gimple_seq *);
+extern void lhd_omp_finish_clause (tree, gimple_seq *, bool);
 struct gimplify_omp_ctx;
 extern void lhd_omp_firstprivatize_type_sizes (struct gimplify_omp_ctx *,
 					       tree);
@@ -92,6 +92,7 @@ extern const char *lhd_get_substring_location (const substring_loc &,
 					       location_t *out_loc);
 extern int lhd_decl_dwarf_attribute (const_tree, int);
 extern int lhd_type_dwarf_attribute (const_tree, int);
+extern void lhd_finalize_early_debug (void);
 
 #define LANG_HOOKS_NAME			"GNU unknown"
 #define LANG_HOOKS_IDENTIFIER_SIZE	sizeof (struct lang_identifier)
@@ -102,6 +103,10 @@ extern int lhd_type_dwarf_attribute (const_tree, int);
 #define LANG_HOOKS_INIT_OPTIONS_STRUCT	hook_void_gcc_optionsp
 #define LANG_HOOKS_INIT_OPTIONS		lhd_init_options
 #define LANG_HOOKS_INITIALIZE_DIAGNOSTICS lhd_initialize_diagnostics
+#define LANG_HOOKS_PREPROCESS_MAIN_FILE NULL
+#define LANG_HOOKS_PREPROCESS_OPTIONS NULL
+#define LANG_HOOKS_PREPROCESS_UNDEF NULL
+#define LANG_HOOKS_PREPROCESS_TOKEN NULL
 #define LANG_HOOKS_REGISTER_DUMPS	lhd_register_dumps
 #define LANG_HOOKS_COMPLAIN_WRONG_LANG_P lhd_complain_wrong_lang_p
 #define LANG_HOOKS_HANDLE_OPTION	lhd_handle_option
@@ -139,6 +144,7 @@ extern int lhd_type_dwarf_attribute (const_tree, int);
 #define LANG_HOOKS_EMITS_BEGIN_STMT	false
 #define LANG_HOOKS_RUN_LANG_SELFTESTS   lhd_do_nothing
 #define LANG_HOOKS_GET_SUBSTRING_LOCATION lhd_get_substring_location
+#define LANG_HOOKS_FINALIZE_EARLY_DEBUG lhd_finalize_early_debug
 
 /* Attribute hooks.  */
 #define LANG_HOOKS_ATTRIBUTE_TABLE		NULL
@@ -315,6 +321,10 @@ extern void lhd_end_section (void);
   LANG_HOOKS_INIT_OPTIONS_STRUCT, \
   LANG_HOOKS_INIT_OPTIONS, \
   LANG_HOOKS_INITIALIZE_DIAGNOSTICS, \
+  LANG_HOOKS_PREPROCESS_MAIN_FILE, \
+  LANG_HOOKS_PREPROCESS_OPTIONS, \
+  LANG_HOOKS_PREPROCESS_UNDEF, \
+  LANG_HOOKS_PREPROCESS_TOKEN, \
   LANG_HOOKS_REGISTER_DUMPS, \
   LANG_HOOKS_COMPLAIN_WRONG_LANG_P, \
   LANG_HOOKS_HANDLE_OPTION, \
@@ -364,7 +374,8 @@ extern void lhd_end_section (void);
   LANG_HOOKS_CUSTOM_FUNCTION_DESCRIPTORS, \
   LANG_HOOKS_EMITS_BEGIN_STMT, \
   LANG_HOOKS_RUN_LANG_SELFTESTS, \
-  LANG_HOOKS_GET_SUBSTRING_LOCATION \
+  LANG_HOOKS_GET_SUBSTRING_LOCATION, \
+  LANG_HOOKS_FINALIZE_EARLY_DEBUG \
 }
 
 #endif /* GCC_LANG_HOOKS_DEF_H */

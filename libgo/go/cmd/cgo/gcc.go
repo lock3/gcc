@@ -200,6 +200,9 @@ func (p *Package) Translate(f *File) {
 		numTypedefs = len(p.typedefs)
 		// Also ask about any typedefs we've seen so far.
 		for _, info := range p.typedefList {
+			if f.Name[info.typedef] != nil {
+				continue
+			}
 			n := &Name{
 				Go: info.typedef,
 				C:  info.typedef,
@@ -351,7 +354,7 @@ func (p *Package) guessKinds(f *File) []*Name {
 	//	void __cgo_f_xxx_5(void) { static const char __cgo_undefined__5[] = (name); }
 	//
 	// If we see an error at not-declared:xxx, the corresponding name is not declared.
-	// If we see an error at not-type:xxx, the corresponding name is a type.
+	// If we see an error at not-type:xxx, the corresponding name is not a type.
 	// If we see an error at not-int-const:xxx, the corresponding name is not an integer constant.
 	// If we see an error at not-num-const:xxx, the corresponding name is not a number constant.
 	// If we see an error at not-str-lit:xxx, the corresponding name is not a string literal.
@@ -728,6 +731,9 @@ func (p *Package) prepareNames(f *File) {
 			}
 		}
 		p.mangleName(n)
+		if n.Kind == "type" && typedef[n.Mangle] == nil {
+			typedef[n.Mangle] = n.Type
+		}
 	}
 }
 
@@ -1366,6 +1372,9 @@ func (p *Package) rewriteRef(f *File) {
 
 		if *godefs {
 			// Substitute definition for mangled type name.
+			if r.Name.Type != nil && r.Name.Kind == "type" {
+				expr = r.Name.Type.Go
+			}
 			if id, ok := expr.(*ast.Ident); ok {
 				if t := typedef[id.Name]; t != nil {
 					expr = t.Go
@@ -1431,9 +1440,7 @@ func (p *Package) rewriteName(f *File, r *Ref) ast.Expr {
 				r.Context = ctxType
 				if r.Name.Type == nil {
 					error_(r.Pos(), "invalid conversion to C.%s: undefined C type '%s'", fixGo(r.Name.Go), r.Name.C)
-					break
 				}
-				expr = r.Name.Type.Go
 				break
 			}
 			error_(r.Pos(), "call of non-function C.%s", fixGo(r.Name.Go))
@@ -1490,9 +1497,7 @@ func (p *Package) rewriteName(f *File, r *Ref) ast.Expr {
 			// Okay - might be new(T)
 			if r.Name.Type == nil {
 				error_(r.Pos(), "expression C.%s: undefined C type '%s'", fixGo(r.Name.Go), r.Name.C)
-				break
 			}
-			expr = r.Name.Type.Go
 		case "var":
 			expr = &ast.StarExpr{Star: (*r.Expr).Pos(), X: expr}
 		case "macro":
@@ -1511,8 +1516,6 @@ func (p *Package) rewriteName(f *File, r *Ref) ast.Expr {
 			// Use of C.enum_x, C.struct_x or C.union_x without C definition.
 			// GCC won't raise an error when using pointers to such unknown types.
 			error_(r.Pos(), "type C.%s: undefined C type '%s'", fixGo(r.Name.Go), r.Name.C)
-		} else {
-			expr = r.Name.Type.Go
 		}
 	default:
 		if r.Name.Kind == "func" {
@@ -1570,6 +1573,10 @@ func (p *Package) gccMachine() []string {
 		if goos == "aix" {
 			return []string{"-maix64"}
 		}
+	case "ppc":
+		if goos == "aix" {
+			return []string{"-maix32"}
+		}
 	}
 	return nil
 }
@@ -1612,7 +1619,6 @@ func (p *Package) gccCmd() []string {
 	c = append(c, p.GccOptions...)
 	c = append(c, p.gccMachine()...)
 	if goos == "aix" {
-		c = append(c, "-maix64")
 		c = append(c, "-mcmodel=large")
 	}
 	c = append(c, "-") //read input from standard input
@@ -2453,6 +2459,18 @@ func (c *typeConv) loadType(dtype dwarf.Type, pos token.Pos, parent string) *Typ
 			tt := *t
 			tt.C = &TypeRepr{"%s %s", []interface{}{dt.Kind, tag}}
 			tt.Go = c.Ident("struct{}")
+			if dt.Kind == "struct" {
+				// We don't know what the representation of this struct is, so don't let
+				// anyone allocate one on the Go side. As a side effect of this annotation,
+				// pointers to this type will not be considered pointers in Go. They won't
+				// get writebarrier-ed or adjusted during a stack copy. This should handle
+				// all the cases badPointerTypedef used to handle, but hopefully will
+				// continue to work going forward without any more need for cgo changes.
+				tt.NotInHeap = true
+				// TODO: we should probably do the same for unions. Unions can't live
+				// on the Go heap, right? It currently doesn't work for unions because
+				// they are defined as a type alias for struct{}, not a defined type.
+			}
 			typedef[name.Name] = &tt
 			break
 		}
@@ -2523,6 +2541,7 @@ func (c *typeConv) loadType(dtype dwarf.Type, pos token.Pos, parent string) *Typ
 		}
 		t.Go = name
 		t.BadPointer = sub.BadPointer
+		t.NotInHeap = sub.NotInHeap
 		if unionWithPointer[sub.Go] {
 			unionWithPointer[t.Go] = true
 		}
@@ -2533,6 +2552,7 @@ func (c *typeConv) loadType(dtype dwarf.Type, pos token.Pos, parent string) *Typ
 			tt := *t
 			tt.Go = sub.Go
 			tt.BadPointer = sub.BadPointer
+			tt.NotInHeap = sub.NotInHeap
 			typedef[name.Name] = &tt
 		}
 
@@ -3036,10 +3056,12 @@ func (c *typeConv) anonymousStructTypedef(dt *dwarf.TypedefType) bool {
 	return ok && st.StructName == ""
 }
 
-// badPointerTypedef reports whether t is a C typedef that should not be considered a pointer in Go.
-// A typedef is bad if C code sometimes stores non-pointers in this type.
+// badPointerTypedef reports whether dt is a C typedef that should not be
+// considered a pointer in Go. A typedef is bad if C code sometimes stores
+// non-pointers in this type.
 // TODO: Currently our best solution is to find these manually and list them as
 // they come up. A better solution is desired.
+// Note: DEPRECATED. There is now a better solution. Search for NotInHeap in this file.
 func (c *typeConv) badPointerTypedef(dt *dwarf.TypedefType) bool {
 	if c.badCFType(dt) {
 		return true
@@ -3047,7 +3069,7 @@ func (c *typeConv) badPointerTypedef(dt *dwarf.TypedefType) bool {
 	if c.badJNI(dt) {
 		return true
 	}
-	if c.badEGLDisplay(dt) {
+	if c.badEGLType(dt) {
 		return true
 	}
 	return false
@@ -3186,11 +3208,11 @@ func (c *typeConv) badJNI(dt *dwarf.TypedefType) bool {
 	return false
 }
 
-func (c *typeConv) badEGLDisplay(dt *dwarf.TypedefType) bool {
-	if dt.Name != "EGLDisplay" {
+func (c *typeConv) badEGLType(dt *dwarf.TypedefType) bool {
+	if dt.Name != "EGLDisplay" && dt.Name != "EGLConfig" {
 		return false
 	}
-	// Check that the typedef is "typedef void *EGLDisplay".
+	// Check that the typedef is "typedef void *<name>".
 	if ptr, ok := dt.Type.(*dwarf.PtrType); ok {
 		if _, ok := ptr.Type.(*dwarf.VoidType); ok {
 			return true

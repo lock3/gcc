@@ -995,6 +995,9 @@ decode_omp_directive (void)
 	      ST_OMP_PARALLEL_WORKSHARE);
       matcho ("parallel", gfc_match_omp_parallel, ST_OMP_PARALLEL);
       break;
+    case 'r':
+      matcho ("requires", gfc_match_omp_requires, ST_OMP_REQUIRES);
+      break;
     case 's':
       matcho ("sections", gfc_match_omp_sections, ST_OMP_SECTIONS);
       matcho ("section", gfc_match_omp_eos_error, ST_OMP_SECTION);
@@ -1085,6 +1088,38 @@ decode_omp_directive (void)
 	  gfc_error_recovery ();
 	  return ST_NONE;
 	}
+    }
+  switch (ret)
+    {
+    case ST_OMP_DECLARE_TARGET:
+    case ST_OMP_TARGET:
+    case ST_OMP_TARGET_DATA:
+    case ST_OMP_TARGET_ENTER_DATA:
+    case ST_OMP_TARGET_EXIT_DATA:
+    case ST_OMP_TARGET_TEAMS:
+    case ST_OMP_TARGET_TEAMS_DISTRIBUTE:
+    case ST_OMP_TARGET_TEAMS_DISTRIBUTE_SIMD:
+    case ST_OMP_TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO:
+    case ST_OMP_TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO_SIMD:
+    case ST_OMP_TARGET_PARALLEL:
+    case ST_OMP_TARGET_PARALLEL_DO:
+    case ST_OMP_TARGET_PARALLEL_DO_SIMD:
+    case ST_OMP_TARGET_SIMD:
+    case ST_OMP_TARGET_UPDATE:
+      {
+	gfc_namespace *prog_unit = gfc_current_ns;
+	while (prog_unit->parent)
+	  {
+	    if (gfc_state_stack->previous
+		&& gfc_state_stack->previous->state == COMP_INTERFACE)
+	      break;
+	    prog_unit = prog_unit->parent;
+	  }
+	  prog_unit->omp_target_seen = true;
+	break;
+      }
+    default:
+      break;
     }
   return ret;
 
@@ -1598,13 +1633,15 @@ next_statement (void)
 
 #define case_decl case ST_ATTR_DECL: case ST_COMMON: case ST_DATA_DECL: \
   case ST_EQUIVALENCE: case ST_NAMELIST: case ST_STATEMENT_FUNCTION: \
-  case ST_TYPE: case ST_INTERFACE: case ST_PROCEDURE: case ST_OACC_ROUTINE: \
-  case ST_OACC_DECLARE
+  case ST_TYPE: case ST_INTERFACE: case ST_PROCEDURE
 
-/* OpenMP declaration statements.  */
+/* OpenMP and OpenACC declaration statements, which may appear anywhere in
+   the specification part.  */
 
 #define case_omp_decl case ST_OMP_THREADPRIVATE: case ST_OMP_DECLARE_SIMD: \
-  case ST_OMP_DECLARE_TARGET: case ST_OMP_DECLARE_REDUCTION
+  case ST_OMP_DECLARE_TARGET: case ST_OMP_DECLARE_REDUCTION: \
+  case ST_OMP_REQUIRES: case ST_OACC_ROUTINE: case ST_OACC_DECLARE
+
 
 /* Block end statements.  Errors associated with interchanging these
    are detected in gfc_match_end().  */
@@ -2407,6 +2444,9 @@ gfc_ascii_statement (gfc_statement st)
     case ST_OMP_PARALLEL_WORKSHARE:
       p = "!$OMP PARALLEL WORKSHARE";
       break;
+    case ST_OMP_REQUIRES:
+      p = "!$OMP REQUIRES";
+      break;
     case ST_OMP_SECTIONS:
       p = "!$OMP SECTIONS";
       break;
@@ -2774,7 +2814,7 @@ verify_st_order (st_state *p, gfc_statement st, bool silent)
       break;
 
     case_omp_decl:
-      /* The OpenMP directives have to be somewhere in the specification
+      /* The OpenMP/OpenACC directives have to be somewhere in the specification
 	 part, but there are no further requirements on their ordering.
 	 Thus don't adjust p->state, just ignore them.  */
       if (p->state >= ORDER_EXEC)
@@ -5023,9 +5063,9 @@ parse_omp_oacc_atomic (bool omp_p)
   np = new_level (cp);
   np->op = cp->op;
   np->block = NULL;
-  np->ext.omp_atomic = cp->ext.omp_atomic;
-  count = 1 + ((cp->ext.omp_atomic & GFC_OMP_ATOMIC_MASK)
-	       == GFC_OMP_ATOMIC_CAPTURE);
+  np->ext.omp_clauses = cp->ext.omp_clauses;
+  cp->ext.omp_clauses = NULL;
+  count = 1 + np->ext.omp_clauses->capture;
 
   while (count)
     {
@@ -5051,8 +5091,7 @@ parse_omp_oacc_atomic (bool omp_p)
       gfc_warning_check ();
       st = next_statement ();
     }
-  else if ((cp->ext.omp_atomic & GFC_OMP_ATOMIC_MASK)
-	   == GFC_OMP_ATOMIC_CAPTURE)
+  else if (np->ext.omp_clauses->capture)
     gfc_error ("Missing !$OMP END ATOMIC after !$OMP ATOMIC CAPTURE at %C");
   return st;
 }
@@ -6516,10 +6555,18 @@ done:
     }
   while (changed);
 
-  /* Fixup for external procedures.  */
+  /* Fixup for external procedures and resolve 'omp requires'.  */
+  int omp_requires;
+  omp_requires = 0;
   for (gfc_current_ns = gfc_global_ns_list; gfc_current_ns;
        gfc_current_ns = gfc_current_ns->sibling)
-    gfc_check_externals (gfc_current_ns);
+    {
+      omp_requires |= gfc_current_ns->omp_requires;
+      gfc_check_externals (gfc_current_ns);
+    }
+  for (gfc_current_ns = gfc_global_ns_list; gfc_current_ns;
+       gfc_current_ns = gfc_current_ns->sibling)
+    gfc_check_omp_requires (gfc_current_ns, omp_requires);
 
   /* Do the parse tree dump.  */
   gfc_current_ns = flag_dump_fortran_original ? gfc_global_ns_list : NULL;

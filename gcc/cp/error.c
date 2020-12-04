@@ -529,6 +529,7 @@ dump_type (cxx_pretty_printer *pp, tree t, int flags)
     case INTEGER_TYPE:
     case REAL_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case BOOLEAN_TYPE:
     case COMPLEX_TYPE:
     case VECTOR_TYPE:
@@ -874,6 +875,7 @@ dump_type_prefix (cxx_pretty_printer *pp, tree t, int flags)
     case UNION_TYPE:
     case LANG_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case TYPENAME_TYPE:
     case COMPLEX_TYPE:
     case VECTOR_TYPE:
@@ -951,8 +953,11 @@ dump_type_suffix (cxx_pretty_printer *pp, tree t, int flags)
       if (tree dtype = TYPE_DOMAIN (t))
 	{
 	  tree max = TYPE_MAX_VALUE (dtype);
-	  /* Zero-length arrays have an upper bound of SIZE_MAX.  */
-	  if (integer_all_onesp (max))
+	  /* Zero-length arrays have a null upper bound in C and SIZE_MAX
+	     in C++.  Handle both since the type might be constructed by
+	     the middle end and end up here as a result of a warning (see
+	     PR c++/97201).  */
+	  if (!max || integer_all_onesp (max))
 	    pp_character (pp, '0');
 	  else if (tree_fits_shwi_p (max))
 	    pp_wide_integer (pp, tree_to_shwi (max) + 1);
@@ -994,6 +999,7 @@ dump_type_suffix (cxx_pretty_printer *pp, tree t, int flags)
     case UNION_TYPE:
     case LANG_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case TYPENAME_TYPE:
     case COMPLEX_TYPE:
     case VECTOR_TYPE:
@@ -2400,6 +2406,64 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
 	}
       break;
 
+    case TARGET_MEM_REF:
+      /* TARGET_MEM_REF can't appear directly from source, but can appear
+	 during late GIMPLE optimizations and through late diagnostic we might
+	 need to support it.  Print it as dereferencing of a pointer after
+	 cast to the TARGET_MEM_REF type, with pointer arithmetics on some
+	 pointer to single byte types, so
+	 *(type *)((char *) ptr + step * index + index2) if all the operands
+	 are present and the casts are needed.  */
+      pp_cxx_star (pp);
+      pp_cxx_left_paren (pp);
+      if (TYPE_SIZE_UNIT (TREE_TYPE (TREE_TYPE (TMR_BASE (t)))) == NULL_TREE
+	  || !integer_onep (TYPE_SIZE_UNIT
+				(TREE_TYPE (TREE_TYPE (TMR_BASE (t))))))
+	{
+	  if (TYPE_SIZE_UNIT (TREE_TYPE (t))
+	      && integer_onep (TYPE_SIZE_UNIT (TREE_TYPE (t))))
+	    {
+	      pp_cxx_left_paren (pp);
+	      dump_type (pp, build_pointer_type (TREE_TYPE (t)), flags);
+	    }
+	  else
+	    {
+	      dump_type (pp, build_pointer_type (TREE_TYPE (t)), flags);
+	      pp_cxx_right_paren (pp);
+	      pp_cxx_left_paren (pp);
+	      pp_cxx_left_paren (pp);
+	      dump_type (pp, build_pointer_type (char_type_node), flags);
+	    }
+	  pp_cxx_right_paren (pp);
+	}
+      else if (!same_type_p (TREE_TYPE (t),
+			     TREE_TYPE (TREE_TYPE (TMR_BASE (t)))))
+	{
+	  dump_type (pp, build_pointer_type (TREE_TYPE (t)), flags);
+	  pp_cxx_right_paren (pp);
+	  pp_cxx_left_paren (pp);
+	}
+      dump_expr (pp, TMR_BASE (t), flags);
+      if (TMR_STEP (t) && TMR_INDEX (t))
+	{
+	  pp_cxx_ws_string (pp, "+");
+	  dump_expr (pp, TMR_INDEX (t), flags);
+	  pp_cxx_ws_string (pp, "*");
+	  dump_expr (pp, TMR_STEP (t), flags);
+	}
+      if (TMR_INDEX2 (t))
+	{
+	  pp_cxx_ws_string (pp, "+");
+	  dump_expr (pp, TMR_INDEX2 (t), flags);
+	}
+      if (!integer_zerop (TMR_OFFSET (t)))
+	{
+	  pp_cxx_ws_string (pp, "+");
+	  dump_expr (pp, fold_convert (ssizetype, TMR_OFFSET (t)), flags);
+	}
+      pp_cxx_right_paren (pp);
+      break;
+
     case NEGATE_EXPR:
     case BIT_NOT_EXPR:
     case TRUTH_NOT_EXPR:
@@ -2749,6 +2813,7 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
     case ENUMERAL_TYPE:
     case REAL_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case BOOLEAN_TYPE:
     case INTEGER_TYPE:
     case COMPLEX_TYPE:
@@ -3488,6 +3553,14 @@ function_category (tree fn)
     return _("In function %qs");
 }
 
+/* Disable warnings about missing quoting in GCC diagnostics for
+   the pp_verbatim calls.  Their format strings deliberately don't
+   follow GCC diagnostic conventions.  */
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wformat-diag"
+#endif
+
 /* Report the full context of a current template instantiation,
    onto BUFFER.  */
 static void
@@ -4088,11 +4161,16 @@ add_quotes (const char *content, bool show_color)
   pp_show_color (&tmp_pp) = show_color;
 
   /* We have to use "%<%s%>" rather than "%qs" here in order to avoid
-     quoting colorization bytes within the results.  */
+     quoting colorization bytes within the results and using either
+     pp_quote or pp_begin_quote doesn't work the same.  */
   pp_printf (&tmp_pp, "%<%s%>", content);
 
   return pp_ggc_formatted_text (&tmp_pp);
 }
+
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic pop
+#endif
 
 /* If we had %H and %I, and hence deferred printing them,
    print them now, storing the result into the chunk_info

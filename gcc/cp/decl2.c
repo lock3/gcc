@@ -81,7 +81,6 @@ static void import_export_class (tree);
 static tree get_guard_bits (tree);
 static void determine_visibility_from_class (tree, tree);
 static bool determine_hidden_inline (tree);
-static void maybe_instantiate_decl (tree);
 
 /* A list of static class variables.  This is needed, because a
    static class variable can be declared inside the class without
@@ -995,9 +994,6 @@ grokfield (const cp_declarator *declarator,
   else
     flags = LOOKUP_IMPLICIT;
 
-  if (decl_spec_seq_has_spec_p (declspecs, ds_constinit))
-    flags |= LOOKUP_CONSTINIT;
-
   switch (TREE_CODE (value))
     {
     case VAR_DECL:
@@ -1025,7 +1021,7 @@ grokfield (const cp_declarator *declarator,
 		      asmspec_tree, flags);
 
       /* Pass friends back this way.  */
-      if (DECL_FRIEND_P (value))
+      if (DECL_UNIQUE_FRIEND_P (value))
 	return void_type_node;
 
       DECL_IN_AGGR_P (value) = 1;
@@ -2898,9 +2894,8 @@ constrain_class_visibility (tree type)
 /* Functions for adjusting the visibility of a tagged type and its nested
    types and declarations when it gets a name for linkage purposes from a
    typedef.  */
-
-static void bt_reset_linkage_1 (binding_entry, void *);
-static void bt_reset_linkage_2 (binding_entry, void *);
+// FIXME: It is now a DR for such a class type to contain anything
+// other than C.  So at minium most of this can probably be deleted.
 
 /* First reset the visibility of all the types.  */
 
@@ -2909,13 +2904,9 @@ reset_type_linkage_1 (tree type)
 {
   set_linkage_according_to_type (type, TYPE_MAIN_DECL (type));
   if (CLASS_TYPE_P (type))
-    binding_table_foreach (CLASSTYPE_NESTED_UTDS (type),
-			   bt_reset_linkage_1, NULL);
-}
-static void
-bt_reset_linkage_1 (binding_entry b, void */*data*/)
-{
-  reset_type_linkage_1 (b->type);
+    for (tree member = TYPE_FIELDS (type); member; member = DECL_CHAIN (member))
+      if (DECL_IMPLICIT_TYPEDEF_P (member))
+	reset_type_linkage_1 (TREE_TYPE (member));
 }
 
 /* Then reset the visibility of any static data members or member
@@ -2934,9 +2925,10 @@ reset_decl_linkage (tree decl)
   tentative_decl_linkage (decl);
 }
 
-static void
-reset_type_linkage_2 (tree type)
+void
+reset_type_linkage (tree type)
 {
+  reset_type_linkage_1 (type);
   if (CLASS_TYPE_P (type))
     {
       if (tree vt = CLASSTYPE_VTABLES (type))
@@ -2959,22 +2951,10 @@ reset_type_linkage_2 (tree type)
 	  tree mem = STRIP_TEMPLATE (m);
 	  if (TREE_CODE (mem) == VAR_DECL || TREE_CODE (mem) == FUNCTION_DECL)
 	    reset_decl_linkage (mem);
+	  else if (DECL_IMPLICIT_TYPEDEF_P (mem))
+	    reset_type_linkage (TREE_TYPE (mem));
 	}
-      binding_table_foreach (CLASSTYPE_NESTED_UTDS (type),
-			     bt_reset_linkage_2, NULL);
     }
-}
-
-static void
-bt_reset_linkage_2 (binding_entry b, void */*data*/)
-{
-  reset_type_linkage_2 (b->type);
-}
-void
-reset_type_linkage (tree type)
-{
-  reset_type_linkage_1 (type);
-  reset_type_linkage_2 (type);
 }
 
 /* Set up our initial idea of what the linkage of DECL should be.  */
@@ -4367,7 +4347,7 @@ collect_source_refs (tree namespc)
 {
   /* Iterate over names in this name space.  */
   for (tree t = NAMESPACE_LEVEL (namespc)->names; t; t = TREE_CHAIN (t))
-    if (DECL_IS_BUILTIN (t))
+    if (DECL_IS_UNDECLARED_BUILTIN (t))
       ;
     else if (TREE_CODE (t) == NAMESPACE_DECL && !DECL_NAMESPACE_ALIAS (t))
       collect_source_refs (t);
@@ -5411,7 +5391,7 @@ possibly_inlined_p (tree decl)
    them instantiated for reduction clauses which inline them by hand
    directly.  */
 
-static void
+void
 maybe_instantiate_decl (tree decl)
 {
   if (DECL_LANG_SPECIFIC (decl)
@@ -5596,6 +5576,22 @@ mark_used (tree decl, tsubst_flags_t complain)
       return false;
     }
 
+  if (VAR_OR_FUNCTION_DECL_P (decl) && DECL_LOCAL_DECL_P (decl))
+    {
+      if (!DECL_LANG_SPECIFIC (decl))
+	/* An unresolved dependent local extern.  */
+	return true;
+
+      DECL_ODR_USED (decl) = 1;
+      auto alias = DECL_LOCAL_DECL_ALIAS (decl);
+      if (!alias || alias == error_mark_node)
+	return true;
+
+      /* Process the underlying decl.  */
+      decl = alias;
+      TREE_USED (decl) = true;
+    }
+
   cp_warn_deprecated_use (decl, complain);
 
   /* We can only check DECL_ODR_USED on variables or functions with
@@ -5617,16 +5613,6 @@ mark_used (tree decl, tsubst_flags_t complain)
   if (DECL_ODR_USED (decl))
     return true;
 
-  /* Normally, we can wait until instantiation-time to synthesize DECL.
-     However, if DECL is a static data member initialized with a constant
-     or a constexpr function, we need it right now because a reference to
-     such a data member or a call to such function is not value-dependent.
-     For a function that uses auto in the return type, we need to instantiate
-     it to find out its type.  For OpenMP user defined reductions, we need
-     them instantiated for reduction clauses which inline them by hand
-     directly.  */
-  maybe_instantiate_decl (decl);
-
   if (flag_concepts && TREE_CODE (decl) == FUNCTION_DECL
       && !constraints_satisfied_p (decl))
     {
@@ -5641,6 +5627,16 @@ mark_used (tree decl, tsubst_flags_t complain)
 	}
       return false;
     }
+
+  /* Normally, we can wait until instantiation-time to synthesize DECL.
+     However, if DECL is a static data member initialized with a constant
+     or a constexpr function, we need it right now because a reference to
+     such a data member or a call to such function is not value-dependent.
+     For a function that uses auto in the return type, we need to instantiate
+     it to find out its type.  For OpenMP user defined reductions, we need
+     them instantiated for reduction clauses which inline them by hand
+     directly.  */
+  maybe_instantiate_decl (decl);
 
   if (processing_template_decl || in_template_function ())
     return true;
@@ -5679,14 +5675,7 @@ mark_used (tree decl, tsubst_flags_t complain)
       && !DECL_ARTIFICIAL (decl)
       && !decl_defined_p (decl)
       && no_linkage_check (TREE_TYPE (decl), /*relaxed_p=*/false))
-    {
-      if (is_local_extern (decl))
-	/* There's no way to define a local extern, and adding it to
-	   the vector interferes with GC, so give an error now.  */
-	no_linkage_error (decl);
-      else
-	vec_safe_push (no_linkage_decls, decl);
-    }
+    vec_safe_push (no_linkage_decls, decl);
 
   if (TREE_CODE (decl) == FUNCTION_DECL
       && DECL_DECLARED_INLINE_P (decl)

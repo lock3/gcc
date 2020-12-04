@@ -355,7 +355,11 @@ func ReadMemStatsSlow() (base, slow MemStats) {
 		}
 
 		for i := mheap_.pages.start; i < mheap_.pages.end; i++ {
-			pg := mheap_.pages.chunkOf(i).scavenged.popcntRange(0, pallocChunkPages)
+			chunk := mheap_.pages.tryChunkOf(i)
+			if chunk == nil {
+				continue
+			}
+			pg := chunk.scavenged.popcntRange(0, pallocChunkPages)
 			slow.HeapReleased += uint64(pg) * pageSize
 		}
 		for _, p := range allp {
@@ -476,6 +480,8 @@ func GetNextArenaHint() uintptr {
 }
 
 type G = g
+
+type Sudog = sudog
 
 func Getg() *G {
 	return getg()
@@ -727,9 +733,12 @@ func (p *PageAlloc) Free(base, npages uintptr) {
 func (p *PageAlloc) Bounds() (ChunkIdx, ChunkIdx) {
 	return ChunkIdx((*pageAlloc)(p).start), ChunkIdx((*pageAlloc)(p).end)
 }
-func (p *PageAlloc) Scavenge(nbytes uintptr, locked bool) (r uintptr) {
+func (p *PageAlloc) Scavenge(nbytes uintptr, mayUnlock bool) (r uintptr) {
+	pp := (*pageAlloc)(p)
 	systemstack(func() {
-		r = (*pageAlloc)(p).scavenge(nbytes, locked)
+		lock(pp.mheapLock)
+		r = pp.scavenge(nbytes, mayUnlock)
+		unlock(pp.mheapLock)
 	})
 	return
 }
@@ -737,8 +746,8 @@ func (p *PageAlloc) InUse() []AddrRange {
 	ranges := make([]AddrRange, 0, len(p.inUse.ranges))
 	for _, r := range p.inUse.ranges {
 		ranges = append(ranges, AddrRange{
-			Base:  r.base,
-			Limit: r.limit,
+			Base:  r.base.addr(),
+			Limit: r.limit.addr(),
 		})
 	}
 	return ranges
@@ -747,11 +756,7 @@ func (p *PageAlloc) InUse() []AddrRange {
 // Returns nil if the PallocData's L2 is missing.
 func (p *PageAlloc) PallocData(i ChunkIdx) *PallocData {
 	ci := chunkIdx(i)
-	l2 := (*pageAlloc)(p).chunks[ci.l1()]
-	if l2 == nil {
-		return nil
-	}
-	return (*PallocData)(&l2[ci.l2()])
+	return (*PallocData)((*pageAlloc)(p).tryChunkOf(ci))
 }
 
 // AddrRange represents a range over addresses.
@@ -784,6 +789,7 @@ func NewPageAlloc(chunks, scav map[ChunkIdx][]BitRange) *PageAlloc {
 
 	// We've got an entry, so initialize the pageAlloc.
 	p.init(new(mutex), nil)
+	lockInit(p.mheapLock, lockRankMheap)
 	p.test = true
 
 	for i, init := range chunks {
@@ -810,7 +816,6 @@ func NewPageAlloc(chunks, scav map[ChunkIdx][]BitRange) *PageAlloc {
 				}
 			}
 		}
-		p.resetScavengeAddr()
 
 		// Apply alloc state.
 		for _, s := range init {
@@ -824,6 +829,11 @@ func NewPageAlloc(chunks, scav map[ChunkIdx][]BitRange) *PageAlloc {
 		// Update heap metadata for the allocRange calls above.
 		p.update(addr, pallocChunkPages, false, false)
 	}
+	systemstack(func() {
+		lock(p.mheapLock)
+		p.scavengeStartGen()
+		unlock(p.mheapLock)
+	})
 	return (*PageAlloc)(p)
 }
 
@@ -860,13 +870,9 @@ func FreePageAlloc(pp *PageAlloc) {
 // 64 bit and 32 bit platforms, allowing the tests to share code
 // between the two.
 //
-// On AIX, the arenaBaseOffset is 0x0a00000000000000. However, this
-// constant can't be used here because it is negative and will cause
-// a constant overflow.
-//
 // This should not be higher than 0x100*pallocChunkBytes to support
 // mips and mipsle, which only have 31-bit address spaces.
-var BaseChunkIdx = ChunkIdx(chunkIndex(((0xc000*pageAlloc64Bit + 0x100*pageAlloc32Bit) * pallocChunkBytes) + 0x0a00000000000000*sys.GoosAix*sys.GoarchPpc64))
+var BaseChunkIdx = ChunkIdx(chunkIndex(((0xc000*pageAlloc64Bit + 0x100*pageAlloc32Bit) * pallocChunkBytes) + arenaBaseOffset*sys.GoosAix*sys.GoarchPpc64))
 
 // PageBase returns an address given a chunk index and a page index
 // relative to that chunk.
@@ -890,7 +896,10 @@ func CheckScavengedBitsCleared(mismatches []BitsMismatch) (n int, ok bool) {
 		lock(&mheap_.lock)
 	chunkLoop:
 		for i := mheap_.pages.start; i < mheap_.pages.end; i++ {
-			chunk := mheap_.pages.chunkOf(i)
+			chunk := mheap_.pages.tryChunkOf(i)
+			if chunk == nil {
+				continue
+			}
 			for j := 0; j < pallocChunkPages/64; j++ {
 				// Run over each 64-bit bitmap section and ensure
 				// scavenged is being cleared properly on allocation.
@@ -968,6 +977,13 @@ func MapHashCheck(m interface{}, k interface{}) (uintptr, uintptr) {
 	x := mt.hasher(noescape(p), uintptr(mh.hash0))
 	y := typehash(kt, noescape(p), uintptr(mh.hash0))
 	return x, y
+}
+
+func MSpanCountAlloc(bits []byte) int {
+	s := (*mspan)(mheap_.spanalloc.alloc())
+	s.nelems = uintptr(len(bits) * 8)
+	s.gcmarkBits = (*gcBits)(unsafe.Pointer(&bits[0]))
+	return s.countAlloc()
 }
 
 var Pusestackmaps = &usestackmaps

@@ -1,8 +1,5 @@
-// { dg-do run }
-// { dg-options "-pthread"  }
-// { dg-require-effective-target c++11 }
-// { dg-require-effective-target pthread }
-// { dg-require-gthreads "" }
+// { dg-do run { target c++11 } }
+// { dg-additional-options "-pthread" { target pthread } }
 
 // Copyright (C) 2008-2020 Free Software Foundation, Inc.
 //
@@ -36,7 +33,7 @@ void add_to_value(int i)
 
 int main()
 {
-  try 
+  try
     {
       std::call_once(value_flag, add_to_value, 2);
       std::call_once(value_flag, add_to_value, 2);

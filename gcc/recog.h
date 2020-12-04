@@ -113,6 +113,7 @@ extern void validate_replace_src_group (rtx, rtx, rtx_insn *);
 extern bool validate_simplify_insn (rtx_insn *insn);
 extern int num_changes_pending (void);
 extern bool reg_fits_class_p (const_rtx, reg_class_t, int, machine_mode);
+extern bool valid_insn_p (rtx_insn *);
 
 extern int offsettable_memref_p (rtx);
 extern int offsettable_nonstrict_memref_p (rtx);
@@ -149,6 +150,8 @@ extern rtx_insn *peephole2_insns (rtx, rtx_insn *, int *);
 
 extern int store_data_bypass_p (rtx_insn *, rtx_insn *);
 extern int if_test_bypass_p (rtx_insn *, rtx_insn *);
+
+extern void copy_frame_info_to_split_insn (rtx_insn *, rtx_insn *);
 
 #ifndef GENERATOR_FILE
 /* Try recognizing the instruction INSN,

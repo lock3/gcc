@@ -420,9 +420,11 @@ package body Sem_Attr is
       --  no arguments is used when the caller has already generated the
       --  required error messages.
 
-      procedure Error_Attr_P (Msg : String);
+      procedure Error_Attr_P (Msg : String; Msg_Cont : String := "");
       pragma No_Return (Error_Attr_P);
-      --  Like Error_Attr, but error is posted at the start of the prefix
+      --  Like Error_Attr, but error is posted at the start of the prefix. The
+      --  second message Msg_Cont is useful to issue a continuation message
+      --  before raising Bad_Attribute.
 
       procedure Legal_Formal_Attribute;
       --  Common processing for attributes Definite and Has_Discriminants.
@@ -1460,7 +1462,7 @@ package body Sem_Attr is
             if Ada_Version < Ada_2020
               and then not Is_Scalar_Type (Image_Type)
             then
-               Error_Msg_Ada_2020_Feature ("|nonscalar ''Image", Sloc (P));
+               Error_Msg_Ada_2020_Feature ("nonscalar ''Image", Sloc (P));
                Error_Attr;
             end if;
          end Check_Image_Type;
@@ -2690,10 +2692,13 @@ package body Sem_Attr is
       -- Error_Attr_P --
       ------------------
 
-      procedure Error_Attr_P (Msg : String) is
+      procedure Error_Attr_P (Msg : String; Msg_Cont : String := "") is
       begin
          Error_Msg_Name_1 := Aname;
          Error_Msg_F (Msg, P);
+         if Msg_Cont /= "" then
+            Error_Msg_F (Msg_Cont, P);
+         end if;
          Error_Attr;
       end Error_Attr_P;
 
@@ -2748,6 +2753,16 @@ package body Sem_Attr is
 
       procedure Min_Max is
       begin
+         --  Attribute can appear as function name in a reduction.
+         --  Semantic checks are performed later.
+
+         if Nkind (Parent (N)) = N_Attribute_Reference
+           and then Attribute_Name (Parent (N)) = Name_Reduce
+         then
+            Set_Etype (N, P_Base_Type);
+            return;
+         end if;
+
          Check_E2;
          Check_Scalar_Type;
          Resolve (E1, P_Base_Type);
@@ -2818,9 +2833,24 @@ package body Sem_Attr is
 
          case Uneval_Old_Setting is
             when 'E' =>
+               --  ??? In the case where Ada_Version is < Ada_2020 and
+               --  an illegal 'Old prefix would be legal in Ada_2020,
+               --  we'd like to call Error_Msg_Ada_2020_Feature.
+               --  Identifying that case involves some work.
+
                Error_Attr_P
                  ("prefix of attribute % that is potentially "
-                  & "unevaluated must statically name an entity");
+                  & "unevaluated must statically name an entity"
+
+                  --  further text needed for accuracy if Ada_2020
+                  & (if Ada_Version >= Ada_2020
+                       and then Attr_Id = Attribute_Old
+                     then " or be eligible for conditional evaluation"
+                          & " (RM 6.1.1 (27))"
+                     else ""),
+                  Msg_Cont =>
+                    "\using pragma Unevaluated_Use_Of_Old (Allow) will make "
+                    & "this legal");
 
             when 'W' =>
                Error_Msg_Name_1 := Aname;
@@ -3846,7 +3876,7 @@ package body Sem_Attr is
       -- Elab_Spec --
       ---------------
 
-      --  Shares processing with Elab_Body
+      --  Shares processing with Elab_Body attribute
 
       ----------------
       -- Elaborated --
@@ -4096,7 +4126,9 @@ package body Sem_Attr is
       -- Has_Access_Values --
       -----------------------
 
-      when Attribute_Has_Access_Values =>
+      when Attribute_Has_Access_Values
+         | Attribute_Has_Tagged_Values
+      =>
          Check_Type;
          Check_E0;
          Set_Etype (N, Standard_Boolean);
@@ -4120,10 +4152,7 @@ package body Sem_Attr is
       -- Has_Tagged_Values --
       -----------------------
 
-      when Attribute_Has_Tagged_Values =>
-         Check_Type;
-         Check_E0;
-         Set_Etype (N, Standard_Boolean);
+      --  Shares processing with Has_Access_Values attribute
 
       -----------------------
       -- Has_Discriminants --
@@ -4353,7 +4382,8 @@ package body Sem_Attr is
             --  within the related loop.
 
             function Declared_Within (Nod : Node_Id) return Boolean;
-            --  Determine whether Nod appears in the subtree of Loop_Decl
+            --  Determine whether Nod appears in the subtree of Loop_Decl but
+            --  not within the subtree of the prefix P itself.
 
             ---------------------
             -- Check_Reference --
@@ -4388,6 +4418,9 @@ package body Sem_Attr is
                while Present (Stmt) loop
                   if Stmt = Loop_Decl then
                      return True;
+
+                  elsif Stmt = P then
+                     return False;
 
                   --  Prevent the search from going too far
 
@@ -4755,6 +4788,13 @@ package body Sem_Attr is
       when Attribute_Max_Size_In_Storage_Elements =>
          Max_Alignment_For_Allocation_Max_Size_In_Storage_Elements;
 
+      ----------------------
+      -- Max_Integer_Size --
+      ----------------------
+
+      when Attribute_Max_Integer_Size =>
+         Standard_Attribute (System_Max_Integer_Size);
+
       ----------------------------------
       -- Max_Size_In_Storage_Elements --
       ----------------------------------
@@ -5119,10 +5159,15 @@ package body Sem_Attr is
 
          else
             --  Ensure that the prefix of attribute 'Old is an entity when it
-            --  is potentially unevaluated (6.1.1 (27/3)).
+            --  is potentially unevaluated (6.1.1 (27/3)). This rule is
+            --  relaxed in Ada2020 - this relaxation is reflected in the
+            --  call (below) to Eligible_For_Conditional_Evaluation.
 
             if Is_Potentially_Unevaluated (N)
               and then not Statically_Names_Object (P)
+              and then not
+                Old_Attr_Util.Conditional_Evaluation
+                 .Eligible_For_Conditional_Evaluation (N)
             then
                Uneval_Old_Msg;
 
@@ -6019,6 +6064,17 @@ package body Sem_Attr is
          Check_Real_Type;
          Set_Etype (N, Universal_Real);
 
+      ---------------------------------------
+      -- Small_Denominator/Small_Numerator --
+      ---------------------------------------
+
+      when Attribute_Small_Denominator
+         | Attribute_Small_Numerator
+      =>
+         Check_E0;
+         Check_Fixed_Point_Type;
+         Set_Etype (N, Universal_Integer);
+
       ------------------
       -- Storage_Pool --
       ------------------
@@ -6254,6 +6310,15 @@ package body Sem_Attr is
 
          if Comes_From_Source (N) then
             Check_Not_Incomplete_Type;
+
+            --  'Tag requires visibility on the corresponding package holding
+            --  the tag, so record a reference here, to avoid spurious unused
+            --  with_clause reported when compiling the main unit.
+
+            if In_Extended_Main_Source_Unit (Current_Scope) then
+               Set_Referenced (P_Type, True);
+               Set_Referenced (Scope (P_Type), True);
+            end if;
          end if;
 
          --  Set appropriate type
@@ -6589,7 +6654,7 @@ package body Sem_Attr is
          Check_E0;
 
          if not Is_Entity_Name (P)
-           or else Ekind (Entity (P)) not in Named_Kind
+           or else not Is_Named_Number (Entity (P))
          then
             Error_Attr_P ("prefix for % attribute must be named number");
 
@@ -6854,7 +6919,7 @@ package body Sem_Attr is
             end if;
 
             --  Verify the consistency of types when the current component is
-            --  part of a miltiple component update.
+            --  part of a multiple component update.
 
             --    Comp_1 | ... | Comp_N => <value>
 
@@ -6882,6 +6947,11 @@ package body Sem_Attr is
       --  Start of processing for Update
 
       begin
+         if Warn_On_Obsolescent_Feature then
+            Error_Msg_N ("?j?attribute Update is an obsolescent feature", N);
+            Error_Msg_N ("\?j?use a delta aggregate instead", N);
+         end if;
+
          Check_E1;
 
          if not Is_Object_Reference (P) then
@@ -7298,7 +7368,7 @@ package body Sem_Attr is
    --------------------
 
    procedure Eval_Attribute (N : Node_Id) is
-      Loc   : constant Source_Ptr   := Sloc (N);
+      Loc : constant Source_Ptr := Sloc (N);
 
       C_Type : constant Entity_Id := Etype (N);
       --  The type imposed by the context
@@ -7741,7 +7811,7 @@ package body Sem_Attr is
       --  we will do the folding right here (things get confused if we let this
       --  case go through the normal circuitry).
 
-      if Attribute_Name (N) = Name_Img
+      if Id = Attribute_Img
         and then Is_Entity_Name (P)
         and then Is_Enumeration_Type (Etype (Entity (P)))
         and then Is_OK_Static_Expression (P)
@@ -7875,7 +7945,7 @@ package body Sem_Attr is
 
                if Known_Static_Component_Bit_Offset (CE) then
                   Compile_Time_Known_Attribute
-                    (N, Component_Bit_Offset (Entity (P)));
+                    (N, Component_Bit_Offset (CE));
                else
                   Check_Expressions;
                end if;
@@ -8075,7 +8145,7 @@ package body Sem_Attr is
       --  T'Descriptor_Size is never static, even if T is static.
 
       if Is_Scalar_Type (P_Entity)
-        and then (not Is_Generic_Type (P_Entity))
+        and then not Is_Generic_Type (P_Entity)
         and then Is_Static_Subtype (P_Entity)
         and then Is_Scalar_Type (Etype (N))
         and then
@@ -8099,7 +8169,7 @@ package body Sem_Attr is
 
       if Is_Type (P_Entity)
         and then (Is_Scalar_Type (P_Entity) or Is_Array_Type (P_Entity))
-        and then (not Is_Generic_Type (P_Entity))
+        and then not Is_Generic_Type (P_Entity)
       then
          P_Type := P_Entity;
 
@@ -8107,7 +8177,7 @@ package body Sem_Attr is
 
       elsif Ekind (P_Entity) in E_Variable | E_Constant
         and then Is_Array_Type (Etype (P_Entity))
-        and then (not Is_Generic_Type (Etype (P_Entity)))
+        and then not Is_Generic_Type (Etype (P_Entity))
       then
          P_Type := Etype (P_Entity);
 
@@ -8156,7 +8226,7 @@ package body Sem_Attr is
       elsif (Id = Attribute_Size or
              Id = Attribute_Max_Size_In_Storage_Elements)
         and then Is_Type (P_Entity)
-        and then (not Is_Generic_Type (P_Entity))
+        and then not Is_Generic_Type (P_Entity)
         and then Known_Static_RM_Size (P_Entity)
       then
          declare
@@ -8178,7 +8248,7 @@ package body Sem_Attr is
 
       elsif Id = Attribute_Alignment
         and then Is_Type (P_Entity)
-        and then (not Is_Generic_Type (P_Entity))
+        and then not Is_Generic_Type (P_Entity)
         and then Known_Alignment (P_Entity)
       then
          Compile_Time_Known_Attribute (N, Alignment (P_Entity));
@@ -8187,7 +8257,7 @@ package body Sem_Attr is
       --  If this is an access attribute that is known to fail accessibility
       --  check, rewrite accordingly.
 
-      elsif Attribute_Name (N) = Name_Access
+      elsif Id = Attribute_Address
         and then Raises_Constraint_Error (N)
       then
          Rewrite (N,
@@ -9846,6 +9916,20 @@ package body Sem_Attr is
             Fold_Ureal (N, Small_Value (P_Type), True);
          end if;
 
+      -----------------------
+      -- Small_Denominator --
+      -----------------------
+
+      when Attribute_Small_Denominator =>
+         Fold_Uint (N, Norm_Den (Small_Value (P_Type)), True);
+
+      ---------------------
+      -- Small_Numerator --
+      ---------------------
+
+      when Attribute_Small_Numerator =>
+         Fold_Uint (N, Norm_Num (Small_Value (P_Type)), True);
+
       -----------------
       -- Stream_Size --
       -----------------
@@ -10431,6 +10515,7 @@ package body Sem_Attr is
          | Attribute_Initialized
          | Attribute_Last_Bit
          | Attribute_Library_Level
+         | Attribute_Max_Integer_Size
          | Attribute_Maximum_Alignment
          | Attribute_Old
          | Attribute_Output
@@ -11237,10 +11322,10 @@ package body Sem_Attr is
                  --  Otherwise a check will be generated later when the return
                  --  statement gets expanded.
 
-                 and then not Is_Special_Aliased_Formal_Access
-                                (N, Current_Scope)
+                 and then not Is_Special_Aliased_Formal_Access (N)
                  and then
-                   Object_Access_Level (P) > Deepest_Type_Access_Level (Btyp)
+                   Static_Accessibility_Level (N, Zero_On_Dynamic_Level) >
+                     Deepest_Type_Access_Level (Btyp)
                then
                   --  In an instance, this is a runtime check, but one we know
                   --  will fail, so generate an appropriate warning. As usual,
@@ -11383,8 +11468,20 @@ package body Sem_Attr is
 
                if Attr_Id /= Attribute_Unchecked_Access
                  and then Ekind (Btyp) = E_General_Access_Type
+
+                 --  Call Accessibility_Level directly to avoid returning zero
+                 --  on cases where the prefix is an explicitly aliased
+                 --  parameter in a return statement, instead of using the
+                 --  normal Static_Accessibility_Level function.
+
+                 --  Shouldn't this be handled somehow in
+                 --  Static_Accessibility_Level ???
+
+                 and then Nkind (Accessibility_Level (P, Dynamic_Level))
+                            = N_Integer_Literal
                  and then
-                   Object_Access_Level (P) > Deepest_Type_Access_Level (Btyp)
+                   Intval (Accessibility_Level (P, Dynamic_Level))
+                     > Deepest_Type_Access_Level (Btyp)
                then
                   Accessibility_Message;
                   return;
@@ -11405,7 +11502,8 @@ package body Sem_Attr is
                --  anonymous_access_to_protected, there are no accessibility
                --  checks either. Omit check entirely for Unrestricted_Access.
 
-               elsif Object_Access_Level (P) > Deepest_Type_Access_Level (Btyp)
+               elsif Static_Accessibility_Level (P, Zero_On_Dynamic_Level)
+                       > Deepest_Type_Access_Level (Btyp)
                  and then Comes_From_Source (N)
                  and then Ekind (Btyp) = E_Access_Protected_Subprogram_Type
                  and then Attr_Id /= Attribute_Unrestricted_Access
@@ -11453,7 +11551,7 @@ package body Sem_Attr is
 
             Set_Etype (N, Btyp);
 
-            --  Check for incorrect atomic/volatile reference (RM C.6(12))
+            --  Check for incorrect atomic/volatile/VFA reference (RM C.6(12))
 
             if Attr_Id /= Attribute_Unrestricted_Access then
                if Is_Atomic_Object (P)
@@ -11469,6 +11567,27 @@ package body Sem_Attr is
                   Error_Msg_F
                     ("access to volatile object cannot yield access-to-" &
                      "non-volatile type", P);
+
+               elsif Is_Volatile_Full_Access_Object (P)
+                 and then not Is_Volatile_Full_Access (Designated_Type (Typ))
+               then
+                  Error_Msg_F
+                    ("access to full access object cannot yield access-to-" &
+                     "non-full-access type", P);
+               end if;
+
+               --  Check for nonatomic subcomponent of a full access object
+               --  in Ada 2020 (RM C.6 (12)).
+
+               if Ada_Version >= Ada_2020
+                 and then Is_Subcomponent_Of_Full_Access_Object (P)
+                 and then not Is_Atomic_Object (P)
+               then
+                  Error_Msg_NE
+                    ("cannot have access attribute with prefix &", N, P);
+                  Error_Msg_N
+                    ("\nonatomic subcomponent of full access object "
+                     & "(RM C.6(12))", N);
                end if;
             end if;
 
@@ -12011,6 +12130,11 @@ package body Sem_Attr is
                        or else Present (Next_Formal (F2))
                      then
                         return False;
+
+                     elsif Ekind (Op) = E_Procedure then
+                        return Ekind (F1) = E_In_Out_Parameter
+                          and then Covers (Typ, Etype (F1));
+
                      else
                         return
                           (Ekind (Op) = E_Operator
@@ -12034,13 +12158,19 @@ package body Sem_Attr is
                      Get_Next_Interp (Index, It);
                   end loop;
 
+               elsif Nkind (E1) = N_Attribute_Reference
+                 and then (Attribute_Name (E1) = Name_Max
+                   or else Attribute_Name (E1) = Name_Min)
+               then
+                  Op := E1;
+
                elsif Proper_Op (Entity (E1)) then
                   Op := Entity (E1);
                   Set_Etype (N, Typ);
                end if;
 
                if No (Op) then
-                  Error_Msg_N ("No visible function for reduction", E1);
+                  Error_Msg_N ("No visible subprogram for reduction", E1);
                end if;
             end;
 
@@ -12355,11 +12485,17 @@ package body Sem_Attr is
       --  applies to an ancestor type.
 
       while Etype (Etyp) /= Etyp loop
-         Etyp := Etype (Etyp);
+         declare
+            Derived_Type : constant Entity_Id := Etyp;
+         begin
+            Etyp := Etype (Etyp);
 
-         if Has_Stream_Attribute_Definition (Etyp, Nam) then
-            return True;
-         end if;
+            if Has_Stream_Attribute_Definition (Etyp, Nam) then
+               if not Derivation_Too_Early_To_Inherit (Derived_Type, Nam) then
+                  return True;
+               end if;
+            end if;
+         end;
       end loop;
 
       if Ada_Version < Ada_2005 then

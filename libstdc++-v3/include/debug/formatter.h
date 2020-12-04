@@ -72,7 +72,8 @@ namespace __gnu_debug
   using std::type_info;
 
   template<typename _Iterator>
-    bool __check_singular(const _Iterator&);
+    _GLIBCXX_CONSTEXPR
+    bool __check_singular(_Iterator const&);
 
   class _Safe_sequence_base;
 
@@ -143,7 +144,7 @@ namespace __gnu_debug
     // unordered container local iterators
     __msg_local_iter_compare_bad,
     __msg_non_empty_range,
-    // self move assign
+    // self move assign (no longer used)
     __msg_self_move_assign,
     // unordered container buckets
     __msg_bucket_index_oob,

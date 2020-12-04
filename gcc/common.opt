@@ -47,7 +47,7 @@ Variable
 bool in_lto_p = false
 
 ; This variable is set to non-0 only by LTO front-end.  1 indicates that
-; the output produced will be used for incrmeental linking (thus weak symbols
+; the output produced will be used for incremental linking (thus weak symbols
 ; can still be bound) and 2 indicates that the IL is going to be linked and
 ; and output to LTO object file.
 Variable
@@ -218,7 +218,7 @@ unsigned int flag_sanitize
 
 ; What sanitizers should recover from errors
 Variable
-unsigned int flag_sanitize_recover = (SANITIZE_UNDEFINED | SANITIZE_UNDEFINED_NONDEFAULT | SANITIZE_KERNEL_ADDRESS) & ~(SANITIZE_UNREACHABLE | SANITIZE_RETURN)
+unsigned int flag_sanitize_recover = (SANITIZE_UNDEFINED | SANITIZE_UNDEFINED_NONDEFAULT | SANITIZE_KERNEL_ADDRESS | SANITIZE_KERNEL_HWADDRESS) & ~(SANITIZE_UNREACHABLE | SANITIZE_RETURN)
 
 ; What the coverage sanitizers should instrument
 Variable
@@ -228,9 +228,9 @@ unsigned int flag_sanitize_coverage
 Variable
 bool dump_base_name_prefixed = false
 
-; Flag whether HSA generation has been explicitely disabled
+; What subset of registers should be zeroed on function return
 Variable
-bool flag_disable_hsa = false
+unsigned int flag_zero_call_used_regs
 
 ###
 Driver
@@ -619,8 +619,8 @@ Common Var(warn_free_nonheap_object) Init(1) Warning
 Warn when attempting to free a non-heap object.
 
 Whsa
-Common Var(warn_hsa) Init(1) Warning
-Warn when a function cannot be expanded to HSAIL.
+Common Ignore Warning
+Does nothing.  Preserved for backward compatibility.
 
 Wimplicit-fallthrough
 Common Alias(Wimplicit-fallthrough=,3,0) Warning
@@ -960,8 +960,12 @@ Driver Undocumented
 ; 13: Fixes the accidental change in 12 to the calling convention for classes
 ;     with deleted copy constructor and trivial move constructor.
 ;     Default in G++ 8.2.
+;
 ; 14: Corrects the mangling of nullptr expression.
 ;     Default in G++ 10.
+;
+; 15: Changes the mangling of __alignof__ to be distinct from that of alignof.
+;     Default in G++ 11.
 ;
 ; Additional positive integers will be assigned as new versions of
 ; the ABI become the default version of the ABI.
@@ -1206,7 +1210,7 @@ Common Report Var(flag_data_sections)
 Place data items into their own section.
 
 fdbg-cnt-list
-Common Report Var(common_deferred_options) Defer
+Common Report Var(flag_dbg_cnt_list)
 List all available debugging counters with their limits and counts.
 
 fdbg-cnt=
@@ -1381,6 +1385,10 @@ Print CWE identifiers for diagnostic messages, where available.
 fdiagnostics-path-format=
 Common Joined RejectNegative Var(flag_diagnostics_path_format) Enum(diagnostic_path_format) Init(DPF_INLINE_EVENTS)
 Specify how to print any control-flow path associated with a diagnostic.
+
+fdiagnostics-plain-output
+Driver Common RejectNegative
+Turn off any diagnostics features that complicate the output, such as line numbers, color, and warning URLs.
 
 ftabstop=
 Common Joined RejectNegative UInteger
@@ -1825,6 +1833,10 @@ fipa-bit-cp
 Common Report Var(flag_ipa_bit_cp) Optimization
 Perform interprocedural bitwise constant propagation.
 
+fipa-modref
+Common Report Var(flag_ipa_modref) Optimization
+Perform interprocedural modref analysis.
+
 fipa-profile
 Common Report Var(flag_ipa_profile) Init(0) Optimization
 Perform interprocedural profile propagation.
@@ -1931,6 +1943,10 @@ Optimize induction variables on trees.
 fjump-tables
 Common Var(flag_jump_tables) Init(1) Optimization
 Use jump tables for sufficiently large switch statements.
+
+fbit-tests
+Common Var(flag_bit_tests) Init(1) Optimization
+Use bit tests for sufficiently large switch statements.
 
 fkeep-inline-functions
 Common Report Var(flag_keep_inline_functions)
@@ -2210,11 +2226,11 @@ Common Joined RejectNegative Enum(profile_update) Var(flag_profile_update) Init(
 
 fprofile-filter-files=
 Common Joined RejectNegative Var(flag_profile_filter_files)
-Instrument only functions from files where names match any regular expression (separated by a semi-colon).
+Instrument only functions from files whose name matches any of the regular expressions (separated by semi-colons).
 
 fprofile-exclude-files=
 Common Joined RejectNegative Var(flag_profile_exclude_files)
-Instrument only functions from files where names do not match all the regular expressions (separated by a semi-colon).
+Instrument only functions from files whose name does not match any of the regular expressions (separated by semi-colons).
 
 Enum
 Name(profile_reproducibility) Type(enum profile_reproducibility) UnknownError(unknown profile reproducibility method %qs)
@@ -2255,6 +2271,14 @@ Enable common options for generating profile info for profile feedback directed 
 fprofile-generate=
 Common Joined RejectNegative
 Enable common options for generating profile info for profile feedback directed optimizations, and set -fprofile-dir=.
+
+fprofile-info-section
+Common RejectNegative
+Register the profile information in the .gcov_info section instead of using a constructor/destructor.
+
+fprofile-info-section=
+Common Joined RejectNegative Var(profile_info_section)
+Register the profile information in the specified section instead of using a constructor/destructor.
 
 fprofile-partial-training
 Common Report Var(flag_profile_partial_training) Optimization
@@ -2888,7 +2912,7 @@ Common Report Var(flag_unroll_all_loops) Optimization
 Perform loop unrolling for all loops.
 
 funroll-completely-grow-size
-Undocumented Var(flag_cunroll_grow_size) Init(2) Optimization
+Undocumented Var(flag_cunroll_grow_size) Optimization
 ; Internal undocumented flag, allow size growth during complete unrolling
 
 ; Nonzero means that loop optimizer may assume that the induction variables
@@ -2996,11 +3020,11 @@ Enable basic block vectorization (SLP) on trees.
 
 fvect-cost-model=
 Common Joined RejectNegative Enum(vect_cost_model) Var(flag_vect_cost_model) Init(VECT_COST_MODEL_DEFAULT) Optimization
--fvect-cost-model=[unlimited|dynamic|cheap]	Specifies the cost model for vectorization.
+-fvect-cost-model=[unlimited|dynamic|cheap|very-cheap]	Specifies the cost model for vectorization.
 
 fsimd-cost-model=
 Common Joined RejectNegative Enum(vect_cost_model) Var(flag_simd_cost_model) Init(VECT_COST_MODEL_UNLIMITED) Optimization
--fsimd-cost-model=[unlimited|dynamic|cheap]	Specifies the vectorization cost model for code marked with a simd directive.
+-fsimd-cost-model=[unlimited|dynamic|cheap|very-cheap]	Specifies the vectorization cost model for code marked with a simd directive.
 
 Enum
 Name(vect_cost_model) Type(enum vect_cost_model) UnknownError(unknown vectorizer cost model %qs)
@@ -3013,6 +3037,9 @@ Enum(vect_cost_model) String(dynamic) Value(VECT_COST_MODEL_DYNAMIC)
 
 EnumValue
 Enum(vect_cost_model) String(cheap) Value(VECT_COST_MODEL_CHEAP)
+
+EnumValue
+Enum(vect_cost_model) String(very-cheap) Value(VECT_COST_MODEL_VERY_CHEAP)
 
 fvect-cost-model
 Common Alias(fvect-cost-model=,dynamic,unlimited)
@@ -3107,6 +3134,10 @@ fzero-initialized-in-bss
 Common Report Var(flag_zero_initialized_in_bss) Init(1)
 Put zero initialized data in the bss section.
 
+fzero-call-used-regs=
+Common Report RejectNegative Joined
+Clear call-used registers upon function return.
+
 g
 Common Driver RejectNegative JoinedOrMissing
 Generate debug information in default format.
@@ -3146,6 +3177,14 @@ Generate debug information in default version of DWARF format.
 gdwarf-
 Common Driver Joined UInteger Var(dwarf_version) Init(4) Negative(gstabs)
 Generate debug information in DWARF v2 (or later) format.
+
+gdwarf32
+Common Driver Var(dwarf_offset_size,4) Init(4) RejectNegative
+Use 32-bit DWARF format when emitting DWARF debug information.
+
+gdwarf64
+Common Driver Var(dwarf_offset_size,8) RejectNegative
+Use 64-bit DWARF format when emitting DWARF debug information.
 
 ggdb
 Common Driver JoinedOrMissing
@@ -3415,6 +3454,9 @@ Driver
 ; Documented for Go, but always accepted by driver.
 
 static-libasan
+Driver
+
+static-libhwasan
 Driver
 
 static-libtsan

@@ -809,16 +809,15 @@ handle_pragma_diagnostic(cpp_reader *ARG_UNUSED(dummy))
   unsigned int option_index = find_opt (option_string + 1, lang_mask);
   if (option_index == OPT_SPECIAL_unknown)
     {
-      option_proposer op;
-      const char *hint = op.suggest_option (option_string + 1);
-      if (hint)
-	warning_at (loc, OPT_Wpragmas,
-		    "unknown option after %<#pragma GCC diagnostic%> kind;"
-		    " did you mean %<-%s%>?", hint);
-      else
-	warning_at (loc, OPT_Wpragmas,
-		    "unknown option after %<#pragma GCC diagnostic%> kind");
-
+      auto_diagnostic_group d;
+      if (warning_at (loc, OPT_Wpragmas,
+		      "unknown option after %<#pragma GCC diagnostic%> kind"))
+	{
+	  option_proposer op;
+	  const char *hint = op.suggest_option (option_string + 1);
+	  if (hint)
+	    inform (loc, "did you mean %<-%s%>?", hint);
+	}
       return;
     }
   else if (!(cl_options[option_index].flags & CL_WARNING))
@@ -987,7 +986,8 @@ handle_pragma_optimize (cpp_reader *ARG_UNUSED(dummy))
 
       parse_optimize_options (args, false);
       current_optimize_pragma = chainon (current_optimize_pragma, args);
-      optimization_current_node = build_optimization_node (&global_options);
+      optimization_current_node
+	= build_optimization_node (&global_options, &global_options_set);
       c_cpp_builtins_optimize_pragma (parse_in,
 				      optimization_previous_node,
 				      optimization_current_node);
@@ -1034,8 +1034,10 @@ handle_pragma_push_options (cpp_reader *ARG_UNUSED(dummy))
       p->saved_global_options = XNEW (gcc_options);
       *p->saved_global_options = global_options;
     }
-  p->optimize_binary = build_optimization_node (&global_options);
-  p->target_binary = build_target_option_node (&global_options);
+  p->optimize_binary = build_optimization_node (&global_options,
+						&global_options_set);
+  p->target_binary = build_target_option_node (&global_options,
+					       &global_options_set);
 
   /* Save optimization and target flags in string list format.  */
   p->optimize_strings = copy_list (current_optimize_pragma);
@@ -1079,7 +1081,7 @@ handle_pragma_pop_options (cpp_reader *ARG_UNUSED(dummy))
   if (p->optimize_binary != optimization_current_node)
     {
       tree old_optimize = optimization_current_node;
-      cl_optimization_restore (&global_options,
+      cl_optimization_restore (&global_options, &global_options_set,
 			       TREE_OPTIMIZATION (p->optimize_binary));
       c_cpp_builtins_optimize_pragma (parse_in, old_optimize,
 				      p->optimize_binary);
@@ -1122,7 +1124,7 @@ handle_pragma_reset_options (cpp_reader *ARG_UNUSED(dummy))
   if (new_optimize != optimization_current_node)
     {
       tree old_optimize = optimization_current_node;
-      cl_optimization_restore (&global_options,
+      cl_optimization_restore (&global_options, &global_options_set,
 			       TREE_OPTIMIZATION (new_optimize));
       c_cpp_builtins_optimize_pragma (parse_in, old_optimize, new_optimize);
       optimization_current_node = new_optimize;

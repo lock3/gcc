@@ -248,6 +248,7 @@ extern void ordered_hash_map_tests_cc_tests ();
 extern void predict_c_tests ();
 extern void pretty_print_c_tests ();
 extern void range_tests ();
+extern void range_op_tests ();
 extern void read_rtl_function_c_tests ();
 extern void rtl_tests_c_tests ();
 extern void sbitmap_c_tests ();
@@ -268,6 +269,7 @@ extern void vec_perm_indices_c_tests ();
 extern void wide_int_cc_tests ();
 extern void opt_proposer_c_tests ();
 extern void dbgcnt_c_tests ();
+extern void ipa_modref_tree_c_tests ();
 
 extern int num_passes;
 

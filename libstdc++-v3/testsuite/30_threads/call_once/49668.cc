@@ -1,8 +1,5 @@
-// { dg-do run }
-// { dg-options "-pthread"  }
-// { dg-require-effective-target c++11 }
-// { dg-require-effective-target pthread }
-// { dg-require-gthreads "" }
+// { dg-do run { target c++11 } }
+// { dg-additional-options "-pthread" { target pthread } }
 
 // Copyright (C) 2011-2020 Free Software Foundation, Inc.
 //

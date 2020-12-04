@@ -317,13 +317,8 @@ cxx_block_may_fallthru (const_tree stmt)
 	return true;
       return block_may_fallthru (ELSE_CLAUSE (stmt));
 
-    case SWITCH_STMT:
-      return (!SWITCH_STMT_ALL_CASES_P (stmt)
-	      || !SWITCH_STMT_NO_BREAK_P (stmt)
-	      || block_may_fallthru (SWITCH_STMT_BODY (stmt)));
-
     default:
-      return true;
+      return c_block_may_fallthru (stmt);
     }
 }
 
@@ -358,7 +353,7 @@ identifier_global_value (tree name)
 tree
 identifier_global_tag (tree name)
 {
-  tree ret = lookup_qualified_name (global_namespace, name, /*prefer_type*/2,
+  tree ret = lookup_qualified_name (global_namespace, name, LOOK_want::TYPE,
 				    /*complain*/false);
   if (ret == error_mark_node)
     return NULL_TREE;
@@ -374,7 +369,8 @@ names_builtin_p (const char *name)
   tree id = get_identifier (name);
   if (tree binding = get_global_binding (id))
     {
-      if (TREE_CODE (binding) == FUNCTION_DECL && DECL_IS_BUILTIN (binding))
+      if (TREE_CODE (binding) == FUNCTION_DECL
+	  && DECL_IS_UNDECLARED_BUILTIN (binding))
 	return true;
 
       /* Handle the case when an overload for a  built-in name exists.  */
@@ -384,7 +380,7 @@ names_builtin_p (const char *name)
       for (ovl_iterator it (binding); it; ++it)
 	{
 	  tree decl = *it;
-	  if (DECL_IS_BUILTIN (decl))
+	  if (DECL_IS_UNDECLARED_BUILTIN (decl))
 	    return true;
 	}
     }
@@ -398,6 +394,7 @@ names_builtin_p (const char *name)
     case RID_BUILTIN_HAS_ATTRIBUTE:
     case RID_BUILTIN_SHUFFLE:
     case RID_BUILTIN_LAUNDER:
+    case RID_BUILTIN_BIT_CAST:
     case RID_OFFSETOF:
     case RID_HAS_NOTHROW_ASSIGN:
     case RID_HAS_NOTHROW_CONSTRUCTOR:
@@ -481,20 +478,14 @@ cp_common_init_ts (void)
   MARK_TS_TYPE_NON_COMMON (TYPE_PACK_EXPANSION);
 
   /* Statements.  */
-  MARK_TS_EXP (BREAK_STMT);
   MARK_TS_EXP (CLEANUP_STMT);
-  MARK_TS_EXP (CONTINUE_STMT);
-  MARK_TS_EXP (DO_STMT);
   MARK_TS_EXP (EH_SPEC_BLOCK);
-  MARK_TS_EXP (FOR_STMT);
   MARK_TS_EXP (HANDLER);
   MARK_TS_EXP (IF_STMT);
   MARK_TS_EXP (OMP_DEPOBJ);
   MARK_TS_EXP (RANGE_FOR_STMT);
-  MARK_TS_EXP (SWITCH_STMT);
   MARK_TS_EXP (TRY_BLOCK);
   MARK_TS_EXP (USING_STMT);
-  MARK_TS_EXP (WHILE_STMT);
 
   /* Random expressions.  */
   MARK_TS_EXP (ADDRESSOF_EXPR);
@@ -502,6 +493,7 @@ cp_common_init_ts (void)
   MARK_TS_EXP (ALIGNOF_EXPR);
   MARK_TS_EXP (ARROW_EXPR);
   MARK_TS_EXP (AT_ENCODE_EXPR);
+  MARK_TS_EXP (BIT_CAST_EXPR);
   MARK_TS_EXP (CAST_EXPR);
   MARK_TS_EXP (CONST_CAST_EXPR);
   MARK_TS_EXP (CTOR_INITIALIZER);

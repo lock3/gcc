@@ -51,6 +51,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "builtins.h"
 #include "gimplify.h"
 #include "case-cfn-macros.h"
+#include "tree-ssa-reassoc.h"
 
 /*  This is a simple global reassociation pass.  It is, in part, based
     on the LLVM pass of the same name (They do some things more/less
@@ -188,15 +189,6 @@ static struct
   int pows_created;
 } reassociate_stats;
 
-/* Operator, rank pair.  */
-struct operand_entry
-{
-  unsigned int rank;
-  unsigned int id;
-  tree op;
-  unsigned int count;
-  gimple *stmt_to_insert;
-};
 
 static object_allocator<operand_entry> operand_entry_pool
   ("operand entry pool");
@@ -226,7 +218,7 @@ static bool reassoc_stmt_dominates_stmt_p (gimple *, gimple *);
 /* Wrapper around gsi_remove, which adjusts gimple_uid of debug stmts
    possibly added by gsi_remove.  */
 
-bool
+static bool
 reassoc_remove_stmt (gimple_stmt_iterator *gsi)
 {
   gimple *stmt = gsi_stmt (*gsi);
@@ -425,41 +417,43 @@ get_rank (tree e)
       long rank;
       tree op;
 
-      if (SSA_NAME_IS_DEFAULT_DEF (e))
-	return find_operand_rank (e);
-
-      stmt = SSA_NAME_DEF_STMT (e);
-      if (gimple_code (stmt) == GIMPLE_PHI)
-	return phi_rank (stmt);
-
-      if (!is_gimple_assign (stmt))
-	return bb_rank[gimple_bb (stmt)->index];
-
       /* If we already have a rank for this expression, use that.  */
       rank = find_operand_rank (e);
       if (rank != -1)
 	return rank;
 
-      /* Otherwise, find the maximum rank for the operands.  As an
-	 exception, remove the bias from loop-carried phis when propagating
-	 the rank so that dependent operations are not also biased.  */
-      /* Simply walk over all SSA uses - this takes advatage of the
-         fact that non-SSA operands are is_gimple_min_invariant and
-	 thus have rank 0.  */
-      rank = 0;
-      FOR_EACH_SSA_TREE_OPERAND (op, stmt, iter, SSA_OP_USE)
-	rank = propagate_rank (rank, op);
+      stmt = SSA_NAME_DEF_STMT (e);
+      if (gimple_code (stmt) == GIMPLE_PHI)
+	rank = phi_rank (stmt);
+
+      else if (!is_gimple_assign (stmt))
+	rank = bb_rank[gimple_bb (stmt)->index];
+
+      else
+	{
+	  /* Otherwise, find the maximum rank for the operands.  As an
+	     exception, remove the bias from loop-carried phis when propagating
+	     the rank so that dependent operations are not also biased.  */
+	  /* Simply walk over all SSA uses - this takes advatage of the
+	     fact that non-SSA operands are is_gimple_min_invariant and
+	     thus have rank 0.  */
+	  rank = 0;
+	  FOR_EACH_SSA_TREE_OPERAND (op, stmt, iter, SSA_OP_USE)
+	    rank = propagate_rank (rank, op);
+
+	  rank += 1;
+	}
 
       if (dump_file && (dump_flags & TDF_DETAILS))
 	{
 	  fprintf (dump_file, "Rank for ");
 	  print_generic_expr (dump_file, e);
-	  fprintf (dump_file, " is %ld\n", (rank + 1));
+	  fprintf (dump_file, " is %ld\n", rank);
 	}
 
       /* Note the rank in the hashtable so we don't recompute it.  */
-      insert_operand_rank (e, (rank + 1));
-      return (rank + 1);
+      insert_operand_rank (e, rank);
+      return rank;
     }
 
   /* Constants, globals, etc., are rank 0 */
@@ -2406,18 +2400,7 @@ optimize_ops_list (enum tree_code opcode,
    For more information see comments above fold_test_range in fold-const.c,
    this implementation is for GIMPLE.  */
 
-struct range_entry
-{
-  tree exp;
-  tree low;
-  tree high;
-  bool in_p;
-  bool strict_overflow_p;
-  unsigned int idx, next;
-};
 
-void dump_range_entry (FILE *file, struct range_entry *r);
-void debug_range_entry (struct range_entry *r);
 
 /* Dump the range entry R to FILE, skipping its expression if SKIP_EXP.  */
 
@@ -2447,7 +2430,7 @@ debug_range_entry (struct range_entry *r)
    an SSA_NAME and STMT argument is ignored, otherwise STMT
    argument should be a GIMPLE_COND.  */
 
-static void
+void
 init_range_entry (struct range_entry *r, tree exp, gimple *stmt)
 {
   int in_p;
@@ -3365,9 +3348,9 @@ optimize_range_tests_cmp_bitwise (enum tree_code opcode, int first, int length,
 
       b = TYPE_PRECISION (TREE_TYPE (ranges[i].exp)) * 2 + !zero_p;
       if (buckets.length () <= b)
-	buckets.safe_grow_cleared (b + 1);
+	buckets.safe_grow_cleared (b + 1, true);
       if (chains.length () <= (unsigned) i)
-	chains.safe_grow (i + 1);
+	chains.safe_grow (i + 1, true);
       chains[i] = buckets[b];
       buckets[b] = i + 1;
     }
@@ -3910,7 +3893,7 @@ ovce_extract_ops (tree var, gassign **rets, bool *reti, tree *type,
     return ERROR_MARK;
 
   gassign *assign = dyn_cast<gassign *> (SSA_NAME_DEF_STMT (cond));
-  if (stmt == NULL
+  if (assign == NULL
       || TREE_CODE_CLASS (gimple_assign_rhs_code (assign)) != tcc_comparison)
     return ERROR_MARK;
 
@@ -4127,11 +4110,14 @@ final_range_test_p (gimple *stmt)
    of TEST_BB, and *OTHER_BB is either NULL and filled by the routine,
    or compared with to find a common basic block to which all conditions
    branch to if true resp. false.  If BACKWARD is false, TEST_BB should
-   be the only predecessor of BB.  */
+   be the only predecessor of BB.  *TEST_SWAPPED_P is set to true if
+   TEST_BB is a bb ending in condition where the edge to non-*OTHER_BB
+   block points to an empty block that falls through into *OTHER_BB and
+   the phi args match that path.  */
 
 static bool
 suitable_cond_bb (basic_block bb, basic_block test_bb, basic_block *other_bb,
-		  bool backward)
+		  bool *test_swapped_p, bool backward)
 {
   edge_iterator ei, ei2;
   edge e, e2;
@@ -4196,6 +4182,7 @@ suitable_cond_bb (basic_block bb, basic_block test_bb, basic_block *other_bb,
   /* Now check all PHIs of *OTHER_BB.  */
   e = find_edge (bb, *other_bb);
   e2 = find_edge (test_bb, *other_bb);
+ retry:;
   for (gsi = gsi_start_phis (e->dest); !gsi_end_p (gsi); gsi_next (&gsi))
     {
       gphi *phi = gsi.phi ();
@@ -4221,11 +4208,52 @@ suitable_cond_bb (basic_block bb, basic_block test_bb, basic_block *other_bb,
 	  else
 	    {
 	      gimple *test_last = last_stmt (test_bb);
-	      if (gimple_code (test_last) != GIMPLE_COND
-		  && gimple_phi_arg_def (phi, e2->dest_idx)
-		     == gimple_assign_lhs (test_last)
-		  && (integer_zerop (gimple_phi_arg_def (phi, e->dest_idx))
-		      || integer_onep (gimple_phi_arg_def (phi, e->dest_idx))))
+	      if (gimple_code (test_last) == GIMPLE_COND)
+		{
+		  if (backward ? e2->src != test_bb : e->src != bb)
+		    return false;
+
+		  /* For last_bb, handle also:
+		     if (x_3(D) == 3)
+		       goto <bb 6>; [34.00%]
+		     else
+		       goto <bb 7>; [66.00%]
+
+		     <bb 6> [local count: 79512730]:
+
+		     <bb 7> [local count: 1073741824]:
+		     # prephitmp_7 = PHI <1(3), 1(4), 0(5), 1(2), 1(6)>
+		     where bb 7 is *OTHER_BB, but the PHI values from the
+		     earlier bbs match the path through the empty bb
+		     in between.  */
+		  edge e3;
+		  if (backward)
+		    e3 = EDGE_SUCC (test_bb,
+				    e2 == EDGE_SUCC (test_bb, 0) ? 1 : 0);
+		  else
+		    e3 = EDGE_SUCC (bb,
+				    e == EDGE_SUCC (bb, 0) ? 1 : 0);
+		  if (empty_block_p (e3->dest)
+		      && single_succ_p (e3->dest)
+		      && single_succ (e3->dest) == *other_bb
+		      && single_pred_p (e3->dest)
+		      && single_succ_edge (e3->dest)->flags == EDGE_FALLTHRU)
+		    {
+		      if (backward)
+			e2 = single_succ_edge (e3->dest);
+		      else
+			e = single_succ_edge (e3->dest);
+		      if (test_swapped_p)
+			*test_swapped_p = true;
+		      goto retry;
+		    }
+		}
+	      else if (gimple_phi_arg_def (phi, e2->dest_idx)
+		       == gimple_assign_lhs (test_last)
+		       && (integer_zerop (gimple_phi_arg_def (phi,
+							      e->dest_idx))
+			   || integer_onep (gimple_phi_arg_def (phi,
+								e->dest_idx))))
 		continue;
 	    }
 
@@ -4239,7 +4267,7 @@ suitable_cond_bb (basic_block bb, basic_block test_bb, basic_block *other_bb,
    range test optimization, all SSA_NAMEs set in the bb are consumed
    in the bb and there are no PHIs.  */
 
-static bool
+bool
 no_side_effect_bb (basic_block bb)
 {
   gimple_stmt_iterator gsi;
@@ -4414,7 +4442,7 @@ maybe_optimize_range_tests (gimple *stmt)
   while (single_pred_p (first_bb))
     {
       basic_block pred_bb = single_pred (first_bb);
-      if (!suitable_cond_bb (pred_bb, first_bb, &other_bb, true))
+      if (!suitable_cond_bb (pred_bb, first_bb, &other_bb, NULL, true))
 	break;
       if (!no_side_effect_bb (first_bb))
 	break;
@@ -4444,7 +4472,8 @@ maybe_optimize_range_tests (gimple *stmt)
 		&& gimple_code (stmt) == GIMPLE_COND
 		&& EDGE_COUNT (e->dest->succs) == 2)
 	      {
-		if (suitable_cond_bb (first_bb, e->dest, &other_bb, true))
+		if (suitable_cond_bb (first_bb, e->dest, &other_bb,
+				      NULL, true))
 		  break;
 		else
 		  other_bb = NULL;
@@ -4472,7 +4501,7 @@ maybe_optimize_range_tests (gimple *stmt)
 	break;
       if (!single_pred_p (e->dest))
 	break;
-      if (!suitable_cond_bb (e->dest, last_bb, &other_bb, false))
+      if (!suitable_cond_bb (e->dest, last_bb, &other_bb, NULL, false))
 	break;
       if (!no_side_effect_bb (e->dest))
 	break;
@@ -4582,6 +4611,28 @@ maybe_optimize_range_tests (gimple *stmt)
 	    }
 	  bbinfo.safe_push (bb_ent);
 	  continue;
+	}
+      else if (bb == last_bb)
+	{
+	  /* For last_bb, handle also:
+	     if (x_3(D) == 3)
+	       goto <bb 6>; [34.00%]
+	     else
+	       goto <bb 7>; [66.00%]
+
+	     <bb 6> [local count: 79512730]:
+
+	     <bb 7> [local count: 1073741824]:
+	     # prephitmp_7 = PHI <1(3), 1(4), 0(5), 1(2), 1(6)>
+	     where bb 7 is OTHER_BB, but the PHI values from the
+	     earlier bbs match the path through the empty bb
+	     in between.  */
+	  bool test_swapped_p = false;
+	  bool ok = suitable_cond_bb (single_pred (last_bb), last_bb,
+				      &other_bb, &test_swapped_p, true);
+	  gcc_assert (ok);
+	  if (test_swapped_p)
+	    e = EDGE_SUCC (bb, e == EDGE_SUCC (bb, 0) ? 1 : 0);
 	}
       /* Otherwise stmt is GIMPLE_COND.  */
       code = gimple_cond_code (stmt);
@@ -4913,7 +4964,7 @@ insert_stmt_before_use (gimple *stmt, gimple *stmt_to_insert)
    recursive invocations.  */
 
 static tree
-rewrite_expr_tree (gimple *stmt, unsigned int opindex,
+rewrite_expr_tree (gimple *stmt, enum tree_code rhs_code, unsigned int opindex,
 		   vec<operand_entry *> ops, bool changed, bool next_changed)
 {
   tree rhs1 = gimple_assign_rhs1 (stmt);
@@ -4960,7 +5011,7 @@ rewrite_expr_tree (gimple *stmt, unsigned int opindex,
 		= find_insert_point (stmt, oe1->op, oe2->op);
 	      lhs = make_ssa_name (TREE_TYPE (lhs));
 	      stmt
-		= gimple_build_assign (lhs, gimple_assign_rhs_code (stmt),
+		= gimple_build_assign (lhs, rhs_code,
 				       oe1->op, oe2->op);
 	      gimple_set_uid (stmt, uid);
 	      gimple_set_visited (stmt, true);
@@ -5004,7 +5055,7 @@ rewrite_expr_tree (gimple *stmt, unsigned int opindex,
   /* Recurse on the LHS of the binary operator, which is guaranteed to
      be the non-leaf side.  */
   tree new_rhs1
-    = rewrite_expr_tree (SSA_NAME_DEF_STMT (rhs1), opindex + 1, ops,
+    = rewrite_expr_tree (SSA_NAME_DEF_STMT (rhs1), rhs_code, opindex + 1, ops,
 			 changed || oe->op != rhs2 || next_changed,
 			 false);
 
@@ -5030,7 +5081,7 @@ rewrite_expr_tree (gimple *stmt, unsigned int opindex,
 	  gimple *insert_point = find_insert_point (stmt, new_rhs1, oe->op);
 
 	  lhs = make_ssa_name (TREE_TYPE (lhs));
-	  stmt = gimple_build_assign (lhs, gimple_assign_rhs_code (stmt),
+	  stmt = gimple_build_assign (lhs, rhs_code,
 				      new_rhs1, oe->op);
 	  gimple_set_uid (stmt, uid);
 	  gimple_set_visited (stmt, true);
@@ -5583,13 +5634,20 @@ linearize_expr_tree (vec<operand_entry *> *ops, gimple *stmt,
 
       if (!binrhsisreassoc)
 	{
-	  if (!try_special_add_to_ops (ops, rhscode, binrhs, binrhsdef))
+	  bool swap = false;
+	  if (try_special_add_to_ops (ops, rhscode, binrhs, binrhsdef))
+	    /* If we add ops for the rhs we expect to be able to recurse
+	       to it via the lhs during expression rewrite so swap
+	       operands.  */
+	    swap = true;
+	  else
 	    add_to_ops_vec (ops, binrhs);
 
 	  if (!try_special_add_to_ops (ops, rhscode, binlhs, binlhsdef))
 	    add_to_ops_vec (ops, binlhs);
 
-	  return;
+	  if (!swap)
+	    return;
 	}
 
       if (dump_file && (dump_flags & TDF_DETAILS))
@@ -5608,6 +5666,8 @@ linearize_expr_tree (vec<operand_entry *> *ops, gimple *stmt,
 	  fprintf (dump_file, " is now ");
 	  print_gimple_stmt (dump_file, stmt, 0);
 	}
+      if (!binrhsisreassoc)
+	return;
 
       /* We want to make it so the lhs is always the reassociative op,
 	 so swap.  */
@@ -6477,7 +6537,7 @@ reassociate_bb (basic_block bb)
                       if (len >= 3)
                         swap_ops_for_binary_stmt (ops, len - 3, stmt);
 
-		      new_lhs = rewrite_expr_tree (stmt, 0, ops,
+		      new_lhs = rewrite_expr_tree (stmt, rhs_code, 0, ops,
 						   powi_result != NULL
 						   || negate_result,
 						   len != orig_len);

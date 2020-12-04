@@ -544,7 +544,7 @@ combine_split_insns (rtx pattern, rtx_insn *insn)
   ret = split_insns (pattern, insn);
   nregs = max_reg_num ();
   if (nregs > reg_stat.length ())
-    reg_stat.safe_grow_cleared (nregs);
+    reg_stat.safe_grow_cleared (nregs, true);
   return ret;
 }
 
@@ -1172,7 +1172,7 @@ combine_instructions (rtx_insn *f, unsigned int nregs)
 
   rtl_hooks = combine_rtl_hooks;
 
-  reg_stat.safe_grow_cleared (nregs);
+  reg_stat.safe_grow_cleared (nregs, true);
 
   init_recog_no_volatile ();
 
@@ -7665,6 +7665,24 @@ make_extraction (machine_mode mode, rtx inner, HOST_WIDE_INT pos,
       if (new_rtx != 0)
 	return gen_rtx_ASHIFT (mode, new_rtx, XEXP (inner, 1));
     }
+  else if (GET_CODE (inner) == MULT
+	   && CONST_INT_P (XEXP (inner, 1))
+	   && pos_rtx == 0 && pos == 0)
+    {
+      /* We're extracting the least significant bits of an rtx
+	 (mult X (const_int 2^C)), where LEN > C.  Extract the
+	 least significant (LEN - C) bits of X, giving an rtx
+	 whose mode is MODE, then multiply it by 2^C.  */
+      const HOST_WIDE_INT shift_amt = exact_log2 (INTVAL (XEXP (inner, 1)));
+      if (IN_RANGE (shift_amt, 1, len - 1))
+	{
+	  new_rtx = make_extraction (mode, XEXP (inner, 0),
+				     0, 0, len - shift_amt,
+				     unsignedp, in_dest, in_compare);
+	  if (new_rtx)
+	    return gen_rtx_MULT (mode, new_rtx, XEXP (inner, 1));
+	}
+    }
   else if (GET_CODE (inner) == TRUNCATE
 	   /* If trying or potentionally trying to extract
 	      bits outside of is_mode, don't look through
@@ -11003,8 +11021,11 @@ simplify_shift_const_1 (enum rtx_code code, machine_mode result_mode,
 		break;
 	      /* For ((int) (cstLL >> count)) >> cst2 just give up.  Queuing
 		 up outer sign extension (often left and right shift) is
-		 hardly more efficient than the original.  See PR70429.  */
-	      if (code == ASHIFTRT && int_mode != int_result_mode)
+		 hardly more efficient than the original.  See PR70429.
+		 Similarly punt for rotates with different modes.
+		 See PR97386.  */
+	      if ((code == ASHIFTRT || code == ROTATE)
+		  && int_mode != int_result_mode)
 		break;
 
 	      rtx count_rtx = gen_int_shift_amount (int_result_mode, count);

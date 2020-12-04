@@ -398,7 +398,7 @@ func parsedebugvars() {
 	traceback_env = traceback_cache
 }
 
-//go:linkname setTraceback runtime..z2fdebug.SetTraceback
+//go:linkname setTraceback runtime_1debug.SetTraceback
 func setTraceback(level string) {
 	var t uint32
 	switch level {
@@ -474,9 +474,4 @@ func releasem(mp *m) {
 	//	// restore the preemption request in case we've cleared it in newstack
 	//	_g_.stackguard0 = stackPreempt
 	// }
-}
-
-//go:nosplit
-func gomcache() *mcache {
-	return getg().m.mcache
 }

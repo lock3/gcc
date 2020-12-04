@@ -1188,7 +1188,9 @@ public:
                     }
 
                     // T value = tmp[key];
-                    fs->value->_init = new ExpInitializer(loc, new IndexExp(loc, new VarExp(loc, tmp), new VarExp(loc, fs->key)));
+                    IndexExp *indexExp = new IndexExp(loc, new VarExp(loc, tmp), new VarExp(loc, fs->key));
+                    indexExp->indexIsInBounds = true; // disabling bounds checking in foreach statements.
+                    fs->value->_init = new ExpInitializer(loc, indexExp);
                     Statement *ds = new ExpStatement(loc, fs->value);
 
                     if (dim == 2)
@@ -2861,42 +2863,9 @@ public:
                  *    return x; return 3;  // ok, x can be a value
                  */
             }
-
-            // handle NRVO
-            if (fd->nrvo_can && rs->exp->op == TOKvar)
-            {
-                VarExp *ve = (VarExp *)rs->exp;
-                VarDeclaration *v = ve->var->isVarDeclaration();
-
-                if (tf->isref)
-                {
-                    // Function returns a reference
-                    if (!inferRef)
-                        fd->nrvo_can = 0;
-                }
-                else if (!v || v->isOut() || v->isRef())
-                    fd->nrvo_can = 0;
-                else if (fd->nrvo_var == NULL)
-                {
-                    if (!v->isDataseg() && !v->isParameter() && v->toParent2() == fd)
-                    {
-                        //printf("Setting nrvo to %s\n", v->toChars());
-                        fd->nrvo_var = v;
-                    }
-                    else
-                        fd->nrvo_can = 0;
-                }
-                else if (fd->nrvo_var != v)
-                    fd->nrvo_can = 0;
-            }
-            else //if (!exp->isLvalue())    // keep NRVO-ability
-                fd->nrvo_can = 0;
         }
         else
         {
-            // handle NRVO
-            fd->nrvo_can = 0;
-
             // infer return type
             if (fd->inferRetType)
             {
@@ -3244,14 +3213,15 @@ public:
         else
         {
             /* Generate our own critical section, then rewrite as:
-             *  __gshared byte[CriticalSection.sizeof] critsec;
-             *  _d_criticalenter(critsec.ptr);
-             *  try { body } finally { _d_criticalexit(critsec.ptr); }
+             *  __gshared void* __critsec;
+             *  _d_criticalenter2(&__critsec);
+             *  try { body } finally { _d_criticalexit(__critsec); }
              */
             Identifier *id = Identifier::generateId("__critsec");
-            Type *t = Type::tint8->sarrayOf(target.ptrsize + target.critsecsize());
+            Type *t = Type::tvoidptr;
             VarDeclaration *tmp = new VarDeclaration(ss->loc, t, id, NULL);
             tmp->storage_class |= STCtemp | STCgshared | STCstatic;
+            Expression *tmpExp = new VarExp(ss->loc, tmp);
 
             Statements *cs = new Statements();
             cs->push(new ExpStatement(ss->loc, tmp));
@@ -3267,15 +3237,14 @@ public:
             args->push(new Parameter(0, t->pointerTo(), NULL, NULL));
 
             FuncDeclaration *fdenter = FuncDeclaration::genCfunc(args, Type::tvoid, Id::criticalenter, STCnothrow);
-            Expression *e = new DotIdExp(ss->loc, new VarExp(ss->loc, tmp), Id::ptr);
+            Expression *e = new AddrExp(ss->loc, tmpExp);
             e = semantic(e, sc);
             e = new CallExp(ss->loc, new VarExp(ss->loc, fdenter, false), e);
             e->type = Type::tvoid;                  // do not run semantic on e
             cs->push(new ExpStatement(ss->loc, e));
 
             FuncDeclaration *fdexit = FuncDeclaration::genCfunc(args, Type::tvoid, Id::criticalexit, STCnothrow);
-            e = new DotIdExp(ss->loc, new VarExp(ss->loc, tmp), Id::ptr);
-            e = semantic(e, sc);
+            e = semantic(tmpExp, sc);
             e = new CallExp(ss->loc, new VarExp(ss->loc, fdexit, false), e);
             e->type = Type::tvoid;                  // do not run semantic on e
             Statement *s = new ExpStatement(ss->loc, e);

@@ -119,6 +119,7 @@ go_langhook_init (void)
   args.debug_escape_hash = go_debug_escape_hash;
   args.nil_check_size_threshold = TARGET_AIX ? -1 : 4096;
   args.debug_optimization = go_debug_optimization;
+  args.need_eqtype = TARGET_AIX ? true : false;
   args.linemap = go_get_linemap();
   args.backend = go_get_backend();
   go_create_gogo (&args);
@@ -304,6 +305,12 @@ go_langhook_post_options (const char **pfilename ATTRIBUTE_UNUSED)
      See https://gcc.gnu.org/PR91663.  */
   SET_OPTION_IF_UNSET (&global_options, &global_options_set,
 		       flag_partial_inlining, 0);
+
+  /* Go programs expect runtime.Callers to give the right answers,
+     which means that we can't combine functions even if they look the
+     same.  */
+  SET_OPTION_IF_UNSET (&global_options, &global_options_set,
+		       flag_ipa_icf_functions, 0);
 
   /* If the debug info level is still 1, as set in init_options, make
      sure that some debugging type is selected.  */

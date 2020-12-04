@@ -107,7 +107,7 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 /* Default to using the NeXT-style runtime, since that's what is
    pre-installed on Darwin systems.  */
 
-#define NEXT_OBJC_RUNTIME 1
+#define NEXT_OBJC_RUNTIME 100508
 
 /* Don't default to pcc-struct-return, because gcc is the only compiler, and
    we want to retain compatibility with older gcc versions.  */
@@ -135,7 +135,7 @@ extern GTY(()) int darwin_ms_struct;
 "%{shared:-Zdynamiclib} %<shared",					\
 "%{static:%{Zdynamic:%e conflicting code gen style switches are used}}",\
 "%{y*:%nthe y option is obsolete and ignored} %<y*",			\
-"%<Mach %<X"
+"%<Mach "
 
 #if LD64_HAS_EXPORT_DYNAMIC
 #define DARWIN_RDYNAMIC "%{rdynamic:-export_dynamic}"
@@ -237,7 +237,7 @@ extern GTY(()) int darwin_ms_struct;
     DARWIN_NOPIE_SPEC \
     DARWIN_RDYNAMIC \
     DARWIN_NOCOMPACT_UNWIND \
-    "}}}}}}} %<pie %<no-pie %<rdynamic "
+    "}}}}}}} %<pie %<no-pie %<rdynamic %<X "
 
 #define DSYMUTIL "\ndsymutil"
 
@@ -476,6 +476,7 @@ extern GTY(()) int darwin_ms_struct;
    debugging data.  */
 
 #define ASM_DEBUG_SPEC  "%{g*:%{%:debug-level-gt(0):%{!gdwarf*:--gstabs}}}"
+#define ASM_DEBUG_OPTION_SPEC ""
 #define ASM_FINAL_SPEC \
   "%{gsplit-dwarf:%ngsplit-dwarf is not supported on this platform} %<gsplit-dwarf"
 
@@ -590,6 +591,9 @@ extern GTY(()) int darwin_ms_struct;
 /* Emit a label to separate the exception table.  */
 #define TARGET_ASM_EMIT_EXCEPT_TABLE_LABEL darwin_emit_except_table_label
 
+/* Make an EH (personality or LDSA) symbol indirect as needed.  */
+#define TARGET_ASM_MAKE_EH_SYMBOL_INDIRECT darwin_make_eh_symbol_indirect
+
 /* Our profiling scheme doesn't LP labels and counter words.  */
 
 #define NO_PROFILE_COUNTERS	1
@@ -652,6 +656,7 @@ extern GTY(()) int darwin_ms_struct;
    that the name *is* defined in this module, so it doesn't need to
    make them indirect.  */
 
+#undef ASM_DECLARE_FUNCTION_NAME
 #define ASM_DECLARE_FUNCTION_NAME(FILE, NAME, DECL)			\
   do {									\
     const char *xname = NAME;						\
@@ -1059,7 +1064,9 @@ extern void darwin_driver_init (unsigned int *,struct cl_decoded_option **);
    providing an osx-version-min of this unless overridden by the User.
    10.5 is the only version that fully supports all our archs so that's the
    fall-back default.  */
+#ifndef DEF_MIN_OSX_VERSION
 #define DEF_MIN_OSX_VERSION "10.5"
+#endif
 
 /* Later versions of ld64 support coalescing weak code/data without requiring
    that they be placed in specially identified sections.  This is the earliest

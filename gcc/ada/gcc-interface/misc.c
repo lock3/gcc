@@ -35,6 +35,7 @@
 #include "stor-layout.h"
 #include "print-tree.h"
 #include "toplev.h"
+#include "tree-pass.h"
 #include "langhooks.h"
 #include "langhooks-def.h"
 #include "plugin.h"
@@ -307,6 +308,9 @@ internal_error_function (diagnostic_context *context, const char *msgid,
   /* Warn if plugins present.  */
   warn_if_plugins ();
 
+  /* Dump the representation of the function.  */
+  emergency_dump_function ();
+
   /* Reset the pretty-printer.  */
   pp_clear_output_area (context->printer);
 
@@ -555,7 +559,7 @@ gnat_printable_name (tree decl, int verbosity)
 
   __gnat_decode (coded_name, ada_name, 0);
 
-  if (verbosity == 2 && !DECL_IS_BUILTIN (decl))
+  if (verbosity == 2 && !DECL_IS_UNDECLARED_BUILTIN (decl))
     {
       Set_Identifier_Casing (ada_name, DECL_SOURCE_FILE (decl));
       return ggc_strdup (Name_Buffer);
@@ -614,26 +618,15 @@ gnat_get_fixed_point_type_info (const_tree type,
 {
   tree scale_factor;
 
-  /* GDB cannot handle fixed-point types yet, so rely on GNAT encodings
-     instead for it.  */
+  /* Do nothing if the GNAT encodings are used.  */
   if (!TYPE_IS_FIXED_POINT_P (type)
-      || gnat_encodings != DWARF_GNAT_ENCODINGS_MINIMAL)
+      || gnat_encodings == DWARF_GNAT_ENCODINGS_ALL)
     return false;
 
   scale_factor = TYPE_SCALE_FACTOR (type);
 
   /* We expect here only a finite set of pattern.  See fixed-point types
      handling in gnat_to_gnu_entity.  */
-
-  /* Put invalid values when compiler internals cannot represent the scale
-     factor.  */
-  if (scale_factor == integer_zero_node)
-    {
-      info->scale_factor_kind = fixed_point_scale_factor_arbitrary;
-      info->scale_factor.arbitrary.numerator = 0;
-      info->scale_factor.arbitrary.denominator = 0;
-      return true;
-    }
 
   if (TREE_CODE (scale_factor) == RDIV_EXPR)
     {
@@ -674,8 +667,8 @@ gnat_get_fixed_point_type_info (const_tree type,
 		  && TREE_CODE (den) == INTEGER_CST);
 
       info->scale_factor_kind = fixed_point_scale_factor_arbitrary;
-      info->scale_factor.arbitrary.numerator = tree_to_uhwi (num);
-      info->scale_factor.arbitrary.denominator = tree_to_shwi (den);
+      info->scale_factor.arbitrary.numerator = num;
+      info->scale_factor.arbitrary.denominator = den;
       return true;
     }
 
@@ -999,6 +992,10 @@ get_array_bit_stride (tree comp_type)
   /* Simple case: the array contains an integral type: return its RM size.  */
   if (INTEGRAL_TYPE_P (comp_type))
     return TYPE_RM_SIZE (comp_type);
+
+  /* Likewise for record or union types.  */
+  if (RECORD_OR_UNION_TYPE_P (comp_type) && !TYPE_FAT_POINTER_P (comp_type))
+    return TYPE_ADA_SIZE (comp_type);
 
   /* The gnat_get_array_descr_info debug hook expects a debug tyoe.  */
   comp_type = maybe_debug_type (comp_type);

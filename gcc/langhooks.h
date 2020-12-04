@@ -294,7 +294,7 @@ struct lang_hooks_for_decls
   tree (*omp_clause_dtor) (tree clause, tree decl);
 
   /* Do language specific checking on an implicitly determined clause.  */
-  void (*omp_finish_clause) (tree clause, gimple_seq *pre_p);
+  void (*omp_finish_clause) (tree clause, gimple_seq *pre_p, bool);
 
   /* Return true if DECL is a scalar variable (for the purpose of
      implicit firstprivatization).  */
@@ -355,6 +355,24 @@ struct lang_hooks
   /* Callback used to perform language-specific initialization for the
      global diagnostic context structure.  */
   void (*initialize_diagnostics) (diagnostic_context *);
+
+  /* Beginning the main source file.  */
+  void (*preprocess_main_file) (cpp_reader *, line_maps *,
+				const line_map_ordinary *);
+
+  /* Adjust libcpp options and callbacks.  */
+  void (*preprocess_options) (cpp_reader *);
+
+  /* Undefining a macro.  */
+  void (*preprocess_undef) (cpp_reader *, location_t, cpp_hashnode *);
+
+  /* Observer for preprocessing stream.  */
+  uintptr_t (*preprocess_token) (cpp_reader *, const cpp_token *, uintptr_t);
+  /* Various flags it can return about the token.  */
+  enum PT_flags
+    {
+     PT_begin_pragma = 1 << 0
+    };
 
   /* Register language-specific dumps.  */
   void (*register_dumps) (gcc::dump_manager *);
@@ -579,6 +597,9 @@ struct lang_hooks
      for GCC developers (to help debugging) rather than for end-users.  */
   const char *(*get_substring_location) (const substring_loc &,
 					 location_t *out_loc);
+
+  /* Invoked before the early_finish debug hook is invoked.  */
+  void (*finalize_early_debug) (void);
 
   /* Whenever you add entries here, make sure you adjust langhooks-def.h
      and langhooks.c accordingly.  */
