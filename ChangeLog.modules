@@ -1,4 +1,350 @@
+2020-11-20  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/
+	* doc/invoke.texi: Fixes.
+
+	libcody/
+	Update from upstream.
+
+	gcc/
+	* doc/invoke.texi: Update
+	* doc/cppopts.texi: Update
+
+	gcc/cp/
+	* cp-tree.h (match_mergeable_specialization): Take a spec_entry.
+	* pt.c (match_mergeable_specialization): Likewise.
+	* module.cc (trees_in::decl_value): Adjust.
+	(trees_{in,out}::key_mergeable): Adjust.
+	(specialization_add): Adjust.
+
+	gcc/
+	* doc/invoke.texi: Update
+	* doc/cppopts.texi: Update
+
+	Merge trunk 5bba2215c23
+	c++: Template hash access (
+
+	Merge trunk bf425849f1d
+	preprocessor: main-file cleanup
+
+2020-11-18  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* cp-lang.c (LANG_HOOKS_PREPROCESS_UNDEF): Do not override here.
+	* cp-tree.h (module_cpp_undef): Do not declare.
+	* module.cc (module_cpp_undef): Delete.
+	(handle_module_option): Store cpp_main_search code in flag_header_unit.
+	(module_preprocess_options): Set main_search option here.
+	Conditionally set preprocess_undef lang hook here.
+
+	libcpp/
+	* include/cpplib.h (enum cpp_main_search): Add CMS_header value.
+	* internal.h (cpp_in_system_header): Rename to ...
+	(_cpp_in_system_header): ... here.
+	(cpp_in_primary_file): Rename to ...
+	(_cpp_in_main_source_file): ... here.  Compare main_file equality
+	and check main_search value.
+	* lex.c (maybe_va_opt_error, _cpp_lex_direct): Adjust.
+	* macro.c (_cpp_builtin_macro_text): Adjust.
+	(replace_args): Likewise.
+	* directives.c (do_include_next): Adjust.
+	(do_pragma_once, do_pragma_system_header): Likewise.
+	* files.c (struct _cpp_file): Delete main_file field.
+	(pch_open): Check pfile->main_file equality.
+	(make_cpp_file): Drop cpp_reader parm, don't set main_file.
+	(_cpp_find_file): Adjust.
+	(_cpp_stack_file): Check pfile->main_file equality.  Drop
+	main_file clearing.
+	(struct report_missing_guard_data): Add cpp_reader field.
+	(report_missing_guard): Check pfile->main_file equality.
+	(_cpp_report_missing_guards): Adjust.
+
+	Merge trunk 92648faa1cb
+	08-cpp-mkdeps.diff
+	05-cpp-files.diff
+	04a-cpp-lexer.diff
+	32-aix-fixincl.diff
+
+	Merge trunk d3ae802402b
+	01-langhooks.diff
+	02-cpp-line-maps.diff
+	03-cpp-callbacks.diff
+	19-global-trees.diff
+	21a-int-cst.diff
+
+2020-11-16  Nathan Sidwell  <nathan@acm.org>
+
+	Adjust lang hooks
+	gcc/c-family/
+	* c-opts.c (c_common_init): Drop preprocess_undef
+	gcc/cp/
+	* cp-lang.c (LANG_HOOKS_PREPROCESS_DEFERRED_MACRO): Delete.
+	* cp-tree.h (module_cpp_deferred_macro): Do not declare.
+	* module.cc (module_cpp_deferred_macro): Delete.
+	(module_preprocess_options): Set deferred macro and undef
+	callbacks here.
+	gcc/
+	* langhooks-def.h (LANG_HOOKS_PREPROCESS_UNDEF): Delete.
+	* langhooks.h (struct lang_hooks): Delete
+	preprocess_deferred_macro.
+
+	Constrained partial variable templates
+	gcc/cp/
+	* module.cc (trees_{in,out}::key_mergeable): Variable templates
+	can be partially specialized and constrained.
+	(finish_module_processing): Point at module decl, so ICEs blame
+	that.
+	gcc/testsuite/
+	* g++.dg/modules/var-tpl-concept-1{.h,_[ab].C}: New.
+
+	Merge trunk 63496cbea58
+
+	using enum support
+	gcc/cp/
+	* module.cc (trees_out::mark_class_def): Mark cloned enum consts
+	gcc/testsuite/
+	* g++.dd/modules/using-enum-1_[ab].[HC]: New.
+
+2020-11-13  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk d50310408f5
+	c++: Implement C++20 'using enum'.
+
+	Merge trunk e3b3b59683c
+
+	Fix libiberty linking
+	* g++tools/Makefile.in (LIBIBERTY): New.
+
+	Merge trunk 5fa821bba73
+
+2020-11-12  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 7f851c33411
+	libstdc++: Fix __numeric_traits_integer<__int20> [PR 97798]
+
+	Enum dedup ODR check fix
+	gcc/cp/
+	* tree.c (cp_tree_equal): Allow NON_LVALUE_EXPR &
+	VIEW_CONVERT_EXPR with NULL types.
+	gcc/testsuite/
+	* g++.dg/modules/loc-wrapper-1{.h,_a.H,_b.C}: New.
+
+	* Makefile.def: Fix g++ check implications.
+	* Makefile.in: Rebuilt.
+	gcc/
+	* config.in: Rebuilt.
+	* configure: Rebuilt.
+	* configure.ac: Remove unneeded checks
+	gcc/cp/
+
+	Merge trunk 3c3beb1a813
+
+2020-11-11  Nathan Sidwell  <nathan@acm.org>
+
+	c++tools/
+	* resolver.h (module_resolver): Update to new API.
+	* resolver.cc (module_resolver): Likewise.
+
+2020-11-10  Nathan Sidwell  <nathan@acm.org>
+
+	Adjust c++tools
+	* Makefile.def (c++tools): Depends on gcc
+	* Makefile.in: Rebuilt
+	c++tools/
+	* mapper.h: Rename to ...
+	* resolver.h: ... here.  Move mapper-client to
+	gcc/cp/mapper-client.h
+	* resolver.cc: Adjust.
+	* configure.ac: Fix extraneous ]
+	* configure: Rebuilt.
+	gcc/cp/
+	* mapper-client.h: New, split from c++tools/mapper.h.
+	* mapper-client.cc: Adjust.
+	* mapper-resolver.cc: Adjust.
+	* module.cc: Adjust.
+
+	c++tools/
+	* mapper.h (class mapper_client): Add flag support.
+	gcc/cp/
+	* mapper-client: Likewise.
+	* module.cc (maybe_translate_include): Likewise.
+	(preprocessed_module): Likewise.
+
+	libcody/
+	Rebase on upstream -- $flag support.
+
+	Create c++tools dir
+	* Makefile.def: Add c++tools
+	* Makefile.tpl: Likewise.
+	* configure.ac: Likewise.
+	* Makefile.in: Regenerated.
+	* configure: Regenerated.
+	c++tools/
+	* Makefile.in: New.
+	* configure.ac: New.
+	* config.h.in: Generated
+	* configure: Generated
+	* mapper.h: Moved from gcc/cp.
+	* resolver.cc: Moved from gcc/cp/mapper-resolver.cc
+	* server.cc: Moved from gcc/cp/mapper-server.cc
+	gcc/
+	* configure.ac: Remove mapper-server-specific checks
+	* config.in: Rebuilt.
+	* configure: Rebuilt.
+	gcc/cp/
+	* Make-lang.in: Remove mapper-server.
+	* mapper-client.cc: Adjusted.
+	* mapper-resolver.cc: Moved to c++tools/resolver.cc, replaced with
+	stub here.
+	* mapper.h: Moved to c++tools, replaced with stub here.
+	* module.cc: Adjust.
+	gcc/testsuite/
+	* g++.dg/modules/extern-tpl-1_b.C: Adjust invocation.
+	* g++.dg/modules/inc-xlate-1_e.C: Likewise.
+	* g++.dg/modules/legacy-2_b.H: Likewise.
+	* g++.dg/modules/legacy-6_c.C: Likewise.
+	* g++.dg/modules/legacy-6_d.C: Likewise.
+
+2020-11-09  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk e38cd64ac6c
+	c++: ADL refactor
+
+	Address review comments
+	libcpp/
+	* lex.c (cpp_maybe_module_directive): Add asserts and comments
+	about initial and final state.  Remove __builtin_expects.
+	(_cpp_lex_token): Remove __builtin_expect.
+
+2020-11-06  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 4b5f564a5d9
+	libcpp: Provide date routine
+
+	gcc/
+	* tree.c (cache_integer_cst): Document API.
+
+	gcc/cp/
+	* Make-lang.in: Drop git hash collection.
+	gcc/
+	* REVISION: New.
+
+	gcc/cp/
+	* parser.c (cp_parser_diagnose_invalid_type_name): Revert local
+	changes.
+
+	libcpp/
+	* include/cpplib.h (enum CPP_time_kind): New.
+	(cpp_get_date): Declare.
+	* internal.h (struct cpp_reader): Replace source_date_epoch with
+	time_stamp and time_stamp_kind.
+	* init.c (cpp_create_reader): Initialize them.
+	* macro.c (_cpp_builtin_macro_text): Use cpp_get_date.
+	(cpp_get_date): Broken out from _cpp_builtin_macro_text and
+	genericize.
+	gcc/cp/
+	* module.cc (module_state_write_readme): Use new libcpp API.
+
+2020-11-05  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/cp/
+	* module.cc (module_state::write_Readme): Add cpp_reader parm, use
+	cb_get_source_date_epoch to see if the time is locked.
+
+	gcc/cp/
+	* module.cc (enum merge_kind): Minor remapping.
+	(merge_kind_name): Adjust.
+
+	gcc/cp/
+	* module.cc (depset::fini_partial_redirect): Delete.
+	(depset::hash::add_partial_redirect): Delete.
+	(depset::hash::init_partial_redirect): Delete.
+	(enum merge_kind): Delete MK_tmpl_partial_mask,
+	MK_type_partial_spec.
+	(trees_out::get_merge_kind): Adjust.
+	(trees_{in,out}::key_mergeable): Delete tmpl_partial case.
+	(depset::hash::make_dependency): Directly create the redirect here.
+	(depset::hash::add_specializations): Do not detect partial
+	specializations here.
+
+	gcc/cp/
+	* module.cc (enum depset::entity_kind): Add EK_PARTIAL,
+	EK_DIRECT_HWM.
+	(enum depset::disc_bits): Delete DB_PARTIAL_BIT.
+	(depset::is_partial): Delete.
+	(depset::fini_partial_redirect): Assert EK_PARTIAL.
+	(depset::entity_kind_name): Add EK_PARTIAL.
+	(trees_out::decl_node): Adjust redirect asserts.
+	(trees_out::get_merge_kind): No partial template.
+	(depset::hash::make_dependency): Partials create EK_PARTIAL.
+	(depset::hash::add_partial_entities): Adjust,
+	(depset::hash::add_specializations): Adjust.
+	(depset::hash::add_mergeable): Adjust.
+	(sort_cluster, module_state::write_cluster): Likewise.
+	(module_state::write_{entities,pendings}): Adjust.
+	gcc/testsuite/
+	* g++.dg/modules/tpl-spec-5_a.C: Adjust scan.
+
+	gcc/cp/
+	* module.cc (depset::hash::add_partial_redirect): Break out
+	helpers ...
+	(depset::fini_partial_redirect): ... this and ...
+	(depset::hash::init_partial_redirect): ... this.  Call them.
+	(partial_specializations): New vector.
+	(depset::hash::make_dependency): Deal with partial
+	specializations.
+	(depset::hash::add_partial_entities): New.
+	(deset::hash::add_specializations): We may have added a partial.
+	(module_state::write_cluster): Count partials.
+	(module_state::write_pendings): Likewise.
+	(module_state::write): Add partials.
+	(set_defining_module): Append explicit specializations.
+	gcc/testsuite/
+	* g++.dg/modules/constrained-partial-1_[ab].C: New.
+
+	gcc/cp/
+	* mapper-client.cc (spawn_mapper_program): Use @ to indicate
+	looking in install dir.
+	gcc/
+	* doc/invoke.texi (fmodule-mapper): Document behaviour.
+	gcc/testsuite/
+	* g++.dg/modules/extern-tpl-1_b.C: Adjust options.
+	* g++.dg/modules/inc-xlate-1_e.C: Adjust options.
+	* g++.dg/modules/legacy-2_b.H: Adjust options.
+	* g++.dg/modules/legacy-6_[cdef].C: Adjust options.
+
+2020-11-04  Nathan Sidwell  <nathan@acm.org>
+
+	gcc/testsuite/
+	* g++.dg/modules/builtin-3_[ab].C: Adjust for i686
+
+	gcc/cp/
+	* mapper-resolved.cc: define INCLUDE_ALGORITHM.
+
+2020-11-03  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk a52bf016433
+	c++: using-decl instantiation
+
+	Cleanup unnecessary or stale changes.
+	gcc/cp/
+	* class.c (clone_cdtor): Fix erroneous comment.
+	* decl.c (finish_enum_value_list): Revert local change.
+	gcc/
+	* doc/cppopts.texi (EE): Delete stale info.
+	libcpp.
+	* files.c (cpp_main_controlling_macro): Delete.
+	* include/cpplibc.h (cpp_main_controlling_macro): Delete.
+	* mkdeps.c: Rename bmi->cmi
+
+	Merge trunk 444655b6f02
+	c++: cp_tree_equal cleanups
+
 2020-11-02  Nathan Sidwell  <nathan@acm.org>
+
+	libcpp/
+	* include/cpplib.h (cpp_enable_filename_token): Delete.
+	* macro.c (cpp_enable_filename_token): Delete.
 
 	Merge trunk b2a31e2c341
 

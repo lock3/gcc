@@ -126,6 +126,7 @@ enum cp_tree_index
     CPTI_CLASS_TYPE,
     CPTI_UNKNOWN_TYPE,
     CPTI_INIT_LIST_TYPE,
+    CPTI_EXPLICIT_VOID_LIST,
     CPTI_VTBL_TYPE,
     CPTI_VTBL_PTR_TYPE,
     CPTI_GLOBAL,
@@ -245,6 +246,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
 #define class_type_node			cp_global_trees[CPTI_CLASS_TYPE]
 #define unknown_type_node		cp_global_trees[CPTI_UNKNOWN_TYPE]
 #define init_list_type_node		cp_global_trees[CPTI_INIT_LIST_TYPE]
+#define explicit_void_list_node		cp_global_trees[CPTI_EXPLICIT_VOID_LIST]
 #define vtbl_type_node			cp_global_trees[CPTI_VTBL_TYPE]
 #define vtbl_ptr_type_node		cp_global_trees[CPTI_VTBL_PTR_TYPE]
 #define std_node			cp_global_trees[CPTI_STD]
@@ -429,6 +431,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       ATTR_IS_DEPENDENT (in the TREE_LIST for an attribute)
       ABI_TAG_IMPLICIT (in the TREE_LIST for the argument of abi_tag)
       LAMBDA_CAPTURE_EXPLICIT_P (in a TREE_LIST in LAMBDA_EXPR_CAPTURE_LIST)
+      PARENTHESIZED_LIST_P (in the TREE_LIST for a parameter-declaration-list)
       CONSTRUCTOR_IS_DIRECT_INIT (in CONSTRUCTOR)
       LAMBDA_EXPR_CAPTURES_THIS_P (in LAMBDA_EXPR)
       DECLTYPE_FOR_LAMBDA_CAPTURE (in DECLTYPE_TYPE)
@@ -451,6 +454,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       REINTERPRET_CAST_P (in NOP_EXPR)
       ALIGNOF_EXPR_STD_P (in ALIGNOF_EXPR)
       OVL_DEDUP_P (in OVERLOAD)
+      ATOMIC_CONSTR_MAP_INSTANTIATED_P (in ATOMIC_CONSTR)
       contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    1: IDENTIFIER_KIND_BIT_1 (in IDENTIFIER_NODE)
       TI_PENDING_TEMPLATE_FLAG.
@@ -549,6 +553,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       TEMPLATE_DECL_COMPLEX_ALIAS_P (in TEMPLATE_DECL)
       DECL_INSTANTIATING_NSDMI_P (in a FIELD_DECL)
       LABEL_DECL_CDTOR (in LABEL_DECL)
+      USING_DECL_UNRELATED_P (in USING_DECL)
    3: DECL_IN_AGGR_P.
    4: DECL_C_BIT_FIELD (in a FIELD_DECL)
       DECL_ANON_UNION_VAR_P (in a VAR_DECL)
@@ -767,10 +772,10 @@ typedef struct ptrmem_cst * ptrmem_cst_t;
     && flag_hosted)
 
 /* Lookup walker marking.  */
-#define LOOKUP_SEEN_P(NODE) TREE_VISITED(NODE)
+#define LOOKUP_SEEN_P(NODE) TREE_VISITED (NODE)
 #define LOOKUP_FOUND_P(NODE) \
-  TREE_LANG_FLAG_4 (TREE_CHECK4(NODE,RECORD_TYPE,UNION_TYPE,ENUMERAL_TYPE, \
-				NAMESPACE_DECL))
+  TREE_LANG_FLAG_4 (TREE_CHECK4 (NODE,RECORD_TYPE,UNION_TYPE,ENUMERAL_TYPE,\
+				 NAMESPACE_DECL))
 
 /* These two accessors should only be used by OVL manipulators.
    Other users should use iterators and convenience functions.  */
@@ -1799,6 +1804,12 @@ check_constraint_info (tree t)
 #define ATOMIC_CONSTR_MAP(NODE) \
   TREE_OPERAND (TREE_CHECK (NODE, ATOMIC_CONSTR), 0)
 
+/* Whether the parameter mapping of this atomic constraint
+   is already instantiated with concrete template arguments.
+   Used only in satisfy_atom and in the satisfaction cache.  */
+#define ATOMIC_CONSTR_MAP_INSTANTIATED_P(NODE) \
+  TREE_LANG_FLAG_0 (ATOMIC_CONSTR_CHECK (NODE))
+
 /* The expression of an atomic constraint. */
 #define ATOMIC_CONSTR_EXPR(NODE) \
   CONSTR_EXPR (ATOMIC_CONSTR_CHECK (NODE))
@@ -2119,20 +2130,6 @@ public:
 /* Nonzero if we are parsing the operand of a noexcept operator.  */
 
 #define cp_noexcept_operand scope_chain->noexcept_operand
-
-/* Map a _DECL to a tree.  Use DECL_UID for hash.  Both trees must be
-   reachable for GC via some other path.  */
-
-struct GTY((for_user)) cxx_decl_tree_map {
-  tree decl;
-  tree to;
-};
-
-struct cxx_decl_tree_map_hasher : ggc_ptr_hash<cxx_decl_tree_map>
-{
-  static hashval_t hash (cxx_decl_tree_map *);
-  static bool equal (cxx_decl_tree_map *, cxx_decl_tree_map *);
-};
 
 struct named_label_entry; /* Defined in decl.c.  */
 
@@ -3676,6 +3673,10 @@ struct GTY(()) lang_decl {
    was inherited from a template parameter, not explicitly indicated.  */
 #define ABI_TAG_IMPLICIT(NODE) TREE_LANG_FLAG_0 (TREE_LIST_CHECK (NODE))
 
+/* In a TREE_LIST for a parameter-declaration-list, indicates that all the
+   parameters in the list have declarators enclosed in ().  */
+#define PARENTHESIZED_LIST_P(NODE) TREE_LANG_FLAG_0 (TREE_LIST_CHECK (NODE))
+
 /* Non zero if this is a using decl for a dependent scope. */
 #define DECL_DEPENDENT_P(NODE) DECL_LANG_FLAG_0 (USING_DECL_CHECK (NODE))
 
@@ -3687,6 +3688,16 @@ struct GTY(()) lang_decl {
 
 /* Non zero if the using decl refers to a dependent type.  */
 #define USING_DECL_TYPENAME_P(NODE) DECL_LANG_FLAG_1 (USING_DECL_CHECK (NODE))
+
+/* True if member using decl NODE refers to a non-inherited NODE.  */
+#define USING_DECL_UNRELATED_P(NODE) DECL_LANG_FLAG_2 (USING_DECL_CHECK (NODE))
+
+/* True iff the CONST_DECL is a class-scope clone from C++20 using enum,
+   created by handle_using_decl.  */
+#define CONST_DECL_USING_P(NODE)			\
+  (TREE_CODE (NODE) == CONST_DECL			\
+   && TREE_CODE (TREE_TYPE (NODE)) == ENUMERAL_TYPE	\
+   && DECL_CONTEXT (NODE) != TREE_TYPE (NODE))
 
 /* In a FUNCTION_DECL, this is nonzero if this function was defined in
    the class definition.  We have saved away the text of the function,
@@ -4374,11 +4385,6 @@ more_aggr_init_expr_args_p (const aggr_init_expr_arg_iterator *iter)
    DECL_SAVED_AUTO_RETURN_TYPE (NODE).   */
 #define FNDECL_USED_AUTO(NODE) \
   TREE_LANG_FLAG_2 (FUNCTION_DECL_CHECK (NODE))
-
-/* True if NODE is an undeclared builtin decl.  As soon as the user
-   declares it, the location will be updated.  */
-#define DECL_UNDECLARED_BUILTIN_P(NODE) \
-  (DECL_SOURCE_LOCATION(NODE) == BUILTINS_LOCATION)
 
 /* True for artificial decls added for OpenMP privatized non-static
    data members.  */
@@ -6405,6 +6411,7 @@ struct cp_declarator {
       tree late_return_type;
       /* The trailing requires-clause, if any. */
       tree requires_clause;
+      location_t parens_loc;
     } function;
     /* For arrays.  */
     struct {
@@ -7238,10 +7245,6 @@ extern void import_module (module_state *, location_t, bool export_p,
 			   tree attr, cpp_reader *);
 extern void declare_module (module_state *, location_t, bool export_p,
 			    tree attr, cpp_reader *);
-
-extern void module_cpp_undef (cpp_reader *, location_t, cpp_hashnode *);
-extern cpp_macro *module_cpp_deferred_macro (cpp_reader *,
-					     location_t, cpp_hashnode *);
 extern void init_modules (cpp_reader *);
 extern void fini_modules ();
 extern void maybe_check_all_macros (cpp_reader *);
@@ -7475,9 +7478,8 @@ extern void walk_specializations		(bool,
 						 void (*)(bool, spec_entry *,
 							  void *),
 						 void *);
-extern tree check_mergeable_specialization	(bool, spec_entry *);
-extern tree match_mergeable_specialization	(bool is_decl, tree tmpl,
-						 tree args, tree spec);
+extern tree match_mergeable_specialization	(bool is_decl, spec_entry *,
+						 bool insert = true);
 extern unsigned get_mergeable_specialization_flags (tree tmpl, tree spec);
 extern void add_mergeable_specialization        (tree tmpl, tree args,
 						 tree spec, unsigned);
@@ -7784,7 +7786,7 @@ extern bool cxx_omp_create_clause_info		(tree, tree, bool, bool,
 						 bool, bool);
 extern tree baselink_for_fns                    (tree);
 extern void finish_static_assert                (tree, tree, location_t,
-                                                 bool);
+						 bool, bool);
 extern tree finish_decltype_type                (tree, bool, tsubst_flags_t);
 extern tree finish_trait_expr			(location_t, enum cp_trait_kind, tree, tree);
 extern tree build_lambda_expr                   (void);
@@ -8012,7 +8014,7 @@ extern int comp_cv_qualification		(const_tree, const_tree);
 extern int comp_cv_qualification		(int, int);
 extern int comp_cv_qual_signature		(tree, tree);
 extern tree cxx_sizeof_or_alignof_expr		(location_t, tree,
-						 enum tree_code, bool);
+						 enum tree_code, bool, bool);
 extern tree cxx_sizeof_or_alignof_type		(location_t, tree,
 						 enum tree_code, bool, bool);
 extern tree cxx_alignas_expr                    (tree);
@@ -8386,7 +8388,6 @@ extern tree evaluate_concept_check              (tree, tsubst_flags_t);
 extern tree satisfy_constraint_expression	(tree);
 extern bool constraints_satisfied_p		(tree);
 extern bool constraints_satisfied_p		(tree, tree);
-extern void clear_satisfaction_cache		();
 extern bool* lookup_subsumption_result          (tree, tree);
 extern bool save_subsumption_result             (tree, tree, bool);
 extern tree find_template_parameters		(tree, tree);
@@ -8411,6 +8412,21 @@ extern void walk_satisfaction_cache               (bool,
                                                            void *), 
                                                  void *);
 extern void save_satisfaction (bool, tree, tree, tree);
+
+/* A structural hasher for ATOMIC_CONSTRs.  */
+
+struct atom_hasher : default_hash_traits<tree>
+{
+  static hashval_t hash (tree t)
+  {
+    return hash_atomic_constraint (t);
+  }
+
+  static bool equal (tree t1, tree t2)
+  {
+    return atomic_constraints_identical_p (t1, t2);
+  }
+};
 
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);
@@ -8440,11 +8456,10 @@ struct GTY((for_user)) constexpr_fundef {
 
 extern void fini_constexpr			(void);
 extern bool literal_type_p                      (tree);
-extern tree check_constexpr_fundef           	(tree, tree);
-extern tree register_constexpr_fundef           (const constexpr_fundef &);
-extern constexpr_fundef *retrieve_constexpr_fundef		(tree);
-extern tree register_constexpr_fundef           (tree, tree);
+extern void maybe_save_constexpr_fundef		(tree);
+extern void register_constexpr_fundef		(const constexpr_fundef &);
 extern tree register_contracts_constexpr_fundef (tree, tree);
+extern constexpr_fundef *retrieve_constexpr_fundef	(tree);
 extern bool is_valid_constexpr_fn		(tree, bool);
 extern bool check_constexpr_ctor_body           (tree, tree, bool);
 extern tree constexpr_fn_retval		(tree);
@@ -8481,7 +8496,7 @@ extern bool var_in_maybe_constexpr_fn           (tree);
 extern void explain_invalid_constexpr_fn        (tree);
 extern vec<tree> cx_error_context               (void);
 extern tree fold_sizeof_expr			(tree);
-extern void clear_cv_and_fold_caches		(bool = true);
+extern void clear_cv_and_fold_caches		(void);
 extern tree unshare_constructor			(tree CXX_MEM_STAT_INFO);
 extern void check_constant_contracts		(tree);
 extern void check_trivial_constant_contract	(tree);

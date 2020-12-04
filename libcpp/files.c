@@ -103,16 +103,13 @@ struct _cpp_file
   /* If read() failed before.  */
   bool dont_read : 1;
 
-  /* If this file is the main file.  */
-  bool main_file : 1;
-
   /* If BUFFER above contains the true contents of the file.  */
   bool buffer_valid : 1;
 
   /* If this file is implicitly preincluded.  */
   bool implicit_preinclude : 1;
 
-  /* Is a C++ Module header unit.  */
+  /* > 0: Known C++ Module header unit, <0: known not.  ==0, unknown  */
   int header_unit : 2;
 };
 
@@ -186,7 +183,7 @@ static void open_file_failed (cpp_reader *pfile, _cpp_file *file, int,
 			      location_t);
 static struct cpp_file_hash_entry *search_cache (struct cpp_file_hash_entry *head,
 					     const cpp_dir *start_dir);
-static _cpp_file *make_cpp_file (cpp_reader *, cpp_dir *, const char *fname);
+static _cpp_file *make_cpp_file (cpp_dir *, const char *fname);
 static void destroy_cpp_file (_cpp_file *);
 static cpp_dir *make_cpp_dir (cpp_reader *, const char *dir_name, int sysp);
 static void allocate_file_hash_entries (cpp_reader *pfile);
@@ -299,7 +296,7 @@ pch_open_file (cpp_reader *pfile, _cpp_file *file, bool *invalid_pch)
   for (_cpp_file *f = pfile->all_files; f; f = f->next_file)
     if (f->implicit_preinclude)
       continue;
-    else if (f->main_file)
+    else if (pfile->main_file == f)
       break;
     else
       return false;
@@ -479,10 +476,10 @@ search_path_exhausted (cpp_reader *pfile, const char *header, _cpp_file *file)
   return false;
 }
 
-const char *
-_cpp_found_name (_cpp_file *file)
+bool
+_cpp_find_failed (_cpp_file *file)
 {
-  return !file->err_no ? file->path : NULL;
+  return file->err_no != 0;
 }
 
 /* Given a filename FNAME search for such a file in the include path
@@ -528,7 +525,7 @@ _cpp_find_file (cpp_reader *pfile, const char *fname, cpp_dir *start_dir,
   if (entry)
     return entry->u.file;
 
-  _cpp_file *file = make_cpp_file (pfile, start_dir, fname);
+  _cpp_file *file = make_cpp_file (start_dir, fname);
   file->implicit_preinclude
     = (kind == _cpp_FFK_PRE_INCLUDE
        || (pfile->buffer && pfile->buffer->file->implicit_preinclude));
@@ -574,7 +571,7 @@ _cpp_find_file (cpp_reader *pfile, const char *fname, cpp_dir *start_dir,
 			   "one or more PCH files were found,"
 			   " but they were invalid");
 		if (!cpp_get_options (pfile)->warn_invalid_pch)
-		  cpp_error (pfile, CPP_DL_ERROR,
+		  cpp_error (pfile, CPP_DL_NOTE,
 			     "use -Winvalid-pch for more information");
 	      }
 
@@ -865,7 +862,7 @@ has_unique_contents (cpp_reader *pfile, _cpp_file *file, bool import,
 	    {
 	      /* We already have a buffer but it is not valid, because
 		 the file is still stacked.  Make a new one.  */
-	      ref_file = make_cpp_file (pfile, f->dir, f->name);
+	      ref_file = make_cpp_file (f->dir, f->name);
 	      ref_file->path = f->path;
 	    }
 	  else
@@ -951,7 +948,8 @@ _cpp_stack_file (cpp_reader *pfile, _cpp_file *file, include_type type,
       if (CPP_OPTION (pfile, deps.style) > (sysp != 0)
 	  && !file->stack_count
 	  && file->path[0]
-	  && !(file->main_file && CPP_OPTION (pfile, deps.ignore_main_file)))
+	  && !(pfile->main_file == file
+	       && CPP_OPTION (pfile, deps.ignore_main_file)))
 	deps_add_dep (pfile->deps, file->path);
 
       /* Clear buffer_valid since _cpp_clean_line messes it up.  */
@@ -965,8 +963,6 @@ _cpp_stack_file (cpp_reader *pfile, _cpp_file *file, include_type type,
 			   && !CPP_OPTION (pfile, directives_only));
       buffer->file = file;
       buffer->sysp = sysp;
-      buffer->main_file = (type >= IT_HEADER_HWM
-			   && !CPP_OPTION (pfile, main_search));
       buffer->to_free = file->buffer_start;
 
       /* Initialize controlling macro state.  */
@@ -1155,7 +1151,6 @@ cpp_retrofit_as_include (cpp_reader *pfile)
 	    && !filename_ncmp (name, dir->name, dir->len))
 	  {
 	    pfile->main_file->dir = dir;
-	    pfile->buffer->main_file = false;
 	    if (dir->sysp)
 	      cpp_make_system_header (pfile, 1, 0);
 	    break;
@@ -1165,14 +1160,6 @@ cpp_retrofit_as_include (cpp_reader *pfile)
   /* Initialize controlling macro state.  */
   pfile->mi_valid = true;
   pfile->mi_cmacro = 0;
-}
-
-/* Return the controlling macro for the (retrofitted_as_include) main
-   file.  */
-const cpp_hashnode *
-cpp_main_controlling_macro (cpp_reader *pfile)
-{
-  return pfile->main_file->cmacro;
 }
 
 /* Could not open FILE.  The complication is dependency output.  */
@@ -1229,12 +1216,9 @@ search_cache (struct cpp_file_hash_entry *head, const cpp_dir *start_dir)
 
 /* Allocate a new _cpp_file structure.  */
 static _cpp_file *
-make_cpp_file (cpp_reader *pfile, cpp_dir *dir, const char *fname)
+make_cpp_file (cpp_dir *dir, const char *fname)
 {
-  _cpp_file *file;
-
-  file = XCNEW (_cpp_file);
-  file->main_file = !pfile->buffer;
+  _cpp_file *file = XCNEW (_cpp_file);
   file->fd = -1;
   file->dir = dir;
   file->name = xstrdup (fname);
@@ -1494,6 +1478,7 @@ cpp_change_file (cpp_reader *pfile, enum lc_reason reason,
 
 struct report_missing_guard_data
 {
+  cpp_reader *pfile;
   const char **paths;
   size_t count;
 };
@@ -1512,8 +1497,10 @@ report_missing_guard (void **slot, void *d)
       _cpp_file *file = entry->u.file;
 
       /* We don't want MI guard advice for the main file.  */
-      if (!file->once_only && file->cmacro == NULL
-	  && file->stack_count == 1 && !file->main_file)
+      if (!file->once_only
+	  && file->cmacro == NULL
+	  && file->stack_count == 1
+	  && data->pfile->main_file != file)
 	{
 	  if (data->paths == NULL)
 	    {
@@ -1543,6 +1530,7 @@ _cpp_report_missing_guards (cpp_reader *pfile)
 {
   struct report_missing_guard_data data;
 
+  data.pfile = pfile;
   data.paths = NULL;
   data.count = htab_elements (pfile->file_hash);
   htab_traverse (pfile->file_hash, report_missing_guard, &data);

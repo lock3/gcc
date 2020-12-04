@@ -221,7 +221,7 @@ public:
   /* Get number of references for this node.  */
   inline unsigned num_references (void)
   {
-    return ref_list.references ? ref_list.references->length () : 0;
+    return ref_list.references.length ();
   }
 
   /* Iterates I-th reference in the list, REF is also set.  */
@@ -263,7 +263,7 @@ public:
     }
 
   /* Return section as string.  */
-  const char * get_section ()
+  const char * get_section () const
     {
       if (!x_section)
 	return NULL;
@@ -322,10 +322,17 @@ public:
   /* Set section for symbol and its aliases.  */
   void set_section (const char *section);
 
+  /* Like set_section, but copying the section name from another node.  */
+  void set_section (const symtab_node &other);
+
   /* Set section, do not recurse into aliases.
      When one wants to change section of symbol and its aliases,
      use set_section.  */
   void set_section_for_node (const char *section);
+
+  /* Like set_section_for_node, but copying the section name from another
+     node.  */
+  void set_section_for_node (const symtab_node &other);
 
   /* Set initialization priority to PRIORITY.  */
   void set_init_priority (priority_type priority);
@@ -604,7 +611,7 @@ public:
   symtab_node *same_comdat_group;
 
   /* Vectors of referring and referenced entities.  */
-  ipa_ref_list ref_list;
+  ipa_ref_list GTY((skip)) ref_list;
 
   /* Alias target. May be either DECL pointer or ASSEMBLER_NAME pointer
      depending to what was known to frontend on the creation time.
@@ -631,7 +638,7 @@ protected:
 
   /* Remove node from symbol table.  This function is not used directly, but via
      cgraph/varpool node removal routines.  */
-  void unregister (void);
+  void unregister (struct clone_info *);
 
   /* Return the initialization and finalization priority information for
      DECL.  If there is no previous priority information, a freshly
@@ -643,8 +650,9 @@ protected:
 				      void *data,
 				      bool include_overwrite);
 private:
-  /* Worker for set_section.  */
-  static bool set_section (symtab_node *n, void *s);
+  /* Workers for set_section.  */
+  static bool set_section_from_string (symtab_node *n, void *s);
+  static bool set_section_from_node (symtab_node *n, void *o);
 
   /* Worker for symtab_resolve_alias.  */
   static bool set_implicit_section (symtab_node *n, void *);
@@ -759,17 +767,17 @@ struct GTY(()) cgraph_simd_clone_arg {
 
 struct GTY(()) cgraph_simd_clone {
   /* Number of words in the SIMD lane associated with this clone.  */
-  unsigned int simdlen;
+  poly_uint64 simdlen;
 
   /* Number of annotated function arguments in `args'.  This is
      usually the number of named arguments in FNDECL.  */
   unsigned int nargs;
 
   /* Max hardware vector size in bits for integral vectors.  */
-  unsigned int vecsize_int;
+  poly_uint64 vecsize_int;
 
   /* Max hardware vector size in bits for floating point vectors.  */
-  unsigned int vecsize_float;
+  poly_uint64 vecsize_float;
 
   /* Machine mode of the mask argument(s), if they are to be passed
      as bitmasks in integer argument(s).  VOIDmode if masks are passed
@@ -949,7 +957,7 @@ struct GTY((tag ("SYMTAB_FUNCTION"))) cgraph_node : public symtab_node
 
   /* cgraph node being removed from symbol table; see if its entry can be
    replaced by other inline clone.  */
-  cgraph_node *find_replacement (void);
+  cgraph_node *find_replacement (struct clone_info *);
 
   /* Create a new cgraph node which is the new version of
      callgraph node.  REDIRECT_CALLERS holds the callers
@@ -2676,7 +2684,7 @@ symtab_node::next_defined_symbol (void)
 inline ipa_ref *
 symtab_node::iterate_reference (unsigned i, ipa_ref *&ref)
 {
-  vec_safe_iterate (ref_list.references, i, &ref);
+  ref_list.references.iterate (i, &ref);
 
   return ref;
 }

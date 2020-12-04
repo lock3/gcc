@@ -710,6 +710,7 @@ subdirs
 dollar
 gcc_tooldir
 enable_lto
+DO_LINK_SERIALIZATION
 DO_LINK_MUTEX
 MAINT
 zlibinc
@@ -1013,6 +1014,7 @@ with_gc
 with_system_zlib
 enable_maintainer_mode
 enable_link_mutex
+enable_link_serialization
 enable_version_specific_runtime_libs
 enable_plugin
 enable_host_shared
@@ -1768,6 +1770,10 @@ Optional Features:
                           sometimes confusing) to the casual installer
   --enable-link-mutex     avoid linking multiple front-ends at once to avoid
                           thrashing on the build machine
+  --enable-link-serialization
+                          avoid linking multiple GCC front-ends at once using
+                          make dependencies to avoid thrashing on the build
+                          machine
   --enable-version-specific-runtime-libs
                           specify that runtime libraries should be installed
                           in a compiler-specific directory
@@ -10138,8 +10144,8 @@ fi
 
 for ac_func in times clock kill getrlimit setrlimit atoq \
 	popen sysconf strsignal getrusage nl_langinfo \
-	gettimeofday mbstowcs wcswidth mmap memrchr posix_fallocate setlocale \
-	clearerr_unlocked feof_unlocked   ferror_unlocked fflush_unlocked fgetc_unlocked fgets_unlocked   fileno_unlocked fprintf_unlocked fputc_unlocked fputs_unlocked   fread_unlocked fwrite_unlocked getchar_unlocked getc_unlocked   putchar_unlocked putc_unlocked madvise mallinfo execv mallinfo2 fstatat
+	gettimeofday mbstowcs wcswidth mmap posix_fallocate setlocale \
+	clearerr_unlocked feof_unlocked   ferror_unlocked fflush_unlocked fgetc_unlocked fgets_unlocked   fileno_unlocked fprintf_unlocked fputc_unlocked fputs_unlocked   fread_unlocked fwrite_unlocked getchar_unlocked getc_unlocked   putchar_unlocked putc_unlocked madvise mallinfo mallinfo2 fstatat
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
 ac_fn_cxx_check_func "$LINENO" "$ac_func" "$as_ac_var"
@@ -12075,195 +12081,6 @@ $as_echo "$ac_cv_af_inet6" >&6; }
 if test $ac_cv_af_inet6 = yes; then
 
 $as_echo "#define HAVE_AF_INET6 1" >>confdefs.h
-
-fi
-
-# Efficient server response wants epoll
-# Check for epoll_create, epoll_ctl, epoll_pwait
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for epoll" >&5
-$as_echo_n "checking for epoll... " >&6; }
-if ${ac_cv_epoll+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <sys/epoll.h>
-int
-main ()
-{
-
-int fd = epoll_create (1);
-epoll_event ev;
-ev.events = EPOLLIN;
-ev.data.fd = 0;
-epoll_ctl (fd, EPOLL_CTL_ADD, 0, &ev);
-epoll_pwait (fd, 0, 0, -1, 0);
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
-  ac_cv_epoll=yes
-else
-  ac_cv_epoll=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_epoll" >&5
-$as_echo "$ac_cv_epoll" >&6; }
-if test $ac_cv_epoll = yes; then
-
-$as_echo "#define HAVE_EPOLL 1" >>confdefs.h
-
-fi
-
-# If we can't use epoll, try pselect.
-# Check for pselect
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for pselect" >&5
-$as_echo_n "checking for pselect... " >&6; }
-if ${ac_cv_pselect+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <sys/select.h>
-int
-main ()
-{
-
-pselect (0, 0, 0, 0, 0, 0);
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
-  ac_cv_pselect=yes
-else
-  ac_cv_pselect=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_pselect" >&5
-$as_echo "$ac_cv_pselect" >&6; }
-if test $ac_cv_pselect = yes; then
-
-$as_echo "#define HAVE_PSELECT 1" >>confdefs.h
-
-fi
-
-# And failing that, use good old select.
-# If we can't even use this, the server is serialized.
-# Check for select
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for select" >&5
-$as_echo_n "checking for select... " >&6; }
-if ${ac_cv_select+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <sys/select.h>
-int
-main ()
-{
-
-select (0, 0, 0, 0, 0);
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
-  ac_cv_select=yes
-else
-  ac_cv_select=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_select" >&5
-$as_echo "$ac_cv_select" >&6; }
-if test $ac_cv_select = yes; then
-
-$as_echo "#define HAVE_SELECT 1" >>confdefs.h
-
-fi
-
-# Avoid some fnctl calls by using accept4, when available.
-# Check for accept4
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for accept4" >&5
-$as_echo_n "checking for accept4... " >&6; }
-if ${ac_cv_accept4+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <sys/socket.h>
-int
-main ()
-{
-
-int err = accept4 (1, 0, 0, SOCK_NONBLOCK);
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
-  ac_cv_accept4=yes
-else
-  ac_cv_accept4=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_accept4" >&5
-$as_echo "$ac_cv_accept4" >&6; }
-if test $ac_cv_accept4 = yes; then
-
-$as_echo "#define HAVE_ACCEPT4 1" >>confdefs.h
-
-fi
-
-# For better server messages, look for a way to stringize network addresses
-# Check for inet_ntop
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for inet_ntop" >&5
-$as_echo_n "checking for inet_ntop... " >&6; }
-if ${ac_cv_inet_ntop+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-int
-main ()
-{
-
-sockaddr_in6 in6;
-char buf[INET6_ADDRSTRLEN];
-const char *str = inet_ntop (AF_INET6, &in6, buf, sizeof (buf));
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
-  ac_cv_inet_ntop=yes
-else
-  ac_cv_inet_ntop=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_inet_ntop" >&5
-$as_echo "$ac_cv_inet_ntop" >&6; }
-if test $ac_cv_inet_ntop = yes; then
-
-$as_echo "#define HAVE_INET_NTOP 1" >>confdefs.h
 
 fi
 
@@ -19365,7 +19182,11 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 19368 "configure"
+<<<<<<< HEAD
+#line 19185 "configure"
+=======
+#line 19183 "configure"
+>>>>>>> 5bba2215c23
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -19471,7 +19292,11 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 19474 "configure"
+<<<<<<< HEAD
+#line 19291 "configure"
+=======
+#line 19289 "configure"
+>>>>>>> 5bba2215c23
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -23741,6 +23566,43 @@ else
   enable_gnu_indirect_function="$default_gnu_indirect_function"
 fi
 
+
+case "${target}" in
+  riscv*-*-linux*)
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking linker ifunc IRELATIVE support" >&5
+$as_echo_n "checking linker ifunc IRELATIVE support... " >&6; }
+    cat > conftest.s <<EOF
+	.text
+	.type	foo_resolver, @function
+foo_resolver:
+	ret
+	.size	foo_resolver, .-foo_resolver
+
+	.globl	foo
+	.type	foo, %gnu_indirect_function
+	.set	foo, foo_resolver
+
+	.globl	bar
+	.type	bar, @function
+bar:
+	call	foo
+	ret
+	.size	bar, .-bar
+EOF
+    if test x$gcc_cv_as != x \
+       && test x$gcc_cv_ld != x \
+       && test x$gcc_cv_readelf != x \
+       && $gcc_cv_as -o conftest.o conftest.s > /dev/null 2>&1 \
+       && $gcc_cv_ld -o conftest conftest.o > /dev/null 2>&1 \
+       && $gcc_cv_readelf --relocs --wide conftest \
+	  | grep R_RISCV_IRELATIVE > /dev/null 2>&1; then
+      enable_gnu_indirect_function=yes
+    fi
+    rm -f conftest conftest.o conftest.s
+    { $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_gnu_indirect_function" >&5
+$as_echo "$enable_gnu_indirect_function" >&6; }
+    ;;
+esac
 
 gif=`if test x$enable_gnu_indirect_function = xyes; then echo 1; else echo 0; fi`
 
@@ -28436,6 +28298,68 @@ $as_echo "#define HAVE_AS_RISCV_ATTRIBUTE 1" >>confdefs.h
 
 fi
 
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking assembler for -misa-spec= support" >&5
+$as_echo_n "checking assembler for -misa-spec= support... " >&6; }
+if ${gcc_cv_as_riscv_isa_spec+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  gcc_cv_as_riscv_isa_spec=no
+  if test x$gcc_cv_as != x; then
+    $as_echo '' > conftest.s
+    if { ac_try='$gcc_cv_as $gcc_cv_as_flags -misa-spec=2.2 -o conftest.o conftest.s >&5'
+  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
+  test $ac_status = 0; }; }
+    then
+	gcc_cv_as_riscv_isa_spec=yes
+    else
+      echo "configure: failed program was" >&5
+      cat conftest.s >&5
+    fi
+    rm -f conftest.o conftest.s
+  fi
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_as_riscv_isa_spec" >&5
+$as_echo "$gcc_cv_as_riscv_isa_spec" >&6; }
+if test $gcc_cv_as_riscv_isa_spec = yes; then
+
+$as_echo "#define HAVE_AS_MISA_SPEC 1" >>confdefs.h
+
+fi
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking assembler for -march=rv32i_zifencei support" >&5
+$as_echo_n "checking assembler for -march=rv32i_zifencei support... " >&6; }
+if ${gcc_cv_as_riscv_march_zifencei+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  gcc_cv_as_riscv_march_zifencei=no
+  if test x$gcc_cv_as != x; then
+    $as_echo '' > conftest.s
+    if { ac_try='$gcc_cv_as $gcc_cv_as_flags -march=rv32i_zifencei -o conftest.o conftest.s >&5'
+  { { eval echo "\"\$as_me\":${as_lineno-$LINENO}: \"$ac_try\""; } >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
+  test $ac_status = 0; }; }
+    then
+	gcc_cv_as_riscv_march_zifencei=yes
+    else
+      echo "configure: failed program was" >&5
+      cat conftest.s >&5
+    fi
+    rm -f conftest.o conftest.s
+  fi
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $gcc_cv_as_riscv_march_zifencei" >&5
+$as_echo "$gcc_cv_as_riscv_march_zifencei" >&6; }
+if test $gcc_cv_as_riscv_march_zifencei = yes; then
+
+$as_echo "#define HAVE_AS_MARCH_ZIFENCEI 1" >>confdefs.h
+
+fi
+
     ;;
     s390*-*-*)
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking assembler for .gnu_attribute support" >&5
@@ -30809,6 +30733,31 @@ else
 fi
 
 
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether to serialize linking of multiple front-ends" >&5
+$as_echo_n "checking whether to serialize linking of multiple front-ends... " >&6; }
+  # Check whether --enable-link-serialization was given.
+if test "${enable_link_serialization+set}" = set; then :
+  enableval=$enable_link_serialization; do_link_serialization=$enableval
+else
+  do_link_serialization=no
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $do_link_serialization" >&5
+$as_echo "$do_link_serialization" >&6; }
+
+case "$do_link_serialization" in
+  yes)
+    DO_LINK_SERIALIZATION=1;;
+  [1-9] | [1-9][0-9] | [1-9][0-9][0-9])
+    DO_LINK_SERIALIZATION=$do_link_serialization;;
+  no)
+    DO_LINK_SERIALIZATION=;;
+  *)
+    as_fn_error $? "bad value ${do_link_serialization} given for --enable-link-serialization" "$LINENO" 5 ;;
+esac
+
+
 # --------------
 # Language hooks
 # --------------
@@ -30967,6 +30916,43 @@ do
 		x="$x $lang.$t"
 	done
 	echo "lang.$t: $x" >> Make-hooks
+done
+
+echo "ifeq (\$(DO_LINK_SERIALIZATION),)" >> Make-hooks
+echo "SERIAL_LIST =" >> Make-hooks
+echo else >> Make-hooks
+lang_cnt=0
+lang_list=
+prev=c.serial
+serialization_languages=c
+for lang in $all_selected_languages
+do
+	test $lang = c && continue
+	if test $lang = lto; then
+		serialization_languages="$serialization_languages lto1 lto2"
+	else
+		serialization_languages="$serialization_languages $lang"
+	fi
+done
+for lang in $serialization_languages
+do
+	test $lang = c && continue
+	lang_cnt=`expr $lang_cnt + 1`
+	lang_list=" $prev$lang_list"
+	prev=${lang}.serial
+done
+echo "SERIAL_LIST = \$(wordlist \$(DO_LINK_SERIALIZATION),$lang_cnt,$lang_list)" >> Make-hooks
+echo endif >> Make-hooks
+echo "SERIAL_COUNT = `expr $lang_cnt + 1`" >> Make-hooks
+echo "INDEX.c = 0" >> Make-hooks
+lang_idx=1
+for lang in $serialization_languages
+do
+	test $lang = c && continue
+	echo "$lang.prev: \$(word $lang_cnt,\$(SERIAL_LIST))" >> Make-hooks
+	echo "INDEX.$lang = $lang_idx" >> Make-hooks
+	lang_cnt=`expr $lang_cnt - 1`
+	lang_idx=`expr $lang_idx + 1`
 done
 
 # --------

@@ -102,13 +102,13 @@ static const struct lang_flags lang_defaults[] =
   /* GNUC99   */  { 1,  0,  1,  1,  0,  0,  1,   1,   1,   0,    0,     0,     0,   0,      1,   1,     0 },
   /* GNUC11   */  { 1,  0,  1,  1,  1,  0,  1,   1,   1,   0,    0,     0,     0,   0,      1,   1,     0 },
   /* GNUC17   */  { 1,  0,  1,  1,  1,  0,  1,   1,   1,   0,    0,     0,     0,   0,      1,   1,     0 },
-  /* GNUC2X   */  { 1,  0,  1,  1,  1,  0,  1,   1,   1,   0,    0,     0,     0,   1,      1,   1,     1 },
+  /* GNUC2X   */  { 1,  0,  1,  1,  1,  0,  1,   1,   1,   0,    1,     0,     0,   1,      1,   1,     1 },
   /* STDC89   */  { 0,  0,  0,  0,  0,  1,  0,   0,   0,   0,    0,     0,     1,   0,      0,   0,     0 },
   /* STDC94   */  { 0,  0,  0,  0,  0,  1,  1,   0,   0,   0,    0,     0,     1,   0,      0,   0,     0 },
   /* STDC99   */  { 1,  0,  1,  1,  0,  1,  1,   0,   0,   0,    0,     0,     1,   0,      0,   0,     0 },
   /* STDC11   */  { 1,  0,  1,  1,  1,  1,  1,   1,   0,   0,    0,     0,     1,   0,      0,   0,     0 },
   /* STDC17   */  { 1,  0,  1,  1,  1,  1,  1,   1,   0,   0,    0,     0,     1,   0,      0,   0,     0 },
-  /* STDC2X   */  { 1,  0,  1,  1,  1,  1,  1,   1,   0,   0,    0,     0,     1,   1,      0,   1,     1 },
+  /* STDC2X   */  { 1,  0,  1,  1,  1,  1,  1,   1,   0,   0,    1,     0,     1,   1,      0,   1,     1 },
   /* GNUCXX   */  { 0,  1,  1,  1,  0,  0,  1,   0,   0,   0,    0,     0,     0,   0,      1,   1,     0 },
   /* CXX98    */  { 0,  1,  0,  1,  0,  1,  1,   0,   0,   0,    0,     0,     1,   0,      0,   1,     0 },
   /* GNUCXX11 */  { 1,  1,  1,  1,  1,  0,  1,   1,   1,   1,    0,     0,     0,   0,      1,   1,     0 },
@@ -273,8 +273,9 @@ cpp_create_reader (enum c_lang lang, cpp_hash_table *table,
   /* Do not force token locations by default.  */
   pfile->forced_token_location = 0;
 
-  /* Initialize source_date_epoch to -2 (not yet set).  */
-  pfile->source_date_epoch = (time_t) -2;
+  /* Note the timestamp is unset.  */
+  pfile->time_stamp = time_t (-1);
+  pfile->time_stamp_kind = 0;
 
   /* The expression parser stack.  */
   _cpp_expand_op_stack (pfile);
@@ -406,6 +407,7 @@ static const struct builtin_macro builtin_array[] =
      function-like macros in traditional.c:
      fun_like_macro() when adding more following */
   B("__has_attribute",	 BT_HAS_ATTRIBUTE, true),
+  B("__has_c_attribute", BT_HAS_STD_ATTRIBUTE, true),
   B("__has_cpp_attribute", BT_HAS_ATTRIBUTE, true),
   B("__has_builtin",	 BT_HAS_BUILTIN,   true),
   B("__has_include",	 BT_HAS_INCLUDE,   true),
@@ -491,6 +493,7 @@ cpp_init_special_builtins (cpp_reader *pfile)
   for (b = builtin_array; b < builtin_array + n; b++)
     {
       if ((b->value == BT_HAS_ATTRIBUTE
+	   || b->value == BT_HAS_STD_ATTRIBUTE
 	   || b->value == BT_HAS_BUILTIN)
 	  && (CPP_OPTION (pfile, lang) == CLK_ASM
 	      || pfile->cb.has_attribute == NULL))
@@ -667,8 +670,9 @@ cpp_post_options (cpp_reader *pfile)
 const char *
 cpp_read_main_file (cpp_reader *pfile, const char *fname, bool injecting)
 {
-  if (!pfile->deps && CPP_OPTION (pfile, deps.style) != DEPS_NONE)
-    pfile->deps = deps_init ();
+  if (mkdeps *deps = cpp_get_deps (pfile))
+    /* Set the default target (if there is none already).  */
+    deps_add_default_target (deps, fname);
 
   pfile->main_file
     = _cpp_find_file (pfile, fname,
@@ -679,13 +683,7 @@ cpp_read_main_file (cpp_reader *pfile, const char *fname, bool injecting)
 		      ? pfile->bracket_include : &pfile->no_search_path,
 		      /*angle=*/0, _cpp_FFK_NORMAL, 0);
 
-  const char *found_name = _cpp_found_name (pfile->main_file);
-
-  if (pfile->deps)
-    /* Set the default target (if there is none already).  */
-    deps_add_default_target (pfile->deps, found_name ? found_name : fname);
-
-  if (!found_name)
+  if (_cpp_find_failed (pfile->main_file))
     return NULL;
 
   _cpp_stack_file (pfile, pfile->main_file,

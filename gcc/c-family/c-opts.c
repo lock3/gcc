@@ -979,7 +979,7 @@ c_common_post_options (const char **pfilename)
 
   /* Change flag_abi_version to be the actual current ABI level, for the
      benefit of c_cpp_builtins, and to make comparison simpler.  */
-  const int latest_abi_version = 14;
+  const int latest_abi_version = 15;
   /* Generate compatibility aliases for ABI v11 (7.1) by default.  */
   const int abi_compat_default = 11;
 
@@ -1202,11 +1202,6 @@ c_common_init (void)
 
   /* Has to wait until now so that cpplib has its hash table.  */
   init_pragma ();
-
-  struct cpp_callbacks *cb = cpp_get_callbacks (parse_in);
-  cb->user_deferred_macro = lang_hooks.preprocess_deferred_macro;
-  if (!cb->undef)
-    cb->undef = lang_hooks.preprocess_undef;
 
   if (flag_preprocess_only)
     {

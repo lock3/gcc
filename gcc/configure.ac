@@ -1419,8 +1419,8 @@ define(gcc_UNLOCKED_FUNCS, clearerr_unlocked feof_unlocked dnl
   putchar_unlocked putc_unlocked)
 AC_CHECK_FUNCS(times clock kill getrlimit setrlimit atoq \
 	popen sysconf strsignal getrusage nl_langinfo \
-	gettimeofday mbstowcs wcswidth mmap memrchr posix_fallocate setlocale \
-	gcc_UNLOCKED_FUNCS madvise mallinfo execv mallinfo2 fstatat)
+	gettimeofday mbstowcs wcswidth mmap posix_fallocate setlocale \
+	gcc_UNLOCKED_FUNCS madvise mallinfo mallinfo2 fstatat)
 
 if test x$ac_cv_func_mbstowcs = xyes; then
   AC_CACHE_CHECK(whether mbstowcs works, gcc_cv_func_mbstowcs_works,
@@ -1655,80 +1655,6 @@ connect (fd, (sockaddr *)&in6, sizeof (in6));]])],
 if test $ac_cv_af_inet6 = yes; then
   AC_DEFINE(HAVE_AF_INET6, 1,
   [Define if AF_INET6 supported.])
-fi
-
-# Efficient server response wants epoll
-# Check for epoll_create, epoll_ctl, epoll_pwait
-AC_CACHE_CHECK(for epoll, ac_cv_epoll, [
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <sys/epoll.h>]],[[
-int fd = epoll_create (1);
-epoll_event ev;
-ev.events = EPOLLIN;
-ev.data.fd = 0;
-epoll_ctl (fd, EPOLL_CTL_ADD, 0, &ev);
-epoll_pwait (fd, 0, 0, -1, 0);]])],
-[ac_cv_epoll=yes],
-[ac_cv_epoll=no])])
-if test $ac_cv_epoll = yes; then
-  AC_DEFINE(HAVE_EPOLL, 1,
-  [Define if epoll_create, epoll_ctl, epoll_pwait provided.])
-fi
-
-# If we can't use epoll, try pselect.
-# Check for pselect
-AC_CACHE_CHECK(for pselect, ac_cv_pselect, [
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <sys/select.h>]],[[
-pselect (0, 0, 0, 0, 0, 0);]])],
-[ac_cv_pselect=yes],
-[ac_cv_pselect=no])])
-if test $ac_cv_pselect = yes; then
-  AC_DEFINE(HAVE_PSELECT, 1,
-  [Define if pselect provided.])
-fi
-
-# And failing that, use good old select.
-# If we can't even use this, the server is serialized.
-# Check for select
-AC_CACHE_CHECK(for select, ac_cv_select, [
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <sys/select.h>]],[[
-select (0, 0, 0, 0, 0);]])],
-[ac_cv_select=yes],
-[ac_cv_select=no])])
-if test $ac_cv_select = yes; then
-  AC_DEFINE(HAVE_SELECT, 1,
-  [Define if select provided.])
-fi
-
-# Avoid some fnctl calls by using accept4, when available.
-# Check for accept4
-AC_CACHE_CHECK(for accept4, ac_cv_accept4, [
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <sys/socket.h>]],[[
-int err = accept4 (1, 0, 0, SOCK_NONBLOCK);]])],
-[ac_cv_accept4=yes],
-[ac_cv_accept4=no])])
-if test $ac_cv_accept4 = yes; then
-  AC_DEFINE(HAVE_ACCEPT4, 1,
-  [Define if accept4 provided.])
-fi
-
-# For better server messages, look for a way to stringize network addresses
-# Check for inet_ntop
-AC_CACHE_CHECK(for inet_ntop, ac_cv_inet_ntop, [
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <arpa/inet.h>
-#include <netinet/in.h>]],[[
-sockaddr_in6 in6;
-char buf[INET6_ADDRSTRLEN];
-const char *str = inet_ntop (AF_INET6, &in6, buf, sizeof (buf));]])],
-[ac_cv_inet_ntop=yes],
-[ac_cv_inet_ntop=no])])
-if test $ac_cv_inet_ntop = yes; then
-  AC_DEFINE(HAVE_INET_NTOP, 1,
-  [Define if inet_ntop provided.])
 fi
 
 # Restore CFLAGS, CXXFLAGS from before the gcc_AC_NEED_DECLARATIONS tests.
@@ -2952,6 +2878,41 @@ AC_ARG_ENABLE(gnu-indirect-function,
 Valid choices are 'yes' and 'no'.]) ;;
   esac],
  [enable_gnu_indirect_function="$default_gnu_indirect_function"])
+
+case "${target}" in
+  riscv*-*-linux*)
+    AC_MSG_CHECKING(linker ifunc IRELATIVE support)
+    cat > conftest.s <<EOF
+	.text
+	.type	foo_resolver, @function
+foo_resolver:
+	ret
+	.size	foo_resolver, .-foo_resolver
+
+	.globl	foo
+	.type	foo, %gnu_indirect_function
+	.set	foo, foo_resolver
+
+	.globl	bar
+	.type	bar, @function
+bar:
+	call	foo
+	ret
+	.size	bar, .-bar
+EOF
+    if test x$gcc_cv_as != x \
+       && test x$gcc_cv_ld != x \
+       && test x$gcc_cv_readelf != x \
+       && $gcc_cv_as -o conftest.o conftest.s > /dev/null 2>&1 \
+       && $gcc_cv_ld -o conftest conftest.o > /dev/null 2>&1 \
+       && $gcc_cv_readelf --relocs --wide conftest \
+	  | grep R_RISCV_IRELATIVE > /dev/null 2>&1; then
+      enable_gnu_indirect_function=yes
+    fi
+    rm -f conftest conftest.o conftest.s
+    AC_MSG_RESULT($enable_gnu_indirect_function)
+    ;;
+esac
 
 gif=`if test x$enable_gnu_indirect_function = xyes; then echo 1; else echo 0; fi`
 AC_DEFINE_UNQUOTED(HAVE_GNU_INDIRECT_FUNCTION, $gif,
@@ -5222,6 +5183,16 @@ configured with --enable-newlib-nano-formatted-io.])
       [.attribute stack_align,4],,
       [AC_DEFINE(HAVE_AS_RISCV_ATTRIBUTE, 1,
 	  [Define if your assembler supports .attribute.])])
+    gcc_GAS_CHECK_FEATURE([-misa-spec= support],
+      gcc_cv_as_riscv_isa_spec,,
+      [-misa-spec=2.2],,,
+      [AC_DEFINE(HAVE_AS_MISA_SPEC, 1,
+		 [Define if the assembler understands -misa-spec=.])])
+    gcc_GAS_CHECK_FEATURE([-march=rv32i_zifencei support],
+      gcc_cv_as_riscv_march_zifencei,,
+      [-march=rv32i_zifencei],,,
+      [AC_DEFINE(HAVE_AS_MARCH_ZIFENCEI, 1,
+		 [Define if the assembler understands -march=rv*_zifencei.])])
     ;;
     s390*-*-*)
     gcc_GAS_CHECK_FEATURE([.gnu_attribute support],
@@ -6777,6 +6748,29 @@ else
 fi
 AC_SUBST(DO_LINK_MUTEX)
 
+dnl Whether to prevent multiple GCC front-ends from linking at the same time
+
+AC_MSG_CHECKING([whether to serialize linking of multiple front-ends])
+  AC_ARG_ENABLE(link-serialization,
+[AS_HELP_STRING([--enable-link-serialization],
+		[avoid linking multiple GCC front-ends at once using make
+		 dependencies to avoid thrashing on the build machine])],
+      do_link_serialization=$enableval,
+      do_link_serialization=no)
+AC_MSG_RESULT($do_link_serialization)
+
+case "$do_link_serialization" in
+  yes)
+    DO_LINK_SERIALIZATION=1;;
+  [[1-9]] | [[1-9]][[0-9]] | [[1-9]][[0-9]][[0-9]])
+    DO_LINK_SERIALIZATION=$do_link_serialization;;
+  no)
+    DO_LINK_SERIALIZATION=;;
+  *)
+    AC_MSG_ERROR(bad value ${do_link_serialization} given for --enable-link-serialization) ;;
+esac
+AC_SUBST(DO_LINK_SERIALIZATION)
+
 # --------------
 # Language hooks
 # --------------
@@ -6935,6 +6929,43 @@ do
 		x="$x $lang.$t"
 	done
 	echo "lang.$t: $x" >> Make-hooks
+done
+
+echo "ifeq (\$(DO_LINK_SERIALIZATION),)" >> Make-hooks
+echo "SERIAL_LIST =" >> Make-hooks
+echo else >> Make-hooks
+lang_cnt=0
+lang_list=
+prev=c.serial
+serialization_languages=c
+for lang in $all_selected_languages
+do
+	test $lang = c && continue
+	if test $lang = lto; then
+		serialization_languages="$serialization_languages lto1 lto2"
+	else
+		serialization_languages="$serialization_languages $lang"
+	fi
+done
+for lang in $serialization_languages
+do
+	test $lang = c && continue
+	lang_cnt=`expr $lang_cnt + 1`
+	lang_list=" $prev$lang_list"
+	prev=${lang}.serial
+done
+echo "SERIAL_LIST = \$(wordlist \$(DO_LINK_SERIALIZATION),$lang_cnt,$lang_list)" >> Make-hooks
+echo endif >> Make-hooks
+echo "SERIAL_COUNT = `expr $lang_cnt + 1`" >> Make-hooks
+echo "INDEX.c = 0" >> Make-hooks
+lang_idx=1
+for lang in $serialization_languages
+do
+	test $lang = c && continue
+	echo "$lang.prev: \$(word $lang_cnt,\$(SERIAL_LIST))" >> Make-hooks
+	echo "INDEX.$lang = $lang_idx" >> Make-hooks
+	lang_cnt=`expr $lang_cnt - 1`
+	lang_idx=`expr $lang_idx + 1`
 done
 
 # --------

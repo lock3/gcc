@@ -427,7 +427,6 @@ line_map_new_raw (line_maps *set, bool macro_p, unsigned num)
 	      (num_maps - num_maps_used) * size_of_a_map);
       if (macro_p)
 	set->info_macro.maps = (line_map_macro *)buffer;
-
       else
 	set->info_ordinary.maps = (line_map_ordinary *)buffer;
       LINEMAPS_ALLOCATED (set, macro_p) = num_maps;
@@ -608,6 +607,11 @@ linemap_module_loc (line_maps *set, location_t from, const char *name)
 
   return loc;
 }
+
+/* The linemap containing LOC is being reparented to be
+   imported/included from ADOPTOR.  This can happen when an
+   indirectly imported module is then directly imported, or when
+   partitions are involved.  */
 
 void
 linemap_module_reparent (line_maps *set, location_t loc, location_t adoptor)

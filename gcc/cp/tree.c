@@ -3864,18 +3864,10 @@ cp_tree_equal (tree t1, tree t2)
 				     CHECK_CONSTR_ARGS (t2)));
 
     case TREE_VEC:
-      /* These seem to always be template args.  Really we should be
-	 getting the caller to do this as it knows it to be true.  */
-#if 1
+      /* These are template args.  Really we should be getting the
+	 caller to do this as it knows it to be true.  */
       if (!comp_template_args (t1, t2, NULL, NULL, false))
 	return false;
-#else // Original code
-      if (TREE_VEC_LENGTH (t1) != TREE_VEC_LENGTH (t2))
-	return false;
-      for (unsigned ix = TREE_VEC_LENGTH (t1); ix--;)
-	if (!cp_tree_equal (TREE_VEC_ELT (t1, ix), TREE_VEC_ELT (t2, ix)))
-	  return false;
-#endif
       return true;
 
     case SIZEOF_EXPR:
@@ -3946,6 +3938,17 @@ cp_tree_equal (tree t1, tree t2)
       return same_type_p (TRAIT_EXPR_TYPE1 (t1), TRAIT_EXPR_TYPE1 (t2))
 	&& cp_tree_equal (TRAIT_EXPR_TYPE2 (t1), TRAIT_EXPR_TYPE2 (t2));
 
+    case NON_LVALUE_EXPR:
+    case VIEW_CONVERT_EXPR:
+      /* Used for location wrappers with possibly NULL types.  */
+      if (!TREE_TYPE (t1) || !TREE_TYPE (t2))
+	{
+	  if (TREE_TYPE (t1) || TREE_TYPE (t2))
+	    return false;
+	  break;
+	}
+      /* FALLTHROUGH  */
+
     case CAST_EXPR:
     case STATIC_CAST_EXPR:
     case REINTERPRET_CAST_EXPR:
@@ -3954,8 +3957,6 @@ cp_tree_equal (tree t1, tree t2)
     case IMPLICIT_CONV_EXPR:
     case NEW_EXPR:
     CASE_CONVERT:
-    case NON_LVALUE_EXPR:
-    case VIEW_CONVERT_EXPR:
       if (!same_type_p (TREE_TYPE (t1), TREE_TYPE (t2)))
 	return false;
       /* Now compare operands as usual.  */
@@ -4138,13 +4139,14 @@ is_dummy_object (const_tree ob)
 	  && TREE_OPERAND (ob, 0) == void_node);
 }
 
-/* Returns true if TYPE is a character type or std::byte.  */
+/* Returns true if TYPE is char, unsigned char, or std::byte.  */
 
 bool
 is_byte_access_type (tree type)
 {
   type = TYPE_MAIN_VARIANT (type);
-  if (char_type_p (type))
+  if (type == char_type_node
+      || type == unsigned_char_type_node)
     return true;
 
   return (TREE_CODE (type) == ENUMERAL_TYPE
@@ -5786,8 +5788,7 @@ cp_fix_function_decl_p (tree decl)
 
       /* Don't fix same_body aliases.  Although they don't have their own
 	 CFG, they share it with what they alias to.  */
-      if (!node || !node->alias
-	  || !vec_safe_length (node->ref_list.references))
+      if (!node || !node->alias || !node->num_references ())
 	return true;
     }
 

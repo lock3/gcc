@@ -310,9 +310,11 @@ enum cpp_normalize_level {
 
 enum cpp_main_search 
 {
-  CMS_none,
-  CMS_user,
-  CMS_system
+  CMS_none,    /* A regular source file.  */
+  CMS_header,  /* Is a directly-specified header file (eg PCH or
+		  header-unit).  */
+  CMS_user,    /* Search the user INCLUDE path.  */
+  CMS_system,  /* Search the system INCLUDE path.  */
 };
 
 /* This structure is nested inside struct cpp_reader, and
@@ -687,7 +689,7 @@ struct cpp_callbacks
   void (*used) (cpp_reader *, location_t, cpp_hashnode *);
 
   /* Callback to identify whether an attribute exists.  */
-  int (*has_attribute) (cpp_reader *);
+  int (*has_attribute) (cpp_reader *, bool);
 
   /* Callback to determine whether a built-in function is recognized.  */
   int (*has_builtin) (cpp_reader *);
@@ -884,6 +886,7 @@ enum cpp_builtin_type
   BT_TIMESTAMP,			/* `__TIMESTAMP__' */
   BT_COUNTER,			/* `__COUNTER__' */
   BT_HAS_ATTRIBUTE,		/* `__has_attribute(x)' */
+  BT_HAS_STD_ATTRIBUTE,		/* `__has_c_attribute(x)' */
   BT_HAS_BUILTIN,		/* `__has_builtin(x)' */
   BT_HAS_INCLUDE,		/* `__has_include(x)' */
   BT_HAS_INCLUDE_NEXT		/* `__has_include_next(x)' */
@@ -1016,7 +1019,6 @@ extern location_t cpp_main_loc (const cpp_reader *);
 
 /* Adjust for the main file to be an include.  */
 extern void cpp_retrofit_as_include (cpp_reader *);
-extern const cpp_hashnode *cpp_main_controlling_macro (cpp_reader *);
 
 /* Set up built-ins with special behavior.  Use cpp_init_builtins()
    instead unless your know what you are doing.  */
@@ -1054,7 +1056,6 @@ extern int cpp_avoid_paste (cpp_reader *, const cpp_token *,
 extern const cpp_token *cpp_get_token (cpp_reader *);
 extern const cpp_token *cpp_get_token_with_location (cpp_reader *,
 						     location_t *);
-extern void cpp_enable_filename_token (cpp_reader *, bool);
 inline bool cpp_user_macro_p (const cpp_hashnode *node)
 {
   return node->type == NT_USER_MACRO;
@@ -1094,6 +1095,15 @@ inline location_t cpp_macro_definition_location (cpp_hashnode *node)
   const cpp_macro *macro = node->value.macro;
   return macro ? macro->line : 0;
 }
+/* Return an idempotent time stamp (possibly from SOURCE_DATE_EPOCH).  */
+enum class CPP_time_kind 
+{
+  FIXED = -1,	/* Fixed time via source epoch.  */
+  DYNAMIC = -2,	/* Dynamic via time(2).  */
+  UNKNOWN = -3	/* Wibbly wobbly, timey wimey.  */
+};
+extern CPP_time_kind cpp_get_date (cpp_reader *, time_t *);
+
 extern void _cpp_backup_tokens (cpp_reader *, unsigned int);
 extern const cpp_token *cpp_peek_token (cpp_reader *, int);
 
@@ -1120,8 +1130,12 @@ extern cppchar_t cpp_host_to_exec_charset (cpp_reader *, cppchar_t);
 /* Used to register macros and assertions, perhaps from the command line.
    The text is the same as the command line argument.  */
 extern void cpp_define (cpp_reader *, const char *);
+extern void cpp_define_unused (cpp_reader *, const char *);
 extern void cpp_define_formatted (cpp_reader *pfile, 
 				  const char *fmt, ...) ATTRIBUTE_PRINTF_2;
+extern void cpp_define_formatted_unused (cpp_reader *pfile,
+					 const char *fmt,
+					 ...) ATTRIBUTE_PRINTF_2;
 extern void cpp_assert (cpp_reader *, const char *);
 extern void cpp_undef (cpp_reader *, const char *);
 extern void cpp_unassert (cpp_reader *, const char *);

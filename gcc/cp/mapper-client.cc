@@ -23,9 +23,10 @@ along with GCC; see the file COPYING3.  If not see
 
 #include "line-map.h"
 #include "diagnostic-core.h"
-#define MAPPER_FOR_GCC 1
-#include "mapper.h"
+#include "mapper-client.h"
 #include "intl.h"
+
+#include "../../c++tools/resolver.h"
 
 module_client::module_client (pex_obj *p, int fd_from, int fd_to)
   : Client (fd_from, fd_to), pex (p)
@@ -50,6 +51,16 @@ spawn_mapper_program (char const **errmsg, std::string &name,
 	ptr++;
       if (!*ptr)
 	break;
+
+      if (!arg_no)
+	{
+	  /* @name means look in the compiler's install dir.  */
+	  if (ptr[0] == '@')
+	    ptr++;
+	  else
+	    full_program_name = nullptr;
+	}
+
       argv[arg_no++] = ptr;
       while (*ptr && *ptr != ' ')
 	ptr++;
@@ -67,10 +78,11 @@ spawn_mapper_program (char const **errmsg, std::string &name,
   else
     {
       int flags = PEX_SEARCH;
-	  
+
       if (full_program_name)
 	{
-	  /* Prepend the invoking path.  */
+	  /* Prepend the invoking path, if the mapper is a simple
+	     file name.  */
 	  size_t dir_len = progname - full_program_name;
 	  std::string argv0;
 	  argv0.reserve (dir_len + name.size ());
@@ -256,7 +268,7 @@ module_client::open_module_client (location_t loc, const char *o,
 
   auto &connect = packets[0];
   if (connect.GetCode () == Cody::Client::PC_CONNECT)
-    ;
+    c->flags = Cody::Flags (connect.GetInteger ());
   else if (connect.GetCode () == Cody::Client::PC_ERROR)
     error_at (loc, "failed mapper handshake %s", connect.GetString ().c_str ());
 

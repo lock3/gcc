@@ -1,4 +1,4 @@
-/* Functions related to building classes and their related objects.
+/* Functions related to building -*- C++ -*- classes and their related objects.
    Copyright (C) 1987-2020 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
 
@@ -1322,6 +1322,8 @@ handle_using_decl (tree using_decl, tree t)
       return;
     }
 
+  iloc_sentinel ils (DECL_SOURCE_LOCATION (using_decl));
+
   /* Make type T see field decl FDECL with access ACCESS.  */
   if (flist)
     for (ovl_iterator iter (flist); iter; ++iter)
@@ -1329,6 +1331,23 @@ handle_using_decl (tree using_decl, tree t)
 	add_method (t, *iter, true);
 	alter_access (t, *iter, access);
       }
+  else if (USING_DECL_UNRELATED_P (using_decl))
+    {
+      /* C++20 using enum can import non-inherited enumerators into class
+	 scope.  We implement that by making a copy of the CONST_DECL for which
+	 CONST_DECL_USING_P is true.  */
+      gcc_assert (TREE_CODE (decl) == CONST_DECL);
+
+      tree copy = copy_decl (decl);
+      DECL_CONTEXT (copy) = t;
+      DECL_ARTIFICIAL (copy) = true;
+      /* We emitted debug info for the USING_DECL above; make sure we don't
+	 also emit anything for this clone.  */
+      DECL_IGNORED_P (copy) = true;
+      DECL_SOURCE_LOCATION (copy) = DECL_SOURCE_LOCATION (using_decl);
+      finish_member_declaration (copy);
+      DECL_ABSTRACT_ORIGIN (copy) = decl;
+    }
   else
     alter_access (t, decl, access);
 }
@@ -4953,9 +4972,7 @@ build_cdtor_clones (tree fn, bool needs_vtt_p, bool base_omits_inherited_p,
 
 /* Produce declarations for all appropriate clones of FN.  If
    UPDATE_METHODS is true, the clones are added to the
-   CLASSTYPE_METHOD_VEC.  VIA_USING indicates whether these are
-   cloning decls brought in via using declarations (i.e. inheriting
-   ctors).  */
+   CLASSTYPE_METHOD_VEC.  */
 
 void
 clone_cdtor (tree fn, bool update_methods)
@@ -7479,9 +7496,6 @@ finish_struct_1 (tree t)
 
   /* Finish debugging output for this type.  */
   rest_of_type_compilation (t, ! LOCAL_CLASS_P (t));
-
-  /* Recalculate satisfaction that might depend on completeness.  */
-  clear_satisfaction_cache ();
 
   if (TYPE_TRANSPARENT_AGGR (t))
     {

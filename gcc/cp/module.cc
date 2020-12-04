@@ -228,8 +228,7 @@ Classes used:
 #include "attribs.h"
 #include "intl.h"
 #include "langhooks.h"
-#define MAPPER_FOR_GCC 1
-#include "mapper.h"
+#include "mapper-client.h"
 
 #if HAVE_MMAP_FILE && _POSIX_MAPPED_FILES > 0
 /* mmap, munmap.  */
@@ -2257,6 +2256,7 @@ public:
   {
     EK_DECL,		/* A decl.  */
     EK_SPECIALIZATION,  /* A specialization.  */
+    EK_PARTIAL,		/* A partial specialization.  */
     EK_USING,		/* A using declaration (at namespace scope).  */
     EK_NAMESPACE,	/* A namespace.  */
     EK_REDIRECT,	/* Redirect to a template_decl.  */
@@ -2265,6 +2265,7 @@ public:
     EK_FOR_BINDING,	/* A decl being inserted for a binding.  */
     EK_INNER_DECL,	/* A decl defined outside of it's imported
 			   context.  */
+    EK_DIRECT_HWM = EK_PARTIAL + 1,
 
     EK_BITS = 3		/* Only need to encode below EK_EXPLICIT_HWM.  */
   };
@@ -2289,8 +2290,6 @@ private:
     /* The following bits are not independent, but enumerating them is
        awkward.  */
     DB_ALIAS_TMPL_INST_BIT,	/* An alias template instantiation. */
-    DB_PARTIAL_BIT,		/* A partial instantiation or
-				   specialization.  */
     DB_ALIAS_SPEC_BIT,		/* Specialization of an alias template
 				   (in both spec tables).  */
     DB_TYPE_SPEC_BIT,		/* Specialization in the type table.
@@ -2382,10 +2381,6 @@ public:
   bool is_unreached () const
   {
     return get_flag_bit<DB_UNREACHED_BIT> ();
-  }
-  bool is_partial () const
-  {
-    return get_flag_bit<DB_PARTIAL_BIT> ();
   }
   bool is_alias_tmpl_inst () const
   {
@@ -2547,12 +2542,12 @@ public:
     void add_namespace_context (depset *, tree ns);
 
   private:
-    depset *add_partial_redirect (depset *partial, depset **slot = nullptr);
     static bool add_binding_entity (tree, WMB_Flags, void *);
 
   public:
     bool add_namespace_entities (tree ns, bitmap partitions);
     void add_specializations (bool decl_p);
+    void add_partial_entities (vec<tree, va_gc> *);
     void add_class_entities (vec<tree, va_gc> *);
 
   public:    
@@ -2602,7 +2597,8 @@ depset::entity_kind_name () const
 {
   /* Same order as entity_kind.  */
   static const char *const names[] = 
-    {"decl", "specialization", "using", "namespace", "redirect", "binding"};
+    {"decl", "specialization", "partial", "using",
+     "namespace", "redirect", "binding"};
   entity_kind kind = get_entity_kind ();
   gcc_checking_assert (kind < sizeof (names) / sizeof(names[0]));
   return names[kind];
@@ -2880,17 +2876,13 @@ enum merge_kind
      primary template and specialization args.  */
   MK_template_mask = 0x10,  /* A template specialization.  */
 
-  MK_tmpl_decl_mask = 0x8, /* In decl table (not a type specialization).  */
+  MK_tmpl_decl_mask = 0x4, /* In decl table.  */
+  MK_tmpl_alias_mask = 0x2, /* Also in type table  */
 
-  /* Following bit has meaning dependent on MK_tmpl_decl_mask. */
-  MK_tmpl_alias_mask = 0x2, /* An alias specialization (in both).  */
-  MK_tmpl_partial_mask = 0x2, /* A partial type specialization.  */
-  
   MK_tmpl_tmpl_mask = 0x1, /* We want TEMPLATE_DECL.  */
 
   MK_type_spec = MK_template_mask,
   MK_type_tmpl_spec = MK_type_spec | MK_tmpl_tmpl_mask,
-  MK_type_partial_spec = MK_type_tmpl_spec | MK_tmpl_partial_mask,
 
   MK_decl_spec = MK_template_mask | MK_tmpl_decl_mask,
   MK_decl_tmpl_spec = MK_decl_spec | MK_tmpl_tmpl_mask,
@@ -2910,11 +2902,11 @@ static char const *const merge_kind_name[MK_hwm] =
     NULL, NULL, NULL, NULL,
 
     "type spec", "type tmpl spec",	/* 16,17 type (template).  */
-    NULL, "type partial spec",		/* 18,19 partial template. */
-    NULL, NULL, NULL, NULL,
+    NULL, NULL,
 
-    "decl spec", "decl tmpl spec",	/* 24,25 decl (template).  */
-    "alias spec", NULL,			/* 26,27 alias. */
+    "decl spec", "decl tmpl spec",	/* 20,21 decl (template).  */
+    "alias spec", NULL,			/* 22,23 alias. */
+    NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL,
   };
 
@@ -3723,7 +3715,8 @@ public:
 
  private:
   /* The README, for human consumption.  */
-  void write_readme (elf_out *to, const char *dialect, unsigned extensions);
+  void write_readme (elf_out *to, cpp_reader *,
+		     const char *dialect, unsigned extensions);
   void write_env (elf_out *to);
 
  private:
@@ -4013,11 +4006,17 @@ static vec<mc_slot, va_heap, vl_embed> *entity_ary;
    We could find these by walking ALL the imported classes that we
    could provide a member definition.  But that's expensive,
    especially when you consider lazy implicit member declarations,
-   which could be ANY imported class.
-
-   Template instantiations are in the template table, so we don't
-   need to record those here.  */
+   which could be ANY imported class.  */
 static GTY(()) vec<tree, va_gc> *class_members;
+
+/* The same problem exists for class template partial
+   specializations.  Now that we have constraints, the invariant of
+   expecting them in the instantiation table no longer holds.  One of
+   the constrained partial specializations will be there, but the
+   others not so much.  It's not even an unconstrained partial
+   spacialization in the table :(  so any partial template declaration
+   is added to this list too.  */
+static GTY(()) vec<tree, va_gc> *partial_specializations;
 
 /********************************************************************/
 
@@ -8221,8 +8220,9 @@ trees_in::decl_value ()
 	{
 	  /* Insert into type table.  */
 	  tree ti = DECL_TEMPLATE_INFO (inner);
-	  tree texist = match_mergeable_specialization
-	    (false, TI_TEMPLATE (ti), TI_ARGS (ti), TREE_TYPE (inner));
+	  spec_entry elt = 
+	    {TI_TEMPLATE (ti), TI_ARGS (ti), TREE_TYPE (inner)};
+	  tree texist = match_mergeable_specialization (false, &elt);
 	  if (texist)
 	    set_overrun ();
 	}
@@ -8982,7 +8982,7 @@ trees_out::decl_node (tree decl, walk_kind ref)
       /* The DECL_TEMPLATE_RESULT of a partial specialization.
 	 Write the partial specialization's template.  */
       depset *redirect = dep->deps[0];
-      gcc_checking_assert (redirect->is_partial ());
+      gcc_checking_assert (redirect->get_entity_kind () == depset::EK_PARTIAL);
       tpl = redirect->get_entity ();
       goto partial_template;
     }
@@ -10607,13 +10607,12 @@ trees_out::get_merge_kind (tree decl, depset *dep)
     default:
       gcc_unreachable ();
 
+    case depset::EK_PARTIAL:
+      mk = MK_partial;
+      break;
+
     case depset::EK_DECL:
       {
-	if (dep->is_partial ())
-	  {
-	    mk = MK_partial;
-	    break;
-	  }
 	tree ctx = CP_DECL_CONTEXT (decl);
 
 	switch (TREE_CODE (ctx))
@@ -10687,9 +10686,11 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	if (dep->is_friend_spec ())
 	  mk = MK_friend_spec;
 	else if (dep->is_type_spec ())
-	  mk = dep->is_partial () ? MK_type_partial_spec : MK_type_spec;
+	  mk = MK_type_spec;
+	else if (dep->is_alias ())
+	  mk = MK_alias_spec;
 	else
-	  mk = dep->is_alias () ? MK_alias_spec : MK_decl_spec;
+	  mk = MK_decl_spec;
 
 	if (TREE_CODE (decl) == TEMPLATE_DECL)
 	  {
@@ -10702,8 +10703,6 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 		 streaming.  */
 	      mk = merge_kind (mk | MK_tmpl_tmpl_mask);
 	  }
-	else
-	  gcc_checking_assert (mk != MK_type_partial_spec);
       }
       break;
     }
@@ -10778,21 +10777,31 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
       tree_node (entry->args);
       if (streaming_p ())
 	u (get_mergeable_specialization_flags (entry->tmpl, decl));
+      if (mk & MK_tmpl_decl_mask)
+	if (flag_concepts && TREE_CODE (inner) == VAR_DECL)
+	  {
+	    /* Variable template partial specializations might need
+	       constraints (see spec_hasher::equal).  It's simpler to
+	       write NULL when we don't need them.  */
+	    tree constraints = NULL_TREE;
 
-      // FIXME: Do variable templates with concepts need constraints
-      // from the specialization?  See spec_hasher::equal
+	    if (uses_template_parms (entry->args))
+	      constraints = get_constraints (inner);
+	    tree_node (constraints);
+	  }
+
       if (CHECKING_P)
 	{
 	  /* Make sure we can locate the decl.  */
-	  tree existing = check_mergeable_specialization
-	    (bool (mk & MK_tmpl_decl_mask), entry);
+	  tree existing = match_mergeable_specialization
+	    (bool (mk & MK_tmpl_decl_mask), entry, false);
 
 	  gcc_assert (existing);
 	  if (mk & MK_tmpl_decl_mask)
 	    {
 	      if (mk & MK_tmpl_alias_mask)
 		/* It should be in both tables.  */
-		gcc_assert (check_mergeable_specialization (false, entry)
+		gcc_assert (match_mergeable_specialization (false, entry, false)
 			    == TREE_TYPE (existing));
 	      else if (mk & MK_tmpl_tmpl_mask)
 		if (tree ti = DECL_TEMPLATE_INFO (existing))
@@ -10802,22 +10811,10 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	    {
 	      if (!(mk & MK_tmpl_tmpl_mask))
 		existing = TYPE_NAME (existing);
-	      else if (mk & MK_tmpl_partial_mask)
-		{
-		  /* A partial specialization.  */
-		  for (tree partial
-			 = DECL_TEMPLATE_SPECIALIZATIONS (entry->tmpl);
-		       partial; partial = TREE_CHAIN (partial))
-		    if (TREE_TYPE (partial) == existing)
-		      {
-			existing = TREE_VALUE (partial);
-			break;
-		      }
-		}
-	      else
-		if (tree ti = CLASSTYPE_TEMPLATE_INFO (existing))
-		  existing = TI_TEMPLATE (ti);
+	      else if (tree ti = CLASSTYPE_TEMPLATE_INFO (existing))
+		existing = TI_TEMPLATE (ti);
 	    }
+
 	  /* The walkabout should have found ourselves.  */
 	  gcc_assert (existing == decl);
 	}
@@ -11063,7 +11060,7 @@ check_mergeable_decl (merge_kind mk, tree decl, tree ovl, merge_key const &key)
 		&& compparms (key.args, TYPE_ARG_TYPES (m_type))
 		/* Reject if old is a "C" builtin and new is not "C".
 		   Matches decls_match behaviour.  */
-		&& (!DECL_IS_BUILTIN (m_inner)
+		&& (!DECL_IS_UNDECLARED_BUILTIN (m_inner)
 		    || !DECL_EXTERN_C_P (m_inner)
 		    || DECL_EXTERN_C_P (d_inner)))
 	      {
@@ -11115,34 +11112,47 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 
   if (mk & MK_template_mask)
     {
-      tree tmpl = tree_node ();
-      tree args = tree_node ();
+      spec_entry spec;
+      spec.tmpl = tree_node ();
+      spec.args = tree_node ();
       unsigned flags = u ();
 
-      DECL_NAME (decl) = DECL_NAME (tmpl);
-      DECL_CONTEXT (decl) = DECL_CONTEXT (tmpl);
+      DECL_NAME (decl) = DECL_NAME (spec.tmpl);
+      DECL_CONTEXT (decl) = DECL_CONTEXT (spec.tmpl);
       DECL_NAME (inner) = DECL_NAME (decl);
       DECL_CONTEXT (inner) = DECL_CONTEXT (decl);
 
-      tree insert = decl;
+      spec.spec = decl;
       if (mk & MK_tmpl_tmpl_mask)
 	{
 	  if (inner == decl)
 	    return error_mark_node;
-	  insert = inner;
+	  spec.spec = inner;
 	}
+      tree constr = NULL_TREE;
       bool is_decl = mk & MK_tmpl_decl_mask;
-      if (!is_decl)
+      if (is_decl)
+	{
+	  if (flag_concepts && TREE_CODE (inner) == VAR_DECL)
+	    {
+	      constr = tree_node ();
+	      if (constr)
+		set_constraints (inner, constr);
+	    }
+	}
+      else
 	{
 	  if (mk == MK_type_spec && inner != decl)
 	    return error_mark_node;
-	  insert = type;
+	  spec.spec = type;
 	}
-
-      existing = match_mergeable_specialization (is_decl, tmpl, args, insert);
+      existing = match_mergeable_specialization (is_decl, &spec);
+      if (constr)
+	/* We'll add these back later, if this is the new decl.  */
+	remove_constraints (inner);
 
       if (!existing)
-	add_mergeable_specialization (tmpl, args, decl, flags);
+	add_mergeable_specialization (spec.tmpl, spec.args, decl, flags);
       else if (mk & MK_tmpl_decl_mask)
 	{
 	  /* A declaration specialization.  */
@@ -11159,25 +11169,12 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	  /* A type specialization.  */
 	  if (!(mk & MK_tmpl_tmpl_mask))
 	    existing = TYPE_NAME (existing);
-	  else if (mk & MK_tmpl_partial_mask)
+	  else if (tree ti = CLASSTYPE_TEMPLATE_INFO (existing))
 	    {
-	      /* A partial specialization.  */
-	      for (tree partial = DECL_TEMPLATE_SPECIALIZATIONS (tmpl);
-		   partial; partial = TREE_CHAIN (partial))
-		if (TREE_TYPE (partial) == existing)
-		  {
-		    existing = TREE_VALUE (partial);
-		    break;
-		  }
-	      gcc_assert (TREE_CODE (existing) == TEMPLATE_DECL);
+	      tree tmpl = TI_TEMPLATE (ti);
+	      if (DECL_TEMPLATE_RESULT (tmpl) == TYPE_NAME (existing))
+		existing = tmpl;
 	    }
-	  else
-	    if (tree ti = CLASSTYPE_TEMPLATE_INFO (existing))
-	      {
-		tree tmpl = TI_TEMPLATE (ti);
-		if (DECL_TEMPLATE_RESULT (tmpl) == TYPE_NAME (existing))
-		  existing = tmpl;
-	      }
 	}
     }
   else if (mk == MK_unique)
@@ -11411,13 +11408,15 @@ trees_in::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 
       if (mk == MK_friend_spec)
 	{
-	  tree tmpl = tree_node ();
-	  tree args = tree_node ();
+	  spec_entry spec;
+	  spec.tmpl = tree_node ();
+	  spec.args = tree_node ();
+	  spec.spec = decl;
 	  unsigned flags = u ();
 
-	  tree e = match_mergeable_specialization (true, tmpl, args, decl);
+	  tree e = match_mergeable_specialization (true, &spec);
 	  if (!e)
-	    add_mergeable_specialization (tmpl, args,
+	    add_mergeable_specialization (spec.tmpl, spec.args,
 					  existing ? existing : decl, flags);
 	  else if (e != existing)
 	    set_overrun ();
@@ -11551,7 +11550,7 @@ trees_in::is_matching_decl (tree existing, tree decl)
   else if (!cp_tree_equal (TREE_TYPE (existing), TREE_TYPE (decl)))
     {
     mismatch:
-      if (DECL_UNDECLARED_BUILTIN_P (existing))
+      if (DECL_IS_UNDECLARED_BUILTIN (existing))
 	/* Just like duplicate_decls, presum the user knows what
 	   they're doing in overriding a builtin.   */
 	TREE_TYPE (existing) = TREE_TYPE (decl);
@@ -11567,8 +11566,8 @@ trees_in::is_matching_decl (tree existing, tree decl)
 	}
     }
 
-  if (DECL_UNDECLARED_BUILTIN_P (existing)
-      && !DECL_UNDECLARED_BUILTIN_P (decl))
+  if (DECL_IS_UNDECLARED_BUILTIN (existing)
+      && !DECL_IS_UNDECLARED_BUILTIN (decl))
     {
       /* We're matching a builtin that the user has yet to declare.
 	 We are the one!  This is very much duplicate-decl
@@ -12204,10 +12203,14 @@ trees_out::mark_class_def (tree defn)
 {
   gcc_assert (DECL_P (defn));
   tree type = TREE_TYPE (defn);
+  /* Mark the class members that are not type-decls and cannot have
+     independent definitions.  */
   for (tree member = TYPE_FIELDS (type); member; member = DECL_CHAIN (member))
-    /* Do not mark enum consts here.  */
     if (TREE_CODE (member) == FIELD_DECL
-	|| TREE_CODE (member) == USING_DECL)
+	|| TREE_CODE (member) == USING_DECL
+	/* A cloned enum-decl from 'using enum unrelated;'   */
+	|| (TREE_CODE (member) == CONST_DECL
+	    && DECL_CONTEXT (member) == type))
       {
 	mark_class_member (member);
 	if (TREE_CODE (member) == FIELD_DECL)
@@ -12873,10 +12876,6 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 
   if (!dep)
     {
-      /* We should only be creating dependencies when initializing
-	 non-DECL entries, or when discovering dependencies.  */
-      gcc_checking_assert (ek != EK_DECL || current);
-
       if (DECL_IMPLICIT_TYPEDEF_P (decl)
 	  /* ... not an enum, for instance.  */
 	  && RECORD_OR_UNION_TYPE_P (TREE_TYPE (decl))
@@ -12884,9 +12883,8 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 	  && CLASSTYPE_USE_TEMPLATE (TREE_TYPE (decl)) == 2)
 	{
 	  /* A partial or explicit specialization. Partial
-	     specializations constrained by requires clauses are not
-	     in the hash table, because they have the same set of
-	     template parameters as their general template:
+	     specializations might not be in the hash table, because
+	     there can be multiple differently-constrained variants.
 
 	     template<typename T> class silly;
 	     template<typename T> requires true class silly {};
@@ -12908,10 +12906,22 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 
 	  if (partial)
 	    {
-	      depset *tmpl_dep = make_dependency (partial, EK_DECL);
-	      
-	      gcc_checking_assert (tmpl_dep->get_entity_kind () == EK_DECL);
-	      return add_partial_redirect (tmpl_dep, slot);
+	      /* Eagerly create an empty redirect.  The following
+	         make_dependency call could cause hash reallocation,
+	         and invalidate slot's value.  */
+	      depset *redirect = make_entity (decl, EK_REDIRECT);
+
+	      /* Redirects are never reached -- always snap to their target.  */
+	      redirect->set_flag_bit<DB_UNREACHED_BIT> ();
+
+	      *slot = redirect;
+
+	      depset *tmpl_dep = make_dependency (partial, EK_PARTIAL);
+	      gcc_checking_assert (tmpl_dep->get_entity_kind () == EK_PARTIAL);
+
+	      redirect->deps.safe_push (tmpl_dep);
+
+	      return redirect;
 	    }
 	}
 
@@ -12927,11 +12937,12 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 	{
 	  if (DECL_ALIAS_TEMPLATE_P (decl) && DECL_TEMPLATE_INFO (decl))
 	    dep->set_flag_bit<DB_ALIAS_TMPL_INST_BIT> ();
-	  else 
+	  else if (CHECKING_P)
 	    /* The template_result should otherwise not be in the
-	       table.  */
-	    gcc_checking_assert
-	      (!entity_slot (DECL_TEMPLATE_RESULT (decl), false));
+	       table, or be an empty redirect (created above).  */
+	    if (auto *eslot = entity_slot (DECL_TEMPLATE_RESULT (decl), false))
+	      gcc_checking_assert ((*eslot)->get_entity_kind () == EK_REDIRECT
+				   && !(*eslot)->deps.length ());
 	}
 
       if (ek != EK_USING
@@ -12942,8 +12953,8 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 	     we don't have to look them up again.  */
 	  unsigned index = import_entity_index (decl);
 	  module_state *from = import_entity_module (index);
-	  // Remap will be zero for imports from partitions, which we
-	  // want to treat asif declared in this TU.
+	  /* Remap will be zero for imports from partitions, which we
+	     want to treat as-if declared in this TU.  */
 	  if (from->remap)
 	    {
 	      dep->cluster = index - from->entity_lwm;
@@ -13242,6 +13253,27 @@ depset::hash::add_namespace_entities (tree ns, bitmap partitions)
   return count != 0;
 }
 
+void
+depset::hash::add_partial_entities (vec<tree, va_gc> *partial_classes)
+{
+  for (unsigned ix = 0; ix != partial_classes->length (); ix++)
+    {
+      tree inner = (*partial_classes)[ix];
+
+      depset *dep = make_dependency (inner, depset::EK_DECL);
+
+      if (dep->get_entity_kind () == depset::EK_REDIRECT)
+	/* We should have recorded the template as a partial
+	   specialization.  */
+	gcc_checking_assert (dep->deps[0]->get_entity_kind ()
+			     == depset::EK_PARTIAL);
+      else
+	/* It was an explicit specialization, not a partial one.  */
+	gcc_checking_assert (dep->get_entity_kind ()
+			     == depset::EK_SPECIALIZATION);
+    }
+}
+
 /* Add the members of imported classes that we defined in this TU.
    This will also include lazily created implicit member function
    declarations.  (All others will be definitions.)  */
@@ -13285,8 +13317,9 @@ specialization_add (bool decl_p, spec_entry *entry, void *data_)
 
        /* Only alias templates can appear in both tables (and
 	  if they're in the type table they must also be in the decl table).  */
-       gcc_checking_assert (!check_mergeable_specialization (true, entry)
-			    == (decl_p || !DECL_ALIAS_TEMPLATE_P (entry->tmpl)));
+       gcc_checking_assert
+	 (!match_mergeable_specialization (true, entry, false)
+	  == (decl_p || !DECL_ALIAS_TEMPLATE_P (entry->tmpl)));
     }
   else if (VAR_OR_FUNCTION_DECL_P (entry->spec))
     gcc_checking_assert (!DECL_LOCAL_DECL_P (entry->spec));
@@ -13326,31 +13359,6 @@ specialization_cmp (const void *a_, const void *b_)
   return DECL_UID (a) < DECL_UID (b) ? -1 : +1;
 }
 
-/* Insert a redirect for the DECL_TEMPLATE_RESULT of a partial
-   specialization, as we're unable to go from there to here (without
-   repeating the DECL_TEMPLATE_SPECIALIZATIONS walk for *every*
-   dependency add.  */
-
-depset *
-depset::hash::add_partial_redirect (depset *partial, depset **slot)
-{
-  partial->set_flag_bit<DB_PARTIAL_BIT> ();
-
-  tree inner = DECL_TEMPLATE_RESULT (partial->get_entity ());
-  depset *redirect = make_entity (inner, EK_REDIRECT);
-
-  /* Redirects are never reached -- always snap to their target.  */
-  redirect->set_flag_bit<DB_UNREACHED_BIT> ();
-
-  if (!slot)
-    slot = entity_slot (inner, true);
-  gcc_checking_assert (!*slot);
-  *slot = redirect;
-  redirect->deps.safe_push (partial);
-
-  return redirect;
-}
-
 /* We add all kinds of specialializations.  Implicit specializations
    should only streamed and walked if they are reachable from
    elsewhere.  Hence the UNREACHED flag.  This is making the
@@ -13371,7 +13379,6 @@ depset::hash::add_specializations (bool decl_p)
     {
       spec_entry *entry = data.pop ();
       tree spec = entry->spec;
-      bool is_partial = false;
       int use_tpl = 0;
       bool is_alias = false;
       bool is_friend = false;
@@ -13429,36 +13436,16 @@ depset::hash::add_specializations (bool decl_p)
 		use_tpl = DECL_USE_TEMPLATE (ctx);
 	    }
 	  else
+	    use_tpl = CLASSTYPE_USE_TEMPLATE (spec);
+
+	  tree ti = TYPE_TEMPLATE_INFO (spec);
+	  tree tmpl = TI_TEMPLATE (ti);
+
+	  spec = TYPE_NAME (spec);
+	  if (spec == DECL_TEMPLATE_RESULT (tmpl))
 	    {
-	      use_tpl = CLASSTYPE_USE_TEMPLATE (spec);
-
-	      tree partial = DECL_TEMPLATE_SPECIALIZATIONS (entry->tmpl);
-	      for (; partial; partial = TREE_CHAIN (partial))
-		if (TREE_TYPE (partial) == spec)
-		  break;
-
-	      if (partial)
-		{
-		  gcc_checking_assert (entry->args == TREE_PURPOSE (partial));
-		  is_partial = true;
-		  /* Get the TEMPLATE_DECL for the partial
-		     specialization.  */
-		  spec = TREE_VALUE (partial);
-		  gcc_assert (DECL_USE_TEMPLATE (spec) == use_tpl);
-		}
-	    }
-
-	  if (!is_partial)
-	    {
-	      tree ti = TYPE_TEMPLATE_INFO (spec);
-	      tree tmpl = TI_TEMPLATE (ti);
-
-	      spec = TYPE_NAME (spec);
-	      if (spec == DECL_TEMPLATE_RESULT (tmpl))
-		{
-		  spec = tmpl;
-		  use_tpl = DECL_USE_TEMPLATE (spec);
-		}
+	      spec = tmpl;
+	      use_tpl = DECL_USE_TEMPLATE (spec);
 	    }
 	}
 
@@ -13504,14 +13491,18 @@ depset::hash::add_specializations (bool decl_p)
       else
 	{
 	  gcc_checking_assert (decl_p || !is_alias);
-	  dep->set_special ();
-	  dep->deps.safe_push (reinterpret_cast<depset *> (entry));
+	  if (dep->get_entity_kind () == depset::EK_REDIRECT)
+	    dep = dep->deps[0];
+	  else if (dep->get_entity_kind () == depset::EK_SPECIALIZATION)
+	    {
+	      dep->set_special ();
+	      dep->deps.safe_push (reinterpret_cast<depset *> (entry));
+	      if (!decl_p)
+		dep->set_flag_bit<DB_TYPE_SPEC_BIT> ();
+	    }
+
 	  if (needs_reaching)
 	    dep->set_flag_bit<DB_UNREACHED_BIT> ();
-	  if (is_partial)
-	    add_partial_redirect (dep);
-	  if (!decl_p)
-	    dep->set_flag_bit<DB_TYPE_SPEC_BIT> ();
 	  if (is_friend)
 	    dep->set_flag_bit<DB_FRIEND_SPEC_BIT> ();
 	}
@@ -13527,7 +13518,7 @@ depset::hash::add_mergeable (depset *mergeable)
   gcc_checking_assert (is_key_order ());
   entity_kind ek = mergeable->get_entity_kind ();
   tree decl = mergeable->get_entity ();
-  gcc_checking_assert (ek == EK_DECL || ek == EK_SPECIALIZATION);
+  gcc_checking_assert (ek < EK_DIRECT_HWM);
 
   depset **slot = entity_slot (decl, true);
   gcc_checking_assert (!*slot);
@@ -13614,8 +13605,6 @@ depset::hash::find_dependencies ()
 			depset *spec_dep = find_dependency (spec);
 			if (spec_dep->get_entity_kind () == EK_REDIRECT)
 			  spec_dep = spec_dep->deps[0];
-			gcc_checking_assert (spec_dep->get_entity_kind ()
-					     == EK_SPECIALIZATION);
 			if (spec_dep->is_unreached ())
 			  {
 			    reached_unreached = true;
@@ -13923,6 +13912,7 @@ sort_cluster (depset::hash *original, depset *scc[], unsigned size)
 
 	case depset::EK_DECL:
 	case depset::EK_SPECIALIZATION:
+	case depset::EK_PARTIAL:
 	  table.add_mergeable (dep);
 	  ix++;
 	  break;
@@ -14423,8 +14413,8 @@ module_state::announce (const char *what) const
      readelf -pgnu.c++.README $(module).gcm */
 
 void
-module_state::write_readme (elf_out *to, const char *dialect,
-			    unsigned extensions)
+module_state::write_readme (elf_out *to, cpp_reader *reader,
+			    const char *dialect, unsigned extensions)
 {
   bytes_out readme (to);
 
@@ -14454,7 +14444,7 @@ module_state::write_readme (elf_out *to, const char *dialect,
 
   /* The following fields could be expected to change between
      otherwise identical compilations.  Consider a distributed build
-     system.  */
+     system.  We should have a way of overriding that.  */
   if (char *cwd = getcwd (NULL, 0))
     {
       readme.printf ("cwd: %s", cwd);
@@ -14470,18 +14460,26 @@ module_state::write_readme (elf_out *to, const char *dialect,
 #endif
   {
     /* This of course will change!  */
-    time_t now = time (NULL);
-    if (now != time_t (-1))
+    time_t stampy;
+    auto kind = cpp_get_date (reader, &stampy);
+    if (kind != CPP_time_kind::UNKNOWN)
       {
 	struct tm *time;
 
-	time = gmtime (&now);
+	time = gmtime (&stampy);
 	readme.print_time ("build", time, "UTC");
 
+	if (kind == CPP_time_kind::DYNAMIC)
+	  {
+	    time = localtime (&stampy);
+	    readme.print_time ("local", time,
 #if defined (__USE_MISC) || defined (__USE_BSD) /* Is there a better way?  */
-	time = localtime (&now);
-	readme.print_time ("local", time, time->tm_zone);
+			       time->tm_zone
+#else
+			       ""
 #endif
+			       );
+	  }
       }
   }
 
@@ -14961,6 +14959,7 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	  if (b->is_member ())
 	    {
 	    case depset::EK_SPECIALIZATION:  /* Yowzer! */
+	    case depset::EK_PARTIAL:  /* Hey, let's do it again! */
 	      counts[MSC_pendings]++;
 	    }
 	  b->cluster = counts[MSC_entities]++;
@@ -15080,6 +15079,7 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	  break;
 
 	case depset::EK_SPECIALIZATION:
+	case depset::EK_PARTIAL:
 	case depset::EK_DECL:
 	  dump () && dump ("Depset:%u %s entity:%u %C:%N", ix,
 			   b->entity_kind_name (), b->cluster,
@@ -15107,6 +15107,7 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	  break;
 
 	case depset::EK_SPECIALIZATION:
+	case depset::EK_PARTIAL:
 	case depset::EK_DECL:
 	  if (!namer)
 	    namer = b;
@@ -15628,6 +15629,7 @@ module_state::write_entities (elf_out *to, vec<depset *> depsets,
 
 	case depset::EK_DECL:
 	case depset::EK_SPECIALIZATION:
+	case depset::EK_PARTIAL:
 	  gcc_checking_assert (!d->is_unreached ()
 			       && !d->is_import ()
 			       && d->cluster == current
@@ -15679,11 +15681,12 @@ module_state::read_entities (unsigned count, unsigned lwm, unsigned hwm)
 
 /* Write the pending table to MOD_SNAME_PFX.pnd
 
-   Specializations are keyed to their primary template.
+   Specializations & partials are keyed to their primary template.
    Members are keyed to their context.
 
-   For specializations, primary templates are keyed to the (namespace
-   name) of their originating decl.  */
+   For specializations & partials, primary templates are keyed to the
+   (namespace name) of their originating decl (because that's the only
+   handle we have).  */
 
 void
 module_state::write_pendings (elf_out *to, vec<depset *> depsets,
@@ -15701,10 +15704,19 @@ module_state::write_pendings (elf_out *to, vec<depset *> depsets,
       depset *d = depsets[ix];
       depset::entity_kind kind = d->get_entity_kind ();
       tree key = NULL_TREE;
-      bool is_spec = kind == depset::EK_SPECIALIZATION;
+      bool is_spec = false;
+      
 
-      if (is_spec)
-	key = reinterpret_cast <spec_entry *> (d->deps[0])->tmpl;
+      if (kind == depset::EK_SPECIALIZATION)
+	{
+	  is_spec = true;
+	  key = reinterpret_cast <spec_entry *> (d->deps[0])->tmpl;
+	}
+      else if (kind == depset::EK_PARTIAL)
+	{
+	  is_spec = true;
+	  key = CLASSTYPE_TI_TEMPLATE (TREE_TYPE (d->get_entity ()));
+	}
       else if (kind == depset::EK_DECL && d->is_member ())
 	{
 	  tree ctx = DECL_CONTEXT (d->get_entity ());
@@ -17966,6 +17978,11 @@ module_state::write (elf_out *to, cpp_reader *reader)
      detect injected friend specializations.  */
   table.add_specializations (true);
   table.add_specializations (false);
+  if (partial_specializations)
+    {
+      table.add_partial_entities (partial_specializations);
+      partial_specializations = NULL;
+    }
   table.add_namespace_entities (global_namespace, partitions);
   if (class_members)
     {
@@ -18157,7 +18174,7 @@ module_state::write (elf_out *to, cpp_reader *reader)
   sccs.release ();
 
   /* Human-readable info.  */
-  write_readme (to, config.dialect_str, extensions);
+  write_readme (to, reader, config.dialect_str, extensions);
 
   // FIXME:QOI:  Have a command line switch to control more detailed
   // information (which might leak data you do not want to leak).
@@ -18996,6 +19013,10 @@ set_defining_module (tree decl)
 	      vec_safe_push (class_members, decl);
 	    }
 	}
+      else if (DECL_IMPLICIT_TYPEDEF_P (decl)
+	       && CLASSTYPE_TEMPLATE_SPECIALIZATION (TREE_TYPE (decl)))
+	/* This is a partial or explicit specialization.  */
+	vec_safe_push (partial_specializations, decl);
     }
 }
 
@@ -19531,32 +19552,6 @@ module_add_import_initializers ()
   gcc_checking_assert (calls == num_init_calls_needed);
 }
 
-/* Track if NODE undefs an imported macro.  */
-
-void
-module_cpp_undef (cpp_reader *reader, location_t loc, cpp_hashnode *node)
-{
-  if (!flag_header_unit)
-    {
-      /* Turn us off.  */
-      struct cpp_callbacks *cb = cpp_get_callbacks (reader);
-      if (cb->undef == lang_hooks.preprocess_undef)
-	{
-	  cb->undef = NULL;
-	  lang_hooks.preprocess_undef = NULL;
-	}
-    }
-  if (lang_hooks.preprocess_undef)
-    module_state::undef_macro (reader, loc, node);
-}
-
-cpp_macro *
-module_cpp_deferred_macro (cpp_reader *reader, location_t loc,
-			   cpp_hashnode *node)
-{
-  return module_state::deferred_macro (reader, loc, node);
-}
-
 /* NAME & LEN are a preprocessed header name, possibly including the
    surrounding "" or <> characters.  Return the raw string name of the
    module to which it refers.  This will be an absolute path, or begin
@@ -19666,7 +19661,7 @@ maybe_translate_include (cpp_reader *reader, line_maps *lmaps, location_t loc,
 
   size_t len = strlen (path);
   path = canonicalize_header_name (NULL, loc, true, path, len);
-  auto packet = mapper->IncludeTranslate (path, len);
+  auto packet = mapper->IncludeTranslate (path, Cody::Flags::None, len);
   int xlate = false;
   if (packet.GetCode () == Cody::Client::PC_BOOL)
     xlate = packet.GetInteger ();
@@ -19873,7 +19868,9 @@ preprocess_module (module_state *module, location_t from_loc,
 }
 
 /* We've completed phase-4 translation.  Emit any dependency
-   information for the direct imports, and fill in their file names.  */
+   information for the not-yet-loaded direct imports, and fill in
+   their file names.  We'll have already loaded up the direct header
+   unit wavefront.  */
 
 void
 preprocessed_module (cpp_reader *reader)
@@ -19889,39 +19886,50 @@ preprocessed_module (cpp_reader *reader)
   /* using iterator = hash_table<module_state_hash>::iterator;  */
 
   /* Walk the module hash, asking for the names of all unknown
-     direct imports.  */
+     direct imports and informing of an export (if that's what we
+     are).  Notice these are emitted even when preprocessing as they
+     inform the server of dependency edges.  */
   timevar_start (TV_MODULE_MAPPER);
 
   dump.push (NULL);
   dump () && dump ("Resolving direct import names");
 
-  mapper->Cork ();
-  iterator end = modules_hash->end ();
-  for (iterator iter = modules_hash->begin (); iter != end; ++iter)
+  if (!flag_preprocess_only
+      || bool (mapper->get_flags () & Cody::Flags::NameOnly)
+      || cpp_get_deps (reader))
     {
-      module_state *module = *iter;
-      if (module->is_direct () && !module->filename)
+      mapper->Cork ();
+      iterator end = modules_hash->end ();
+      for (iterator iter = modules_hash->begin (); iter != end; ++iter)
 	{
-	  if (module->module_p
-	      && (module->is_partition () || module->exported_p))
-	    mapper->ModuleExport (module->get_flatname ());
-	  else
-	    mapper->ModuleImport (module->get_flatname ());
+	  module_state *module = *iter;
+	  if (module->is_direct () && !module->filename)
+	    {
+	      Cody::Flags flags
+		= (flag_preprocess_only ? Cody::Flags::None
+		   : Cody::Flags::NameOnly);
+
+	      if (module->module_p
+		  && (module->is_partition () || module->exported_p))
+		mapper->ModuleExport (module->get_flatname (), flags);
+	      else
+		mapper->ModuleImport (module->get_flatname (), flags);
+	    }
 	}
-    }
 
-  auto response = mapper->Uncork ();
-  auto r_iter = response.begin ();
-  for (iterator iter = modules_hash->begin (); iter != end; ++iter)
-    {
-      module_state *module = *iter;
-      
-      if (module->is_direct () && !module->filename)
+      auto response = mapper->Uncork ();
+      auto r_iter = response.begin ();
+      for (iterator iter = modules_hash->begin (); iter != end; ++iter)
 	{
-	  Cody::Packet const &p = *r_iter;
-	  ++r_iter;
+	  module_state *module = *iter;
 
-	  module->set_filename (p);
+	  if (module->is_direct () && !module->filename)
+	    {
+	      Cody::Packet const &p = *r_iter;
+	      ++r_iter;
+
+	      module->set_filename (p);
+	    }
 	}
     }
 
@@ -19939,12 +19947,13 @@ preprocessed_module (cpp_reader *reader)
 
 	  if (module->is_direct ())
 	    {
-	      const char *path = NULL;
 	      if (module->is_module ()
 		  && (module->is_interface () || module->is_partition ()))
-		path = maybe_add_cmi_prefix (module->filename);
-	      deps_add_module (deps, module->get_flatname (),
-			       path, module->is_header());
+		deps_add_module_target (deps, module->get_flatname (),
+					maybe_add_cmi_prefix (module->filename),
+					module->is_header());
+	      else
+		deps_add_module_dep (deps, module->get_flatname ());
 	    }
 	}
     }
@@ -20276,7 +20285,13 @@ finish_module_processing (cpp_reader *reader)
 	{
 	  elf_out to (fd, e);
 	  if (to.begin ())
-	    state->write (&to, reader);
+	    {
+	      auto loc = input_location;
+	      /* So crashes finger point the module decl.  */
+	      input_location = state->loc;
+	      state->write (&to, reader);
+	      input_location = loc;
+	    }
 	  if (to.end ())
 	    if (rename (tmp_name, path))
 	      to.set_error (errno);
@@ -20404,29 +20419,29 @@ fini_modules ()
 
 bool handle_module_option(unsigned code, const char *str, int)
 {
-  switch (opt_code(code))
-  {
-  case OPT_fmodule_mapper_:
-    module_mapper_name = str;
-    return true;
+  auto hdr = CMS_header;
+
+  switch (opt_code (code))
+    {
+    case OPT_fmodule_mapper_:
+      module_mapper_name = str;
+      return true;
 
     case OPT_fmodule_header_:
       {
-	/* Look away.  Look away now.  */
-	extern cpp_options *cpp_opts;
 	if (!strcmp (str, "user"))
-	  cpp_opts->main_search = CMS_user;
+	  hdr = CMS_user;
 	else if (!strcmp (str, "system"))
-	  cpp_opts->main_search = CMS_system;
+	  hdr = CMS_system;
 	else
 	  error ("unknown header kind %qs", str);
       }
       /* Fallthrough.  */
 
-  case OPT_fmodule_header:
-    flag_header_unit = 1;
-    flag_modules = 1;
-    return true;
+    case OPT_fmodule_header:
+      flag_header_unit = hdr;
+      flag_modules = 1;
+      return true;
 
   case OPT_flang_info_include_translate_:
     vec_safe_push (note_includes, str);
@@ -20864,10 +20879,25 @@ module_state::read_restriction_map (unsigned num_rxn)
 void
 module_preprocess_options (cpp_reader *reader)
 {
+  gcc_checking_assert (!lang_hooks.preprocess_undef);
   if (flag_modules)
     {
-      cpp_get_callbacks (reader)->translate_include = maybe_translate_include;
-      cpp_get_options (reader)->module_directives = true;
+      auto *cb = cpp_get_callbacks (reader);
+      
+      cb->translate_include = maybe_translate_include;
+      cb->user_deferred_macro = module_state::deferred_macro;
+      if (flag_header_unit)
+	{
+	  /* If the preprocessor hook is already in use, that
+	     implementation will call the undef langhook.  */
+	  if (cb->undef)
+	    lang_hooks.preprocess_undef = module_state::undef_macro;
+	  else
+	    cb->undef = module_state::undef_macro;
+	}
+      auto *opt = cpp_get_options (reader);
+      opt->module_directives = true;
+      opt->main_search = cpp_main_search (flag_header_unit);
     }
 }
 

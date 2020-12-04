@@ -3773,7 +3773,7 @@ builtin_pack_fn_p (tree fn)
 {
   if (!fn
       || TREE_CODE (fn) != FUNCTION_DECL
-      || !DECL_IS_BUILTIN (fn))
+      || !DECL_IS_UNDECLARED_BUILTIN (fn))
     return false;
 
   if (id_equal (DECL_NAME (fn), "__integer_pack"))
@@ -10659,6 +10659,16 @@ keep_template_parm (tree t, void* data)
   if (!ftpi->parms.add (t))
     ftpi->parm_list = tree_cons (NULL_TREE, t, ftpi->parm_list);
 
+  /* Verify the parameter we found has a valid index.  */
+  if (flag_checking)
+    {
+      tree parms = ftpi->ctx_parms;
+      while (TMPL_PARMS_DEPTH (parms) > level)
+	parms = TREE_CHAIN (parms);
+      if (int len = TREE_VEC_LENGTH (TREE_VALUE (parms)))
+	gcc_assert (index < len);
+    }
+
   return 0;
 }
 
@@ -10797,7 +10807,7 @@ uses_template_parms (tree t)
   else if (t == error_mark_node)
     dependent_p = false;
   else
-    dependent_p = value_dependent_expression_p (t);
+    dependent_p = instantiation_dependent_expression_p (t);
 
   processing_template_decl = saved_processing_template_decl;
 
@@ -15037,9 +15047,6 @@ tsubst_arg_types (tree arg_types,
           }
         return error_mark_node;
     }
-    /* DR 657. */
-    if (abstract_virtuals_error_sfinae (ACU_PARM, type, complain))
-      return error_mark_node;
 
     /* Do array-to-pointer, function-to-pointer conversion, and ignore
        top-level qualifiers as required.  */
@@ -15157,9 +15164,6 @@ tsubst_function_type (tree t,
 	}
       return error_mark_node;
     }
-  /* And DR 657. */
-  if (abstract_virtuals_error_sfinae (ACU_RETURN, return_type, complain))
-    return error_mark_node;
 
   if (!late_return_type_p)
     {
@@ -15985,9 +15989,6 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	    return error_mark_node;
 	  }
 
-	if (abstract_virtuals_error_sfinae (ACU_ARRAY, type, complain))
-	  return error_mark_node;
-
 	r = build_cplus_array_type (type, domain);
 
 	if (!valid_array_size_p (input_location, r, in_decl,
@@ -16175,20 +16176,7 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 
     case TYPE_ARGUMENT_PACK:
     case NONTYPE_ARGUMENT_PACK:
-      {
-        tree r;
-
-	if (code == NONTYPE_ARGUMENT_PACK)
-	  r = make_node (code);
-	else
-	  r = cxx_make_type (code);
-
-	tree pack_args = ARGUMENT_PACK_ARGS (t);
-	pack_args = tsubst_template_args (pack_args, args, complain, in_decl);
-	SET_ARGUMENT_PACK_ARGS (r, pack_args);
-
-	return r;
-      }
+      return tsubst_argument_pack (t, args, complain, in_decl);
 
     case VOID_CST:
     case INTEGER_CST:
@@ -16332,7 +16320,7 @@ tsubst_qualified_id (tree qualified_id, tree args,
   tree name;
   bool is_template;
   tree template_args;
-  location_t loc = UNKNOWN_LOCATION;
+  location_t loc = EXPR_LOCATION (qualified_id);
 
   gcc_assert (TREE_CODE (qualified_id) == SCOPE_REF);
 
@@ -16341,7 +16329,6 @@ tsubst_qualified_id (tree qualified_id, tree args,
   if (TREE_CODE (name) == TEMPLATE_ID_EXPR)
     {
       is_template = true;
-      loc = EXPR_LOCATION (name);
       template_args = TREE_OPERAND (name, 1);
       if (template_args)
 	template_args = tsubst_template_args (template_args, args,
@@ -16468,6 +16455,8 @@ tsubst_qualified_id (tree qualified_id, tree args,
 
   if (REF_PARENTHESIZED_P (qualified_id))
     expr = force_paren_expr (expr);
+
+  expr = maybe_wrap_with_location (expr, loc);
 
   return expr;
 }
@@ -16907,6 +16896,7 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	      else
 		return cxx_sizeof_or_alignof_expr (input_location,
 						   expanded, SIZEOF_EXPR,
+						   false,
                                                    complain & tf_error);
 	    }
 	  else
@@ -18638,8 +18628,8 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
 	tree condition;
 
 	++c_inhibit_evaluation_warnings;
-        condition = 
-          tsubst_expr (STATIC_ASSERT_CONDITION (t), 
+	condition =
+	  tsubst_expr (STATIC_ASSERT_CONDITION (t),
                        args,
                        complain, in_decl,
                        /*integral_constant_expression_p=*/true);
@@ -18648,7 +18638,7 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
         finish_static_assert (condition,
                               STATIC_ASSERT_MESSAGE (t),
                               STATIC_ASSERT_SOURCE_LOCATION (t),
-                              /*member_p=*/false);
+			      /*member_p=*/false, /*show_expr_p=*/true);
       }
       break;
 
@@ -19877,7 +19867,7 @@ tsubst_copy_and_build (tree t,
 					  complain & tf_error);
 	else
 	  r = cxx_sizeof_or_alignof_expr (input_location,
-					  op1, TREE_CODE (t),
+					  op1, TREE_CODE (t), std_alignof,
 					  complain & tf_error);
 	if (TREE_CODE (t) == SIZEOF_EXPR && r != error_mark_node)
 	  {
@@ -22915,8 +22905,20 @@ get_template_base (tree tparms, tree targs, tree parm, tree arg,
 	     applies.  */
 	  if (rval && !same_type_p (r, rval))
 	    {
-	      *result = NULL_TREE;
-	      return tbr_ambiguous_baseclass;
+	      /* [temp.deduct.call]/4.3: If there is a class C that is a
+		 (direct or indirect) base class of D and derived (directly or
+		 indirectly) from a class B and that would be a valid deduced
+		 A, the deduced A cannot be B or pointer to B, respectively. */
+	      if (DERIVED_FROM_P (r, rval))
+		/* Ignore r.  */
+		continue;
+	      else if (DERIVED_FROM_P (rval, r))
+		/* Ignore rval.  */;
+	      else
+		{
+		  *result = NULL_TREE;
+		  return tbr_ambiguous_baseclass;
+		}
 	    }
 
 	  rval = r;
@@ -27534,7 +27536,8 @@ bool
 instantiation_dependent_expression_p (tree expression)
 {
   return (instantiation_dependent_uneval_expression_p (expression)
-	  || value_dependent_expression_p (expression));
+	  || (potential_constant_expression (expression)
+	      && value_dependent_expression_p (expression)));
 }
 
 /* Like type_dependent_expression_p, but it also works while not processing
@@ -29485,10 +29488,13 @@ do_auto_deduction (tree type, tree init, tree auto_node,
     return error_mark_node;
 
   if (BRACE_ENCLOSED_INITIALIZER_P (init))
-    /* We don't recurse here because we can't deduce from a nested
-       initializer_list.  */
-    for (constructor_elt &elt : *CONSTRUCTOR_ELTS (init))
-      elt.value = resolve_nondeduced_context (elt.value, complain);
+    {
+      /* We don't recurse here because we can't deduce from a nested
+	 initializer_list.  */
+      if (CONSTRUCTOR_ELTS (init))
+	for (constructor_elt &elt : *CONSTRUCTOR_ELTS (init))
+	  elt.value = resolve_nondeduced_context (elt.value, complain);
+    }
   else
     init = resolve_nondeduced_context (init, complain);
 
@@ -29503,6 +29509,8 @@ do_auto_deduction (tree type, tree init, tree auto_node,
   else if (AUTO_IS_DECLTYPE (auto_node))
     {
       tree stripped_init = tree_strip_any_location_wrapper (init);
+      if (REFERENCE_REF_P (stripped_init))
+	stripped_init = TREE_OPERAND (stripped_init, 0);
       bool id = (DECL_P (stripped_init)
 		 || ((TREE_CODE (init) == COMPONENT_REF
 		      || TREE_CODE (init) == SCOPE_REF)
@@ -29855,8 +29863,8 @@ declare_integer_pack (void)
 			      CP_BUILT_IN_INTEGER_PACK);
 }
 
-/* Collect the specializations and explicit instantitions generated
-   in this module  */
+/* Walk the decl or type specialization table calling FN on each
+   entry.  */
 
 void
 walk_specializations (bool decls_p,
@@ -29870,38 +29878,28 @@ walk_specializations (bool decls_p,
     fn (decls_p, *iter, data);
 }
 
+/* Lookup the specialization of TMPL, ARGS, SPEC, in the decl or type
+   specialization table.  Return what's already there (NULL if
+   nothing).  If INSERT is true, and there was nothing, add the new spec.  */
+
 tree
-check_mergeable_specialization (bool decl_p, spec_entry *elt)
+  match_mergeable_specialization (bool decl_p, spec_entry *elt, bool insert)
 {
   hash_table<spec_hasher> *specializations
     = decl_p ? decl_specializations : type_specializations;
   hashval_t hash = spec_hasher::hash (elt);
-  spec_entry **slot = specializations->find_slot_with_hash (elt,
-							    hash, NO_INSERT);
-  return slot ? (*slot)->spec : NULL_TREE;
-}
+  spec_entry **slot
+    = specializations->find_slot_with_hash (elt, hash,
+					    insert ? INSERT : NO_INSERT);
+  if (slot && *slot)
+    return (*slot)->spec;
 
-/* Lookup the specialization of TMPL,ARGS in the decl or type
-   specialization table.  Return what's there, or add SPEC and return
-   NULL.  */
-
-tree
-match_mergeable_specialization (bool decl_p, tree tmpl, tree args, tree spec)
-{
-  gcc_checking_assert (spec);
-  spec_entry elt = {tmpl, args, spec};
-  hash_table<spec_hasher> *specializations
-    = decl_p ? decl_specializations : type_specializations;
-  hashval_t hash = spec_hasher::hash (&elt);
-  spec_entry **slot = specializations->find_slot_with_hash (&elt, hash, INSERT);
-  spec_entry *entry = slot ? *slot: NULL;
-  
-  if (entry)
-    return entry->spec;
-
-  entry = ggc_alloc<spec_entry> ();
-  *entry = elt;
-  *slot = entry;
+  if (insert)
+    {
+      auto entry = ggc_alloc<spec_entry> ();
+      *entry = *elt;
+      *slot = entry;
+    }
 
   return NULL_TREE;
 }
@@ -29937,6 +29935,9 @@ get_mergeable_specialization_flags (tree tmpl, tree decl)
   return flags;
 }
 
+/* Add a new specialization of TMPL.  FLAGS is as returned from
+   get_mergeable_specialization_flags.  */
+
 void
 add_mergeable_specialization (tree tmpl, tree args, tree decl, unsigned flags)
 {
@@ -29946,6 +29947,7 @@ add_mergeable_specialization (tree tmpl, tree args, tree decl, unsigned flags)
 
   if (flags & 2)
     {
+      /* A partial specialization.  */
       DECL_TEMPLATE_SPECIALIZATIONS (tmpl)
 	= tree_cons (args, decl, DECL_TEMPLATE_SPECIALIZATIONS (tmpl));
       TREE_TYPE (DECL_TEMPLATE_SPECIALIZATIONS (tmpl))

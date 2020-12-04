@@ -860,24 +860,28 @@ cx_check_missing_mem_inits (tree ctype, tree body, bool complain)
 }
 
 /* We are processing the definition of the constexpr function FUN.
-   Check that its BODY fulfills the apropriate requirements and
-   enter it in the constexpr function definition table.
-   For constructor BODY is actually the TREE_LIST of the
-   member-initializer list.  */
+   Check that its body fulfills the apropriate requirements and
+   enter it in the constexpr function definition table.  */
 
-tree
-check_constexpr_fundef (tree fun, tree body)
+void
+maybe_save_constexpr_fundef (tree fun)
 {
-  if (!is_valid_constexpr_fn (fun, !DECL_GENERATED_P (fun)))
-    return NULL;
+  if (processing_template_decl
+      || !DECL_DECLARED_CONSTEXPR_P (fun)
+      || cp_function_chain->invalid_constexpr
+      || DECL_CLONED_FUNCTION_P (fun))
+    return;
 
-  tree massaged = massage_constexpr_body (fun, body);
+  if (!is_valid_constexpr_fn (fun, !DECL_GENERATED_P (fun)))
+    return;
+
+  tree massaged = massage_constexpr_body (fun, DECL_SAVED_TREE (fun));
   if (massaged == NULL_TREE || massaged == error_mark_node)
     {
       if (!DECL_CONSTRUCTOR_P (fun))
 	error ("body of %<constexpr%> function %qD not a return-statement",
 	       fun);
-      return NULL;
+      return;
     }
 
   bool potential = potential_rvalue_constant_expression (massaged);
@@ -890,7 +894,7 @@ check_constexpr_fundef (tree fun, tree body)
     potential = false;
 
   if (!potential && !DECL_GENERATED_P (fun))
-    return NULL;
+    return;
 
   constexpr_fundef entry = {fun, NULL_TREE, NULL_TREE, NULL_TREE};
   bool clear_ctx = false;
@@ -911,13 +915,13 @@ check_constexpr_fundef (tree fun, tree body)
        that it doesn't need to bother trying to expand the function.  */
     entry.result = error_mark_node;
 
-  return register_constexpr_fundef (entry);
+  register_constexpr_fundef (entry);
 }
 
 /* BODY is a validated and massaged definition of a constexpr
    function.  Register it in the hash table.  */
 
-tree
+void
 register_constexpr_fundef (const constexpr_fundef &value)
 {
   /* Create the constexpr function table if necessary.  */
@@ -931,8 +935,6 @@ register_constexpr_fundef (const constexpr_fundef &value)
   gcc_assert (*slot == NULL);
   *slot = ggc_alloc<constexpr_fundef> ();
   **slot = value;
-
-  return value.decl;
 }
 
 /* True if the call expression currently being evaluated is being done for
@@ -6048,8 +6050,7 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 	/* Evaluate the cleanups.  */
 	FOR_EACH_VEC_ELT_REVERSE (cleanups, i, cleanup)
 	  cxx_eval_constant_expression (ctx, cleanup, false,
-					non_constant_p, overflow_p,
-					jump_target);
+					non_constant_p, overflow_p);
       }
       break;
 
@@ -6060,29 +6061,20 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
       if (!*non_constant_p)
 	/* Also evaluate the cleanup.  */
 	cxx_eval_constant_expression (ctx, TREE_OPERAND (t, 1), true,
-				      non_constant_p, overflow_p,
-				      jump_target);
+				      non_constant_p, overflow_p);
       break;
 
     case CLEANUP_STMT:
-      {
-	tree initial_jump_target = jump_target ? *jump_target : NULL_TREE;
-	r = cxx_eval_constant_expression (ctx, CLEANUP_BODY (t), lval,
-					  non_constant_p, overflow_p,
-					  jump_target);
-	if (!CLEANUP_EH_ONLY (t) && !*non_constant_p)
-	  {
-	    iloc_sentinel ils (loc);
-	    /* Also evaluate the cleanup.  If we weren't skipping at the
-	       start of the CLEANUP_BODY, change jump_target temporarily
-	       to &initial_jump_target, so that even a return or break or
-	       continue in the body doesn't skip the cleanup.  */
-	    cxx_eval_constant_expression (ctx, CLEANUP_EXPR (t), true,
-					  non_constant_p, overflow_p,
-					  jump_target ? &initial_jump_target
-					  : NULL);
-	  }
-      }
+      r = cxx_eval_constant_expression (ctx, CLEANUP_BODY (t), lval,
+					non_constant_p, overflow_p,
+					jump_target);
+      if (!CLEANUP_EH_ONLY (t) && !*non_constant_p)
+	{
+	  iloc_sentinel ils (loc);
+	  /* Also evaluate the cleanup.  */
+	  cxx_eval_constant_expression (ctx, CLEANUP_EXPR (t), true,
+					non_constant_p, overflow_p);
+	}
       break;
 
       /* These differ from cxx_eval_unary_expression in that this doesn't
@@ -7215,15 +7207,13 @@ clear_cv_cache (void)
     cv_cache->empty ();
 }
 
-/* Dispose of the whole CV_CACHE, FOLD_CACHE, and satisfaction caches.  */
+/* Dispose of the whole CV_CACHE and FOLD_CACHE.  */
 
 void
-clear_cv_and_fold_caches (bool sat /*= true*/)
+clear_cv_and_fold_caches ()
 {
   clear_cv_cache ();
   clear_fold_cache ();
-  if (sat)
-    clear_satisfaction_cache ();
 }
 
 /* Internal function handling expressions in templates for
@@ -7798,6 +7788,11 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
 		}
 	      return false;
 	    }
+	  /* Treat __PRETTY_FUNCTION__ inside a template function as
+	     potentially-constant.  */
+	  else if (DECL_PRETTY_FUNCTION_P (t)
+		   && DECL_VALUE_EXPR (t) == error_mark_node)
+	    return true;
 	  return RECUR (DECL_VALUE_EXPR (t), rval);
 	}
       if (want_rval
@@ -8499,7 +8494,7 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
       return false;
 
     default:
-      if (objc_is_property_ref (t))
+      if (objc_non_constant_expr_p (t))
 	return false;
 
       sorry ("unexpected AST of kind %s", get_tree_code_name (TREE_CODE (t)));

@@ -10,7 +10,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#if defined (__unix__) || defined (__MACH__)
+#if (defined (__unix__)							\
+     || (defined (__Apple__)						\
+	 && defined (__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) 	\
+	 && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000))
 // Autoconf test?
 #define HAVE_FSTATAT 1
 #else
@@ -142,6 +145,7 @@ int Resolver::ModuleRepoRequest (Server *s)
   return 0;
 }
 
+// Deprecated resolver functions
 int Resolver::ModuleExportRequest (Server *s, std::string &module)
 {
   auto cmi = GetCMIName (module);
@@ -175,7 +179,7 @@ int Resolver::IncludeTranslateRequest (Server *s, std::string &include)
   if (fd_dir >= 0
       && fstatat (fd_dir, cmi.c_str (), &statbuf, 0) == 0
       && S_ISREG (statbuf.st_mode))
-    // Sadly can't easily check if this proces has read access,
+    // Sadly can't easily check if this process has read access,
     // except by trying to open it.
     xlate = true;
   if (fd_dir >= 0)
@@ -195,6 +199,40 @@ int Resolver::IncludeTranslateRequest (Server *s, std::string &include)
     s->BoolResponse (false);
 
   return 0;
+}
+
+// Default behaviour is to call the deprecated entry points and ignore
+// the Flags parameter, until the deprecation becomes removal
+int Resolver::ModuleExportRequest (Server *s, Flags, std::string &module)
+{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  return ModuleExportRequest (s, module);
+#pragma GCC diagnostic pop
+}
+
+int Resolver::ModuleImportRequest (Server *s, Flags, std::string &module)
+{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  return ModuleImportRequest (s, module);
+#pragma GCC diagnostic pop
+}
+
+int Resolver::ModuleCompiledRequest (Server *s, Flags, std::string &module)
+{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  return ModuleCompiledRequest (s, module);
+#pragma GCC diagnostic pop
+}
+
+int Resolver::IncludeTranslateRequest (Server *s, Flags, std::string &include)
+{
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  return IncludeTranslateRequest (s, include);
+#pragma GCC diagnostic pop
 }
 
 int Resolver::InvokeSubProcessRequest (Server *s, std::vector<std::string> &)

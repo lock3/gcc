@@ -939,6 +939,19 @@ ix86_function_ok_for_sibcall (tree decl, tree exp)
       decl_or_type = type;
     }
 
+  /* If outgoing reg parm stack space changes, we cannot do sibcall.  */
+  if ((OUTGOING_REG_PARM_STACK_SPACE (type)
+       != OUTGOING_REG_PARM_STACK_SPACE (TREE_TYPE (current_function_decl)))
+      || (REG_PARM_STACK_SPACE (decl_or_type)
+	  != REG_PARM_STACK_SPACE (current_function_decl)))
+    {
+      maybe_complain_about_tail_call (exp,
+				      "inconsistent size of stack space"
+				      " allocated for arguments which are"
+				      " passed in registers");
+      return false;
+    }
+
   /* Check that the return value locations are the same.  Like
      if we are returning floats on the 80387 register stack, we cannot
      make a sibcall from a function that doesn't return a float to a
@@ -1410,22 +1423,14 @@ ix86_function_arg_regno_p (int regno)
   enum calling_abi call_abi;
   const int *parm_regs;
 
-  if (!TARGET_64BIT)
-    {
-      if (TARGET_MACHO)
-        return (regno < REGPARM_MAX
-                || (TARGET_SSE && SSE_REGNO_P (regno) && !fixed_regs[regno]));
-      else
-        return (regno < REGPARM_MAX
-	        || (TARGET_MMX && MMX_REGNO_P (regno)
-	  	    && (regno < FIRST_MMX_REG + MMX_REGPARM_MAX))
-	        || (TARGET_SSE && SSE_REGNO_P (regno)
-		    && (regno < FIRST_SSE_REG + SSE_REGPARM_MAX)));
-    }
-
   if (TARGET_SSE && SSE_REGNO_P (regno)
-      && (regno < FIRST_SSE_REG + SSE_REGPARM_MAX))
+      && regno < FIRST_SSE_REG + SSE_REGPARM_MAX)
     return true;
+
+   if (!TARGET_64BIT)
+     return (regno < REGPARM_MAX
+	     || (TARGET_MMX && MMX_REGNO_P (regno)
+		 && regno < FIRST_MMX_REG + MMX_REGPARM_MAX));
 
   /* TODO: The function should depend on current function ABI but
      builtins.c would need updating then. Therefore we use the
@@ -3635,6 +3640,11 @@ zero_all_vector_registers (HARD_REG_SET need_zeroed_hardregs)
 static bool
 zero_all_st_registers (HARD_REG_SET need_zeroed_hardregs)
 {
+
+  /* If the FPU is disabled, no need to zero all st registers.  */
+  if (! (TARGET_80387 || TARGET_FLOAT_RETURNS_IN_80387))
+    return false;
+
   unsigned int num_of_st = 0;
   for (unsigned int regno = 0; regno < FIRST_PSEUDO_REGISTER; regno++)
     if ((STACK_REGNO_P (regno) || MMX_REGNO_P (regno))
@@ -4087,9 +4097,6 @@ ix86_libcall_value (machine_mode mode)
 static bool
 ix86_return_in_memory (const_tree type, const_tree fntype ATTRIBUTE_UNUSED)
 {
-#ifdef SUBTARGET_RETURN_IN_MEMORY
-  return SUBTARGET_RETURN_IN_MEMORY (type, fntype);
-#else
   const machine_mode mode = type_natural_mode (type, NULL, true);
   HOST_WIDE_INT size;
 
@@ -4170,7 +4177,6 @@ ix86_return_in_memory (const_tree type, const_tree fntype ATTRIBUTE_UNUSED)
 
       return false;
     }
-#endif
 }
 
 
@@ -5488,6 +5494,9 @@ symbolic_reference_mentioned_p (rtx op)
 bool
 ix86_can_use_return_insn_p (void)
 {
+  if (ix86_function_ms_hook_prologue (current_function_decl))
+    return false;
+
   if (ix86_function_naked (current_function_decl))
     return false;
 
@@ -18880,6 +18889,22 @@ ix86_class_likely_spilled_p (reg_class_t rclass)
   return false;
 }
 
+/* Return true if a set of DST by the expression SRC should be allowed.
+   This prevents complex sets of likely_spilled hard regs before reload.  */
+
+bool
+ix86_hardreg_mov_ok (rtx dst, rtx src)
+{
+  /* Avoid complex sets of likely_spilled hard registers before reload.  */
+  if (REG_P (dst) && HARD_REGISTER_P (dst)
+      && !REG_P (src) && !MEM_P (src)
+      && !x86_64_immediate_operand (src, GET_MODE (dst))
+      && ix86_class_likely_spilled_p (REGNO_REG_CLASS (REGNO (dst)))
+      && !reload_completed)
+    return false;
+  return true;
+}
+
 /* If we are copying between registers from different register sets
    (e.g. FP and integer), we may need a memory location.
 
@@ -22472,7 +22497,7 @@ ix86_simd_clone_compute_vecsize_and_simdlen (struct cgraph_node *node,
 	  || (clonei->simdlen & (clonei->simdlen - 1)) != 0))
     {
       warning_at (DECL_SOURCE_LOCATION (node->decl), 0,
-		  "unsupported simdlen %d", clonei->simdlen);
+		  "unsupported simdlen %wd", clonei->simdlen.to_constant ());
       return 0;
     }
 
@@ -22577,7 +22602,8 @@ ix86_simd_clone_compute_vecsize_and_simdlen (struct cgraph_node *node,
 	clonei->simdlen = clonei->vecsize_int;
       else
 	clonei->simdlen = clonei->vecsize_float;
-      clonei->simdlen /= GET_MODE_BITSIZE (TYPE_MODE (base_type));
+      clonei->simdlen = clonei->simdlen
+			/ GET_MODE_BITSIZE (TYPE_MODE (base_type));
     }
   else if (clonei->simdlen > 16)
     {
@@ -22599,7 +22625,8 @@ ix86_simd_clone_compute_vecsize_and_simdlen (struct cgraph_node *node,
       if (cnt > (TARGET_64BIT ? 16 : 8))
 	{
 	  warning_at (DECL_SOURCE_LOCATION (node->decl), 0,
-		      "unsupported simdlen %d", clonei->simdlen);
+		      "unsupported simdlen %wd",
+		      clonei->simdlen.to_constant ());
 	  return 0;
 	}
       }

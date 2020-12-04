@@ -524,10 +524,9 @@ struct cpp_reader
   const unsigned char *date;
   const unsigned char *time;
 
-  /* Externally set timestamp to replace current date and time useful for
-     reproducibility.  It should be initialized to -2 (not yet set) and
-     set to -1 to disable it or to a non-negative value to enable it.  */
-  time_t source_date_epoch;
+  /* Time stamp, set idempotently lazily.  */
+  time_t time_stamp;
+  int time_stamp_kind; /* Or errno.  */
 
   /* A token forcing paste avoidance, and one demarking macro arguments.  */
   cpp_token avoid_paste;
@@ -636,22 +635,23 @@ typedef unsigned char uchar;
 
 #define UC (const uchar *)  /* Intended use: UC"string" */
 
-/* Macros.  */
+/* Accessors.  */
 
-static inline int cpp_in_system_header (cpp_reader *);
-static inline int
-cpp_in_system_header (cpp_reader *pfile)
+inline int
+_cpp_in_system_header (cpp_reader *pfile)
 {
   return pfile->buffer ? pfile->buffer->sysp : 0;
 }
 #define CPP_PEDANTIC(PF) CPP_OPTION (PF, cpp_pedantic)
 #define CPP_WTRADITIONAL(PF) CPP_OPTION (PF, cpp_warn_traditional)
 
-static inline int cpp_in_primary_file (cpp_reader *);
-static inline int
-cpp_in_primary_file (cpp_reader *pfile)
+/* Return true if we're in the main file (unless it's considered to be
+   an include file in its own right.  */
+inline int
+_cpp_in_main_source_file (cpp_reader *pfile)
 {
-  return pfile->buffer->main_file;
+  return (!CPP_OPTION (pfile, main_search)
+	  && pfile->buffer->file == pfile->main_file);
 }
 
 /* True if NODE is a macro for the purposes of ifdef, defined etc.  */
@@ -702,7 +702,7 @@ enum _cpp_find_file_kind
   { _cpp_FFK_NORMAL, _cpp_FFK_FAKE, _cpp_FFK_PRE_INCLUDE, _cpp_FFK_HAS_INCLUDE };
 extern _cpp_file *_cpp_find_file (cpp_reader *, const char *, cpp_dir *,
 				  int angle, _cpp_find_file_kind, location_t);
-extern const char *_cpp_found_name (_cpp_file *);
+extern bool _cpp_find_failed (_cpp_file *);
 extern void _cpp_mark_file_once_only (cpp_reader *, struct _cpp_file *);
 extern void _cpp_fake_include (cpp_reader *, const char *);
 extern bool _cpp_stack_file (cpp_reader *, _cpp_file*, include_type, location_t);
