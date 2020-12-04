@@ -7750,7 +7750,7 @@ trees_out::decl_value (tree decl, depset *dep)
 	      start (inner, true);
 	      tree_node_bools (inner);
 	      dump (dumper::TREE)
-		&& dump ("Writing %s:%d %C:%N%S", merge_kind_name[mk], inner_tag,
+		&& dump ("Writing inner %s:%d %C:%N%S", merge_kind_name[mk], inner_tag,
 			 TREE_CODE (inner), inner, inner);
 	    }
 	}
@@ -8148,7 +8148,7 @@ trees_in::decl_value ()
     goto bail;
 
   tree constr, norm;
-  decl_constraints (decl, (cache_kind)state->get_cache_kind (), &constr, &norm);
+  decl_constraints (decl, state->get_cache_kind (), &constr, &norm);
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
 
@@ -8216,11 +8216,9 @@ trees_in::decl_value ()
 	}
 
       if (constr)
-        {
-          set_constraints (decl, constr);
-          if (norm)
-            set_normalized_constraints (decl, norm);
-        }
+        set_constraints (decl, constr);
+      if (norm)
+        set_normalized_constraints (decl, norm);
  
       if (TREE_CODE (decl) == INTEGER_CST && !TREE_OVERFLOW (decl))
 	{
@@ -8342,54 +8340,47 @@ trees_in::decl_value ()
 void
 trees_out::decl_constraints (tree decl)
 {
-  tree req = get_constraints (decl);
-  tree_node (req);
-
-  if (!req)
-    return;
-
-  if (streaming_p ())
+  tree inner = NULL_TREE;
+  if (TREE_CODE (decl) == TEMPLATE_DECL)
     {
-      if (dump (dumper::TREE))
-        {
-          dump ("Wrote constraint info for %N", decl);
-          if (serialize_caches)
-            dump.indent ();
-        }
+      inner = DECL_TEMPLATE_RESULT (decl);
+      if (TREE_CODE(inner) != CONCEPT_DECL)
+        inner = NULL_TREE;
     }
 
-  // For these three modes of serialization, the normalized constraints must be
-  // known. Let's precompute that here.
-  tree norm = NULL_TREE;
-  if (serialize_normalizations_p () || serialize_constraints_p ()
-      || serialize_constraints_p ())
+  // If decl is not a concept declaration, write
+  // the associated constraint info. (concept decls 
+  // won't have this.)
+  if (!inner)
     {
-      // This is a bit wonky for specialized template variables.
-      // The template args aren't being extracted correctly for the
-      // defualt path, so we have to force feed the args to the
-      // normalization machinery.
-      if (TREE_CODE (decl) == VAR_DECL && DECL_LANG_SPECIFIC (decl)
-          && DECL_USE_TEMPLATE (decl))
-        {
-          // FIXME: do we need to do this now?
-        }
-      else
-        {
-          norm = get_normalized_constraints (decl);
-        }
+      tree req = get_constraints (decl);
+      tree_node (req);
+      req && streaming_p () && dump (dumper::TREE) && dump ("Wrote constraint info for %N", decl);
+      if (!req)
+        return;
     }
 
-  if (serialize_normalizations_p ())
-    {
-      tree_node (norm);
+  if (serialize_caches)
+  {
+    dump.indent ();
 
-      // TODO: walk tree & dump indiviual constraints
-      if (streaming_p () && dump (dumper::TREE))
-        dump ("Wrote normalized constraint for %N", decl);
-    }
+    tree norm = NULL_TREE;
+    // This is a bit wonky for specialized template variables.
+    // The template args aren't being extracted correctly for the
+    // defualt path, so we have to force feed the args to the
+    // normalization machinery.
+    if (TREE_CODE (decl) == VAR_DECL && DECL_LANG_SPECIFIC (decl)
+        && DECL_USE_TEMPLATE (decl))
+      {
+        // FIXME: do we need to do this now?
+      }
+    else
+      norm = get_normalized_constraints (decl);
 
-  if (streaming_p() && serialize_caches && dump (dumper::TREE))
+    tree_node (norm);
+    streaming_p () && dump (dumper::TREE) && dump ("Wrote normalized constraint for %N", decl);
     dump.outdent ();
+  }
 }
 
 void
@@ -8404,18 +8395,30 @@ save_constraint_satisfactions (tree t, void *p)
 void
 trees_in::decl_constraints (tree decl, cache_kind flags, tree *constr, tree *norm)
 {
-  *constr = tree_node ();
-  *norm = NULL_TREE;
-  if (!*constr)
-    return;
+  tree inner = NULL_TREE;
+   if (TREE_CODE (decl) == TEMPLATE_DECL)
+    {
+      inner = DECL_TEMPLATE_RESULT (decl);
+      if (TREE_CODE(inner) != CONCEPT_DECL)
+        inner = NULL_TREE;
+    }
 
-  dump (dumper::TREE) && dump ("Read constraint info for %N", decl);
+  *constr = *norm = NULL_TREE;
+  if (!inner) 
+    {
+      *constr = tree_node ();
+      dump (dumper::TREE) && dump ("Read constraint info for %N", decl);
+      if (!*constr)
+        return;
+    }
 
   if (flags & CK_normalizations)
     {
       *norm = tree_node ();
       if (norm)
+      {
         dump(dumper::TREE) && dump ("Read normalized constraint for %N", decl);
+      }
     }
 }
 

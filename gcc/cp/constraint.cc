@@ -788,6 +788,8 @@ normalize_expression (tree t, tree args, norm_info info)
   if (t == error_mark_node)
     return error_mark_node;
 
+  inform (location_of(t), "%s normalize_expression %qD", info.quiet() ? "quiet" : "", t);
+
   switch (TREE_CODE (t))
     {
     case TRUTH_ANDIF_EXPR:
@@ -945,24 +947,45 @@ normalize_nontemplate_requirements (tree decl, bool diag = false)
 }
 
 /* Reads the cached normal form, if one exists.  
-   FIXME: Get a better name so as not to confuse .  */
+   FIXME: Probably should get a better name so as not to confuse.  */
 
 tree
 get_normalized_constraints (tree decl)
 {
+  // FIXME: I doubt this is sufficient to cover all the 
+  // cases (like overloads), but we're only called from 
+  // modules and only with decls & concepts.
+  if (TREE_CODE (decl) == TEMPLATE_DECL)
+    {
+      tree inner = DECL_TEMPLATE_RESULT (decl);
+      if (TREE_CODE(inner) == CONCEPT_DECL)
+        return normalize_concept_definition(decl, false);
+    }
+  
   return get_normalized_constraints_from_decl (decl, false);
 }
 
 /* Writes the cached normal form, if one exists.  
-   TODO: this is mostly copied from get_normalized_constraints_from_decl. 
+   FIXME: this is partially copied from get_normalized_constraints_from_decl. 
    I should make more of an effort. */
    
 void set_normalized_constraints(tree d, tree norm)
 {
+  // FIXME: see note in get_normalized_constraints
+  if (TREE_CODE (d) == TEMPLATE_DECL)
+    {
+      tree inner = DECL_TEMPLATE_RESULT (d);
+      if (TREE_CODE(inner) == CONCEPT_DECL)
+        {
+           hash_map_safe_put<hm_ggc> (normalized_map, d, norm);
+           return;
+        }
+    }
+
   tree tmpl;
 
   /* For inherited constructors, consider the original declaration;
-     it has the correct template information attached. */
+            it has the correct template information attached. */
   d = strip_inheriting_ctors (d);
 
   if (TREE_CODE (d) == TEMPLATE_DECL)
@@ -984,11 +1007,14 @@ void set_normalized_constraints(tree d, tree norm)
     }
 
   if (hash_map_safe_get (normalized_map, tmpl))
+    {
+      inform (location_of (d), "already set for %p", (void *)d);
       return;
+    }
 
+  inform (location_of (d), "inserting %p", (void *)d);
   hash_map_safe_put<hm_ggc> (normalized_map, tmpl, norm);
 }
-
 
 /* Normalize an EXPR as a constraint.  */
 
@@ -2953,6 +2979,7 @@ static tree
 satisfy_declaration_constraints (tree t, subst_info info)
 {
   gcc_assert (DECL_P (t));
+  inform (location_of(t), "%s satisfy_declaration_constraints %qD", info.quiet() ? "quiet" : "", t);
   const tree saved_t = t;
 
   /* For inherited constructors, consider the original declaration;
