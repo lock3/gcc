@@ -1,3 +1,161 @@
+2020-12-08  Martin Liska  <mliska@suse.cz>
+
+	PR tree-optimization/98182
+	* gimple-if-to-switch.cc (pass_if_to_switch::execute): Request
+	chain linkage through false edges only.
+
+2020-12-08  Nathan Sidwell  <nathan@acm.org>
+
+	* tree.h (DECL_ALIGN_RAW): New.
+	(DECL_ALIGN): Use it.
+	(DECL_WARN_IF_NOT_ALIGN_RAW): New.
+	(DECL_WARN_IF_NOT_ALIGN): Use it.
+	(SET_DECL_WARN_IF_NOT_ALIGN): Likewise.
+
+2020-12-08  Prathamesh Kulkarni  <prathamesh.kulkarni@linaro.org>
+
+	PR target/66791
+	* config/arm/arm_neon.h: Replace calls to __builtin_vmvn* by ~
+	in vmvn intrinsics.
+	* config/arm/arm_neon_builtins.def: Remove entry for vmvn.
+
+2020-12-08  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/94440
+	* config/i386/i386.opt (ix86_excess_precision,
+	ix86_unsafe_math_optimizations): New TargetVariables.
+	* config/i386/i386.h (X87_ENABLE_ARITH, X87_ENABLE_FLOAT): Use
+	ix86_unsafe_math_optimizations instead of
+	flag_unsafe_math_optimizations and ix86_excess_precision instead of
+	flag_excess_precision.
+	* config/i386/i386.c (ix86_excess_precision): Rename to ...
+	(ix86_get_excess_precision): ... this.
+	(TARGET_C_EXCESS_PRECISION): Define to ix86_get_excess_precision.
+	* config/i386/i386-options.c (ix86_valid_target_attribute_tree,
+	ix86_option_override_internal): Update ix86_unsafe_math_optimization
+	from flag_unsafe_math_optimizations and ix86_excess_precision
+	from flag_excess_precision when constructing target option nodes.
+	(ix86_set_current_function): If flag_unsafe_math_optimizations
+	or flag_excess_precision is different from the one recorded
+	in TARGET_OPTION_NODE, create a new target option node for the
+	current function and switch to that.
+
+2020-12-08  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98192
+	* tree-vect-slp.c (vect_build_slp_instance): Get scalar_stmts
+	by reference.
+
+2020-12-08  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98191
+	* tree-vect-slp.c (vect_slp_check_for_constructors): Do not
+	follow a non-SSA def chain.
+
+2020-12-08  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/97559
+	* tree-ssa-sink.c (statement_sink_location): Never ignore
+	PHIs on sink paths in irreducible regions.
+
+2020-12-08  Prathamesh Kulkarni  <prathamesh.kulkarni@linaro.org>
+
+	PR target/97872
+	* gimple-isel.cc (gimple_expand_vec_cond_expr): Try to fold
+	x CMP y ? -1 : 0 to x CMP y.
+
+2020-12-08  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98180
+	* tree-vect-slp.c (vect_slp_check_for_constructors): Check the
+	first inserted value has a def.
+
+2020-12-08  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR tree-optimization/96344
+	* tree-switch-conversion.c (bit_test_cluster::emit): Compute the
+	range only if an entry test is necessary.  Merge the entry test in
+	the bit test when possible.  Use PREC local variable consistently.
+	When there is only one test, do a single gimplification at the end.
+
+2020-12-08  Kito Cheng  <kito.cheng@sifive.com>
+
+	PR target/98152
+	* config.gcc (riscv*-*-*): Checking python, python3 or python2
+	is available, and skip doing with_arch canonicalize if no python
+	available.
+
+2020-12-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/98147
+	* builtins.c (default_emit_call_builtin___clear_cache): Call
+	convert_memory_address to ptr_mode on both begin and end.
+
+2020-12-07  Bernd Edlinger  <bernd.edlinger@hotmail.de>
+
+	* ipa-param-manipulation.c
+	(ipa_param_body_adjustments::modify_call_stmt): Set location info.
+
+2020-12-07  Jozef Lawrynowicz  <jozef.l@mittosystems.com>
+
+	* doc/extend.texi (used function attribute): Document saving
+	the declaration from linker garbage collection.
+	(used variable attribute): Likewise.
+
+2020-12-07  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98113
+	* tree-vectorizer.h (struct slp_root): New.
+	(_bb_vec_info::roots): New member.
+	* tree-vect-slp.c (vect_analyze_slp): Also walk BB info
+	roots.
+	(_bb_vec_info::_bb_vec_info): Adjust.
+	(_bb_vec_info::~_bb_vec_info): Likewise.
+	(vld_cmp): New.
+	(vect_slp_is_lane_insert): Likewise.
+	(vect_slp_check_for_constructors): Match a series of
+	BIT_INSERT_EXPRs as vector constructor.
+	(vect_slp_analyze_bb_1): Continue if BB info roots is
+	not empty.
+	(vect_slp_analyze_bb_1): Mark the whole BIT_INSERT_EXPR root
+	sequence as pure_slp.
+
+2020-12-07  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98117
+	* tree-vect-loop-manip.c (vect_gen_vector_loop_niters):
+	Properly handle degenerate niter when setting the vector
+	loop IV range.
+
+2020-12-07  Andreas Krebbel  <krebbel@linux.ibm.com>
+
+	* config/s390/s390.c (s390_emit_stack_probe): Change Pmode to
+	word_mode.
+
+2020-12-07  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/97816
+	* ipa-cp.c (safe_add): Removed.
+	(good_cloning_opportunity_p): Remove special handling of INT_MAX.
+	(value_topo_info<valtype>::propagate_effects): Take care not to
+	propagate from size one value to another through more sources.  Scale
+	propagated times with edge frequencies.  Include local time and size
+	in propagates ones here.  Take care not to overflow size.
+	(decide_about_value): Do not add local and propagated effects when
+	passing them to good_cloning_opportunity_p.
+
+2020-12-07  Matthias Klose  <doko@ubuntu.com>
+
+	* genextract.c (print_header): Undefine ENABLE_RTL_CHECKING
+	and ENABLE_RTL_FLAG_CHECKING.
+
+2020-12-07  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98137
+	* tree-data-ref.c (split_constant_offset_1): Use
+	determine_value_range instead of get_range_info to handle
+	arbitrary expressions.
+
 2020-12-06  H.J. Lu  <hjl.tools@gmail.com>
 
 	PR target/98162
