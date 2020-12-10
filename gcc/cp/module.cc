@@ -2602,7 +2602,6 @@ const char *depset::entity_kind_name (entity_kind kind)
   static const char *const names[] = 
     {"decl", "specialization", "partial", "atom", "using",
      "namespace", "redirect", "binding"};
-  entity_kind kind = get_entity_kind ();
   gcc_checking_assert (kind < sizeof (names) / sizeof(names[0]));
   return names[kind];
 }

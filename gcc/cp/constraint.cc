@@ -788,7 +788,7 @@ normalize_expression (tree t, tree args, norm_info info)
   if (t == error_mark_node)
     return error_mark_node;
 
-  inform (location_of(t), "%s normalize_expression %qD", info.quiet() ? "quiet" : "", t);
+  // inform (location_of(t), "%s normalize_expression %qD", info.quiet() ? "quiet" : "", t);
 
   switch (TREE_CODE (t))
     {
@@ -1008,11 +1008,11 @@ void set_normalized_constraints(tree d, tree norm)
 
   if (hash_map_safe_get (normalized_map, tmpl))
     {
-      inform (location_of (d), "already set for %p", (void *)d);
+      // inform (location_of (d), "already set for %p", (void *)d);
       return;
     }
 
-  inform (location_of (d), "inserting %p", (void *)d);
+  // inform (location_of (d), "inserting %p", (void *)d);
   hash_map_safe_put<hm_ggc> (normalized_map, tmpl, norm);
 }
 
@@ -2979,7 +2979,7 @@ static tree
 satisfy_declaration_constraints (tree t, subst_info info)
 {
   gcc_assert (DECL_P (t));
-  inform (location_of(t), "%s satisfy_declaration_constraints %qD", info.quiet() ? "quiet" : "", t);
+  // inform (location_of(t), "%s satisfy_declaration_constraints %qD", info.quiet() ? "quiet" : "", t);
   const tree saved_t = t;
 
   /* For inherited constructors, consider the original declaration;
