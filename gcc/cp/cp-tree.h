@@ -2032,6 +2032,38 @@ public:
   ~temp_override() { overridden_variable = saved_value; }
 };
 
+/* Wrapping a template parameter in type_identity_t hides it from template
+   argument deduction.  */
+#if __cpp_lib_type_identity
+using std::type_identity_t;
+#else
+template <typename T>
+struct type_identity { typedef T type; };
+template <typename T>
+using type_identity_t = typename type_identity<T>::type;
+#endif
+
+/* Object generator function for temp_override, so you don't need to write the
+   type of the object as a template argument.
+
+   Use as auto x = make_temp_override (flag); */
+
+template <typename T>
+inline temp_override<T>
+make_temp_override (T& var)
+{
+  return { var };
+}
+
+/* Likewise, but use as auto x = make_temp_override (flag, value); */
+
+template <typename T>
+inline temp_override<T>
+make_temp_override (T& var, type_identity_t<T> overrider)
+{
+  return { var, overrider };
+}
+
 /* The cached class binding level, from the most recently exited
    class, or NULL if none.  */
 
@@ -7181,7 +7213,7 @@ extern void finish_module_processing (cpp_reader *);
 extern char const *module_name (unsigned, bool header_ok);
 extern char const *primary_module_name(unsigned);
 extern bitmap get_import_bitmap ();
-extern bitmap module_visible_instantiation_path (bitmap *);
+extern bitmap visible_instantiation_path (bitmap *);
 extern void module_begin_main_file (cpp_reader *, line_maps *,
 				    const line_map_ordinary *);
 extern void module_preprocess_options (cpp_reader *);
@@ -7832,7 +7864,7 @@ extern tree hash_tree_cons			(tree, tree, tree);
 extern tree hash_tree_chain			(tree, tree);
 extern tree build_qualified_name		(tree, tree, tree, bool);
 extern tree build_ref_qualified_type		(tree, cp_ref_qualifier);
-extern tree make_binding_vec			(tree, unsigned clusters);
+extern tree make_binding_vec			(tree, unsigned clusters CXX_MEM_STAT_INFO);
 inline tree ovl_first				(tree) ATTRIBUTE_PURE;
 extern tree ovl_make				(tree fn,
 						 tree next = NULL_TREE);

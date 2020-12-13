@@ -1,3 +1,25 @@
+2020-12-11  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk 9324f7a25c7
+	c++: Avoid considering some conversion ops
+
+	gcc/cp/
+	* decl2.c (c_parse_final_cleanups): Refactor.
+
+	Merge trunk 1c6b86b50d4
+	c++: module test harness
+
+2020-12-10  Nathan Sidwell  <nathan@acm.org>
+
+	Merge trunk e6e4b20de33
+	c++: name lookup API for modules
+
+	Merge trunk 4f1d8bd5096
+	c++: modules & using-decls
+
+	Merge trunk afc14c8d0a9
+	c++: modularize spelling suggestions
+
 2020-12-09  Nathan Sidwell  <nathan@acm.org>
 
 	gcc/cp/
