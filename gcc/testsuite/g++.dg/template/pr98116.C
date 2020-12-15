@@ -1,5 +1,10 @@
 // PR 98116, ICE with stripping typedef array type
 // { dg-do compile { target c++11 } }
+// { dg-additional-options {--param=hash-table-verification-limit=10000000 -fchecking=2} }
+
+// We got confused by alias templates that alias the same type.  Their
+// hashes were different (good), but they compared equal (bad)
+
 namespace std {
 struct is_convertible;
 template <typename _Tp> using remove_pointer_t = typename _Tp ::type;

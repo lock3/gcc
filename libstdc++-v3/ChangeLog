@@ -1,3 +1,47 @@
+2020-12-10  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/98226
+	* include/std/bit (__countl_one, __countr_one): Remove redundant
+	branches.
+
+2020-12-09  Jonathan Wakely  <jwakely@redhat.com>
+
+	* acinclude.m4 (GLIBCXX_ENABLE_LIBSTDCXX_TIME): Define NO_SLEEP
+	if none of nanosleep, sleep and Sleep is available.
+	* config.h.in: Regenerate.
+	* configure: Regenerate.
+	* include/std/thread [_GLIBCXX_NO_SLEEP] (__sleep_for): Do
+	not declare.
+	[_GLIBCXX_NO_SLEEP] (sleep_for, sleep_until): Do not
+	define.
+	* src/c++11/thread.cc [_GLIBCXX_NO_SLEEP] (__sleep_for): Do
+	not define.
+
+2020-12-08  Jason Merrill  <jason@redhat.com>
+
+	PR c++/96299
+	* testsuite/18_support/comparisons/algorithms/partial_order.cc:
+	One more line needs to use VERIFY instead of static_assert.
+
+2020-12-08  Jonathan Wakely  <jwakely@redhat.com>
+
+	* doc/xml/manual/appendix_contributing.xml: Use consistent
+	indentation.
+	* doc/html/manual/source_code_style.html: Regenerate.
+
+2020-12-05  Iain Sandoe  <iain@sandoe.co.uk>
+
+	PR target/97865
+	* configure: Regenerate.
+
+2020-12-04  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/80780
+	* testsuite/18_support/source_location/1.cc (main): Adjust for
+	__builtin_source_location using __PRETTY_FUNCTION__-like names instead
+	__FUNCTION__-like.
+	* testsuite/18_support/source_location/consteval.cc (main): Likewise.
+
 2020-12-03  Martin Sebor  <msebor@redhat.com>
 
 	* testsuite/ext/vstring/modifiers/clear/56166.cc: Suppress a false

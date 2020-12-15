@@ -8104,11 +8104,12 @@ native_encode_initializer (tree init, unsigned char *ptr, int len,
 		{
 		  if (valueinit == -1)
 		    {
-		      tree zero = build_constructor (TREE_TYPE (type), NULL);
+		      tree zero = build_zero_cst (TREE_TYPE (type));
 		      r = native_encode_initializer (zero, ptr + curpos,
 						     fieldsize, 0,
 						     mask + curpos);
-		      ggc_free (zero);
+		      if (TREE_CODE (zero) == CONSTRUCTOR)
+			ggc_free (zero);
 		      if (!r)
 			return 0;
 		      valueinit = curpos;
@@ -8255,8 +8256,10 @@ native_encode_initializer (tree init, unsigned char *ptr, int len,
 		    {
 		      cnt--;
 		      field = fld;
-		      val = build_constructor (TREE_TYPE (fld), NULL);
-		      to_free = val;
+		      pos = int_byte_position (field);
+		      val = build_zero_cst (TREE_TYPE (fld));
+		      if (TREE_CODE (val) == CONSTRUCTOR)
+			to_free = val;
 		    }
 		}
 
@@ -8317,11 +8320,11 @@ native_encode_initializer (tree init, unsigned char *ptr, int len,
 			return 0;
 		      HOST_WIDE_INT repr_size = int_size_in_bytes (repr_type);
 		      gcc_assert (repr_size > 0 && repr_size <= len);
-		      if (pos + repr_size <= len)
+		      if (pos + repr_size <= o + len)
 			rpos = pos;
 		      else
 			{
-			  rpos = len - repr_size;
+			  rpos = o + len - repr_size;
 			  gcc_assert (rpos <= pos);
 			}
 		    }
