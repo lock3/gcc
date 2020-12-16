@@ -44387,7 +44387,7 @@ static cp_expr cp_parser_meta_getenv (cp_parser *parser, cp_token *tok)
 
   tree args = make_tree_vec (1);
   TREE_VEC_ELT (args, 0) = key;
-  return finish_meta_expression (tok->location, mf_getenv, args);
+  return finish_metafunction_expression (tok->location, mfk_getenv, args);
 }
 
 static cp_expr cp_parser_meta_maybe_getenv (cp_parser *parser, cp_token *tok)
@@ -44426,7 +44426,7 @@ static cp_expr cp_parser_meta_maybe_getenv (cp_parser *parser, cp_token *tok)
   TREE_VEC_ELT (args, 0) = key;
   TREE_VEC_ELT (args, 1) = type;
   TREE_VEC_ELT (args, 2) = def;
-  return finish_meta_expression (tok->location, mf_try_getenv, args);
+  return finish_metafunction_expression (tok->location, mfk_maybe_getenv, args);
 }
 
 

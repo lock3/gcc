@@ -563,6 +563,9 @@ cp_common_init_ts (void)
   MARK_TS_EXP (PRECONDITION_STMT);
   MARK_TS_EXP (POSTCONDITION_STMT);
 
+  /* Metafunctions.  */
+  MARK_TS_EXP (METAFUNCTION_EXPR);
+
   c_common_init_ts ();
 }
 

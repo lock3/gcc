@@ -611,6 +611,12 @@ DEFTREECODE (ASSERTION_STMT, "assertion_stmt", tcc_statement, 3)
 DEFTREECODE (PRECONDITION_STMT, "precondition_stmt", tcc_statement, 3)
 DEFTREECODE (POSTCONDITION_STMT, "postcondition_stmt", tcc_statement, 4)
 
+/* Metafunctions.
+
+   An intrinsic metafunction cotaining the metafunction kind and argument
+   vector.  */
+DEFTREECODE (METAFUNCTION_EXPR, "metafunction_expr", tcc_expression, 2)
+
 /*
 Local variables:
 mode:c

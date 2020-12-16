@@ -8092,14 +8092,23 @@ extern bool subsumes                            (tree, tree);
 
 /* In meta.cc */
 
+/* The kind of metafunction.  */
+#define METAFUNCTION_EXPR_KIND(NODE) \
+  (metafunction_kind)TREE_INT_CST_LOW(TREE_OPERAND (\
+      TREE_CHECK (NODE, METAFUNCTION_EXPR), 0))
+
+/* The argument vector of the metafunction.  */
+#define METAFUNCTION_EXPR_ARGS(NODE) \
+  TREE_OPERAND (TREE_CHECK (NODE, METAFUNCTION_EXPR), 1)
+
 /* Metafunction types. */
-enum meta_function
+enum metafunction_kind
 {
-  mf_getenv,
-  mf_try_getenv
+  mfk_getenv,
+  mfk_maybe_getenv
 };
 
-extern cp_expr finish_meta_expression		(location_t, meta_function, tree);
+extern cp_expr finish_metafunction_expression	(location_t, metafunction_kind, tree);
 
 /* In class.c */
 extern void cp_finish_injected_record_type (tree);

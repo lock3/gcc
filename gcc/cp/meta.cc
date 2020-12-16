@@ -37,10 +37,119 @@ along with GCC; see the file COPYING3.  If not see
 #include "stringpool.h"
 #include "attribs.h"
 #include "gomp-constants.h"
+#include "print-tree.h"
 #include "c-family/cxx-config.h"
 
-cp_expr finish_meta_expression (location_t loc, meta_function mf, tree args)
+/* Returns the type 'const T'.  */
+static tree build_const_type (tree t)
 {
+  return build_type_variant (t, true, false);
+}
+
+/* Returns the type 'const char*'.  */
+
+static tree build_c_string_type ()
+{
+  return build_pointer_type (build_const_type (char_type_node));
+}
+
+/* Returns true if any operands are type-dependent or dependent types.  */
+
+static bool any_dependent_p (const_tree args)
+{
+  for (int i = 0; i != TREE_VEC_LENGTH (args); ++i)
+    {
+      tree t = TREE_VEC_ELT (args, i);
+      if (TYPE_P (t) && TYPE_DEPENDENT_P (t))
+	return true;
+      else if (type_dependent_expression_p (t))
+	return true;
+    }
+  return false;
+}
+
+/* Returns true if the expression T has type 'const char*'.  */
+
+static bool has_type (tree e, tree t)
+{
+  return same_type_p (TREE_TYPE (e), t);
+}
+
+static bool has_c_string_type (tree e)
+{
+  return has_type (e, build_c_string_type ());
+}
+
+/* Check that metafunction operands correspond to their specification and
+   return the expression's type.
+
+   FIXME: We probably need to perform standard conversions on many of
+   these operands.  If we actually perform conversions, we're going to be
+   rewriting the argument vector.  */
+
+static tree check_metafunction (metafunction_kind k, tree args)
+{
+  tree cstr = build_c_string_type ();
+  switch (k)
+    {
+    case mfk_getenv:
+      {
+	gcc_assert (TREE_VEC_LENGTH (args) == 1);
+	if (!has_c_string_type (TREE_VEC_ELT (args, 0)))
+	  {
+	    error ("operand must have type %qT", cstr);
+	    return error_mark_node;
+	  }
+	return build_c_string_type ();
+      }
+    
+    case mfk_maybe_getenv:
+      {
+        gcc_assert (TREE_VEC_LENGTH (args) == 3);
+	if (!has_c_string_type (TREE_VEC_ELT (args, 0)))
+	  {
+	    error ("first operand must have type %qT", cstr);
+	    return error_mark_node;
+	  }
+	tree t = TREE_VEC_ELT (args, 1);
+	if (!INTEGRAL_OR_ENUMERATION_TYPE_P (t))
+	  {
+	    error ("second operand must be an integral or enumeration type");
+	    return error_mark_node;
+	  }
+	if (!has_type (TREE_VEC_ELT (args, 2), t))
+	  {
+	    error ("second operand must have type %qT", t);
+	    return error_mark_node;
+	  }
+	return t;
+      }
+
+    default:
+      break;
+    }
   gcc_unreachable ();
+}
+
+/* Perform semantic analysis on a metafunction.  */
+
+cp_expr finish_metafunction_expression (location_t loc,
+					metafunction_kind k,
+					tree args)
+{
+  tree kind = build_int_cst (sizetype, k);
+
+  tree expr;
+  if (any_dependent_p (args))
+    expr = build2 (METAFUNCTION_EXPR, NULL_TREE, kind, args);
+  else
+    {
+      tree type = check_metafunction (k, args);
+      expr = build2 (METAFUNCTION_EXPR, type, kind, args);
+    }
+
+  protected_set_expr_location (expr, loc);
+
+  return expr;
 }
 
