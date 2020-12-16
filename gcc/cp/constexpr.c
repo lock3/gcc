@@ -35,6 +35,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "timevar.h"
 #include "fold-const-call.h"
 #include "stor-layout.h"
+#include "c-family/cxx-config.h"
+#include "print-tree.h"
 
 static bool verify_constant (tree, bool, bool *, bool *);
 #define VERIFY_CONSTANT(X)						\
@@ -2173,6 +2175,68 @@ cxx_eval_thunk_call (const constexpr_ctx *ctx, tree t, tree thunk_fndecl,
 
   return cxx_eval_constant_expression (ctx, new_call, lval,
 				       non_constant_p, overflow_p);
+}
+
+/* Returns the constant string value for T, where T is returned from
+   cxx_eval_constant_expression.  */
+
+static const char*
+get_constant_string (const constexpr_ctx *ctx, tree t)
+{
+  STRIP_NOPS (t);
+  if (TREE_CODE (t) == ADDR_EXPR)
+    {
+      t = TREE_OPERAND (t, 0);
+      if (TREE_CODE (t) == STRING_CST)
+	return TREE_STRING_POINTER (t);
+    }
+
+  /* Surely there are other ways of accessing a string literal.  */
+  gcc_unreachable ();
+}
+
+/* Subroutine of cxx_eval_constant_expression.
+   Evaluate the metafunction expression T.  */
+static tree
+cxx_eval_metafunction (const constexpr_ctx *ctx, tree t,
+		       bool lval, bool *non_constant_p, bool *overflow_p)
+{
+  /* Evaluate the arguments, building a vector of types and values.  */
+  tree args = METAFUNCTION_EXPR_ARGS (t);
+  int nargs = TREE_VEC_LENGTH (args);
+  tree vals = make_tree_vec (nargs);
+  for (int i = 0; i < nargs; ++i)
+    {
+      tree arg = TREE_VEC_ELT (args, i);
+      if (!TYPE_P (arg))
+      	{
+	  TREE_VEC_ELT (vals, i) =
+	    cxx_eval_constant_expression (ctx, arg, false, non_constant_p,
+					  overflow_p);
+	  VERIFY_CONSTANT (TREE_VEC_ELT (vals, i));
+        }
+      else
+	TREE_VEC_ELT (vals, i) = arg;
+    }
+
+  /* Apply the metafunction.  */
+  switch (METAFUNCTION_EXPR_KIND (t))
+    {
+    case mfk_getenv:
+      {
+      	const char* key = get_constant_string (ctx, TREE_VEC_ELT (vals, 0));
+      	const char* val = lookup_knob (key);
+      	if (val)
+      	  return build_string_literal (strlen (val) + 1, val);
+	return nullptr_node;
+      }
+      break;
+
+    case mfk_maybe_getenv:
+      /* FIXME: Implement me.  */
+      break;
+    }
+  return t;
 }
 
 /* Subroutine of cxx_eval_constant_expression.
@@ -6561,6 +6625,10 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
       *non_constant_p = true;
       return t;
 
+    case METAFUNCTION_EXPR:
+      r = cxx_eval_metafunction (ctx, t, lval, non_constant_p, overflow_p);
+      break;
+
     default:
       if (STATEMENT_CODE_P (TREE_CODE (t)))
 	{
@@ -8351,6 +8419,20 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
     case CO_YIELD_EXPR:
     case CO_RETURN_EXPR:
       return false;
+
+    case METAFUNCTION_EXPR:
+      {
+      	/* If any operands are not potential constant expressions, then
+      	   this cannot be a potential constant expression.  */
+      	tree args = METAFUNCTION_EXPR_ARGS (t);
+      	for (int i = 0; i != TREE_VEC_LENGTH (args); ++i)
+	  {
+	    tree t = TREE_VEC_ELT (args, i);
+	    if (!TYPE_P (t) && !RECUR (TREE_VEC_ELT (args, i), rval))
+	      return false;
+	  }
+      	return true;
+      }
 
     default:
       if (objc_is_property_ref (t))

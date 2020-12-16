@@ -41,21 +41,24 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/cxx-config.h"
 
 /* Returns the type 'const T'.  */
-static tree build_const_type (tree t)
+static tree
+build_const_type (tree t)
 {
   return build_type_variant (t, true, false);
 }
 
 /* Returns the type 'const char*'.  */
 
-static tree build_c_string_type ()
+static tree
+build_c_string_type ()
 {
   return build_pointer_type (build_const_type (char_type_node));
 }
 
 /* Returns true if any operands are type-dependent or dependent types.  */
 
-static bool any_dependent_p (const_tree args)
+static bool
+any_dependent_p (const_tree args)
 {
   for (int i = 0; i != TREE_VEC_LENGTH (args); ++i)
     {
@@ -70,12 +73,14 @@ static bool any_dependent_p (const_tree args)
 
 /* Returns true if the expression T has type 'const char*'.  */
 
-static bool has_type (tree e, tree t)
+static bool
+has_type (tree e, tree t)
 {
   return same_type_p (TREE_TYPE (e), t);
 }
 
-static bool has_c_string_type (tree e)
+static bool
+has_c_string_type (tree e)
 {
   return has_type (e, build_c_string_type ());
 }
@@ -87,7 +92,8 @@ static bool has_c_string_type (tree e)
    these operands.  If we actually perform conversions, we're going to be
    rewriting the argument vector.  */
 
-static tree check_metafunction (metafunction_kind k, tree args)
+static tree
+check_metafunction (metafunction_kind k, tree args)
 {
   tree cstr = build_c_string_type ();
   switch (k)
@@ -133,10 +139,12 @@ static tree check_metafunction (metafunction_kind k, tree args)
 
 /* Perform semantic analysis on a metafunction.  */
 
-cp_expr finish_metafunction_expression (location_t loc,
-					metafunction_kind k,
-					tree args)
+cp_expr
+finish_metafunction_expression (location_t loc, metafunction_kind k, tree args)
 {
+  /* TODO: Check that these are only present in consteval functions,
+     or initializers of constexpr and constinit variables.  */
+
   tree kind = build_int_cst (sizetype, k);
 
   tree expr;

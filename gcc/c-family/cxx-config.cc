@@ -30,7 +30,8 @@ along with GCC; see the file COPYING3.  If not see
 
 static hash_map<nofree_string_hash, const char*> build_env;
 
-void define_knob (const char* arg)
+void
+define_knob (const char* arg)
 {
   /* Parse the key/value from a copy of ARG.  */  
   char* str = xstrdup (arg);
@@ -70,7 +71,8 @@ void define_knob (const char* arg)
 /* Returns the C-string assocated with KEY or null if KEY is not in the
    build environment.  */
 
-const char* lookup_knob (const char* key)
+const char*
+lookup_knob (const char* key)
 {
   const char** value = build_env.get(key);
   if (!value)
