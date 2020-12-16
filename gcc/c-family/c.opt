@@ -212,6 +212,10 @@ I
 C ObjC C++ ObjC++ Joined Separate MissingArgError(missing path after %qs)
 -I <dir>	Add <dir> to the end of the main include path.
 
+K
+C ObjC C++ ObjC++ Joined Separate MissingArgError(key missing after %qs)
+-K<knob>[=<val>]	Define a configuration <knob> with <val> as its value.
+
 M
 C ObjC C++ ObjC++
 Generate make dependencies.

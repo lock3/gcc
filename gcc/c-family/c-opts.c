@@ -42,6 +42,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "dumpfile.h"
 #include "file-prefix-map.h"    /* add_*_prefix_map()  */
 #include "cxx-contracts.h"
+#include "cxx-config.h"
 
 #ifndef DOLLARS_IN_IDENTIFIERS
 # define DOLLARS_IN_IDENTIFIERS true
@@ -334,6 +335,10 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 	  inform (input_location, "obsolete option %<-I-%> used, "
 		  "please use %<-iquote%> instead");
 	}
+      break;
+
+    case OPT_K:
+      define_knob (arg);
       break;
 
     case OPT_M:

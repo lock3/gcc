@@ -1162,7 +1162,7 @@ static const char *cpp_unique_options =
  %{!E:%{!M:%{!MM:%{!MT:%{!MQ:%{MD|MMD:%{o*:-MQ %*}}}}}}}\
  %{remap} %{g3|ggdb3|gstabs3|gxcoff3|gvms3:-dD}\
  %{!iplugindir*:%{fplugin*:%:find-plugindir()}}\
- %{H} %C %{D*&U*&A*} %{i*} %Z %i\
+ %{H} %C %{D*&U*&A*} %{K*} %{i*} %Z %i\
  %{E|M|MM:%W{o*}}";
 
 /* This contains cpp options which are common with cc1_options and are passed

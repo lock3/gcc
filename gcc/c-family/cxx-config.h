@@ -1,0 +1,28 @@
+/* Definitions for C++ contract levels.  Implements functionality described in
+   the working draft version of contracts, P1290, P1332, and P1429.
+   Copyright (C) 2020 Free Software Foundation, Inc.
+   Contributed by Jeff Chapman II (jchapman@lock3software.com)
+
+This file is part of GCC.
+
+GCC is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3, or (at your option)
+any later version.
+
+GCC is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with GCC; see the file COPYING3.  If not see
+<http://www.gnu.org/licenses/>.  */
+
+#ifndef GCC_CP_CONFIG_H
+#define GCC_CP_CONFIG_H
+
+void define_knob (const char* arg);
+const char* lookup_knob (const char* arg);
+
+#endif /* ! GCC_CP_CONFIG_H */
