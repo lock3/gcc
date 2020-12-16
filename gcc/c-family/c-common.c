@@ -426,6 +426,8 @@ const struct c_common_resword c_common_reswords[] =
   { "__is_trivially_constructible", RID_IS_TRIVIALLY_CONSTRUCTIBLE, D_CXXONLY },
   { "__is_trivially_copyable", RID_IS_TRIVIALLY_COPYABLE, D_CXXONLY },
   { "__is_union",	RID_IS_UNION,	D_CXXONLY },
+  { "__meta_getenv", RID_META_GETENV, D_CXXONLY },
+  { "__meta_maybe_getenv", RID_META_MAYBE_GETENV, D_CXXONLY },
   { "__label__",	RID_LABEL,	0 },
   { "__null",		RID_NULL,	0 },
   { "__real",		RID_REALPART,	0 },

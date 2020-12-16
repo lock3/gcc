@@ -8090,6 +8090,17 @@ extern void diagnose_constraints                (location_t, tree, tree);
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);
 
+/* In meta.cc */
+
+/* Metafunction types. */
+enum meta_function
+{
+  mf_getenv,
+  mf_try_getenv
+};
+
+extern cp_expr finish_meta_expression		(location_t, meta_function, tree);
+
 /* In class.c */
 extern void cp_finish_injected_record_type (tree);
 

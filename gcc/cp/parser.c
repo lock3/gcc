@@ -2695,6 +2695,8 @@ static tree cp_parser_sizeof_operand
   (cp_parser *, enum rid);
 static cp_expr cp_parser_trait_expr
   (cp_parser *, enum rid);
+static cp_expr cp_parser_meta_expression
+  (cp_parser *);
 static bool cp_parser_declares_only_class_p
   (cp_parser *);
 static void cp_parser_set_storage_class
@@ -5338,6 +5340,9 @@ cp_parser_fold_expression (cp_parser *parser, tree expr1)
      __is_trivial ( type-id )
      __is_union ( type-id )
 
+   C++ Metaprogramming extensions:
+     meta-expression
+
    Objective-C++ Extension:
 
    primary-expression:
@@ -5742,6 +5747,11 @@ cp_parser_primary_expression (cp_parser *parser,
 	// C++ concepts
 	case RID_REQUIRES:
 	  return cp_parser_requires_expression (parser);
+
+  /* Metaprogramming.  */
+  case RID_META_GETENV:
+  case RID_META_MAYBE_GETENV:
+  	return cp_parser_meta_expression (parser);
 
 	/* Objective-C++ expressions.  */
 	case RID_AT_ENCODE:
@@ -44324,6 +44334,101 @@ cp_parser_transaction_cancel (cp_parser *parser)
 
   return stmt;
 }
+
+static cp_expr cp_parser_meta_getenv (cp_parser *, cp_token *tok);
+static cp_expr cp_parser_meta_maybe_getenv (cp_parser *, cp_token *tok);
+
+/* Parse a metaprogramming expression. These are all intrinsics.
+
+   meta-expression:
+     __meta_getenv ( conditional-expression )
+     __meta_maybe_getenv
+	( conditional-expression , type-id , conditional-expression )
+*/
+static cp_expr cp_parser_meta_expression (cp_parser *parser)
+{
+  cp_token *tok = cp_lexer_consume_token (parser->lexer);
+
+  /* Peek at the next token.  */
+  switch (tok->keyword)
+    {
+    case RID_META_GETENV:
+      return cp_parser_meta_getenv (parser, tok);
+    case RID_META_MAYBE_GETENV:
+      return cp_parser_meta_maybe_getenv (parser, tok);
+    default:
+      break;
+    }
+  gcc_unreachable ();
+}
+
+static cp_expr cp_parser_parse_conditional_expression (cp_parser *parser)
+{
+  return cp_parser_binary_expression (parser, false, true, PREC_NOT_OPERATOR,
+				      NULL);
+}
+
+static cp_expr cp_parser_meta_getenv (cp_parser *parser, cp_token *tok)
+{
+  matching_parens parens;
+  
+  /* TODO: Recover gracefully. If the key expression is ill-formed scan for the
+     closing paren.  */
+
+  if (!parens.require_open (parser))
+    return {};
+  
+  cp_expr key = cp_parser_parse_conditional_expression (parser);
+  if (!key)
+    return {};
+  
+  if (!parens.require_close (parser))
+    return {};
+
+  tree args = make_tree_vec (1);
+  TREE_VEC_ELT (args, 0) = key;
+  return finish_meta_expression (tok->location, mf_getenv, args);
+}
+
+static cp_expr cp_parser_meta_maybe_getenv (cp_parser *parser, cp_token *tok)
+{
+  matching_parens parens;
+  parens.require_open (parser);
+
+  /* TODO: Recover gracefully. If the key or type is ill-formed scan for
+     trailing comma. If the default value is ill-formed or any comma is
+     missing, scan for the enclosing  */
+  
+  /* conditional-expression , */
+  cp_expr key = cp_parser_parse_conditional_expression (parser);
+  if (!key)
+    return {};
+  if (!cp_parser_require (parser, CPP_COMMA, RT_COMMA))
+    return {};
+
+  /* type-id , */
+  location_t loc;
+  tree type = cp_parser_type_id (parser, CP_PARSER_FLAGS_NONE, &loc);
+  if (type == error_mark_node)
+    return {};
+  if (!cp_parser_require (parser, CPP_COMMA, RT_COMMA))
+    return {};
+
+  /* conditional-expression */
+  cp_expr def = cp_parser_parse_conditional_expression (parser);
+  if (!def)
+    return {};
+
+  if (!parens.require_close (parser))
+    return {};
+
+  tree args = make_tree_vec (3);
+  TREE_VEC_ELT (args, 0) = key;
+  TREE_VEC_ELT (args, 1) = type;
+  TREE_VEC_ELT (args, 2) = def;
+  return finish_meta_expression (tok->location, mf_try_getenv, args);
+}
+
 
 /* The parser.  */
 

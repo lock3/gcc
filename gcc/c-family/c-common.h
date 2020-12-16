@@ -195,6 +195,9 @@ enum rid
   /* C++ transactional memory.  */
   RID_ATOMIC_NOEXCEPT, RID_ATOMIC_CANCEL, RID_SYNCHRONIZED,
 
+  /* C++ Metaprogramming.  */
+  RID_META_GETENV, RID_META_MAYBE_GETENV,
+
   /* Objective-C ("AT" reserved words - they are only keywords when
      they follow '@')  */
   RID_AT_ENCODE,   RID_AT_END,
