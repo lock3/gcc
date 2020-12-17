@@ -8109,6 +8109,7 @@ enum metafunction_kind
 };
 
 extern cp_expr finish_metafunction_expression	(location_t, metafunction_kind, tree);
+extern tree tsubst_metafunction_expression	(tree, tree, tsubst_flags_t, tree);
 
 /* In class.c */
 extern void cp_finish_injected_record_type (tree);

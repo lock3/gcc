@@ -161,3 +161,34 @@ finish_metafunction_expression (location_t loc, metafunction_kind k, tree args)
   return expr;
 }
 
+/* Instantiate the metafunction operand. T is either a type or expression.  */
+
+static tree
+tsubst_metafunction_operand (tree t, tree args,
+			     tsubst_flags_t complain, tree in_decl)
+{
+  if (!TYPE_P (t))
+    return tsubst_expr (t, args, complain, in_decl, false);
+  else
+    return tsubst (t, args, complain, in_decl);
+}
+
+/* Instantiate the metafunction expression.  */
+
+tree
+tsubst_metafunction_expression (tree t, tree args,
+				tsubst_flags_t complain, tree in_decl)
+{
+  /* Substitute through arguments.  */
+  tree olds = METAFUNCTION_EXPR_ARGS (t);
+  tree news = make_tree_vec (TREE_VEC_LENGTH (olds));
+  for (int i = 0; i < TREE_VEC_LENGTH (olds); ++i)
+    TREE_VEC_ELT (news, i) =
+      tsubst_metafunction_operand (TREE_VEC_ELT (olds, i), args,
+      				   complain, in_decl);
+
+  /* Rebuild the node.  */
+  location_t loc = EXPR_LOCATION (t);
+  metafunction_kind k = METAFUNCTION_EXPR_KIND (t);
+  return finish_metafunction_expression (loc, k, news);
+}

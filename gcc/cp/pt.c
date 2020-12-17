@@ -17039,6 +17039,9 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 			  /*integral_constant_expression_p=*/false);
       break;
 
+    case METAFUNCTION_EXPR:
+      return tsubst_metafunction_expression (t, args, complain, in_decl);
+
     default:
       /* We shouldn't get here, but keep going if !flag_checking.  */
       if (flag_checking)
