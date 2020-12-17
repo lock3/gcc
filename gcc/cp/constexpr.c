@@ -2181,7 +2181,7 @@ cxx_eval_thunk_call (const constexpr_ctx *ctx, tree t, tree thunk_fndecl,
    cxx_eval_constant_expression.  */
 
 static const char*
-get_constant_string (const constexpr_ctx *ctx, tree t)
+get_constant_string (tree t)
 {
   STRIP_NOPS (t);
   if (TREE_CODE (t) == ADDR_EXPR)
@@ -2193,6 +2193,76 @@ get_constant_string (const constexpr_ctx *ctx, tree t)
 
   /* Surely there are other ways of accessing a string literal.  */
   gcc_unreachable ();
+}
+
+/* Parse ARG as a boolean value.  "true", "on", "yes", and "" are TRUE, while
+   "false", "off", and "no" are false.  */
+static tree
+parse_boolean_knob (const char *val)
+{
+  if (!val[0] ||
+      !strcmp (val, "on") ||
+      !strcmp (val, "true") ||
+      !strcmp (val, "yes"))
+    return boolean_true_node;
+  if (!strcmp (val, "off") ||
+      !strcmp (val, "false") ||
+      !strcmp (val, "no"))
+    return boolean_false_node;
+  error ("%qs is not a boolean value", val);
+  return error_mark_node;
+}
+
+/* Parse ARG as an integral value of type T.  */
+
+static tree
+parse_integral_knob (const char *val, tree type)
+{
+  char* end;
+  long long num;
+  if (TYPE_UNSIGNED (type))
+    num = strtoull (val, &end, 0);
+  else
+    num = strtoll (val, &end, 0);
+  if (end != val + strlen (val))
+    {
+      const char* msg = TYPE_UNSIGNED (type) ?
+        "an unsigned integral" :
+        "a signed integral";
+      error ("%qs is not %s value", val, msg);
+      return error_mark_node;
+    }
+  return build_int_cst (type, num);
+}
+
+static tree
+parse_enumeral_knob (const char *arg, tree type)
+{
+  tree e = TYPE_VALUES (type);
+  while (e)
+    {
+      tree id = TREE_PURPOSE (e);
+      if (!strcmp (IDENTIFIER_POINTER (id), arg))
+	return TREE_VALUE (e);
+      e = TREE_CHAIN (e);
+    }
+  error ("%qs is not an enumerator of %qT", arg, type);
+  return error_mark_node;
+}
+
+/* Parse ARG as a value of TYPE.  */
+
+static tree
+cxx_parse_knob (const char* arg, tree type)
+{
+  if (same_type_p (type, boolean_type_node))
+    return parse_boolean_knob (arg);
+  if (CP_INTEGRAL_TYPE_P (type))
+    return parse_integral_knob (arg, type);
+  if (TREE_CODE (type) == ENUMERAL_TYPE)
+    return parse_enumeral_knob (arg, type);
+  error ("cannot interpret %qs as a value of %qT", arg, type);
+  return error_mark_node;
 }
 
 /* Subroutine of cxx_eval_constant_expression.
@@ -2209,12 +2279,12 @@ cxx_eval_metafunction (const constexpr_ctx *ctx, tree t,
     {
       tree arg = TREE_VEC_ELT (args, i);
       if (!TYPE_P (arg))
-      	{
+	{
 	  TREE_VEC_ELT (vals, i) =
 	    cxx_eval_constant_expression (ctx, arg, false, non_constant_p,
 					  overflow_p);
 	  VERIFY_CONSTANT (TREE_VEC_ELT (vals, i));
-        }
+	}
       else
 	TREE_VEC_ELT (vals, i) = arg;
     }
@@ -2224,19 +2294,27 @@ cxx_eval_metafunction (const constexpr_ctx *ctx, tree t,
     {
     case mfk_getenv:
       {
-      	const char* key = get_constant_string (ctx, TREE_VEC_ELT (vals, 0));
-      	const char* val = lookup_knob (key);
-      	if (val)
-      	  return build_string_literal (strlen (val) + 1, val);
+	const char* key = get_constant_string (TREE_VEC_ELT (vals, 0));
+	const char* val = lookup_knob (key);
+	if (val)
+	  return build_string_literal (strlen (val) + 1, val);
 	return nullptr_node;
       }
       break;
 
     case mfk_maybe_getenv:
-      /* FIXME: Implement me.  */
-      break;
+	const char* key = get_constant_string (TREE_VEC_ELT (vals, 0));
+	const char* val = lookup_knob (key);
+	if (val)
+	  {
+	    /* Parse the knob and re-evaluate the result in context.  */
+	    tree r = cxx_parse_knob (val, TREE_VEC_ELT (vals, 1));
+	    return cxx_eval_constant_expression (ctx, r, lval,
+						 non_constant_p, overflow_p);
+	  }
+	return TREE_VEC_ELT (vals, 2);
     }
-  return t;
+  gcc_unreachable ();
 }
 
 /* Subroutine of cxx_eval_constant_expression.
