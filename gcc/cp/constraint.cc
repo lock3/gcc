@@ -2531,17 +2531,15 @@ clear_satisfaction_cache ()
 /* Calls CB for each entry in the atomic constraint satisfaction cache.  */
 
 void
-walk_atom_cache (bool (*cb) (tree, tree, tree, void *), void *ctx)
+walk_atom_cache (bool (*cb) (tree, void *), void *ctx)
 {
   if (!sat_cache)
     return;
 
-  hash_table<sat_hasher>::iterator end = sat_cache->end ();
-  for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end; ++i)
+  hash_table<atom_hasher>::iterator end = atom_cache->end ();
+  for (hash_table<atom_hasher>::iterator i = atom_cache->begin (); i != end; ++i)
     {
-      // FIXME: pass sat_entry rather than trees
-      sat_entry *e = *i;
-      if (!cb (e->constr, e->args, e->result, ctx))
+      if (!cb (*i, ctx))
         return;
     }
 }

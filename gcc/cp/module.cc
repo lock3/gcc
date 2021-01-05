@@ -2266,7 +2266,7 @@ public:
     EK_FOR_BINDING,	/* A decl being inserted for a binding.  */
     EK_INNER_DECL,	/* A decl defined outside of it's imported
 			   context.  */
-    EK_DIRECT_HWM = EK_PARTIAL + 1,
+    EK_DIRECT_HWM = EK_ATOM + 1,  // TY - was EK_PARTIAL + 1
 
     EK_BITS = 3		/* Only need to encode below EK_EXPLICIT_HWM.  */
   };
@@ -13311,14 +13311,14 @@ struct atom_entry
   tree result;
 };
 
-static bool atom_add(tree constr, tree args, tree result, void *ctx)
+static bool atom_add(tree atom, void *ctx)
 {
- vec<atom_entry *> *data =  (vec<atom_entry *> *)ctx;
- atom_entry *entry = new atom_entry;
- entry->constr = constr;
- entry->args = args;
- entry->result = result;
- data->safe_push(entry);
+ vec<tree> *data =  (vec<tree> *)ctx;
+// atom_entry *entry = new atom_entry;
+// entry->constr = constr;
+// entry->args = args;
+// entry->result = result;
+ data->safe_push(atom);
  return true;
 }
 
@@ -13329,15 +13329,15 @@ static int atom_cmp (const void *p1, const void *p2)
 
 void depset::hash::add_atoms ()
 {
-  vec<atom_entry *> data;
+  vec<tree> data;
   data.create (100);
   walk_atom_cache (atom_add, &data);
   fprintf (stderr, "atomic constraints: %d\n", data.length ());
   // data.qsort (atom_cmp);
   while (data.length ())
     {
-      atom_entry *entry = data.pop ();
-      depset *dep = make_dependency (entry->constr, depset::EK_ATOM);
+      tree atom = data.pop ();
+      depset *dep = make_dependency (atom, depset::EK_ATOM);
     }
   data.release ();
 }

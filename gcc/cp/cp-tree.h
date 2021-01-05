@@ -8330,8 +8330,6 @@ extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
 extern void walk_atom_cache                     (bool (*) (tree, 
-                                                           tree, 
-                                                           tree, 
                                                            void *), 
                                                  void *);
 extern void save_satisfaction (bool, tree, tree, tree);
