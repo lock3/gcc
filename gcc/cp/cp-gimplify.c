@@ -1,6 +1,6 @@
 /* C++-specific tree lowering bits; see also c-gimplify.c and gimple.c.
 
-   Copyright (C) 2002-2020 Free Software Foundation, Inc.
+   Copyright (C) 2002-2021 Free Software Foundation, Inc.
    Contributed by Jason Merrill <jason@redhat.com>
 
 This file is part of GCC.
@@ -2952,6 +2952,21 @@ struct source_location_table_entry_hash
     return (ref.loc == UNKNOWN_LOCATION
 	    && ref.uid == 0
 	    && ref.var == NULL_TREE);
+  }
+
+  static void
+  pch_nx (source_location_table_entry &p)
+  {
+    extern void gt_pch_nx (source_location_table_entry &);
+    gt_pch_nx (p);
+  }
+
+  static void
+  pch_nx (source_location_table_entry &p, gt_pointer_operator op, void *cookie)
+  {
+    extern void gt_pch_nx (source_location_table_entry *, gt_pointer_operator,
+			   void *);
+    gt_pch_nx (&p, op, cookie);
   }
 };
 

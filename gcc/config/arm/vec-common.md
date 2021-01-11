@@ -1,5 +1,5 @@
 ;; Machine Description for shared bits common to IWMMXT and Neon.
-;; Copyright (C) 2006-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2021 Free Software Foundation, Inc.
 ;; Written by CodeSourcery.
 ;;
 ;; This file is part of GCC.
@@ -186,3 +186,32 @@
 		 (match_operand:VDQ 2 "neon_logic_op2" "")))]
   "ARM_HAVE_<MODE>_ARITH"
 )
+
+(define_expand "xor<mode>3"
+  [(set (match_operand:VDQ 0 "s_register_operand" "")
+	(xor:VDQ (match_operand:VDQ 1 "s_register_operand" "")
+		 (match_operand:VDQ 2 "s_register_operand" "")))]
+  "ARM_HAVE_<MODE>_ARITH"
+)
+
+(define_expand "one_cmpl<mode>2"
+  [(set (match_operand:VDQ 0 "s_register_operand")
+	(not:VDQ (match_operand:VDQ 1 "s_register_operand")))]
+  "ARM_HAVE_<MODE>_ARITH"
+)
+
+(define_expand "neg<mode>2"
+  [(set (match_operand:VDQWH 0 "s_register_operand" "")
+	(neg:VDQWH (match_operand:VDQWH 1 "s_register_operand" "")))]
+  "ARM_HAVE_<MODE>_ARITH"
+)
+
+(define_expand "cadd<rot><mode>3"
+  [(set (match_operand:VF 0 "register_operand")
+	(unspec:VF [(match_operand:VF 1 "register_operand")
+		    (match_operand:VF 2 "register_operand")]
+		   VCADD))]
+  "(TARGET_COMPLEX || (TARGET_HAVE_MVE && TARGET_HAVE_MVE_FLOAT
+		      && ARM_HAVE_<MODE>_ARITH)) && !BYTES_BIG_ENDIAN"
+)
+

@@ -174,7 +174,13 @@ Expression::export_name(Export_function_body* efb, const Named_object* no)
 void
 Expression::unused_value_error()
 {
-  this->report_error(_("value computed is not used"));
+  if (this->type()->is_error())
+    {
+      go_assert(saw_errors());
+      this->set_is_error();
+    }
+  else
+    this->report_error(_("value computed is not used"));
 }
 
 // Note that this expression is an error.  This is called by children
@@ -888,8 +894,7 @@ Type_expression : public Expression
   { }
 
   void
-  do_check_types(Gogo*)
-  { this->report_error(_("invalid use of type")); }
+  do_check_types(Gogo*);
 
   Expression*
   do_copy()
@@ -905,6 +910,18 @@ Type_expression : public Expression
   // The type which we are representing as an expression.
   Type* type_;
 };
+
+void
+Type_expression::do_check_types(Gogo*)
+{
+  if (this->type_->is_error())
+    {
+      go_assert(saw_errors());
+      this->set_is_error();
+    }
+  else
+    this->report_error(_("invalid use of type"));
+}
 
 void
 Type_expression::do_dump_expression(Ast_dump_context* ast_dump_context) const
@@ -5317,7 +5334,6 @@ Unary_expression::do_get_backend(Translate_context* context)
       {
         go_assert(this->expr_->type()->points_to() != NULL);
 
-        bool known_valid = false;
         Type* ptype = this->expr_->type()->points_to();
         Btype* pbtype = ptype->get_backend(gogo);
         switch (this->requires_nil_check(gogo))
@@ -5358,14 +5374,12 @@ Unary_expression::do_get_backend(Translate_context* context)
                                                                 compare,
                                                                 bcrash, ubexpr,
                                                                 loc);
-                known_valid = true;
                 break;
               }
             case NIL_CHECK_DEFAULT:
               go_unreachable();
           }
-        ret = gogo->backend()->indirect_expression(pbtype, bexpr,
-                                                   known_valid, loc);
+        ret = gogo->backend()->indirect_expression(pbtype, bexpr, false, loc);
       }
       break;
 
@@ -13322,7 +13336,8 @@ Array_index_expression::do_get_backend(Translate_context* context)
 
 	  Type* ele_type = this->array_->type()->array_type()->element_type();
 	  Btype* ele_btype = ele_type->get_backend(gogo);
-	  ret = gogo->backend()->indirect_expression(ele_btype, ptr, true, loc);
+	  ret = gogo->backend()->indirect_expression(ele_btype, ptr, false,
+						     loc);
 	}
       return ret;
     }
@@ -13662,7 +13677,7 @@ String_index_expression::do_get_backend(Translate_context* context)
     {
       ptr = gogo->backend()->pointer_offset_expression(ptr, bstart, loc);
       Btype* ubtype = Type::lookup_integer_type("uint8")->get_backend(gogo);
-      return gogo->backend()->indirect_expression(ubtype, ptr, true, loc);
+      return gogo->backend()->indirect_expression(ubtype, ptr, false, loc);
     }
 
   Expression* end = NULL;

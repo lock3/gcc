@@ -1,5 +1,5 @@
 /* Machine description for AArch64 architecture.
-   Copyright (C) 2009-2020 Free Software Foundation, Inc.
+   Copyright (C) 2009-2021 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GCC.
@@ -5224,8 +5224,11 @@ aarch64_expand_mov_immediate (rtx dest, rtx imm)
       switch (sty)
 	{
 	case SYMBOL_FORCE_TO_MEM:
+	  if (int_mode != ptr_mode)
+	    imm = convert_memory_address (ptr_mode, imm);
+
 	  if (const_offset != 0
-	      && targetm.cannot_force_const_mem (int_mode, imm))
+	      && targetm.cannot_force_const_mem (ptr_mode, imm))
 	    {
 	      gcc_assert (can_create_pseudo_p ());
 	      base = aarch64_force_temporary (int_mode, dest, base);
@@ -7436,7 +7439,18 @@ offset_4bit_signed_scaled_p (machine_mode mode, poly_int64 offset)
 	  && IN_RANGE (multiple, -8, 7));
 }
 
-/* Return true if OFFSET is a unsigned 6-bit value multiplied by the size
+/* Return true if OFFSET is a signed 6-bit value multiplied by the size
+   of MODE.  */
+
+static inline bool
+offset_6bit_signed_scaled_p (machine_mode mode, poly_int64 offset)
+{
+  HOST_WIDE_INT multiple;
+  return (constant_multiple_p (offset, GET_MODE_SIZE (mode), &multiple)
+	  && IN_RANGE (multiple, -32, 31));
+}
+
+/* Return true if OFFSET is an unsigned 6-bit value multiplied by the size
    of MODE.  */
 
 static inline bool
@@ -17367,8 +17381,6 @@ aarch64_simd_container_mode (scalar_mode mode, poly_int64 width)
   return word_mode;
 }
 
-static HOST_WIDE_INT aarch64_estimated_poly_value (poly_int64);
-
 /* Compare an SVE mode SVE_M and an Advanced SIMD mode ASIMD_M
    and return whether the SVE mode should be preferred over the
    Advanced SIMD one in aarch64_autovectorize_vector_modes.  */
@@ -17401,8 +17413,8 @@ aarch64_cmp_autovec_modes (machine_mode sve_m, machine_mode asimd_m)
     return maybe_gt (nunits_sve, nunits_asimd);
 
   /* Otherwise estimate the runtime width of the modes involved.  */
-  HOST_WIDE_INT est_sve = aarch64_estimated_poly_value (nunits_sve);
-  HOST_WIDE_INT est_asimd = aarch64_estimated_poly_value (nunits_asimd);
+  HOST_WIDE_INT est_sve = estimated_poly_value (nunits_sve);
+  HOST_WIDE_INT est_asimd = estimated_poly_value (nunits_asimd);
 
   /* Preferring SVE means picking it first unless the Advanced SIMD mode
      is clearly wider.  */
@@ -17423,10 +17435,11 @@ aarch64_preferred_simd_mode (scalar_mode mode)
 {
   /* Take into account explicit auto-vectorization ISA preferences through
      aarch64_cmp_autovec_modes.  */
-  poly_int64 bits
-    = (TARGET_SVE && aarch64_cmp_autovec_modes (VNx16QImode, V16QImode))
-       ? BITS_PER_SVE_VECTOR : 128;
-  return aarch64_simd_container_mode (mode, bits);
+  if (TARGET_SVE && aarch64_cmp_autovec_modes (VNx16QImode, V16QImode))
+    return aarch64_full_sve_mode (mode).else_mode (word_mode);
+  if (TARGET_SIMD)
+    return aarch64_vq_mode (mode).else_mode (word_mode);
+  return word_mode;
 }
 
 /* Return a list of possible vector sizes for the vectorizer
@@ -18495,11 +18508,11 @@ bool
 aarch64_sve_prefetch_operand_p (rtx op, machine_mode mode)
 {
   struct aarch64_address_info addr;
-  if (!aarch64_classify_address (&addr, op, mode, false))
+  if (!aarch64_classify_address (&addr, op, mode, false, ADDR_QUERY_ANY))
     return false;
 
   if (addr.type == ADDRESS_REG_IMM)
-    return known_eq (addr.const_offset, 0);
+    return offset_6bit_signed_scaled_p (mode, addr.const_offset);
 
   return addr.type == ADDRESS_REG_REG;
 }
@@ -23195,19 +23208,38 @@ aarch64_speculation_safe_value (machine_mode mode,
 
 /* Implement TARGET_ESTIMATED_POLY_VALUE.
    Look into the tuning structure for an estimate.
-   VAL.coeffs[1] is multiplied by the number of VQ chunks over the initial
-   Advanced SIMD 128 bits.  */
+   KIND specifies the type of requested estimate: min, max or likely.
+   For cores with a known SVE width all three estimates are the same.
+   For generic SVE tuning we want to distinguish the maximum estimate from
+   the minimum and likely ones.
+   The likely estimate is the same as the minimum in that case to give a
+   conservative behavior of auto-vectorizing with SVE when it is a win
+   even for 128-bit SVE.
+   When SVE width information is available VAL.coeffs[1] is multiplied by
+   the number of VQ chunks over the initial Advanced SIMD 128 bits.  */
 
 static HOST_WIDE_INT
-aarch64_estimated_poly_value (poly_int64 val)
+aarch64_estimated_poly_value (poly_int64 val,
+			      poly_value_estimate_kind kind
+				= POLY_VALUE_LIKELY)
 {
   enum aarch64_sve_vector_bits_enum width_source
     = aarch64_tune_params.sve_width;
 
-  /* If we still don't have an estimate, use the default.  */
+  /* If there is no core-specific information then the minimum and likely
+     values are based on 128-bit vectors and the maximum is based on
+     the architectural maximum of 2048 bits.  */
   if (width_source == SVE_SCALABLE)
-    return default_estimated_poly_value (val);
+    switch (kind)
+      {
+      case POLY_VALUE_MIN:
+      case POLY_VALUE_LIKELY:
+	return val.coeffs[0];
+      case POLY_VALUE_MAX:
+	  return val.coeffs[0] + val.coeffs[1] * 15;
+      }
 
+  /* If the core provides width information, use that.  */
   HOST_WIDE_INT over_128 = width_source - 128;
   return val.coeffs[0] + val.coeffs[1] * over_128 / 128;
 }

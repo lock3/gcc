@@ -1,5 +1,5 @@
 /* Process declarations and variables for C++ compiler.
-   Copyright (C) 1988-2020 Free Software Foundation, Inc.
+   Copyright (C) 1988-2021 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -5031,6 +5031,13 @@ c_parse_final_cleanups (void)
 	 loop.  */
       if (tree vars = prune_vars_needing_no_initialization (&static_aggregates))
 	{
+	  if (flag_openmp)
+	    /* Add initializer information from VARS into
+	       DYNAMIC_INITIALIZERS.  */
+	    for (t = vars; t; t = TREE_CHAIN (t))
+	      hash_map_safe_put<hm_ggc> (dynamic_initializers,
+					 TREE_VALUE (t), TREE_PURPOSE (t));
+
 	  /* We need to start a new initialization function each time
 	     through the loop.  That's because we need to know which
 	     vtables have been referenced, and TREE_SYMBOL_REFERENCED
@@ -5275,6 +5282,7 @@ c_parse_final_cleanups (void)
   perform_deferred_noexcept_checks ();
 
   fini_constexpr ();
+  cp_tree_c_finish_parsing ();
   clear_consteval_vfns (consteval_vtables);
 
   /* The entire file is now complete.  If requested, dump everything

@@ -1,5 +1,5 @@
 ;; Code and mode itertator and attribute definitions for the ARM backend
-;; Copyright (C) 2010-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2021 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 ;;
 ;; This file is part of GCC.
@@ -1177,10 +1177,28 @@
 
 (define_int_attr rot [(UNSPEC_VCADD90 "90")
 		      (UNSPEC_VCADD270 "270")
+		      (UNSPEC_VCMUL "0")
+		      (UNSPEC_VCMUL90 "90")
+		      (UNSPEC_VCMUL180 "180")
+		      (UNSPEC_VCMUL270 "270")
 		      (UNSPEC_VCMLA "0")
 		      (UNSPEC_VCMLA90 "90")
 		      (UNSPEC_VCMLA180 "180")
 		      (UNSPEC_VCMLA270 "270")])
+
+(define_int_attr mve_rot [(UNSPEC_VCADD90 "_rot90")
+			  (UNSPEC_VCADD270 "_rot270")
+			  (UNSPEC_VCMLA "")
+			  (UNSPEC_VCMLA90 "_rot90")
+			  (UNSPEC_VCMLA180 "_rot180")
+			  (UNSPEC_VCMLA270 "_rot270")
+			  (UNSPEC_VCMUL "")
+			  (UNSPEC_VCMUL90 "_rot90")
+			  (UNSPEC_VCMUL180 "_rot180")
+			  (UNSPEC_VCMUL270 "_rot270")])
+
+(define_int_iterator VCMUL [UNSPEC_VCMUL UNSPEC_VCMUL90
+			    UNSPEC_VCMUL180 UNSPEC_VCMUL270])
 
 (define_int_attr simd32_op [(UNSPEC_QADD8 "qadd8") (UNSPEC_QSUB8 "qsub8")
 			    (UNSPEC_SHADD8 "shadd8") (UNSPEC_SHSUB8 "shsub8")
@@ -1216,7 +1234,7 @@
 (define_int_attr supf [(VCVTQ_TO_F_S "s") (VCVTQ_TO_F_U "u") (VREV16Q_S "s")
 		       (VREV16Q_U "u") (VMVNQ_N_S "s") (VMVNQ_N_U "u")
 		       (VCVTAQ_U "u") (VCVTAQ_S "s") (VREV64Q_S "s")
-		       (VREV64Q_U "u") (VMVNQ_S "s") (VMVNQ_U "u")
+		       (VREV64Q_U "u")
 		       (VDUPQ_N_U "u") (VDUPQ_N_S"s") (VADDVQ_S "s")
 		       (VADDVQ_U "u") (VADDVQ_S "s") (VADDVQ_U "u")
 		       (VMOVLTQ_U "u") (VMOVLTQ_S "s") (VMOVLBQ_S "s")
@@ -1232,12 +1250,10 @@
 		       (VADDLVQ_P_U "u") (VCMPNEQ_U "u") (VCMPNEQ_S "s")
 		       (VABDQ_M_S "s") (VABDQ_M_U "u") (VABDQ_S "s")
 		       (VABDQ_U "u") (VADDQ_N_S "s") (VADDQ_N_U "u")
-		       (VADDVQ_P_S "s")	(VADDVQ_P_U "u") (VBICQ_S "s") (VBICQ_U "u")
-		       (VBRSRQ_N_S "s") (VBRSRQ_N_U "u") (VCADDQ_ROT270_S "s")
-		       (VCADDQ_ROT270_U "u") (VCADDQ_ROT90_S "s")
-		       (VCMPEQQ_S "s") (VCMPEQQ_U "u") (VCADDQ_ROT90_U "u")
+		       (VADDVQ_P_S "s")	(VADDVQ_P_U "u") (VBRSRQ_N_S "s")
+		       (VBRSRQ_N_U "u") (VCMPEQQ_S "s") (VCMPEQQ_U "u")
 		       (VCMPEQQ_N_S "s") (VCMPEQQ_N_U "u") (VCMPNEQ_N_S "s")
-		       (VCMPNEQ_N_U "u") (VEORQ_S "s") (VEORQ_U "u")
+		       (VCMPNEQ_N_U "u")
 		       (VHADDQ_N_S "s") (VHADDQ_N_U "u") (VHADDQ_S "s")
 		       (VHADDQ_U "u") (VHSUBQ_N_S "s")	(VHSUBQ_N_U "u")
 		       (VHSUBQ_S "s") (VMAXQ_S "s") (VMAXQ_U "u") (VHSUBQ_U "u")
@@ -1476,7 +1492,6 @@
 (define_int_iterator VCVTQ_FROM_F [VCVTQ_FROM_F_S VCVTQ_FROM_F_U])
 (define_int_iterator VREV16Q [VREV16Q_U VREV16Q_S])
 (define_int_iterator VCVTAQ [VCVTAQ_U VCVTAQ_S])
-(define_int_iterator VMVNQ [VMVNQ_U VMVNQ_S])
 (define_int_iterator VDUPQ_N [VDUPQ_N_U VDUPQ_N_S])
 (define_int_iterator VCLZQ [VCLZQ_U VCLZQ_S])
 (define_int_iterator VADDVQ [VADDVQ_U VADDVQ_S])
@@ -1500,14 +1515,10 @@
 (define_int_iterator VADDQ_N [VADDQ_N_S VADDQ_N_U])
 (define_int_iterator VADDVAQ [VADDVAQ_S VADDVAQ_U])
 (define_int_iterator VADDVQ_P [VADDVQ_P_U VADDVQ_P_S])
-(define_int_iterator VBICQ [VBICQ_S VBICQ_U])
 (define_int_iterator VBRSRQ_N [VBRSRQ_N_U VBRSRQ_N_S])
-(define_int_iterator VCADDQ_ROT270 [VCADDQ_ROT270_S VCADDQ_ROT270_U])
-(define_int_iterator VCADDQ_ROT90 [VCADDQ_ROT90_U VCADDQ_ROT90_S])
 (define_int_iterator VCMPEQQ [VCMPEQQ_U VCMPEQQ_S])
 (define_int_iterator VCMPEQQ_N [VCMPEQQ_N_S VCMPEQQ_N_U])
 (define_int_iterator VCMPNEQ_N [VCMPNEQ_N_U VCMPNEQ_N_S])
-(define_int_iterator VEORQ [VEORQ_U VEORQ_S])
 (define_int_iterator VHADDQ [VHADDQ_S VHADDQ_U])
 (define_int_iterator VHADDQ_N [VHADDQ_N_U VHADDQ_N_S])
 (define_int_iterator VHSUBQ [VHSUBQ_S VHSUBQ_U])

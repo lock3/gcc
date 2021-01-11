@@ -1,5 +1,5 @@
 ;; Machine description for AArch64 architecture.
-;; Copyright (C) 2009-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2021 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 ;;
 ;; This file is part of GCC.
@@ -2597,6 +2597,10 @@
 				    UNSPEC_SQRDCMLAH90
 				    UNSPEC_SQRDCMLAH180
 				    UNSPEC_SQRDCMLAH270])
+
+;; Same as SVE2_INT_CADD but exclude the saturating instructions
+(define_int_iterator SVE2_INT_CADD_OP [UNSPEC_CADD90
+				       UNSPEC_CADD270])
 
 (define_int_iterator SVE2_INT_CDOT [UNSPEC_CDOT
 				    UNSPEC_CDOT90

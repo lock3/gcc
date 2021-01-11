@@ -1,5 +1,5 @@
 /* Process declarations and variables for -*- C++ -*- compiler.
-   Copyright (C) 1988-2020 Free Software Foundation, Inc.
+   Copyright (C) 1988-2021 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -146,6 +146,10 @@ tree static_aggregates;
 
 /* Like static_aggregates, but for thread_local variables.  */
 tree tls_aggregates;
+
+/* A hash-map mapping from variable decls to the dynamic initializer for
+   the decl.  This is currently only used by OpenMP.  */
+decl_tree_map *dynamic_initializers;
 
 /* -- end of C++ */
 
@@ -3074,8 +3078,13 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	     function.  */
 	  if (DECL_ARGUMENTS (olddecl))
 	    {
-	      /* Save new argument names for use in contracts parsing.  */
-	      copy_argument_names (newdecl, olddecl);
+	      /* Save new argument names for use in contracts parsing, unless
+		 we've already started parsing the body of olddecl (particular
+		 issues arise when newdecl is from a prior friend decl with no
+		 argument names, see modules/contracts-tpl-friend-1).  */
+	      if (flag_contracts && DECL_ARGUMENTS (olddecl)
+		  && DECL_INITIAL (olddecl) != error_mark_node)
+		copy_argument_names (newdecl, olddecl);
 
 	      DECL_ARGUMENTS (newdecl) = DECL_ARGUMENTS (olddecl);
 	    }
@@ -18357,6 +18366,7 @@ require_deduced_type (tree decl, tsubst_flags_t complain)
 	/* We probably already complained about deduction failure.  */;
       else if (complain & tf_error)
 	error ("use of %qD before deduction of %<auto%>", decl);
+      note_failed_type_completion_for_satisfaction (decl);
       return false;
     }
   return true;

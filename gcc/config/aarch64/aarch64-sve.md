@@ -1,5 +1,5 @@
 ;; Machine description for AArch64 SVE.
-;; Copyright (C) 2009-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2021 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 ;;
 ;; This file is part of GCC.
@@ -5479,6 +5479,20 @@
 	  UNSPEC_SEL))]
   "TARGET_SVE"
 )
+
+;; Predicated FCADD using ptrue for unpredicated optab for auto-vectorizer
+(define_expand "@cadd<rot><mode>3"
+  [(set (match_operand:SVE_FULL_F 0 "register_operand")
+	(unspec:SVE_FULL_F
+	  [(match_dup 3)
+	   (const_int SVE_RELAXED_GP)
+	   (match_operand:SVE_FULL_F 1 "register_operand")
+	   (match_operand:SVE_FULL_F 2 "register_operand")]
+	  SVE_COND_FCADD))]
+  "TARGET_SVE"
+{
+  operands[3] = aarch64_ptrue_reg (<VPRED>mode);
+})
 
 ;; Predicated FCADD, merging with the first input.
 (define_insn_and_rewrite "*cond_<optab><mode>_2_relaxed"

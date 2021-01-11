@@ -1,3 +1,48 @@
+2021-01-04  Jakub Jelinek  <jakub@redhat.com>
+
+	* update-copyright.py: Add AMD and Ulf Adams as external authors.
+
+2021-01-04  Jakub Jelinek  <jakub@redhat.com>
+
+	* update-copyright.py: Use 8 spaces instead of tab to indent.
+
+2021-01-04  Martin Liska  <mliska@suse.cz>
+
+	* mklog.py: Add --update-copyright option which adds:
+	"Update copyright years." to ChangeLog files belonging
+	to a modified file.
+
+2021-01-04  Martin Liska  <mliska@suse.cz>
+
+	* gcc-changelog/git_commit.py: Skip Update copyright
+	years commits.
+
+2020-12-21  Martin Liska  <mliska@suse.cz>
+
+	* gcc-changelog/git_commit.py: Add new error for quoted
+	filenames.
+	* gcc-changelog/test_email.py: Test it.
+	* gcc-changelog/test_patches.txt: Test it.
+
+2020-12-21  Martin Liska  <mliska@suse.cz>
+
+	* gcc-changelog/test_email.py: New test.
+	* gcc-changelog/test_patches.txt: Likewise.
+
+2020-12-17  Nathan Sidwell  <nathan@acm.org>
+
+	PR bootstrap/98300
+	* gcc_update: Add c++tools/config.h.in.
+
+2020-12-15  Nathan Sidwell  <nathan@acm.org>
+
+	* gcc_update: Add c++tools & libcody.
+
+2020-12-15  Nathan Sidwell  <nathan@acm.org>
+
+	* gcc-changelog/git_commit.py (changelog_locations): Add
+	libcody, c++tools.
+
 2020-12-08  Martin Liska  <mliska@suse.cz>
 
 	* filter-clang-warnings.py: Filter more cases.

@@ -1,5 +1,5 @@
 /* Parser for C and Objective-C.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
 
    Parser actions based on the old Bison parser; structure somewhat
    influenced by and fragments based on the C++ parser.
@@ -10615,8 +10615,14 @@ c_parser_expression (c_parser *parser)
       c_parser_consume_token (parser);
       expr_loc = c_parser_peek_token (parser)->location;
       lhsval = expr.value;
-      while (TREE_CODE (lhsval) == COMPOUND_EXPR)
-	lhsval = TREE_OPERAND (lhsval, 1);
+      while (TREE_CODE (lhsval) == COMPOUND_EXPR
+	     || TREE_CODE (lhsval) == NOP_EXPR)
+	{
+	  if (TREE_CODE (lhsval) == COMPOUND_EXPR)
+	    lhsval = TREE_OPERAND (lhsval, 1);
+	  else
+	    lhsval = TREE_OPERAND (lhsval, 0);
+	}
       if (DECL_P (lhsval) || handled_component_p (lhsval))
 	mark_exp_read (lhsval);
       next = c_parser_expr_no_commas (parser, NULL);
