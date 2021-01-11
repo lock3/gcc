@@ -1,3 +1,260 @@
+2021-01-09  Maciej W. Rozycki  <macro@linux-mips.org>
+
+	* gcc.target/vax/cmpelim-eq-notsi.c: Use subtraction from a
+	constant then rather than addition.
+	* gcc.target/vax/cmpelim-le-notsi.c: Likewise.
+	* gcc.target/vax/cmpelim-lt-notsi.c: Likewise.
+
+2021-01-09  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/98556
+	* c-c++-common/pr98556.c: New test.
+
+2021-01-09  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/98603
+	* gcc.target/i386/pr98603.c: New test.
+	* gcc.target/aarch64/pr98603.c: New test.
+
+2021-01-09  Alexandre Oliva  <oliva@gnu.org>
+
+	PR debug/97714
+	* gcc.dg/debug/pr97714.c: New.
+
+2021-01-08  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR target/98482
+	* gcc.target/i386/pr98482-1.c: Require lp64.
+	* gcc.target/i386/pr98482-2.c: Likewise.
+
+2021-01-08  Ilya Leoshkevich  <iii@linux.ibm.com>
+
+	* gcc.target/s390/vector/long-double-vx-macro-off-on.c: New test.
+	* gcc.target/s390/vector/long-double-vx-macro-on-off.c: New test.
+
+2021-01-08  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/98551
+	* g++.dg/cpp0x/constexpr-pmf2.C: New test.
+
+2021-01-08  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/98515
+	* g++.dg/template/access32.C: New test.
+	* g++.dg/template/access33.C: New test.
+
+2021-01-08  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR target/98482
+	* gcc.target/i386/pr98482-2.c: Updated.
+
+2021-01-08  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98544
+	* gcc.dg/vect/bb-slp-pr98544.c: New testcase.
+
+2021-01-08  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR target/98482
+	* gcc.target/i386/pr98482-1.c: New test.
+	* gcc.target/i386/pr98482-1.c: Likewise.
+	* gcc.target/i386/pr98482-2.c: New file.
+
+2021-01-08  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/98585
+	* gcc.target/i386/pr98585.c: New test.
+
+2021-01-08  Richard Sandiford  <richard.sandiford@arm.com>
+
+	* gcc.target/aarch64/sve/cnot_2.c: New test.
+	* gcc.target/aarch64/sve/cond_cnot_4.c: Likewise.
+	* gcc.target/aarch64/sve/cond_cnot_4_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_cnot_5.c: Likewise.
+	* gcc.target/aarch64/sve/cond_cnot_5_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_cnot_6.c: Likewise.
+	* gcc.target/aarch64/sve/cond_cnot_6_run.c: Likewise.
+
+2021-01-08  Richard Sandiford  <richard.sandiford@arm.com>
+
+	* gcc.target/aarch64/sve/cond_uxt_5.c: New test.
+	* gcc.target/aarch64/sve/cond_uxt_5_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_uxt_6.c: Likewise.
+	* gcc.target/aarch64/sve/cond_uxt_6_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_uxt_7.c: Likewise.
+	* gcc.target/aarch64/sve/cond_uxt_7_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_uxt_8.c: Likewise.
+	* gcc.target/aarch64/sve/cond_uxt_8_run.c: Likewise.
+
+2021-01-08  Tamar Christina  <tamar.christina@arm.com>
+
+	* lib/target-supports.exp
+	(check_effective_target_aarch64_asm_sve2_ok): New.
+	* g++.target/aarch64/sve2/acle/aarch64-sve2-acle-asm.exp: Use it.
+	* gcc.target/aarch64/sve2/acle/aarch64-sve2-acle-asm.exp: Likewise.
+
+2021-01-08  Kyrylo Tkachov  <kyrylo.tkachov@arm.com>
+
+	* gcc.target/aarch64/usaba_1.c: New test.
+
+2021-01-08  Paul Thomas  <pault@gcc.gnu.org>
+
+	PR fortran/93794
+	* gfortran.dg/deferred_character_35.f90 : New test.
+
+2021-01-08  Paul Thomas  <pault@gcc.gnu.org>
+
+	PR fortran/98458
+	* gfortran.dg/implied_do_3.f90 : New test.
+
+2021-01-08  Kito Cheng  <kito.cheng@sifive.com>
+
+	* gcc.dg/array-quals-1.c: Allow srodata.
+
+2021-01-08  Kito Cheng  <kito.cheng@sifive.com>
+
+	* gcc.target/riscv/predef-10.c: New.
+	* gcc.target/riscv/predef-11.c: New.
+	* gcc.target/riscv/predef-12.c: New.
+	* gcc.target/riscv/predef-13.c: New.
+
+2021-01-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/98329
+	* g++.dg/cpp2a/bit-cast10.C: New test.
+
+2021-01-07  Martin Sebor  <msebor@redhat.com>
+
+	PR middle-end/98578
+	* gcc.dg/plugin/gil-1.c: Adjust expected output.
+	* gcc.dg/uninit-pr98578.c: New test.
+
+2021-01-07  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/98441
+	* g++.dg/cpp0x/auto55.C: New test.
+
+2021-01-07  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98580
+	* gcc.dg/analyzer/pr98580-a.c: New test.
+	* gcc.dg/analyzer/pr98580-b.c: New test.
+
+2021-01-07  Paul Thomas  <pault@gcc.gnu.org>
+
+	PR fortran/93701
+	* gfortran.dg/associate_54.f90: New test.
+	* gfortran.dg/associate_55.f90: New test.
+	* gfortran.dg/associate_56.f90: New test.
+
+2021-01-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/98567
+	* gcc.target/i386/pr98567-1.c: New test.
+	* gcc.target/i386/pr98567-2.c: New test.
+
+2021-01-07  Richard Sandiford  <richard.sandiford@arm.com>
+
+	* gcc.target/aarch64/sve/cond_unary_5.c: New test.
+	* gcc.target/aarch64/sve/cond_unary_5_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_unary_6.c: Likewise.
+	* gcc.target/aarch64/sve/cond_unary_6_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_unary_7.c: Likewise.
+	* gcc.target/aarch64/sve/cond_unary_7_run.c: Likewise.
+	* gcc.target/aarch64/sve/cond_unary_8.c: Likewise.
+	* gcc.target/aarch64/sve/cond_unary_8_run.c: Likewise.
+
+2021-01-07  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR tree-optimization/98560
+	* gcc.dg/vect/pr98560-2.c: New test.
+
+2021-01-07  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR tree-optimization/98560
+	* gcc.dg/vect/pr98560-1.c: New test.
+
+2021-01-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/98568
+	* g++.dg/torture/pr98568.C: New test.
+
+2021-01-07  Hongyu Wang  <hongyu.wang@intel.com>
+
+	* gcc.target/i386/pr92658-avx512bw.c: Add
+	-mprefer-vector-width=512 to avoid impact of different default
+	mtune which gcc is built with.
+	* gcc.target/i386/pr92658-avx512bw-2.c: Ditto.
+
+2021-01-07  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/97074
+	* gcc.dg/analyzer/pr97074.c: New test.
+
+2021-01-07  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98564
+	* gcc.dg/analyzer/pr98564.c: New test.
+
+2021-01-06  Vladimir N. Makarov  <vmakarov@redhat.com>
+
+	PR rtl-optimization/97978
+	* gcc.target/i386/pr97978.c: New.
+
+2021-01-06  Martin Sebor  <msebor@redhat.com>
+
+	PR c++/95768
+	* g++.dg/pr95768.C: New test.
+	* g++.dg/warn/Wuninitialized-12.C: New test.
+	* gcc.dg/uninit-38.c: New test.
+
+2021-01-06  Martin Sebor  <msebor@redhat.com>
+
+	PR c++/98305
+	* g++.dg/warn/Wmismatched-new-delete-3.C: New test.
+
+2021-01-06  Iain Sandoe  <iain@sandoe.co.uk>
+
+	PR c++/96504
+	* g++.dg/coroutines/torture/pr95519-05-gro.C: Use suspend_always
+	as the final suspend point so that we can check that the state
+	machine has reached the expected point.
+
+2021-01-06  Marek Polacek  <polacek@redhat.com>
+
+	PR testsuite/98566
+	* g++.dg/warn/Wmismatched-dealloc.C: Use target c++14 in
+	dg-error.
+
+2021-01-06  Alexandre Oliva  <oliva@adacore.com>
+
+	* g++.dg/opt/store-merging-2.C: Add the required alignment.
+
+2021-01-06  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/95582
+	* gcc.dg/pr95582.c: New testcase.
+
+2021-01-06  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/98513
+	* gcc.dg/tree-ssa/pr98513.c: New testcase.
+
+2021-01-06  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/97072
+	* gcc.dg/analyzer/pr97072.c: New test.
+
+2021-01-06  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98073
+	* gcc.dg/analyzer/pr98073.c: New test.
+
+2021-01-06  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98223
+	* gcc.dg/analyzer/pr94851-1.c: Remove xfail.
+
 2021-01-05  Ilya Leoshkevich  <iii@linux.ibm.com>
 
 	* gcc.target/s390/s390.exp: Replace %% with %.

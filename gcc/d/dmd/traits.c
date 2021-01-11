@@ -313,7 +313,6 @@ static Expression *isDsymX(TraitsExp *e, bool (*fp)(Dsymbol *s))
     return True(e);
 }
 
-static bool isFuncDisabled(FuncDeclaration *f) { return f->isDisabled(); }
 static bool isFuncAbstractFunction(FuncDeclaration *f) { return f->isAbstract(); }
 static bool isFuncVirtualFunction(FuncDeclaration *f) { return f->isVirtual(); }
 static bool isFuncVirtualMethod(FuncDeclaration *f) { return f->isVirtualMethod(); }
@@ -337,6 +336,7 @@ static Expression *isFuncX(TraitsExp *e, bool (*fp)(FuncDeclaration *f))
     return True(e);
 }
 
+static bool isDeclDisabled(Declaration *d) { return d->isDisabled(); }
 static bool isDeclFuture(Declaration *d) { return d->isFuture(); }
 static bool isDeclRef(Declaration *d) { return d->isRef(); }
 static bool isDeclOut(Declaration *d) { return d->isOut(); }
@@ -658,7 +658,8 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
     if (e->ident != Id::compiles &&
         e->ident != Id::isSame &&
         e->ident != Id::identifier &&
-        e->ident != Id::getProtection && e->ident != Id::getVisibility)
+        e->ident != Id::getProtection && e->ident != Id::getVisibility &&
+        e->ident != Id::getAttributes)
     {
         // Pretend we're in a deprecated scope so that deprecation messages
         // aren't triggered when checking if a symbol is deprecated
@@ -810,7 +811,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         if (dim != 1)
             return dimError(e, 1, dim);
 
-        return isFuncX(e, &isFuncDisabled);
+        return isDeclX(e, &isDeclDisabled);
     }
     else if (e->ident == Id::isAbstractFunction)
     {
@@ -905,8 +906,12 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         Identifier *id = NULL;
         if (Parameter *po = isParameter(o))
         {
+            if (!po->ident)
+            {
+                e->error("argument `%s` has no identifier", po->type->toChars());
+                return new ErrorExp();
+            }
             id = po->ident;
-            assert(id);
         }
         else
         {
@@ -928,7 +933,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             return dimError(e, 1, dim);
 
         Scope *sc2 = sc->push();
-        sc2->flags = sc->flags | SCOPEnoaccesscheck;
+        sc2->flags = sc->flags | SCOPEnoaccesscheck | SCOPEignoresymbolvisibility;
         bool ok = TemplateInstance::semanticTiargs(e->loc, sc2, e->args, 1);
         sc2->pop();
         if (!ok)
@@ -1245,23 +1250,39 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
     }
     else if (e->ident == Id::getAttributes)
     {
+        /* Specify 0 for bit 0 of the flags argument to semanticTiargs() so that
+         * a symbol should not be folded to a constant.
+         * Bit 1 means don't convert Parameter to Type if Parameter has an identifier
+         */
+        if (!TemplateInstance::semanticTiargs(e->loc, sc, e->args, 3))
+            return new ErrorExp();
+
         if (dim != 1)
             return dimError(e, 1, dim);
 
         RootObject *o = (*e->args)[0];
+        Parameter *po = isParameter(o);
         Dsymbol *s = getDsymbolWithoutExpCtx(o);
-        if (!s)
+        UserAttributeDeclaration *udad = NULL;
+        if (po)
+        {
+            udad = po->userAttribDecl;
+        }
+        else if (s)
+        {
+            if (Import *imp = s->isImport())
+            {
+                s = imp->mod;
+            }
+            //printf("getAttributes %s, attrs = %p, scope = %p\n", s->toChars(), s->userAttribDecl, s->_scope);
+            udad = s->userAttribDecl;
+        }
+        else
         {
             e->error("first argument is not a symbol");
             return new ErrorExp();
         }
-        if (Import *imp = s->isImport())
-        {
-            s = imp->mod;
-        }
 
-        //printf("getAttributes %s, attrs = %p, scope = %p\n", s->toChars(), s->userAttribDecl, s->_scope);
-        UserAttributeDeclaration *udad = s->userAttribDecl;
         Expressions *exps = udad ? udad->getAttributes() : new Expressions();
         TupleExp *tup = new TupleExp(e->loc, exps);
         return semantic(tup, sc);
