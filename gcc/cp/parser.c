@@ -17136,8 +17136,8 @@ cp_parser_type_parameter (cp_parser* parser, bool *is_parameter_pack)
 
 	/* Look for 'concept'.  */
 	cp_token *concept_tok = nullptr;
-	if (flag_concepts &&
-	      cp_lexer_next_token_is_keyword (parser->lexer, RID_CONCEPT))
+	if (flag_concepts
+	    && cp_lexer_next_token_is_keyword (parser->lexer, RID_CONCEPT))
 	  concept_tok = cp_lexer_consume_token (parser->lexer);
 
 	/* Look for the `class' or 'typename' keywords.  */

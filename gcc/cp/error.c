@@ -1456,7 +1456,8 @@ dump_template_decl (cxx_pretty_printer *pp, tree t, int flags)
 	    {
 	      /* Skip over the dummy template levels of a template template
 		 parm.  */
-	      gcc_assert (TREE_CODE (TREE_TYPE (t)) == TEMPLATE_TEMPLATE_PARM);
+	      gcc_assert (DECL_TEMPLATE_TEMPLATE_PARM_P (t)
+			  || DECL_CONCEPT_TEMPLATE_PARM_P (t));
 	      continue;
 	    }
 

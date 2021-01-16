@@ -4558,9 +4558,9 @@ process_template_parm (tree list, location_t parm_loc, tree parm,
       prev = tree_last (list);
 
       tree p = TREE_VALUE (prev);
-      if (TREE_CODE (p) == TYPE_DECL || TREE_CODE (p) == TEMPLATE_DECL)
+      if (TREE_CODE (p) == TYPE_DECL || DECL_TEMPLATE_TEMPLATE_PARM_P (p))
 	idx = TEMPLATE_TYPE_IDX (TREE_TYPE (p));
-      else if (TREE_CODE (p) == PARM_DECL)
+      else if (TREE_CODE (p) == PARM_DECL || DECL_CONCEPT_TEMPLATE_PARM_P (p))
 	idx = TEMPLATE_PARM_IDX (DECL_INITIAL (p));
 
       ++idx;
