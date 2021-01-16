@@ -45,6 +45,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gcc-rich-location.h"
 #include "selftest.h"
 #include "target.h"
+#include "print-tree.h"
 
 /* The type of functions taking a tree, and some additional data, and
    returning an int.  */
@@ -4509,6 +4510,35 @@ reduce_template_parm_level (tree index, tree type, int levels, tree args,
   return TEMPLATE_PARM_DESCENDANTS (index);
 }
 
+/* True if T declares a concept template parameter.  */
+
+static
+bool is_concept_parm (tree t)
+{
+  if (TREE_CODE (TREE_VALUE (t)) == TEMPLATE_DECL)
+    {
+      t = DECL_TEMPLATE_RESULT (TREE_VALUE (t));
+      return TREE_CODE (t) == CONCEPT_DECL;
+    }
+  return false;
+}
+
+/* A subroutine of process_template_parm. Given a TEMPLATE_DECL PARM
+   representing a template template parameter or a concept template parameter,
+   construct its TEMPLATE_INFO.  Returns the DECL_TEMPLATE_RESULT of the
+   TEMPLATE_DECL.  */
+
+static
+tree fixup_template_parm (tree parm)
+{
+  tree result = DECL_TEMPLATE_RESULT (parm);
+  tree args = template_parms_to_args (DECL_TEMPLATE_PARMS (parm));
+  tree tinfo = build_template_info (parm, args);
+  retrofit_lang_decl (result);
+  DECL_TEMPLATE_INFO (result) = tinfo;
+  return result;
+}
+
 /* Process information from new template parameter PARM and append it
    to the LIST being built.  This new parameter is a non-type
    parameter iff IS_NON_TYPE is true. This new parameter is a
@@ -4585,26 +4615,43 @@ process_template_parm (tree list, location_t parm_loc, tree parm,
       TEMPLATE_PARM_PARAMETER_PACK (DECL_INITIAL (parm))
 	= is_parameter_pack;
     }
+  else if (is_concept_parm (parm))
+    {
+      parm = TREE_VALUE (parm);
+      gcc_assert (TREE_CODE (parm) == TEMPLATE_DECL);
+
+      /* Build the template info the for the concept.  */
+      tree result = fixup_template_parm (parm);
+      TREE_TYPE (parm) = boolean_type_node;
+
+      /* The initializer of the concept (and the template) contains refer
+	 to the index.  This makes concept template parameters work a bit
+	 like nontype template parameters.  */
+      tree index = build_template_parm_index (idx, processing_template_decl,
+					      processing_template_decl, parm,
+					      TREE_TYPE (parm));
+      TEMPLATE_PARM_PARAMETER_PACK (index) = is_parameter_pack;
+      DECL_INITIAL (result) = index;
+      DECL_INITIAL (parm) = index;
+
+      /* The declaration is the TEMPLATE_DECL of the concept.  */
+      decl = parm;
+    }
   else
     {
       tree t;
       parm = TREE_VALUE (TREE_VALUE (parm));
-
       if (parm && TREE_CODE (parm) == TEMPLATE_DECL)
 	{
 	  t = cxx_make_type (TEMPLATE_TEMPLATE_PARM);
 	  /* This is for distinguishing between real templates and template
-	     template parameters */
+	     template parameters. */
 	  TREE_TYPE (parm) = t;
 
 	  /* any_template_parm_r expects to be able to get the targs of a
 	     DECL_TEMPLATE_RESULT.  */
-	  tree result = DECL_TEMPLATE_RESULT (parm);
+	  tree result = fixup_template_parm (parm);
 	  TREE_TYPE (result) = t;
-	  tree args = template_parms_to_args (DECL_TEMPLATE_PARMS (parm));
-	  tree tinfo = build_template_info (parm, args);
-	  retrofit_lang_decl (result);
-	  DECL_TEMPLATE_INFO (result) = tinfo;
 
 	  decl = parm;
 	}
@@ -4734,7 +4781,7 @@ template_parm_to_arg (tree t)
   if (DECL_P (t) && DECL_TEMPLATE_PARM_P (t))
     {
       if (TREE_CODE (t) == TYPE_DECL
-	  || TREE_CODE (t) == TEMPLATE_DECL)
+	  || DECL_TEMPLATE_TEMPLATE_PARM_P (t))
 	t = TREE_TYPE (t);
       else
 	t = DECL_INITIAL (t);
@@ -28119,6 +28166,39 @@ finish_concept_definition (cp_expr id, tree init)
 
   /* Push the enclosing template.  */
   return push_template_decl (decl);
+}
+
+/* Returns a parameter specification for a concept template parameter.  */
+
+tree
+finish_concept_template_parameter (cp_expr id)
+{
+  gcc_assert (identifier_p (id));
+  gcc_assert (processing_template_decl);
+
+  location_t loc = id.get_location();
+
+  /* A concept template parameter shall not have associated constraints.  */
+  if (TEMPLATE_PARMS_CONSTRAINTS (current_template_parms))
+    {
+      error_at (loc, "a concept template parameter cannot be constrained");
+      TEMPLATE_PARMS_CONSTRAINTS (current_template_parms) = NULL_TREE;
+    }
+
+  /* Initially build the concept declaration; its type is bool.  */
+  tree decl = build_lang_decl_loc (loc, CONCEPT_DECL, *id, boolean_type_node);
+
+  /* Build the enclosing template.  */
+  tree tmpl = build_lang_decl (TEMPLATE_DECL, id, NULL_TREE);
+  DECL_TEMPLATE_PARMS (tmpl) = current_template_parms;
+  DECL_TEMPLATE_RESULT (tmpl) = decl;
+  DECL_ARTIFICIAL (decl) = 1;
+
+  end_template_decl ();
+
+  /* TODO: Check default arguments? */
+
+  return tmpl;
 }
 
 /* Given type ARG, return std::initializer_list<ARG>.  */

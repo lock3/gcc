@@ -4876,8 +4876,16 @@ more_aggr_init_expr_args_p (const aggr_init_expr_arg_iterator *iter)
   (DECL_LANG_FLAG_0 (NODE) = 1)
 
 /* Nonzero if NODE is a template template parameter.  */
-#define DECL_TEMPLATE_TEMPLATE_PARM_P(NODE) \
-  (TREE_CODE (NODE) == TEMPLATE_DECL && DECL_TEMPLATE_PARM_P (NODE))
+#define DECL_TEMPLATE_TEMPLATE_PARM_P(NODE)                     \
+  (TREE_CODE (NODE) == TEMPLATE_DECL                            \
+   && DECL_TEMPLATE_PARM_P (NODE)                               \
+   && TREE_CODE (TREE_TYPE (NODE)) == TEMPLATE_TEMPLATE_PARM)
+
+/* Nonzero if NODE is a concept template parameter.  */
+#define DECL_CONCEPT_TEMPLATE_PARM_P(NODE)                     \
+  (TREE_CODE (NODE) == TEMPLATE_DECL                            \
+   && DECL_TEMPLATE_PARM_P (NODE)                               \
+   && TREE_CODE (DECL_TEMPLATE_RESULT (NODE)) == CONCEPT_DECL)
 
 /* Nonzero for a DECL that represents a function template.  */
 #define DECL_FUNCTION_TEMPLATE_P(NODE)                          \
@@ -8062,6 +8070,7 @@ extern cp_expr finish_constraint_or_expr	(location_t, cp_expr, cp_expr);
 extern cp_expr finish_constraint_and_expr	(location_t, cp_expr, cp_expr);
 extern cp_expr finish_constraint_primary_expr	(cp_expr);
 extern tree finish_concept_definition		(cp_expr, tree);
+extern tree finish_concept_template_parameter	(cp_expr);
 extern tree combine_constraint_expressions      (tree, tree);
 extern tree append_constraint			(tree, tree);
 extern tree get_constraints                     (const_tree);

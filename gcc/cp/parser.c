@@ -17134,8 +17134,16 @@ cp_parser_type_parameter (cp_parser* parser, bool *is_parameter_pack)
 	    TEMPLATE_PARMS_CONSTRAINTS (current_template_parms) = reqs;
           }
 
+	/* Look for 'concept'.  */
+	cp_token *concept_tok = nullptr;
+	if (flag_concepts &&
+	      cp_lexer_next_token_is_keyword (parser->lexer, RID_CONCEPT))
+	  concept_tok = cp_lexer_consume_token (parser->lexer);
+
 	/* Look for the `class' or 'typename' keywords.  */
-	cp_parser_type_parameter_key (parser);
+	if (!concept_tok)
+	  cp_parser_type_parameter_key (parser);
+
         /* If the next token is an ellipsis, we have a template
            argument pack. */
         if (cp_lexer_next_token_is (parser->lexer, CPP_ELLIPSIS))
@@ -17163,8 +17171,11 @@ cp_parser_type_parameter (cp_parser* parser, bool *is_parameter_pack)
 	  identifier = NULL_TREE;
 
 	/* Create the template parameter.  */
-	parameter = finish_template_template_parm (class_type_node,
-						   identifier);
+	if (concept_tok)
+	  parameter = finish_concept_template_parameter (identifier);
+	else
+	  parameter = finish_template_template_parm (class_type_node,
+						     identifier);
 
 	/* If the next token is an `=', then there is a
 	   default-argument.  */
