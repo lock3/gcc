@@ -17826,6 +17826,59 @@ cp_parser_template_argument_list (cp_parser* parser)
   return vec;
 }
 
+/* Try parsing a concept template argument. 
+
+   Concept template arguments are just id-expressions. There's a problem with
+   parsing those along-side etmplate template arguments because we can get
+   errors arising from the use of concepts as type-constraints.  */
+static tree
+cp_parser_concept_template_argument (cp_parser *parser)
+{
+  tree argument;
+  bool template_p;
+  cp_token *argument_start_token = nullptr;
+
+  cp_parser_parse_tentatively (parser);
+  argument_start_token = cp_lexer_peek_token (parser->lexer);
+  argument = cp_parser_id_expression (parser,
+				      /*template_keyword_p=*/false,
+				      /*check_dependency_p=*/true,
+				      &template_p,
+				      /*declarator_p=*/false,
+				      /*optional_p=*/false);
+  /* If the next token isn't a `,' or a `>', then this argument wasn't
+     really finished. This might mean that we've parsed 'C auto', which
+     may be a valid type argument.  */
+  if (!cp_parser_next_token_ends_template_argument_p (parser))
+    cp_parser_error (parser, "expected concept-template-argument");
+  if (!cp_parser_error_occurred (parser))
+    {
+      /* Figure out what is being referred to.  If the id-expression
+	 was for a class template specialization, then we will have a
+	 TYPE_DECL at this point.  There is no need to do name lookup
+	 at this point in that case.  */
+      if (TREE_CODE (argument) != TYPE_DECL)
+	argument = cp_parser_lookup_name (parser, argument,
+					  none_type,
+					  /*is_template=*/template_p,
+					  /*is_namespace=*/false,
+					  /*check_dependency=*/true,
+					  /*ambiguous_decls=*/NULL,
+					  argument_start_token->location);
+      if (TREE_CODE (argument) != TEMPLATE_DECL
+	  || TREE_CODE (DECL_TEMPLATE_RESULT (argument)) != CONCEPT_DECL)
+	cp_parser_error (parser, "expected concept-name");
+    }
+  if (cp_parser_parse_definitely (parser))
+    {
+      if (TREE_DEPRECATED (argument))
+	warn_deprecated_use (argument, NULL_TREE);
+      return argument;
+    }
+  
+  return nullptr;
+}
+
 /* Parse a template-argument.
 
    template-argument:
@@ -17852,6 +17905,10 @@ cp_parser_template_argument (cp_parser* parser)
   cp_token *token = NULL, *argument_start_token = NULL;
   location_t loc = 0;
   cp_id_kind idk;
+
+  /* Try concept template arguments first.  */
+  if (tree arg = cp_parser_concept_template_argument (parser))
+    return arg;
 
   /* There's really no way to know what we're looking at, so we just
      try each alternative in order.
