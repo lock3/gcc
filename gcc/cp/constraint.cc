@@ -729,6 +729,13 @@ normalize_concept_check (tree check, tree args, norm_info info)
 		  "function concept must be called");
       tmpl = OVL_FIRST (tmpl);
     }
+  else if (DECL_CONCEPT_TEMPLATE_PARM_P (tmpl))
+    {
+      /* Substitute through concept template parameters.  */
+      tmpl = tsubst (tmpl, args, info.complain, info.in_decl);
+      if (tmpl == error_mark_node)
+	return error_mark_node;
+    }
 
   /* Substitute through the arguments of the concept check. */
   if (args)

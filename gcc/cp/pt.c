@@ -14246,6 +14246,13 @@ tsubst_template_decl (tree t, tree args, tsubst_flags_t complain,
 	r = TEMPLATE_TEMPLATE_PARM_TEMPLATE_DECL (new_type);
       return r;
     }
+  if (DECL_CONCEPT_TEMPLATE_PARM_P (t))
+    {
+      int level;
+      int idx;
+      template_parm_level_and_index (DECL_INITIAL (t), &level, &idx);
+      return TMPL_ARG (args, level, idx);
+    }
 
   if (!lambda_fntype)
     {
