@@ -8540,6 +8540,25 @@ convert_template_argument (tree parm,
       if (TYPE_P (val))
 	val = canonicalize_type_argument (val, complain);
     }
+  else if (is_concept && requires_concept)
+    {
+      /* Check that the template parameter lists agree.  */
+      tree parm_parms = DECL_INNERMOST_TEMPLATE_PARMS (parm);
+      tree arg_parms = DECL_INNERMOST_TEMPLATE_PARMS (arg);
+      if (!coerce_template_template_parms (parm_parms, arg_parms, complain,
+					  in_decl, args))
+	{
+	  /* TODO: How do we get better diagnostics out of this check? It
+	     would be nice to say too many, too few, which argument was
+	     incorrect, etc.  */
+	  error ("template paramter list mismatch at argument %d in "
+		 "template parameter list for %qD (%d)",
+		 i + 1, in_decl);
+	  val = error_mark_node;
+	}
+      else
+	val = orig_arg;
+    }
   else
     {
       tree t = TREE_TYPE (parm);
