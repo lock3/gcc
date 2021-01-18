@@ -5388,7 +5388,8 @@ static tree
 get_template_parm_index (tree parm)
 {
   if (TREE_CODE (parm) == PARM_DECL
-      || TREE_CODE (parm) == CONST_DECL)
+      || TREE_CODE (parm) == CONST_DECL
+      || DECL_CONCEPT_TEMPLATE_PARM_P (parm))
     parm = DECL_INITIAL (parm);
   else if (TREE_CODE (parm) == TYPE_DECL
 	   || TREE_CODE (parm) == TEMPLATE_DECL)
@@ -8322,7 +8323,8 @@ convert_template_argument (tree parm,
 
   orig_arg = arg;
 
-  requires_tmpl_type = TREE_CODE (parm) == TEMPLATE_DECL;
+  bool requires_concept = DECL_CONCEPT_TEMPLATE_PARM_P (parm);
+  requires_tmpl_type = DECL_TEMPLATE_TEMPLATE_PARM_P (parm);
   requires_type = (TREE_CODE (parm) == TYPE_DECL
 		   || requires_tmpl_type);
 
@@ -8348,6 +8350,10 @@ convert_template_argument (tree parm,
 	  arg = t;
 	}
     }
+
+  bool is_concept =
+    ((TREE_CODE (arg) == TEMPLATE_DECL)
+      && TREE_CODE (DECL_TEMPLATE_RESULT (arg)) == CONCEPT_DECL);
 
   is_tmpl_type =
     ((TREE_CODE (arg) == TEMPLATE_DECL
@@ -8384,7 +8390,7 @@ convert_template_argument (tree parm,
       arg = orig_arg;
       is_type = 1;
     }
-  if (is_type != requires_type)
+  if (is_type != requires_type && !requires_concept)
     {
       if (in_decl)
 	{
@@ -8420,7 +8426,7 @@ convert_template_argument (tree parm,
 	}
       return error_mark_node;
     }
-  if (is_tmpl_type ^ requires_tmpl_type)
+  if (is_tmpl_type ^ requires_tmpl_type && !requires_concept)
     {
       if (in_decl && (complain & tf_error))
 	{
@@ -8435,6 +8441,24 @@ convert_template_argument (tree parm,
 		    "  expected a class template, got %qT", orig_arg);
 	}
       return error_mark_node;
+    }
+  if (is_concept != requires_concept)
+    {
+      if (in_decl && (complain & tf_error))
+	{
+	  error ("type/value mismatch at argument %d in template "
+		 "parameter list for %qD",
+		 i + 1, in_decl);
+	  if (is_tmpl_type)
+	    inform (input_location,
+		    "  expected a concept, got class template %qE", orig_arg);
+	  else if (is_type)
+	    inform (input_location,
+		    "  expected a concept, got type %qE", orig_arg);
+	  else
+	    inform (input_location,
+		    "  expected a concept, got %qE", orig_arg);
+	}
     }
 
   if (template_parameter_pack_p (parm) && ARGUMENT_PACK_P (orig_arg))
