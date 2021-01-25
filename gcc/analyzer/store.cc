@@ -1323,8 +1323,11 @@ binding_cluster::make_unknown_relative_to (const binding_cluster *other,
 	{
 	  const region *base_reg
 	    = region_sval->get_pointee ()->get_base_region ();
-	  binding_cluster *c = out_store->get_or_create_cluster (base_reg);
-	  c->mark_as_escaped ();
+	  if (!base_reg->symbolic_for_unknown_ptr_p ())
+	    {
+	      binding_cluster *c = out_store->get_or_create_cluster (base_reg);
+	      c->mark_as_escaped ();
+	    }
 	}
     }
 }
@@ -1737,7 +1740,7 @@ store::dump (bool simple) const
    {PARENT_REGION_DESC: {BASE_REGION_DESC: object for binding_map,
 			 ... for each cluster within parent region},
     ...for each parent region,
-    "called_unknown_function": true/false}.  */
+    "called_unknown_fn": true/false}.  */
 
 json::object *
 store::to_json () const

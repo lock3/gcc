@@ -6595,7 +6595,8 @@ class access_failure_info
   tree m_diag_decl;
 };
 
-extern void complain_about_access		(tree, tree, bool);
+extern void complain_about_access		(tree, tree, tree, bool,
+						 access_kind);
 extern void push_defarg_context			(tree);
 extern void pop_defarg_context			(void);
 extern tree convert_default_arg			(tree, tree, tree, int,
@@ -6632,7 +6633,8 @@ extern bool is_std_init_list			(tree);
 extern bool is_list_ctor			(tree);
 extern void validate_conversion_obstack		(void);
 extern void mark_versions_used			(tree);
-extern bool unsafe_return_slot_p		(tree);
+extern int unsafe_return_slot_p			(tree);
+extern bool make_safe_copy_elision		(tree, tree);
 extern bool cp_warn_deprecated_use		(tree, tsubst_flags_t = tf_warning_or_error);
 extern void cp_warn_deprecated_use_scopes	(tree);
 extern tree get_function_version_dispatcher	(tree);
@@ -7449,6 +7451,7 @@ extern unsigned get_pseudo_tinfo_index		(tree);
 extern tree get_pseudo_tinfo_type		(unsigned);
 
 /* in search.c */
+extern tree get_parent_with_private_access 	(tree decl, tree binfo);
 extern bool accessible_base_p			(tree, tree, bool);
 extern tree lookup_base                         (tree, tree, base_access,
 						 base_kind *, tsubst_flags_t);
@@ -7487,7 +7490,7 @@ extern tree adjust_result_of_qualified_name_lookup
 						(tree, tree, tree);
 extern tree copied_binfo			(tree, tree);
 extern tree original_binfo			(tree, tree);
-extern int shared_member_p			(tree);
+extern bool shared_member_p			(tree);
 extern bool any_dependent_bases_p (tree = current_nonlambda_class_type ());
 extern bool maybe_check_overriding_exception_spec (tree, tree);
 
