@@ -1918,6 +1918,45 @@ maybe_check_overriding_exception_spec (tree overrider, tree basefn)
   return true;
 }
 
+/* Replace the any contract attributes on OVERRIDER with a copy where any
+   references to BASEFN's PARM_DECLs have been rewritten to the corresponding
+   PARM_DECL in OVERRIDER.  */
+
+static void
+remap_overrider_contracts (tree overrider, tree basefn)
+{
+  tree last = NULL_TREE, contract_attrs = NULL_TREE;
+  for (tree a = DECL_CONTRACTS (basefn);
+      a != NULL_TREE;
+      a = CONTRACT_CHAIN (a))
+    {
+      tree c = copy_node (a);
+      TREE_VALUE (c) = copy_node (TREE_VALUE (c));
+      tree src = basefn;
+      tree dst = overrider;
+      if (DECL_PRE_FN (basefn))
+	{
+	  src = DECL_PRE_FN (basefn);
+	  dst = DECL_PRE_FN (overrider);
+	}
+      if (DECL_POST_FN (basefn)
+	  && TREE_CODE (TREE_VALUE (c)) == POSTCONDITION_STMT)
+	{
+	  src = DECL_POST_FN (basefn);
+	  dst = DECL_POST_FN (overrider);
+	}
+      remap_contract (src, dst, TREE_VALUE (c));
+      CONTRACT_COMMENT (TREE_VALUE (c)) =
+	copy_node (CONTRACT_COMMENT (TREE_VALUE (c)));
+
+      chainon (last, c);
+      last = c;
+      if (!contract_attrs)
+	contract_attrs = c;
+    }
+  set_decl_contracts (overrider, contract_attrs);
+}
+
 /* Check that virtual overrider OVERRIDER is acceptable for base function
    BASEFN. Issue diagnostic, and return zero, if unacceptable.  */
 
@@ -2096,30 +2135,9 @@ check_final_overrider (tree overrider, tree basefn)
 	 replace references to their parms to our parms.  */
       if(!DECL_PRE_FN (overrider))
 	build_contract_function_decls (overrider);
-      tree last = NULL_TREE, contract_attrs = NULL_TREE;
-      for (tree a = DECL_CONTRACTS (basefn);
-	  a != NULL_TREE;
-	  a = CONTRACT_CHAIN (a))
-	{
-	  tree c = copy_node (a);
-	  TREE_VALUE (c) = copy_node (TREE_VALUE (c));
-	  tree src = DECL_PRE_FN (basefn);
-	  tree dst = DECL_PRE_FN (overrider);
-	  if (TREE_CODE (TREE_VALUE (c)) == POSTCONDITION_STMT)
-	    {
-	      src = DECL_POST_FN (basefn);
-	      dst = DECL_POST_FN (overrider);
-	    }
-	  remap_contract (src, dst, TREE_VALUE (c));
-	  CONTRACT_COMMENT (TREE_VALUE (c)) =
-	    copy_node (CONTRACT_COMMENT (TREE_VALUE (c)));
-
-	  chainon (last, c);
-	  last = c;
-	  if (!contract_attrs)
-	    contract_attrs = c;
-	}
-      set_decl_contracts (overrider, contract_attrs);
+      remap_overrider_contracts (overrider, basefn);
+      remap_overrider_contracts (DECL_PRE_FN (overrider), DECL_PRE_FN (basefn));
+      remap_overrider_contracts (DECL_POST_FN (overrider), DECL_POST_FN (basefn));
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {

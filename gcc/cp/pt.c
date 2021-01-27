@@ -21060,27 +21060,44 @@ tsubst_contract_conditions_r (tree t, tree args, tsubst_flags_t complain,
    tsubst_contract_conditions_r.  */
 
 static void
-tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
-			    tree in_decl)
+tsubst_contract_conditions_1 (tree t, tree args, tsubst_flags_t complain,
+			      tree in_decl)
 {
   if (!DECL_HAS_CONTRACTS_P (t)) return;
+
   /* Manipulate a copy of the contracts rather than the general template's
      (important when we have non-contract attributes).  */
   DECL_ATTRIBUTES (t) = copy_list (DECL_ATTRIBUTES (t));
-  local_specialization_stack lss (lss_copy);
-  /* If we're not a cdtor then the contracts are actually parsed in terms of
-     the pre and post function arguments, not our own.  */
-  if (!DECL_CONSTRUCTOR_P (t) && !DECL_DESTRUCTOR_P (t))
-    {
-      register_parameter_specializations (DECL_PRE_FN (in_decl),
-					  DECL_PRE_FN (t));
-      register_parameter_specializations (DECL_POST_FN (in_decl),
-					  DECL_POST_FN (t));
-    }
+
   tree contract_attrs = DECL_CONTRACTS (t);
   contract_attrs = tsubst_contract_conditions_r (contract_attrs, args,
 						 complain, in_decl);
   set_decl_contracts (t, contract_attrs);
+}
+
+static void
+tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
+			    tree in_decl)
+{
+  if (!DECL_HAS_CONTRACTS_P (t)) return;
+  local_specialization_stack lss (lss_copy);
+
+  /* If we're not a cdtor then the contracts are actually parsed in terms of
+     the pre and post function arguments, not our own.  */
+  if (DECL_CONSTRUCTOR_P (t) || DECL_DESTRUCTOR_P (t))
+    {
+      register_parameter_specializations (in_decl, t);
+      tsubst_contract_conditions_1 (t, args, complain, in_decl);
+      return;
+    }
+
+  register_parameter_specializations (DECL_PRE_FN (in_decl), DECL_PRE_FN (t));
+  register_parameter_specializations (DECL_POST_FN (in_decl), DECL_POST_FN (t));
+
+  tsubst_contract_conditions_1 (DECL_PRE_FN (t), args, complain,
+				DECL_PRE_FN (in_decl));
+  tsubst_contract_conditions_1 (DECL_POST_FN (t), args, complain,
+				DECL_POST_FN (in_decl));
 }
 
 /* Instantiate the indicated variable, function, or alias template TMPL with
@@ -25578,6 +25595,13 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
        * calls to pre/post functions that will never be generated.  */
       if (!DECL_PRE_FN (code_pattern))
 	set_contract_functions (decl, NULL_TREE, NULL_TREE);
+      else
+	{
+	  set_decl_contracts (DECL_PRE_FN (decl),
+			      DECL_CONTRACTS (DECL_PRE_FN (code_pattern)));
+	  set_decl_contracts (DECL_POST_FN (decl),
+			      DECL_CONTRACTS (DECL_POST_FN (code_pattern)));
+	}
 
       maybe_instantiate_noexcept (decl, tf_error);
     }

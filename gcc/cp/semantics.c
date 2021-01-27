@@ -1048,13 +1048,13 @@ build_contract_functor_declaration (tree fndecl, bool pre)
     DECL_NAME (fn) = get_identifier (buf);
   }
   DECL_INITIAL (fn) = error_mark_node;
-  remove_contract_attributes (fn);
+  set_contracts_original_fn (fn, fndecl);
 
   IDENTIFIER_VIRTUAL_P (DECL_NAME (fn)) = false;
   DECL_VIRTUAL_P (fn) = false;
 
   /* Update various inline related declaration properties.  */
-  DECL_DECLARED_INLINE_P (fn) = true;
+  //DECL_DECLARED_INLINE_P (fn) = true;
   DECL_DISREGARD_INLINE_LIMITS (fn) = true;
   TREE_NO_WARNING (fn) = 1;
 
@@ -1819,6 +1819,7 @@ finish_return_stmt (tree expr)
      ensure the post function exists and replace the returned expression with
      said call.  */
   bool needs_post = !processing_template_decl
+      && DECL_ORIGINAL_FN (current_function_decl) == NULL_TREE
       && !DECL_CONSTRUCTOR_P (current_function_decl)
       && !DECL_DESTRUCTOR_P (current_function_decl)
       && contract_any_active_p (DECL_CONTRACTS (current_function_decl));

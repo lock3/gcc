@@ -17091,6 +17091,7 @@ start_preparsed_function (tree decl1, tree attrs, int flags)
   push_operator_bindings ();
 
   bool starting_guarded_p = !processing_template_decl
+      && DECL_ORIGINAL_FN (decl1) == NULL_TREE
       && contract_any_active_p (DECL_CONTRACTS (decl1))
       && !DECL_CONSTRUCTOR_P (decl1)
       && !DECL_DESTRUCTOR_P (decl1);
@@ -17101,7 +17102,7 @@ start_preparsed_function (tree decl1, tree attrs, int flags)
 
   /* If we're starting a guarded function with valid contracts, we need to
      insert a call to the pre function.  */
-  if (!processing_template_decl && DECL_PRE_FN (decl1)
+  if (starting_guarded_p && DECL_PRE_FN (decl1)
       && DECL_PRE_FN (decl1) != error_mark_node)
     {
       vec<tree, va_gc> *args = build_arg_list (decl1);
@@ -17615,6 +17616,7 @@ finish_function (bool inline_p)
 
   //gcc_checking_assert (!pending_guarded_decls.get (fndecl));
   bool finishing_guarded_p = !processing_template_decl
+    && DECL_ORIGINAL_FN (fndecl) == NULL_TREE
     && contract_any_active_p (DECL_CONTRACTS (fndecl))
     && !DECL_CONSTRUCTOR_P (fndecl)
     && !DECL_DESTRUCTOR_P (fndecl);
@@ -17930,7 +17932,7 @@ finish_function_contracts (tree fndecl, bool is_inline)
       start_preparsed_function (DECL_PRE_FN (fndecl),
 				DECL_ATTRIBUTES (DECL_PRE_FN (fndecl)),
 				flags);
-      emit_preconditions (DECL_CONTRACTS (fndecl));
+      emit_preconditions (DECL_CONTRACTS (DECL_PRE_FN (fndecl)));
       finished_pre = finish_function (false);
       expand_or_defer_fn (finished_pre);
     }
@@ -17941,7 +17943,7 @@ finish_function_contracts (tree fndecl, bool is_inline)
       start_preparsed_function (DECL_POST_FN (fndecl),
 				DECL_ATTRIBUTES (DECL_POST_FN (fndecl)),
 				flags);
-      emit_postconditions (DECL_CONTRACTS (fndecl));
+      emit_postconditions (DECL_CONTRACTS (DECL_POST_FN (fndecl)));
 
       tree res = DECL_UNCHECKED_RESULT (fndecl);
       if (res)
