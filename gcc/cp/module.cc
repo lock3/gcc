@@ -2257,7 +2257,6 @@ public:
     EK_DECL,		/* A decl.  */
     EK_SPECIALIZATION,  /* A specialization.  */
     EK_PARTIAL,		/* A partial specialization.  */
-    EK_ATOM,            /* An atomic constraint. */
     EK_USING,		/* A using declaration (at namespace scope).  */
     EK_NAMESPACE,	/* A namespace.  */
     EK_REDIRECT,	/* Redirect to a template_decl.  */
@@ -2266,7 +2265,8 @@ public:
     EK_FOR_BINDING,	/* A decl being inserted for a binding.  */
     EK_INNER_DECL,	/* A decl defined outside of it's imported
 			   context.  */
-    EK_DIRECT_HWM = EK_ATOM + 1,  // TY - was EK_PARTIAL + 1
+
+    EK_DIRECT_HWM = EK_PARTIAL + 1,  
 
     EK_BITS = 3		/* Only need to encode below EK_EXPLICIT_HWM.  */
   };
@@ -2542,7 +2542,6 @@ public:
     void add_mergeable (depset *);
     depset *add_dependency (tree decl, entity_kind);
     void add_namespace_context (depset *, tree ns);
-    void add_atom (depset *);
 
   private:
     static bool add_binding_entity (tree, WMB_Flags, void *);
@@ -2551,7 +2550,6 @@ public:
     bool add_namespace_entities (tree ns, bitmap partitions);
     void add_specializations (bool decl_p);
     void add_partial_entities (vec<tree, va_gc> *);
-    void add_atoms ();
     void add_class_entities (vec<tree, va_gc> *);
 
   public:    
@@ -2600,7 +2598,7 @@ const char *depset::entity_kind_name (entity_kind kind)
 {
   /* Same order as entity_kind.  */
   static const char *const names[] = 
-    {"decl", "specialization", "partial", "atom", "using",
+    {"decl", "specialization", "partial", "using",
      "namespace", "redirect", "binding"};
   gcc_checking_assert (kind < sizeof (names) / sizeof(names[0]));
   return names[kind];
@@ -3220,6 +3218,8 @@ private:
   void tree_pair_vec (vec<tree_pair_s, va_gc> *);
   void tree_list (tree, bool has_purpose);
 
+  static bool constraint_satisfactions (sat_entry *entry, void *ctx);
+
 public:
   /* Mark a node for by-value walking.  */
   void mark_by_value (tree);
@@ -3764,11 +3764,6 @@ public:
 		      depset::hash &, unsigned count, unsigned *crc_ptr);
   bool read_pendings (unsigned count);
 
- private:
-  unsigned write_atoms (elf_out *to, vec<depset *> depsets, unsigned *crc_p);
-  bool read_atoms (unsigned num, unsigned lwm, unsigned hwm);
-  bool load_atoms (unsigned snum);
-
 private:
   void write_entities (elf_out *to, vec<depset *> depsets,
 		       unsigned count, unsigned *crc_ptr);
@@ -4098,16 +4093,15 @@ node_template_info (tree decl, int &use)
 	    }
 	}
     }
-  else if (DECL_LANG_SPECIFIC (decl)
-	   && (TREE_CODE (decl) == VAR_DECL
-	       || TREE_CODE (decl) == TYPE_DECL
-	       || TREE_CODE (decl) == FUNCTION_DECL
-	       || TREE_CODE (decl) == FIELD_DECL
-	       || TREE_CODE (decl) == TEMPLATE_DECL))
-    {
-      use_tpl = DECL_USE_TEMPLATE (decl);
-      ti = DECL_TEMPLATE_INFO (decl);
-    }
+    else if (DECL_LANG_SPECIFIC (decl)
+             && (TREE_CODE (decl) == VAR_DECL || TREE_CODE (decl) == TYPE_DECL
+                 || TREE_CODE (decl) == FUNCTION_DECL
+                 || TREE_CODE (decl) == FIELD_DECL
+                 || TREE_CODE (decl) == TEMPLATE_DECL))
+      {
+        use_tpl = DECL_USE_TEMPLATE (decl);
+        ti = DECL_TEMPLATE_INFO (decl);
+      }
 
   use = use_tpl;
   return ti;
@@ -7669,9 +7663,9 @@ void
 trees_out::decl_value (tree decl, depset *dep)
 {
   /* We should not be writing clones or template parms.  */
-  gcc_checking_assert (DECL_P (decl)
+  gcc_checking_assert ((DECL_P (decl)
 		       && !DECL_CLONED_FUNCTION_P (decl)
-		       && !DECL_TEMPLATE_PARM_P (decl));
+		       && !DECL_TEMPLATE_PARM_P (decl)));
 
   /* We should never be writing non-typedef ptrmemfuncs by value.  */
   gcc_checking_assert (TREE_CODE (decl) != TYPE_DECL
@@ -8340,12 +8334,12 @@ void
 trees_out::decl_constraints (tree decl)
 {
   tree inner = NULL_TREE;
-  if (TREE_CODE (decl) == TEMPLATE_DECL)
-    {
-      inner = DECL_TEMPLATE_RESULT (decl);
-      if (TREE_CODE(inner) != CONCEPT_DECL)
-        inner = NULL_TREE;
-    }
+//  if (TREE_CODE (decl) == TEMPLATE_DECL)
+//    {
+//      inner = DECL_TEMPLATE_RESULT (decl);
+//      if (TREE_CODE(inner) != CONCEPT_DECL)
+//        inner = NULL_TREE;
+//    }
 
   // If decl is not a concept declaration, write
   // the associated constraint info. (concept decls 
@@ -8359,66 +8353,57 @@ trees_out::decl_constraints (tree decl)
         return;
     }
 
-  if (serialize_caches)
-  {
-    dump.indent ();
+//  if (serialize_caches)
+//  {
+//    dump.indent ();
 
-    tree norm = NULL_TREE;
-    // This is a bit wonky for specialized template variables.
-    // The template args aren't being extracted correctly for the
-    // defualt path, so we have to force feed the args to the
-    // normalization machinery.
-    if (TREE_CODE (decl) == VAR_DECL && DECL_LANG_SPECIFIC (decl)
-        && DECL_USE_TEMPLATE (decl))
-      {
-        // FIXME: do we need to do this now?
-      }
-    else
-      norm = get_normalized_constraints (decl);
+//    tree norm = NULL_TREE;
+//    // This is a bit wonky for specialized template variables.
+//    // The template args aren't being extracted correctly for the
+//    // defualt path, so we have to force feed the args to the
+//    // normalization machinery.
+//    if (TREE_CODE (decl) == VAR_DECL && DECL_LANG_SPECIFIC (decl)
+//        && DECL_USE_TEMPLATE (decl))
+//      {
+//        // FIXME: do we need to do this now?
+//      }
+//    else
+//      norm = get_normalized_constraints (decl);
 
-    tree_node (norm);
-    streaming_p () && dump (dumper::TREE) && dump ("Wrote normalized constraint for %N", decl);
-    dump.outdent ();
-  }
-}
-
-void
-save_constraint_satisfactions (tree t, void *p)
-{
-  auto_vec<tree_pair> *v = (auto_vec<tree_pair> *)p;
-  gcc_assert (v->length ());
-  tree_pair &ar = v->pop ();
-  save_satisfaction (false, t, ar.first, ar.second);
+//    tree_node (norm);
+//    streaming_p () && dump (dumper::TREE) && dump ("Wrote normalized constraint for %N", decl);
+//    dump.outdent ();
+//  }
 }
 
 void
 trees_in::decl_constraints (tree decl, cache_kind flags, tree *constr, tree *norm)
 {
-  tree inner = NULL_TREE;
-   if (TREE_CODE (decl) == TEMPLATE_DECL)
-    {
-      inner = DECL_TEMPLATE_RESULT (decl);
-      if (TREE_CODE(inner) != CONCEPT_DECL)
-        inner = NULL_TREE;
-    }
+//  tree inner = NULL_TREE;
+//   if (TREE_CODE (decl) == TEMPLATE_DECL)
+//    {
+//      inner = DECL_TEMPLATE_RESULT (decl);
+//      if (TREE_CODE(inner) != CONCEPT_DECL)
+//        inner = NULL_TREE;
+//    }
 
   *constr = *norm = NULL_TREE;
-  if (!inner) 
-    {
+//  if (!inner) 
+//    {
       *constr = tree_node ();
       dump (dumper::TREE) && dump ("Read constraint info for %N", decl);
       if (!*constr)
         return;
-    }
+//    }
 
-  if (flags & CK_normalizations)
-    {
-      *norm = tree_node ();
-      if (norm)
-      {
-        dump(dumper::TREE) && dump ("Read normalized constraint for %N", decl);
-      }
-    }
+//  if (flags & CK_normalizations)
+//    {
+//      *norm = tree_node ();
+//      if (norm)
+//      {
+//        dump(dumper::TREE) && dump ("Read normalized constraint for %N", decl);
+//      }
+//    }
 }
 
 /* DECL is an unnameable member of CTX.  Return a suitable identifying
@@ -8472,7 +8457,7 @@ bool
 trees_out::decl_node (tree decl, walk_kind ref)
 {
   gcc_checking_assert (DECL_P (decl) && !DECL_TEMPLATE_PARM_P (decl)
-		       && DECL_CONTEXT (decl));
+                       && DECL_CONTEXT (decl));
 
   if (ref == WK_value)
     {
@@ -9083,6 +9068,15 @@ trees_out::type_node (tree type)
   return;
 }
 
+bool
+trees_out::constraint_satisfactions (sat_entry *entry, void *ctx)
+{
+  trees_out *out = (trees_out *)ctx;
+  out->tree_node(entry->args);
+  out->tree_node(entry->result);
+  return true;
+}
+
 /* T is (mostly*) a non-mergeable node that must be written by value.
    The mergeable case is a BINFO, which are as-if DECLSs.   */
 
@@ -9121,6 +9115,16 @@ trees_out::tree_value (tree t)
       && dump ("Writing tree:%d %C:%N", tag, TREE_CODE (t), t);
 
   tree_node_vals (t);
+
+  if (TREE_CODE(t) == ATOMIC_CONSTR)
+    {
+      // Write the any satisfaction results associated with this 
+      // atomic constraint.
+      if (serialize_constraints_p())
+        walk_constraint_satisfactions (t, trees_out::constraint_satisfactions,
+                                     this);
+      tree_node (NULL_TREE);
+    }
 
   if (streaming_p ())
     dump (dumper::TREE) && dump ("Written tree:%d %C:%N", tag, TREE_CODE (t), t);
@@ -9166,6 +9170,20 @@ trees_in::tree_value ()
       set_overrun ();
       /* Bail.  */
       return NULL_TREE;
+    }
+
+  if (TREE_CODE(t) == ATOMIC_CONSTR)
+    {
+      // Save the atom.
+      save_atom (t);
+
+      // And any satisfaction results.
+      tree a;
+      while ((a = tree_node()) != NULL_TREE)
+        {
+          tree r = tree_node ();
+          save_satisfaction (t, a, r);
+        }
     }
 
   dump (dumper::TREE) && dump ("Read tree:%d %C:%N", tag, TREE_CODE (t), t);
@@ -10518,7 +10536,7 @@ trees_out::decl_container (tree decl)
   else
     container = CP_DECL_CONTEXT (decl);
 
-  if (TYPE_P (container))
+  if (container && TYPE_P (container))
     container = TYPE_NAME (container);
 
   tree_node (container);
@@ -12607,7 +12625,6 @@ depset *
 depset::hash::find_dependency (tree decl)
 {
   depset **slot = entity_slot (decl, false);
-
   return slot ? *slot : NULL;
 }
 
@@ -12738,7 +12755,7 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
 				   && !(*eslot)->deps.length ());
 	}
 
-      if (ek != EK_USING && ek != EK_ATOM 
+      if (ek != EK_USING
 	  && DECL_LANG_SPECIFIC (decl)
 	  && DECL_MODULE_IMPORT_P (decl))
 	{
@@ -12785,10 +12802,10 @@ depset::hash::make_dependency (tree decl, entity_kind ek)
     }
 
   dump (dumper::DEPEND)
-    && dump ("%s on %s %C:%N found",
+    && dump ("%s on %s %C:%N (%p) found",
 	     ek == EK_REDIRECT ? "Redirect"
 	     : for_binding ? "Binding" : "Dependency",
-	     dep->entity_kind_name (), TREE_CODE (decl), decl);
+	     dep->entity_kind_name (), TREE_CODE (decl), decl, (void *)decl);
 
   return dep;
 }
@@ -13303,45 +13320,6 @@ depset::hash::add_specializations (bool decl_p)
   data.release ();
 }
 
-// FIXME: args will be canonicalized.
-struct atom_entry 
-{
-  tree constr;
-  tree args;
-  tree result;
-};
-
-static bool atom_add(tree atom, void *ctx)
-{
- vec<tree> *data =  (vec<tree> *)ctx;
-// atom_entry *entry = new atom_entry;
-// entry->constr = constr;
-// entry->args = args;
-// entry->result = result;
- data->safe_push(atom);
- return true;
-}
-
-static int atom_cmp (const void *p1, const void *p2)
-{
-  return 0;
-}
-
-void depset::hash::add_atoms ()
-{
-  vec<tree> data;
-  data.create (100);
-  walk_atom_cache (atom_add, &data);
-  fprintf (stderr, "atomic constraints: %d\n", data.length ());
-  // data.qsort (atom_cmp);
-  while (data.length ())
-    {
-      tree atom = data.pop ();
-      depset *dep = make_dependency (atom, depset::EK_ATOM);
-    }
-  data.release ();
-}
-
 /* Add a depset into the mergeable hash.  */
 
 void
@@ -13382,7 +13360,7 @@ depset::hash::find_dependencies ()
 	{
 	  depset *item = worklist.pop ();
 
-	  gcc_checking_assert (!item->is_binding ());
+          gcc_checking_assert (!item->is_binding ());
 	  if (item->is_unreached ())
 	    unreached.quick_push (item);
 	  else
@@ -13397,8 +13375,6 @@ depset::hash::find_dependencies ()
 	      walker.begin ();
 	      if (current->get_entity_kind () == EK_USING)
 		walker.tree_node (OVL_FUNCTION (decl));
-              else if (current->get_entity_kind () == EK_ATOM)
-                walker.tree_node (decl); // TY: probably gotta store sat_entry in current.deps[0]
               else if (TREE_VISITED (decl))
                 /* A global tree.  */;
 	      else if (TREE_CODE (decl) == NAMESPACE_DECL
@@ -13406,9 +13382,9 @@ depset::hash::find_dependencies ()
 		add_namespace_context (current, CP_DECL_CONTEXT (decl));
 	      else
 		{
-		  walker.mark_declaration (decl, current->has_defn ());
+                  walker.mark_declaration (decl, current->has_defn ());
 
-		  // FIXME: Perhaps p1815 makes this redundant? Or at
+                  // FIXME: Perhaps p1815 makes this redundant? Or at
 		  // least simplifies it.  Voldemort types are only
 		  // ever emissable when containing (inline) function
 		  // definition is emitted?
@@ -13747,7 +13723,6 @@ sort_cluster (depset::hash *original, depset *scc[], unsigned size)
 	case depset::EK_DECL:
 	case depset::EK_SPECIALIZATION:
 	case depset::EK_PARTIAL:
-        case depset::EK_ATOM: // TY - are these mergeable? they should be.
 	  table.add_mergeable (dep);
 	  ix++;
 	  break;
@@ -13820,7 +13795,7 @@ depset::hash::connect ()
 
       entity_kind kind = item->get_entity_kind ();
       if (kind == EK_BINDING
-	  || !(kind == EK_REDIRECT
+	  || !(kind == EK_REDIRECT 
 	       || item->is_unreached ()
 	       || item->is_import ()))
 	deps.quick_push (item);
@@ -14674,7 +14649,6 @@ enum module_state_counts
   MSC_macros,
   MSC_inits,
   MSC_restrict,
-  MSC_atoms,
   MSC_HWM
 };
 
@@ -14738,7 +14712,6 @@ enum cluster_tag {
   ct_decl,	/* A decl.  */
   ct_defn,	/* A definition.  */
   ct_bind,	/* A binding.  */
-  ct_atom,      /* An atomic constraint. */
   ct_hwm
 };
 
@@ -14811,11 +14784,6 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 		     b->has_defn () ? "definition" : "declaration",
 		     b->get_entity ());
 	  break;
-
-        case depset::EK_ATOM:
-          dump (dumper::CLUSTER)
-	    && dump ("[%u]=%s", ix, b->entity_kind_name ());
-          break;
         }
     }
   dump (dumper::CLUSTER) && (dump.outdent (), true);
@@ -14933,11 +14901,6 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	  dump () && dump ("Wrote declaration entity:%u %C:%N",
 			   b->cluster, TREE_CODE (decl), decl);
 	  break;
-
-        case depset::EK_ATOM:
-          sec.u (ct_atom);
-          sec.tree_node (decl);
-          break;
         }
     }
 
@@ -15140,11 +15103,6 @@ module_state::read_cluster (unsigned snum)
 	  }
 	  break;
 
-        case ct_atom:
-          tree decl = sec.tree_node ();
-          fprintf(stderr, "Read atomic constraint\n");
-          // TODO: update atom cache data.
-          break;
         }
     }
 
@@ -15445,93 +15403,6 @@ module_state::read_bindings (unsigned num, unsigned lwm, unsigned hwm)
   if (!sec.end (from ()))
     return false;
   return true;
-}
-
-/* Write the atomic constraint TABLE to MOD_SNAME_PFX.cache.
-   FIXME: we can write references to other cached items stored in 
-   unnamed sections here. */
-
-unsigned
-module_state::write_atoms (elf_out *to, vec<depset *> sccs, unsigned *crc_p)
-{
-  dump () && dump ("Writing atomic constraints table");
-  dump.indent ();
-
-  unsigned num = 0;
-  bytes_out sec (to);
-  sec.begin ();
-
-  for (unsigned ix = 0; ix != sccs.length (); ix++)
-    {
-      depset *b = sccs[ix];
-      if (b->get_entity_kind () == depset::EK_ATOM)
-	{
-	  tree ns = b->get_entity ();
-	  dump () && dump ("Atomic constraint section:%u", b->section);
-	  sec.u (b->section);
-	  num++;
-	}
-    }
-
-  sec.end (to, to->name (MOD_SNAME_PFX ".cache"), crc_p);
-  dump.outdent ();
-
-  return num;
-}
-
-bool
-module_state::read_atoms (unsigned num, unsigned lwm, unsigned hwm)
-{
- bytes_in sec;
-
-  if (!sec.begin (loc, from (), MOD_SNAME_PFX ".cache"))
-    return false;
-
-  dump () && dump ("Reading atomic constraints table");
-  dump.indent ();
-  for (; !sec.get_overrun () && num--;)
-    {
-      unsigned snum = sec.u ();
-
-      if ((snum - lwm) >= (hwm - lwm))
-	sec.set_overrun ();
-      
-      if (!sec.get_overrun ())
-	{
-	  dump () && dump ("Atomic constraint section:%u", snum);
-          load_atoms(snum);
-	}
-    }
-
-  dump.outdent ();
-  if (!sec.end (from ()))
-    return false;
-  return true;
-}
-
-bool
-module_state::load_atoms (unsigned snum)
-{
-  if (from ()->get_error ())
-    return false;
-
-//  if (snum >= slurp->current)
-//    from ()->set_error (elf::E_BAD_LAZY);
-
-  // FIXME: does maybe_defrost cause loading to fail?
-  bool ok = maybe_defrost ();
-  if (ok)
-    {
-      unsigned old_current = slurp->current;
-      slurp->current = snum;
-      slurp->lru = 0;  /* Do not swap out.  */
-      slurp->remaining--;
-      ok = read_cluster (snum);
-      slurp->lru = ++lazy_lru;
-      slurp->current = old_current;
-    }
- 
-  return ok;
 }
 
 /* Write the entity table to MOD_SNAME_PFX.ent
@@ -17923,7 +17794,6 @@ module_state::write (elf_out *to, cpp_reader *reader)
       table.add_partial_entities (partial_specializations);
       partial_specializations = NULL;
     }
-  table.add_atoms (); // TY
   table.add_namespace_entities (global_namespace, partitions);
   if (class_members)
     {
@@ -18080,8 +17950,6 @@ module_state::write (elf_out *to, cpp_reader *reader)
   /* Write the unnamed.  */
   if (counts[MSC_pendings])
     write_pendings (to, sccs, table, counts[MSC_pendings], &crc);
-
-  counts[MSC_atoms] = write_atoms (to, sccs, &crc);
 
   /* Write the import table.  */
   if (config.num_imports > 1)
@@ -18321,11 +18189,6 @@ module_state::read_language (bool outermost)
 
   /* And unnamed.  */
   if (ok && counts[MSC_pendings] && !read_pendings (counts[MSC_pendings]))
-    ok = false;
-
-  if (ok
-      && !read_atoms (counts[MSC_atoms], counts[MSC_sec_lwm],
-                         counts[MSC_sec_hwm]))
     ok = false;
 
   if (ok)

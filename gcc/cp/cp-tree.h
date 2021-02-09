@@ -1683,6 +1683,10 @@ check_constraint_info (tree t)
 #define COMPOUND_REQ_NOEXCEPT_P(NODE) \
   TREE_LANG_FLAG_0 (TREE_CHECK (NODE, COMPOUND_REQ))
 
+/* A tree list of atomic constraint expressions associated with a concept decl.  */
+#define CONCEPT_ATOMIC_CONSTRAINTS(NODE) \
+  DECL_SIZE_UNIT (NODE)
+
 /* The constraints on an 'auto' placeholder type, used in an argument deduction
    constraint.  */
 #define PLACEHOLDER_TYPE_CONSTRAINTS(NODE) \
@@ -8268,7 +8272,7 @@ extern tree maybe_substitute_reqs_for		(tree, const_tree);
 extern tree get_template_head_requirements	(tree);
 extern tree get_trailing_function_requirements	(tree);
 extern tree get_shorthand_constraints           (tree);
-extern tree get_normalized_constraints          (tree);
+extern tree get_normalized_constraints          (tree, bool);
 extern void set_normalized_constraints          (tree, tree);
 
 extern tree build_concept_id			(tree);
@@ -8329,11 +8333,6 @@ extern hashval_t iterative_hash_constraint      (tree, hashval_t);
 extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
-extern void walk_atom_cache                     (bool (*) (tree, 
-                                                           void *), 
-                                                 void *);
-extern void save_satisfaction (bool, tree, tree, tree);
-
 /* A structural hasher for ATOMIC_CONSTRs.  */
 
 struct atom_hasher : default_hash_traits<tree>
@@ -8349,11 +8348,26 @@ struct atom_hasher : default_hash_traits<tree>
   }
 };
 
+/* Elements stored in the atomic constraint satisfaction cache.  */
+struct GTY((for_user)) sat_entry
+{
+  tree constr;
+  tree args;
+  tree result;
+};
+
+extern void walk_atom_cache                     (bool (*) (tree, 
+                                                           void *), 
+                                                 void *);
+extern void walk_constraint_satisfactions       (tree, 
+                                                 bool (*) (sat_entry *, 
+                                                           void *), 
+                                                 void *);
+extern void save_atom                           (tree);
+extern void save_satisfaction                   (tree, tree, tree);
+
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);
-
-extern void walk_subsumption_cache (void (*) (tree, tree, bool, void *), void *);
-extern void search_subsumption_cache (tree, void (*) (tree, int, void *), void *);
 
 /* In class.c */
 extern void cp_finish_injected_record_type (tree);

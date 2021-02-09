@@ -721,6 +721,56 @@ normalize_concept_check (tree check, tree args, norm_info info)
 
 static GTY((deletable)) hash_table<atom_hasher> *atom_cache;
 
+/* Calls CB for each entry in the atomic constraint cache.  */
+
+void
+walk_atom_cache (bool (*cb) (tree, void *), void *ctx)
+{
+  if (!atom_cache)
+    return;
+
+  hash_table<atom_hasher>::iterator end = atom_cache->end ();
+  for (hash_table<atom_hasher>::iterator i = atom_cache->begin (); i != end; ++i)
+    {
+      if (!cb (*i, ctx))
+        return;
+    }
+}
+
+void 
+save_atom (tree atom)
+{
+  gcc_assert (atom && TREE_CODE (atom) == ATOMIC_CONSTR);
+  if (!atom_cache)
+    atom_cache = hash_table<atom_hasher>::create_ggc (31);
+  tree *slot = atom_cache->find_slot (atom, INSERT);
+  gcc_assert (!*slot);
+  *slot = atom;
+  inform (location_of (atom), "saving atom %qE", atom);
+}
+
+/* Append the new atom into the a tree list associated with a concept decl. 
+   Only for use with modules. */
+
+static void 
+append_atom(tree decl, tree atom)
+{
+  if (!modules_p())
+    return;
+
+  if (TREE_CODE (decl) == OVERLOAD)
+    decl = OVL_FIRST (decl);
+
+  if (TREE_CODE (decl) == TEMPLATE_DECL)
+    decl = DECL_TEMPLATE_RESULT (decl);
+
+  if (TREE_CODE (decl) != CONCEPT_DECL)
+    return;
+
+  CONCEPT_ATOMIC_CONSTRAINTS (decl)
+      = tree_cons (NULL_TREE, atom, CONCEPT_ATOMIC_CONSTRAINTS (decl));
+}
+
 /* The normal form of an atom depends on the expression. The normal
    form of a function call to a function concept is a check constraint
    for that concept. The normal form of a reference to a variable
@@ -739,41 +789,45 @@ normalize_atom (tree t, tree args, norm_info info)
 
   /* Build a new info object for the atom.  */
   tree ci = build_tree_list (t, info.context);
-
   tree atom = build1 (ATOMIC_CONSTR, ci, map);
   if (!info.generate_diagnostics ())
     {
       /* Cache the ATOMIC_CONSTRs that we return, so that sat_hasher::equal
 	 later can cheaply compare two atoms using just pointer equality.  */
       if (!atom_cache)
-	atom_cache = hash_table<atom_hasher>::create_ggc (31);
+        atom_cache = hash_table<atom_hasher>::create_ggc (31);
       tree *slot = atom_cache->find_slot (atom, INSERT);
-      if (*slot)
-	return *slot;
 
-      /* Find all template parameters used in the targets of the parameter
-	 mapping, and store a list of them in the TREE_TYPE of the mapping.
-	 This list will be used by sat_hasher to determine the subset of
-	 supplied template arguments that the satisfaction value of the atom
-	 depends on.  */
-      if (map)
-	{
-	  tree targets = make_tree_vec (list_length (map));
-	  int i = 0;
-	  for (tree node = map; node; node = TREE_CHAIN (node))
+      inform (location_of (t), "normalizing %qE -> %s", t, *slot ? "got it" : "fuck");
+
+      if (!*slot)
+        {
+          /* Find all template parameters used in the targets of the parameter
+	  mapping, and store a list of them in the TREE_TYPE of the mapping.
+	  This list will be used by sat_hasher to determine the subset of
+	  supplied template arguments that the satisfaction value of the atom
+	  depends on.  */
+          if (map)
 	    {
-	      tree target = TREE_PURPOSE (node);
-	      TREE_VEC_ELT (targets, i++) = target;
+              tree targets = make_tree_vec (list_length (map));
+              int i = 0;
+              for (tree node = map; node; node = TREE_CHAIN (node))
+                {
+                  tree target = TREE_PURPOSE (node);
+                  TREE_VEC_ELT (targets, i++) = target;
+                }
+              tree ctx_parms = (info.orig_decl
+              		    ? DECL_TEMPLATE_PARMS (info.orig_decl)
+              		    : current_template_parms);
+              tree target_parms = find_template_parameters (targets, ctx_parms);
+              TREE_TYPE (map) = target_parms;
 	    }
-	  tree ctx_parms = (info.orig_decl
-			    ? DECL_TEMPLATE_PARMS (info.orig_decl)
-			    : current_template_parms);
-	  tree target_parms = find_template_parameters (targets, ctx_parms);
-	  TREE_TYPE (map) = target_parms;
-	}
 
-      *slot = atom;
+          append_atom (info.in_decl, atom);
+          *slot = atom;
+        }
     }
+
   return atom;
 }
 
@@ -950,19 +1004,38 @@ normalize_nontemplate_requirements (tree decl, bool diag = false)
    FIXME: Probably should get a better name so as not to confuse.  */
 
 tree
-get_normalized_constraints (tree decl)
+get_normalized_constraints (tree decl, bool null_ok)
 {
-  // FIXME: I doubt this is sufficient to cover all the 
-  // cases (like overloads), but we're only called from 
-  // modules and only with decls & concepts.
-  if (TREE_CODE (decl) == TEMPLATE_DECL)
+  tree concept_decl = NULL_TREE;
+  if (TREE_CODE(decl) == CONCEPT_DECL)
+    concept_decl = decl;
+  else
+  {
+     tree inner = DECL_TEMPLATE_RESULT (decl);
+     if (TREE_CODE(inner) == CONCEPT_DECL)
+       concept_decl = inner;
+  }
+
+  if (null_ok)
+  {
+    // Just read the cache
+    if (concept_decl)
+      if (tree *p = hash_map_safe_get (normalized_map, decl))
+        return *p;
+    else 
     {
-      tree inner = DECL_TEMPLATE_RESULT (decl);
-      if (TREE_CODE(inner) == CONCEPT_DECL)
-        return normalize_concept_definition(decl, false);
+      // FIXME: make this branch work.
+      return NULL_TREE;
     }
-  
-  return get_normalized_constraints_from_decl (decl, false);
+  }
+  else 
+  {
+    // May check the cache, but will compute & store the result.
+    if (concept_decl)
+      return normalize_concept_definition(decl, false);
+    else 
+      return get_normalized_constraints_from_decl (decl, false);
+  } 
 }
 
 /* Writes the cached normal form, if one exists.  
@@ -2409,13 +2482,6 @@ tsubst_parameter_mapping (tree map, tree args, tsubst_flags_t complain, tree in_
 
 /* Hash functions for satisfaction entries.  */
 
-struct GTY((for_user)) sat_entry
-{
-  tree constr;
-  tree args;
-  tree result;
-};
-
 struct sat_hasher : ggc_ptr_hash<sat_entry>
 {
   static hashval_t hash (sat_entry *e)
@@ -2498,18 +2564,28 @@ get_satisfaction (tree constr, tree args)
     return NULL_TREE;
   sat_entry elt = { constr, args, NULL_TREE };
   sat_entry* found = sat_cache->find (&elt);
+//  inform (location_of(constr), 
+//          "looking for satisfaction %qE (%p) args=%p -> %s", 
+//          constr, (void *)constr, args, found ? "found" : "not found");
+//  fprintf (stderr, "\n");
+
   if (found)
     return found->result;
   else
     return NULL_TREE;
 }
 
-static void
+void
 save_satisfaction (tree constr, tree args, tree result)
 {
   if (!sat_cache)
     sat_cache = hash_table<sat_hasher>::create_ggc (31);
-  sat_entry elt = {constr, args, result};
+
+//  inform (location_of (constr), "saving satisfaction %qE (%p) args=%p, result=%p", constr,
+//          (void *)constr, (void *)args, (void *)result);
+//  fprintf (stderr, "\n");
+
+  sat_entry elt = { constr, args, result };
   sat_entry** slot = sat_cache->find_slot (&elt, INSERT);
   sat_entry* entry = ggc_alloc<sat_entry> ();
   *entry = elt;
@@ -2528,34 +2604,30 @@ clear_satisfaction_cache ()
 */     
 }
 
-/* Calls CB for each entry in the atomic constraint satisfaction cache.  */
+/* Calls CB for each entry in the atomic constraint cache associated with 
+   ATOM */
 
-void
-walk_atom_cache (bool (*cb) (tree, void *), void *ctx)
+void 
+walk_constraint_satisfactions (tree atom, bool (*cb) (sat_entry *, void *), void *ctx)
 {
-  if (!sat_cache)
-    return;
+  if (!sat_cache) return;
 
-  hash_table<atom_hasher>::iterator end = atom_cache->end ();
-  for (hash_table<atom_hasher>::iterator i = atom_cache->begin (); i != end; ++i)
+  hash_table<sat_hasher>::iterator end = sat_cache->end ();
+  for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end;
+       ++i)
     {
-      if (!cb (*i, ctx))
-        return;
-    }
-}
-
-void
-save_satisfaction (bool decl_p, tree decl_or_constraint, tree args,
-                   tree result)
-{
-  if (decl_p)
-    {
-      hash_map_safe_put<hm_ggc> (decl_satisfied_cache, decl_or_constraint,
-                                 result);
-    }
-  else
-    {
-      save_satisfaction (decl_or_constraint, args, result);
+      sat_entry *entry = *i;
+      gcc_assert (entry->constr != NULL_TREE);
+      if (!atom)
+        {
+          if (!cb (entry, ctx))
+            return;
+        }
+      else if (atom == entry->constr)
+        {
+          if (!cb (entry, ctx))
+            return;
+        }
     }
 }
 
@@ -2897,6 +2969,7 @@ satisfy_constraint_r (tree t, tree args, subst_info info)
     case ATOMIC_CONSTR:
       return satisfy_atom (t, args, info);
     default:
+      inform (location_of (t), "wtf: %qC", TREE_CODE (t));
       gcc_unreachable ();
     }
 }
