@@ -746,7 +746,6 @@ save_atom (tree atom)
   tree *slot = atom_cache->find_slot (atom, INSERT);
   gcc_assert (!*slot);
   *slot = atom;
-  inform (location_of (atom), "saving atom %qE", atom);
 }
 
 /* Append the new atom into the a tree list associated with a concept decl. 
@@ -797,8 +796,6 @@ normalize_atom (tree t, tree args, norm_info info)
       if (!atom_cache)
         atom_cache = hash_table<atom_hasher>::create_ggc (31);
       tree *slot = atom_cache->find_slot (atom, INSERT);
-
-      inform (location_of (t), "normalizing %qE -> %s", t, *slot ? "got it" : "fuck");
 
       if (!*slot)
         {
