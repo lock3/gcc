@@ -5192,7 +5192,8 @@ resolve_omp_clauses (gfc_code *code, gfc_omp_clauses *omp_clauses,
 			   array isn't contiguous.  An expression such as
 			   arr(-n:n,-n:n) could be contiguous even if it looks
 			   like it may not be.  */
-			if (list != OMP_LIST_CACHE
+			if (code->op != EXEC_OACC_UPDATE
+			    && list != OMP_LIST_CACHE
 			    && list != OMP_LIST_DEPEND
 			    && !gfc_is_simply_contiguous (n->expr, false, true)
 			    && gfc_is_not_contiguous (n->expr))
@@ -5212,7 +5213,13 @@ resolve_omp_clauses (gfc_code *code, gfc_omp_clauses *omp_clauses,
 		    || (n->expr
 			&& (!resolved || n->expr->expr_type != EXPR_VARIABLE)))
 		  {
-		    if (!resolved
+		    if (array_ref
+			&& (array_ref->type == REF_SUBSTRING
+			    || (array_ref->next
+				&& array_ref->next->type == REF_SUBSTRING)))
+		      gfc_error ("Unexpected substring reference in %s clause "
+				 "at %L", name, &n->where);
+		    else if (!resolved
 			|| n->expr->expr_type != EXPR_VARIABLE
 			|| array_ref->next
 			|| array_ref->type != REF_ARRAY)
@@ -5224,7 +5231,7 @@ resolve_omp_clauses (gfc_code *code, gfc_omp_clauses *omp_clauses,
 			int i;
 			gfc_array_ref *ar = &array_ref->u.ar;
 			for (i = 0; i < ar->dimen; i++)
-			  if (ar->stride[i])
+			  if (ar->stride[i] && code->op != EXEC_OACC_UPDATE)
 			    {
 			      gfc_error ("Stride should not be specified for "
 					 "array section in %s clause at %L",
