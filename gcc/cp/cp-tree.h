@@ -3648,7 +3648,7 @@ struct GTY(()) lang_decl {
 inline tree
 find_contract (tree attrs)
 {
-  while (attrs && !cxx23_contract_attribute_p (attrs))
+  while (attrs && !cxx_contract_attribute_p (attrs))
     attrs = TREE_CHAIN (attrs);
   return attrs;
 }
@@ -7539,15 +7539,7 @@ inline void
 set_decl_contracts (tree decl, tree contract_attrs)
 {
   remove_contract_attributes (decl);
-  if (!DECL_ATTRIBUTES (decl))
-    {
-      DECL_ATTRIBUTES (decl) = contract_attrs;
-      return;
-    }
-  tree last_attr = DECL_ATTRIBUTES (decl);
-  while (TREE_CHAIN (last_attr))
-    last_attr = TREE_CHAIN (last_attr);
-  TREE_CHAIN (last_attr) = contract_attrs;
+  DECL_ATTRIBUTES (decl) = chainon (DECL_ATTRIBUTES (decl), contract_attrs);
 }
 
 /* in decl.c */

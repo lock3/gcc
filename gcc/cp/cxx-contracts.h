@@ -145,7 +145,7 @@ extern contract_semantic map_contract_semantic	(const char *);
 extern contract_level map_contract_level	(const char *);
 
 /* FIXME */
-extern bool cxx23_contract_attribute_p (const_tree);
+extern bool cxx_contract_attribute_p (const_tree);
 
 /* Returns the default role.  */
 

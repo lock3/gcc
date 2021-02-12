@@ -649,10 +649,7 @@ build_arg_list (tree fn)
   vec<tree, va_gc> *args = make_tree_vector ();
   for (tree t = DECL_ARGUMENTS (fn); t != NULL_TREE; t = TREE_CHAIN (t))
     {
-      if (TREE_CODE (TREE_TYPE (t)) == POINTER_TYPE
-	  && DECL_NAME (t) != NULL_TREE
-	  && IDENTIFIER_POINTER (DECL_NAME (t)) != NULL
-	  && id_equal (DECL_NAME (t), "this"))
+      if (is_this_parameter (t))
 	continue; // skip already inserted `this` args
 
       vec_safe_push (args, forward_parm (t));
@@ -660,7 +657,7 @@ build_arg_list (tree fn)
   return args;
 }
 
-/* Remove all c++23 style contract attributes from the DECL_ATTRIBUTEs of the
+/* Remove all c++2a style contract attributes from the DECL_ATTRIBUTEs of the
    FUNCTION_DECL FNDECL.  */
 
 void
@@ -673,7 +670,7 @@ remove_contract_attributes (tree fndecl)
     {
       tree l = *p;
 
-      if (cxx23_contract_attribute_p (l))
+      if (cxx_contract_attribute_p (l))
 	*p = TREE_CHAIN (l);
       else
 	p = &TREE_CHAIN (l);

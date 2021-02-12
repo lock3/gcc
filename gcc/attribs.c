@@ -566,7 +566,7 @@ decl_attributes (tree *node, tree attributes, int flags,
 	{
 	  if (!(flags & (int) ATTR_FLAG_BUILT_IN))
 	    {
-	      if (cxx23_contract_attribute_p (attr))
+	      if (cxx_contract_attribute_p (attr))
 		{
 		  ; /* Do not warn about contract "attributes".  */
 		}
@@ -840,11 +840,11 @@ cxx11_attribute_p (const_tree attr)
   return (TREE_CODE (TREE_PURPOSE (attr)) == TREE_LIST);
 }
 
-/* Return TRUE iff ATTR has been parsed by the fornt-end as a c++2a contract
+/* Return TRUE iff ATTR has been parsed by the front-end as a c++2a contract
    attribute. */
 
 bool
-cxx23_contract_attribute_p (const_tree attr)
+cxx_contract_attribute_p (const_tree attr)
 {
   if (attr == NULL_TREE
       || TREE_CODE (attr) != TREE_LIST)

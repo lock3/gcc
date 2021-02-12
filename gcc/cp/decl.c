@@ -5873,7 +5873,8 @@ start_decl (const cp_declarator *declarator,
 	  && !alias
 	  && flag_contract_strict_declarations)
 	warning_at (declarator->id_loc, OPT_fcontract_strict_declarations_,
-		    "non-defining declaration of %q#D outside of class", decl);
+		    "declaration of %q#D outside of class is not definition",
+		    decl);
     }
 
   /* Create a DECL_LANG_SPECIFIC so that DECL_DECOMPOSITION_P works.  */

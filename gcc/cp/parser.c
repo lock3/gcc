@@ -15997,7 +15997,6 @@ struct cp_contract_sentinel
 };
 
 /* Parse a conditional-expression.  */
-/* FIXME: should callers use cp_parser_constant_expression?  */
 
 static cp_expr
 cp_parser_conditional_expression (cp_parser *parser)
@@ -16019,7 +16018,6 @@ cp_parser_contract_condition (cp_parser *parser, tree contract,
 			      tree fn = NULL_TREE)
 {
   cp_contract_sentinel sentinel (contract, fn);
-  /* FIXME: can we use constant_expression for this?  */
   cp_expr cond = cp_parser_conditional_expression (parser);
   if (!cond || cond == error_mark_node)
     {
@@ -16038,21 +16036,27 @@ cp_parser_contract_condition (cp_parser *parser, tree contract,
       EXPR_LOCATION_WRAPPER_P (condition) = 1;
     }
 
+  tree comment = NULL_TREE;
   /* Try to get the actual source text for the condition; if that fails pretty
      print the resulting tree.  */
   char *comment_str = get_source (cond.get_start (), cond.get_finish ());
-  if (!comment_str)
-    /* FIXME cases where we end up here
-       #line macro usage (oof)
-       contracts10.C
-       contracts11.C
-     */
-    /* FIXME: Is this going to leak?  */
-    comment_str = xstrdup (expr_to_string (cond));
+  if (comment_str)
+    {
+      comment = build_string_literal (strlen (comment_str) + 1, comment_str);
+      free (comment_str);
+    }
+  else
+    {
+      /* FIXME cases where we end up here
+	 #line macro usage (oof)
+	 contracts10.C
+	 contracts11.C
+       */
+      const char *comment_str = expr_to_string (cond);
+      comment = build_string_literal (strlen (comment_str) + 1, comment_str);
+    }
 
-  tree comment = build_string_literal (strlen (comment_str) + 1, comment_str);
   finish_contract (contract, condition, comment);
-  free (comment_str);
 
   return contract;
 }
@@ -31446,7 +31450,6 @@ static void
 cp_parser_late_parsing_for_contract_kind (cp_parser *parser, tree function,
 					  tree_code kind)
 {
-  temp_override<tree> saved_cct(current_class_type);
   temp_override<tree> saved_ccp(current_class_ptr);
   temp_override<tree> saved_ccr(current_class_ref);
 
