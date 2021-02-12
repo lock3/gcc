@@ -719,7 +719,7 @@ normalize_concept_check (tree check, tree args, norm_info info)
 
 /* Used by normalize_atom to cache ATOMIC_CONSTRs.  */
 
-static GTY((deletable)) hash_table<atom_hasher> *atom_cache;
+static GTY(()) hash_table<atom_hasher> *atom_cache;
 
 /* Calls CB for each entry in the atomic constraint cache.  */
 
@@ -755,6 +755,10 @@ static void
 append_atom(tree decl, tree atom)
 {
   if (!modules_p())
+    return;
+
+  // Nested requirements clauses within a concept definition.
+  if (!decl) 
     return;
 
   if (TREE_CODE (decl) == OVERLOAD)
@@ -2549,7 +2553,7 @@ struct sat_hasher : ggc_ptr_hash<sat_entry>
 };
 
 /* Cache the result of satisfy_atom.  */
-static GTY((deletable)) hash_table<sat_hasher> *sat_cache;
+static GTY(()) hash_table<sat_hasher> *sat_cache;
 
 /* Cache the result of constraint_satisfaction_value.  */
 static GTY((deletable)) hash_map<tree, tree> *decl_satisfied_cache;
@@ -2561,10 +2565,6 @@ get_satisfaction (tree constr, tree args)
     return NULL_TREE;
   sat_entry elt = { constr, args, NULL_TREE };
   sat_entry* found = sat_cache->find (&elt);
-//  inform (location_of(constr), 
-//          "looking for satisfaction %qE (%p) args=%p -> %s", 
-//          constr, (void *)constr, args, found ? "found" : "not found");
-//  fprintf (stderr, "\n");
 
   if (found)
     return found->result;
@@ -2577,10 +2577,6 @@ save_satisfaction (tree constr, tree args, tree result)
 {
   if (!sat_cache)
     sat_cache = hash_table<sat_hasher>::create_ggc (31);
-
-//  inform (location_of (constr), "saving satisfaction %qE (%p) args=%p, result=%p", constr,
-//          (void *)constr, (void *)args, (void *)result);
-//  fprintf (stderr, "\n");
 
   sat_entry elt = { constr, args, result };
   sat_entry** slot = sat_cache->find_slot (&elt, INSERT);
@@ -3558,6 +3554,10 @@ diagnose_trait_expr (tree expr, tree map)
     case CPTK_IS_UNION:
       inform (loc, "  %qT is not a union", t1);
       break;
+    case CPTK_IS_CONSTRUCTIBLE:
+      inform (loc, "  %qT is not constructible from %qT", t1, t2);
+      break;
+      
     default:
       gcc_unreachable ();
     }

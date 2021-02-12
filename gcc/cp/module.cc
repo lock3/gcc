@@ -9074,6 +9074,7 @@ trees_out::constraint_satisfactions (sat_entry *entry, void *ctx)
   trees_out *out = (trees_out *)ctx;
   out->tree_node(entry->args);
   out->tree_node(entry->result);
+
   return true;
 }
 
@@ -9118,6 +9119,7 @@ trees_out::tree_value (tree t)
 
   if (TREE_CODE(t) == ATOMIC_CONSTR)
     {
+      // inform(location_of(t), "Wrote atomic constraint %qE", t);
       // Write the any satisfaction results associated with this 
       // atomic constraint.
       if (serialize_constraints_p())
