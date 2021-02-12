@@ -24,7 +24,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm.h"
 #include "hard-reg-set.h"
 #include "function.h"
-#include "c-family/cxx-contracts.h"
+#include "cxx-contracts.h"
 
 /* In order for the format checking to accept the C++ front end
    diagnostic framework extensions, you must include this file before

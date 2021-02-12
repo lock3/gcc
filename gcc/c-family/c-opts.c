@@ -41,7 +41,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "mkdeps.h"
 #include "dumpfile.h"
 #include "file-prefix-map.h"    /* add_*_prefix_map()  */
-#include "cxx-contracts.h"
 
 #ifndef DOLLARS_IN_IDENTIFIERS
 # define DOLLARS_IN_IDENTIFIERS true
@@ -718,26 +717,6 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 
     case OPT_v:
       verbose = true;
-      break;
-
-    case OPT_fcontract_build_level_:
-      handle_OPT_fcontract_build_level_ (arg);
-      break;
-
-    case OPT_fcontract_assumption_mode_:
-      handle_OPT_fcontract_assumption_mode_ (arg);
-      break;
-
-    case OPT_fcontract_continuation_mode_:
-      handle_OPT_fcontract_continuation_mode_ (arg);
-      break;
-
-    case OPT_fcontract_role_:
-      handle_OPT_fcontract_role_ (arg);
-      break;
-
-    case OPT_fcontract_semantic_:
-      handle_OPT_fcontract_semantic_ (arg);
       break;
     }
 

@@ -46,7 +46,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "cp-name-hint.h"
 #include "memmodel.h"
 #include "c-family/known-headers.h"
-#include "c-family/cxx-contracts.h"
+#include "cxx-contracts.h"
 
 
 /* The lexer.  */
