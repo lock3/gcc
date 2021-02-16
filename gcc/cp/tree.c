@@ -46,6 +46,7 @@ static tree verify_stmt_tree_r (tree *, int *, void *);
 
 static tree handle_init_priority_attribute (tree *, tree, tree, int, bool *);
 static tree handle_abi_tag_attribute (tree *, tree, tree, int, bool *);
+static tree handle_contract_attribute (tree *, tree, tree, int, bool *);
 
 /* If REF is an lvalue, returns the kind of lvalue that REF is.
    Otherwise, returns clk_none.  */
@@ -4822,6 +4823,9 @@ const struct attribute_spec std_attribute_table[] =
     handle_likeliness_attribute, attr_cold_hot_exclusions },
   { "noreturn", 0, 0, true, false, false, false,
     handle_noreturn_attribute, attr_noreturn_exclusions },
+  { "pre", 0, -1, false, false, false, false, handle_contract_attribute, NULL },
+  { "post", 0, -1, false, false, false, false,
+    handle_contract_attribute, NULL },
   { NULL, 0, 0, false, false, false, false, NULL, NULL }
 };
 
@@ -5066,6 +5070,17 @@ handle_abi_tag_attribute (tree* node, tree name, tree args,
   return NULL_TREE;
 
  fail:
+  *no_add_attrs = true;
+  return NULL_TREE;
+}
+
+/* Handle a pre or post contract attribute.  */
+
+tree
+handle_contract_attribute (tree *ARG_UNUSED (node), tree ARG_UNUSED (name),
+			   tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+			   bool *no_add_attrs)
+{
   *no_add_attrs = true;
   return NULL_TREE;
 }

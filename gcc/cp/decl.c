@@ -102,6 +102,7 @@ static void store_parm_decls (tree);
 static void initialize_local_var (tree, tree);
 static void expand_static_init (tree, tree);
 static location_t smallest_type_location (const cp_decl_specifier_seq*);
+static void finish_function_contracts (tree fndecl);
 
 /* The following symbols are subsumed in the cp_global_trees array, and
    listed here individually for documentation purposes.
@@ -941,8 +942,8 @@ static bool
 diagnose_mismatched_contracts (tree old_attr, tree new_attr,
 			       contract_matching_context ctx)
 {
-  tree old_contract = TREE_VALUE (old_attr);
-  tree new_contract = TREE_VALUE (new_attr);
+  tree old_contract = CONTRACT_STATEMENT (old_attr);
+  tree new_contract = CONTRACT_STATEMENT (new_attr);
 
   /* Different kinds of contracts do not match.  */
   if (TREE_CODE (old_contract) != TREE_CODE (new_contract))
@@ -1118,8 +1119,8 @@ merge_contracts (tree decl, const cp_declarator *fn)
 
   bool any_uses_return = false;
   for (tree ca = fn->contracts; ca; ca = TREE_CHAIN (ca))
-    if (TREE_CODE (TREE_VALUE (ca)) == POSTCONDITION_STMT
-	&& POSTCONDITION_IDENTIFIER (TREE_VALUE (ca)))
+    if (TREE_CODE (CONTRACT_STATEMENT (ca)) == POSTCONDITION_STMT
+	&& POSTCONDITION_IDENTIFIER (CONTRACT_STATEMENT (ca)))
       any_uses_return = true;
   if (any_uses_return && undeduced_auto_decl (decl) && !decl_defined_p (decl)
       && !DECL_TEMPLATE_INFO (decl))
@@ -1238,7 +1239,7 @@ diagnose_misapplied_contracts (tree attributes)
   if (!contract_attr)
     return false;
 
-  error_at (EXPR_LOCATION (TREE_VALUE (contract_attr)),
+  error_at (EXPR_LOCATION (CONTRACT_STATEMENT (contract_attr)),
 	    "contracts must appertain to a function type");
   return true;
 }
@@ -17941,31 +17942,27 @@ finish_function (bool inline_p)
   invoke_plugin_callbacks (PLUGIN_FINISH_PARSE_FUNCTION, fndecl);
 
   if (finishing_guarded_p)
-    finish_function_contracts (fndecl, 0);
+    finish_function_contracts (fndecl);
 
   return fndecl;
 }
 
-void
-finish_function_contracts (tree fndecl, bool is_inline)
+/* Finish up a the pre & post function declarations for a guarded FNDECL,
+   and compile those functions all the way to assembler language output.  */
+
+static void
+finish_function_contracts (tree fndecl)
 {
-  //gcc_checking_assert (!pending_guarded_decls.get (fndecl));
-  bool finishing_guarded_p = true//!processing_template_decl
-    && contract_any_active_p (DECL_CONTRACTS (fndecl))
-    && !DECL_CONSTRUCTOR_P (fndecl)
-    && !DECL_DESTRUCTOR_P (fndecl);
-  if (!finishing_guarded_p)
-    return;
   for (tree ca = DECL_CONTRACTS (fndecl); ca; ca = CONTRACT_CHAIN (ca))
-    if (!CONTRACT_CONDITION (TREE_VALUE (ca))
-	|| CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (ca))
-	|| CONTRACT_CONDITION (TREE_VALUE (ca)) == error_mark_node)
-      return;
+    {
+      tree contract = CONTRACT_STATEMENT (ca);
+      if (!CONTRACT_CONDITION (contract)
+	  || CONTRACT_CONDITION_DEFERRED_P (contract)
+	  || CONTRACT_CONDITION (contract) == error_mark_node)
+	return;
+    }
 
   int flags = SF_DEFAULT | SF_PRE_PARSED;
-  if (is_inline)
-    flags = SF_PRE_PARSED | SF_INCLASS_INLINE;
-
   tree finished_pre = NULL_TREE, finished_post = NULL_TREE;
 
   if (DECL_PRE_FN (fndecl) && DECL_INITIAL (fndecl) != error_mark_node

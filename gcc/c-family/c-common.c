@@ -5815,30 +5815,6 @@ attribute_fallthrough_p (tree attr)
   return true;
 }
 
-/* Check whether ATTR is a valid assert contract.  */
-
-bool
-attribute_contract_assert_p (tree attr)
-{
-  if (!attr || attr == error_mark_node)
-    return false;
-
-  /* This is only an assertion if the first and only attribute is assert.  */
-  tree name = get_attribute_name (attr);
-  if (!is_attribute_p ("assert", name))
-    return false;
-  
-  /* Things like [[assert]] and [[assert(x)]] are not contracts. These
-     can show up in attributes like [[foo, assert(x)]]. We simply parse
-     each attribute into the same list, so assert-like attributes can
-     appear here.  */
-  tree value = TREE_VALUE (attr);
-  if (!value || (TREE_CODE (value) != ASSERTION_STMT))
-    return false;
-
-  return true;
-}
-
 
 /* Check for valid arguments being passed to a function with FNTYPE.
    There are NARGS arguments in the array ARGARRAY.  LOC should be used

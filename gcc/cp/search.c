@@ -1931,7 +1931,9 @@ remap_overrider_contracts (tree overrider, tree basefn)
       a = CONTRACT_CHAIN (a))
     {
       tree c = copy_node (a);
-      TREE_VALUE (c) = copy_node (TREE_VALUE (c));
+      // FIXME can we just contract_statement (c) = copy...
+      TREE_VALUE (c) = build_tree_list (TREE_PURPOSE (TREE_VALUE (c)),
+					copy_node (CONTRACT_STATEMENT (c)));
       tree src = basefn;
       tree dst = overrider;
       if (DECL_PRE_FN (basefn))
@@ -1945,9 +1947,9 @@ remap_overrider_contracts (tree overrider, tree basefn)
 	  src = DECL_POST_FN (basefn);
 	  dst = DECL_POST_FN (overrider);
 	}
-      remap_contract (src, dst, TREE_VALUE (c));
-      CONTRACT_COMMENT (TREE_VALUE (c)) =
-	copy_node (CONTRACT_COMMENT (TREE_VALUE (c)));
+      remap_contract (src, dst, CONTRACT_STATEMENT (c));
+      CONTRACT_COMMENT (CONTRACT_STATEMENT (c)) =
+	copy_node (CONTRACT_COMMENT (CONTRACT_STATEMENT (c)));
 
       chainon (last, c);
       last = c;

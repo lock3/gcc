@@ -1175,7 +1175,7 @@ build_contract_handler_fn (tree contract,
 bool
 contract_active_p (tree contract)
 {
-  return get_contract_semantic (TREE_VALUE (contract)) != CCS_IGNORE;
+  return get_contract_semantic (CONTRACT_STATEMENT (contract)) != CCS_IGNORE;
 }
 
 /* Return true if any contract in the CONTRACT list is checked or assumed
@@ -1196,7 +1196,7 @@ bool
 contract_any_deferred_p (tree contract_attr)
 {
   for (; contract_attr; contract_attr = CONTRACT_CHAIN (contract_attr))
-    if (CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (contract_attr)))
+    if (CONTRACT_CONDITION_DEFERRED_P (CONTRACT_STATEMENT (contract_attr)))
       return true;
   return false;
 }
@@ -1265,7 +1265,7 @@ static tree
 emit_contract_statement (tree attr)
 {
   gcc_assert (TREE_CODE (attr) == TREE_LIST);
-  tree contract = TREE_VALUE (attr);
+  tree contract = CONTRACT_STATEMENT (attr);
 
   /* Only add valid contracts.  */
   if (get_contract_semantic (contract) != CCS_INVALID
@@ -1285,7 +1285,7 @@ emit_contract_conditions (tree attrs, tree_code code)
   gcc_assert (code == PRECONDITION_STMT || code == POSTCONDITION_STMT);
   while (attrs)
     {
-      tree contract = TREE_VALUE (attrs);
+      tree contract = CONTRACT_STATEMENT (attrs);
       if (TREE_CODE (contract) == code)
 	attrs = emit_contract_statement (attrs);
       else

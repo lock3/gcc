@@ -1457,53 +1457,20 @@ cp_ensure_no_oacc_routine (cp_parser *parser)
 /* True if ATTR is an assertion.  */
 
 bool
-cp_contract_assertion_p (tree attr)
+cp_contract_assertion_p (const_tree attr)
 {
-  if (!attr || attr == error_mark_node)
-    return false;
-
-  /* This is only an assertion if the first and only attribute is assert.  */
-  tree name = get_attribute_name (attr);
-  if (!is_attribute_p ("assert", name))
-    return false;
-
-  /* Things like [[assert]] and [[assert(x)]] are not contracts. These
-     can show up in attributes like [[foo, assert(x)]]. We simply parse
-     each attribute into the same list, so assert-like attributes can
-     appear here.  */
-  tree value = TREE_VALUE (attr);
-  if (!value || (TREE_CODE (value) != ASSERTION_STMT))
-    return false;
-
-  return true;
-}
-
-/* True if ATTR is a contract condition.  */
-
-static bool
-cp_contract_condition_p (tree attr)
-{
-  if (!attr || attr == error_mark_node)
-    return false;
-
-  /* This is only an assertion if the first and only attribute is assert.  */
-  tree name = get_attribute_name (attr);
-  if (!is_attribute_p ("pre", name) && !is_attribute_p ("post", name))
-    return false;
-
-  /* Reject contracts with the same name, but different values.  */
-  tree value = TREE_VALUE (attr);
-  if (!value || !CONTRACT_CONDITION_P (value))
-    return false;
-
-  return true;
+  /* This is only an assertion if it is a valid cxx contract attribute and the
+     statement is an ASSERTION_STMT.  */
+  return cxx_contract_attribute_p (attr)
+    && TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSERTION_STMT;
 }
 
 /* Remove contracts from the list of standard attributes, building
    CONTRACTS as a TREE_LIST.  */
 
 static void
-cp_separate_contracts (tree &attributes, tree &contracts, bool (*pred)(tree))
+cp_separate_contracts (tree &attributes, tree &contracts,
+		       bool (*pred)(const_tree))
 {
   tree attr = attributes;
   contracts = (contracts == NULL_TREE ? NULL_TREE : nreverse (contracts));
@@ -1757,7 +1724,7 @@ make_call_declarator (cp_declarator *target,
   declarator->std_attributes = std_attrs;
   cp_separate_contracts (declarator->std_attributes,
 			 declarator->contracts,
-			 cp_contract_condition_p);
+			 cxx_contract_attribute_p);
 
   return declarator;
 }
@@ -11717,7 +11684,7 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 
   /* FIXME: move fallthrough up here so it applies to decls/etc?  */
   /* Check that assertions are null statements.  */
-  if (attribute_contract_assert_p (contract_attrs))
+  if (cp_contract_assertion_p (contract_attrs))
     if (token->type != CPP_SEMICOLON)
       error_at (token->location, "assertions must be followed by %<;%>");
 
@@ -11904,7 +11871,7 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	}
 
       /* Handle [[assert: ...]];  */
-      if (attribute_contract_assert_p (contract_attrs))
+      if (cp_contract_assertion_p (contract_attrs))
 	{
 	  /* Add the assertion as a statement in the current block.  */
 	  gcc_assert (!statement || statement == error_mark_node);
@@ -26441,7 +26408,7 @@ cp_parser_member_declaration (cp_parser* parser)
 		 declarator's contract list.  */
 	      cp_separate_contracts (attributes,
 				     declarator->contracts,
-				     cp_contract_condition_p);
+				     cxx_contract_attribute_p);
 	      /* Remember which attributes are prefix attributes and
 		 which are not.  */
 	      first_attribute = attributes;
@@ -28444,7 +28411,8 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
       return error_mark_node;
     }
 
-  return build_tree_list (build_tree_list (NULL_TREE, attr), contract);
+  return build_tree_list (build_tree_list (NULL_TREE, attr),
+                          build_tree_list (NULL_TREE, contract));
 }
 
 /* Parse a standard C++-11 attribute specifier.
@@ -31432,9 +31400,9 @@ cp_parser_late_parsing_for_contract_attrs (cp_parser *parser,
 					   tree_code kind)
 {
   for (; contract_attrs; contract_attrs = CONTRACT_CHAIN (contract_attrs))
-    if (TREE_CODE (TREE_VALUE (contract_attrs)) == kind)
+    if (TREE_CODE (CONTRACT_STATEMENT (contract_attrs)) == kind)
       cp_parser_late_parsing_for_contract (parser, function,
-					   TREE_VALUE (contract_attrs));
+					   CONTRACT_STATEMENT (contract_attrs));
 }
 
 /* Parse any outstanding contract conditions of tree code KIND on FUNCTION.  */

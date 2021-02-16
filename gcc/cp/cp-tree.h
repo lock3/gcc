@@ -3660,7 +3660,7 @@ find_contract (tree attrs)
 
 /* The wrapper of the original source location of a list of contracts.  */
 #define CONTRACT_SOURCE_LOCATION_WRAPPER(NODE) \
-  (TREE_PURPOSE (TREE_PURPOSE (NODE)))
+  (TREE_PURPOSE (TREE_VALUE (NODE)))
 
 /* The original source location of a list of contracts.  */
 #define CONTRACT_SOURCE_LOCATION(NODE) \
@@ -3669,6 +3669,10 @@ find_contract (tree attrs)
 /* The original decl a list of contracts was declared on.  */
 #define CONTRACT_ORIGINAL_DECL(NODE) \
   (tree_strip_any_location_wrapper (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
+
+/* The actual code _STMT for a contract attribute.  */
+#define CONTRACT_STATEMENT(NODE) \
+  (TREE_VALUE (TREE_VALUE (NODE)))
 
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */
@@ -6830,7 +6834,6 @@ extern tree begin_function_body			(void);
 extern void finish_function_body		(tree);
 extern tree outer_curly_brace_block		(tree);
 extern tree finish_function			(bool);
-extern void finish_function_contracts		(tree, bool = false);
 extern tree grokmethod				(cp_decl_specifier_seq *, const cp_declarator *, tree);
 extern void maybe_register_incomplete_var	(tree);
 extern void maybe_commonize_var			(tree);

@@ -34,7 +34,6 @@ extern void init_attributes (void);
 extern tree decl_attributes (tree *, tree, int, tree = NULL_TREE);
 
 extern bool cxx11_attribute_p (const_tree);
-extern bool cxx_contract_attribute_p (const_tree);
 extern tree get_attribute_name (const_tree);
 extern tree get_attribute_namespace (const_tree);
 extern void apply_tm_attr (tree, tree);

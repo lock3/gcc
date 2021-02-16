@@ -144,7 +144,7 @@ extern contract_semantic lookup_concrete_semantic (const char *);
 extern contract_semantic map_contract_semantic	(const char *);
 extern contract_level map_contract_level	(const char *);
 
-/* FIXME */
+/* Check if an attribute is a cxx contract attribute.  */
 extern bool cxx_contract_attribute_p (const_tree);
 
 /* Returns the default role.  */

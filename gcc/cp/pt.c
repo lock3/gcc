@@ -21065,15 +21065,16 @@ tsubst_contract_conditions_r (tree t, tree args, tsubst_flags_t complain,
   if (!t)
     return NULL_TREE;
   tree id = TREE_PURPOSE (t);
-  tree contract = tsubst_contract (TREE_VALUE (t), args, tf_warning_or_error,
-				   in_decl);
+  tree contract = tsubst_contract (CONTRACT_STATEMENT (t), args,
+				   tf_warning_or_error, in_decl);
   if (contract == error_mark_node)
     return error_mark_node;
   tree chain = tsubst_contract_conditions_r (TREE_CHAIN (t), args, complain,
 					     in_decl);
   if (chain == error_mark_node)
     return error_mark_node;
-  return tree_cons (id, contract, chain);
+  tree ca = build_tree_list (TREE_PURPOSE (TREE_VALUE (t)), contract);
+  return tree_cons (id, ca, chain);
 }
 
 /* Instantiate contract conditions in T. Note that substitution failures

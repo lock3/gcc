@@ -24,6 +24,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "diagnostic.h"
 #include "options.h"
 #include "cxx-contracts.h"
+#include "tree.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
@@ -367,5 +368,27 @@ handle_OPT_fcontract_semantic_ (const char *arg)
   else
     error ("-fcontract-semantic= level must be default, audit, or axiom");
   validate_contract_role (role);
+}
+
+/* Return TRUE iff ATTR has been parsed by the front-end as a c++2a contract
+   attribute. */
+
+bool
+cxx_contract_attribute_p (const_tree attr)
+{
+  if (attr == NULL_TREE
+      || TREE_CODE (attr) != TREE_LIST)
+    return false;
+
+  if (!TREE_PURPOSE (attr) || TREE_CODE (TREE_PURPOSE (attr)) != TREE_LIST)
+    return false;
+  if (!TREE_VALUE (attr) || TREE_CODE (TREE_VALUE (attr)) != TREE_LIST)
+    return false;
+  if (!TREE_VALUE (TREE_VALUE (attr)))
+    return false;
+
+  return (TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == PRECONDITION_STMT
+      || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == POSTCONDITION_STMT
+      || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == ASSERTION_STMT);
 }
 
