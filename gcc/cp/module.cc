@@ -3108,7 +3108,8 @@ private:
   unsigned section;
 #if CHECKING_P
   int importedness;		/* Checker that imports not occurring
-				   inappropriately.  */
+				   inappropriately.  +ve imports ok,
+				   -ve imports not ok.  */
 #endif
 
 public:
@@ -3608,8 +3609,8 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   }
 
  public:
-  /* Is this not a real module?  */
-  bool is_rooted () const
+  /* Is this a real module?  */
+  bool has_location () const
   {
     return loc != UNKNOWN_LOCATION;
   }
@@ -4416,7 +4417,7 @@ dumper::operator () (const char *format, ...)
 	    const char *str = "(none)";
 	    if (module_state *m = va_arg (args, module_state *))
 	      {
-		if (!m->is_rooted ())
+		if (!m->has_location ())
 		  str = "(detached)";
 		else
 		  str = m->get_flatname ();
@@ -8161,6 +8162,12 @@ trees_in::decl_value ()
       if (inner_tag)
 	/* Set the TEMPLATE_DECL's type.  */
 	TREE_TYPE (decl) = TREE_TYPE (inner);
+
+      if (NAMESPACE_SCOPE_P (decl)
+	  && (mk == MK_named || mk == MK_unique
+	      || mk == MK_enum || mk == MK_friend_spec)
+	  && !(VAR_OR_FUNCTION_DECL_P (decl) && DECL_LOCAL_DECL_P (decl)))
+	add_module_namespace_decl (CP_DECL_CONTEXT (decl), decl);
 
       /* The late insertion of an alias here or an implicit member
          (next block), is ok, because we ensured that all imports were
@@ -14464,16 +14471,17 @@ module_state::read_partitions (unsigned count)
       dump () && dump ("Reading elided partition %s (crc=%x)", name, crc);
 
       module_state *imp = get_module (name);
-      if (!imp || !imp->is_partition () || imp->is_rooted ()
-	  || get_primary (imp) != this)
+      if (!imp	/* Partition should be ...  */
+	  || !imp->is_partition () /* a partition ...  */
+	  || imp->loadedness != ML_NONE  /* that is not yet loaded ...  */
+	  || get_primary (imp) != this) /* whose primary is this.  */
 	{
 	  sec.set_overrun ();
 	  break;
 	}
 
-      /* Attach the partition without loading it.  We'll have to load
-	 for real if it's indirectly imported.  */
-      imp->loc = floc;
+      if (!imp->has_location ())
+	imp->loc = floc;
       imp->crc = crc;
       if (!imp->filename && fname[0])
 	imp->filename = xstrdup (fname);
@@ -14649,13 +14657,36 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 	{
 	  depset *dep = b->deps[jx];
 
-	  if (!dep->is_binding ()
-	      && dep->is_import () && !TREE_VISITED (dep->get_entity ()))
+	  if (dep->is_binding ())
+	    {
+	      /* A cross-module using decl could be here.  */
+	      for (unsigned ix = dep->deps.length (); --ix;)
+		{
+		  depset *bind = dep->deps[ix];
+		  if (bind->get_entity_kind () == depset::EK_USING
+		      && bind->deps[1]->is_import ())
+		    {
+		      tree import = bind->deps[1]->get_entity ();
+		      if (!TREE_VISITED (import))
+			{
+			  sec.tree_node (import);
+			  dump (dumper::CLUSTER)
+			    && dump ("Seeded import %N", import);
+			}
+		    }
+		}
+	      /* Also check the namespace itself.  */
+	      dep = dep->deps[0];
+	    }
+
+	  if (dep->is_import ())
 	    {
 	      tree import = dep->get_entity ();
-
-	      sec.tree_node (import);
-	      dump (dumper::CLUSTER) && dump ("Seeded import %N", import);
+	      if (!TREE_VISITED (import))
+		{
+		  sec.tree_node (import);
+		  dump (dumper::CLUSTER) && dump ("Seeded import %N", import);
+		}
 	    }
 	}
     }
@@ -14916,20 +14947,6 @@ module_state::read_cluster (unsigned snum)
 				     : 0,
 				     decls, type, visible))
 	      sec.set_overrun ();
-
-	    if (type
-		&& CP_DECL_CONTEXT (type) == ns
-		&& !sec.is_duplicate (type))
-	      add_module_decl (ns, name, type);
-
-	    for (ovl_iterator iter (decls); iter; ++iter)
-	      if (!iter.using_p ())
-		{
-		  tree decl = *iter;
-		  if (CP_DECL_CONTEXT (decl) == ns
-		      && !sec.is_duplicate (decl))
-		    add_module_decl (ns, name, decl);
-		}
 	  }
 	  break;
 
@@ -18881,7 +18898,7 @@ direct_import (module_state *import, cpp_reader *reader)
   timevar_start (TV_MODULE_IMPORT);
   unsigned n = dump.push (import);
 
-  gcc_checking_assert (import->is_direct () && import->is_rooted ());
+  gcc_checking_assert (import->is_direct () && import->has_location ());
   if (import->loadedness == ML_NONE)
     if (!import->do_import (reader, true))
       gcc_unreachable ();
@@ -18928,7 +18945,7 @@ import_module (module_state *import, location_t from_loc, bool exporting_p,
       linemap_module_reparent (line_table, import->loc, from_loc);
     }
   gcc_checking_assert (!import->module_p);
-  gcc_checking_assert (import->is_direct () && import->is_rooted ());
+  gcc_checking_assert (import->is_direct () && import->has_location ());
 
   direct_import (import, reader);
 }
@@ -18958,7 +18975,7 @@ declare_module (module_state *module, location_t from_loc, bool exporting_p,
     }
 
   gcc_checking_assert (module->module_p);
-  gcc_checking_assert (module->is_direct () && module->is_rooted ());
+  gcc_checking_assert (module->is_direct () && module->has_location ());
 
   /* Yer a module, 'arry.  */
   module_kind &= ~MK_GLOBAL;
