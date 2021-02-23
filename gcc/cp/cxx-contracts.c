@@ -21,10 +21,12 @@ along with GCC; see the file COPYING3.  If not see
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"
+#include "cp-tree.h"
 #include "diagnostic.h"
 #include "options.h"
 #include "cxx-contracts.h"
 #include "tree.h"
+#include "tree-inline.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
@@ -390,5 +392,63 @@ cxx_contract_attribute_p (const_tree attr)
   return (TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == PRECONDITION_STMT
       || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == POSTCONDITION_STMT
       || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == ASSERTION_STMT);
+}
+
+/* Replace any references in CONTRACT's CONDITION to SRC's parameters with
+   references to DST's parameters.
+
+   This is useful when the DECL_PARMs used to parse a contract aren't the
+   final parms used for the function definition.  For example when an initial
+   declaration has contracts listed but the definition does not.
+
+   This is also used to reuse a parent type's contracts on virtual methods.  */
+
+void
+remap_contract (tree src, tree dst, tree contract)
+{
+  copy_body_data id;
+  hash_map<tree, tree> decl_map;
+
+  memset (&id, 0, sizeof (id));
+  id.src_fn = src;
+  id.dst_fn = dst;
+  id.src_cfun = DECL_STRUCT_FUNCTION (src);
+  id.decl_map = &decl_map;
+
+  id.copy_decl = copy_decl_no_change;
+  id.transform_call_graph_edges = CB_CGE_DUPLICATE;
+  id.transform_new_cfg = false;
+  id.transform_return_to_modify = false;
+  id.transform_parameter = true;
+  id.transform_lang_insert_block = NULL;
+
+  /* Make sure not to unshare trees behind the front-end's back
+     since front-end specific mechanisms may rely on sharing.  */
+  id.regimplify = false;
+  id.do_not_unshare = true;
+  id.do_not_fold = true;
+
+  /* We're not inside any EH region.  */
+  id.eh_lp_nr = 0;
+
+  bool do_remap = false;
+
+  /* Insert paramater remappings.  */
+  if (TREE_CODE (src) == FUNCTION_DECL) src = DECL_ARGUMENTS (src);
+  if (TREE_CODE (dst) == FUNCTION_DECL) dst = DECL_ARGUMENTS (dst);
+
+  for (tree sp = src, dp = dst; sp || dp;
+      sp = DECL_CHAIN (sp), dp = DECL_CHAIN (dp))
+    {
+      gcc_assert (sp && dp);
+
+      if (sp == dp) continue;
+      insert_decl_map (&id, sp, dp);
+      do_remap = true;
+    }
+  if (!do_remap)
+    return;
+
+  walk_tree (&CONTRACT_CONDITION (contract), copy_tree_body_r, &id, NULL);
 }
 

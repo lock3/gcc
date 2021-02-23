@@ -162,4 +162,8 @@ extern void handle_OPT_fcontract_continuation_mode_ (const char *);
 extern void handle_OPT_fcontract_role_ (const char *);
 extern void handle_OPT_fcontract_semantic_ (const char *);
 
+/* Replace any references in CONTRACT's CONDITION to SRC's parameters with
+   references to DST's parameters.  */
+extern void remap_contract (tree src, tree dst, tree contract);
+
 #endif /* ! GCC_CP_CONTRACT_H */
