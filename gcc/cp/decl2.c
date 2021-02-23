@@ -4444,9 +4444,6 @@ cp_tree_defined_p_r (tree *tp, int *, void *)
   if ((code == FUNCTION_DECL || code == VAR_DECL)
       && !decl_defined_p (*tp))
     return *tp;
-  /* We never want to accidentally instantiate templates.  */
-  if (code == TEMPLATE_DECL)
-    return *tp; /* FIXME? */
   return NULL_TREE;
 }
 
