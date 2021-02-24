@@ -10715,7 +10715,15 @@ check_mergeable_decl (merge_kind mk, tree decl, tree ovl, merge_key const &key)
 		   Matches decls_match behaviour.  */
 		&& (!DECL_IS_UNDECLARED_BUILTIN (m_inner)
 		    || !DECL_EXTERN_C_P (m_inner)
-		    || DECL_EXTERN_C_P (d_inner)))
+		    || DECL_EXTERN_C_P (d_inner))
+		/* Reject if one is they're different member of a
+		   guarded/pre/post fn set.  */
+		&& (!flag_contracts
+		    || (DECL_IS_PRE_FN_P (d_inner)
+			== DECL_IS_PRE_FN_P (m_inner)))
+		&& (!flag_contracts
+		    || (DECL_IS_POST_FN_P (d_inner)
+			== DECL_IS_POST_FN_P (m_inner))))
 	      {
 		tree m_reqs = get_constraints (m_inner);
 		if (m_reqs)

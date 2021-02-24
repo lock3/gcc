@@ -3694,6 +3694,14 @@ find_contract (tree attrs)
 #define DECL_ORIGINAL_FN(NODE) \
   (get_contracts_original_fn (NODE))
 
+/* True iff the FUNCTION_DECL is the pre function for a guarded function.  */
+#define DECL_IS_PRE_FN_P(NODE) \
+  (DECL_ORIGINAL_FN (NODE) && DECL_PRE_FN (DECL_ORIGINAL_FN (NODE)) == NODE)
+
+/* True iff the FUNCTION_DECL is the post function for a guarded function.  */
+#define DECL_IS_POST_FN_P(NODE) \
+  (DECL_ORIGINAL_FN (NODE) && DECL_POST_FN (DECL_ORIGINAL_FN (NODE)) == NODE)
+
 /* True the FUNCTION_DECL NODE was initially declared without contracts.  */
 #define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
   (LANG_DECL_FN_CHECK (DECL_COMMON_CHECK (NODE))->seen_without_contracts_p)
