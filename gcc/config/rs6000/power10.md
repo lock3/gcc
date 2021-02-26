@@ -1,5 +1,5 @@
 ;; Scheduling description for IBM POWER10 processor.
-;; Copyright (C) 2016-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2021 Free Software Foundation, Inc.
 ;;
 ;; This is a clone of power9.md.  It is intended to be a placeholder until a
 ;; real scheduler model can be contributed.
@@ -468,13 +468,13 @@
        (eq_attr "cpu" "power10"))
   "DU_super_power10,dfu_power10*8")
 
-(define_insn_reservation "power10-mffgpr" 2
-  (and (eq_attr "type" "mffgpr")
+(define_insn_reservation "power10-mtvsr" 2
+  (and (eq_attr "type" "mtvsr")
        (eq_attr "cpu" "power10"))
   "DU_slice_3_power10,VSU_power10")
 
-(define_insn_reservation "power10-mftgpr" 2
-  (and (eq_attr "type" "mftgpr")
+(define_insn_reservation "power10-mfvsr" 2
+  (and (eq_attr "type" "mfvsr")
        (eq_attr "cpu" "power10"))
   "DU_slice_3_power10,VSU_power10")
 

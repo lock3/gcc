@@ -257,7 +257,7 @@ static void lowerNonArrayAggregate(StaticForeach *sfe, Scope *sc)
         {
             Parameters *params = pparams[j];
             Parameter *p = sfe->aggrfe ? (*sfe->aggrfe->parameters)[i] : sfe->rangefe->prm;
-            params->push(new Parameter(p->storageClass, p->type, p->ident, NULL));
+            params->push(new Parameter(p->storageClass, p->type, p->ident, NULL, NULL));
         }
     }
     Expression *res[2];
@@ -705,6 +705,10 @@ int StaticIfCondition::include(Scope *sc)
         sc = sc->push(sc->scopesym);
 
         bool errors = false;
+
+        if (!exp)
+            goto Lerror;
+
         bool result = evalStaticCondition(sc, exp, exp, errors);
         sc->pop();
 

@@ -6,6 +6,7 @@ package runtime
 
 import (
 	"internal/bytealg"
+	"runtime/internal/sys"
 	"unsafe"
 )
 
@@ -93,7 +94,11 @@ func slicebytetostring(buf *tmpBuf, ptr *byte, n int) (str string) {
 		msanread(unsafe.Pointer(ptr), uintptr(n))
 	}
 	if n == 1 {
-		stringStructOf(&str).str = unsafe.Pointer(&staticbytes[*ptr])
+		p := unsafe.Pointer(&staticuint64s[*ptr])
+		if sys.BigEndian {
+			p = add(p, 7)
+		}
+		stringStructOf(&str).str = p
 		stringStructOf(&str).len = 1
 		return
 	}
@@ -228,12 +233,6 @@ func stringStructOf(sp *string) *stringStruct {
 }
 
 func intstring(buf *[4]byte, v int64) (s string) {
-	if v >= 0 && v < runeSelf {
-		stringStructOf(&s).str = unsafe.Pointer(&staticbytes[v])
-		stringStructOf(&s).len = 1
-		return
-	}
-
 	var b []byte
 	if buf != nil {
 		b = buf[:]
@@ -326,22 +325,6 @@ func gostringn(p *byte, l int) string {
 	s, b := rawstring(l)
 	memmove(unsafe.Pointer(&b[0]), unsafe.Pointer(p), uintptr(l))
 	return s
-}
-
-func index(s, t string) int {
-	if len(t) == 0 {
-		return 0
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] == t[0] && hasPrefix(s[i:], t) {
-			return i
-		}
-	}
-	return -1
-}
-
-func contains(s, t string) bool {
-	return index(s, t) >= 0
 }
 
 func hasPrefix(s, prefix string) bool {
@@ -512,38 +495,4 @@ func __go_byte_array_to_string(p unsafe.Pointer, l int) string {
 //go:linkname __go_string_to_byte_array __go_string_to_byte_array
 func __go_string_to_byte_array(s string) []byte {
 	return stringtoslicebyte(nil, s)
-}
-
-// parseRelease parses a dot-separated version number. It follows the
-// semver syntax, but allows the minor and patch versions to be
-// elided.
-func parseRelease(rel string) (major, minor, patch int, ok bool) {
-	// Strip anything after a dash or plus.
-	for i := 0; i < len(rel); i++ {
-		if rel[i] == '-' || rel[i] == '+' {
-			rel = rel[:i]
-			break
-		}
-	}
-
-	next := func() (int, bool) {
-		for i := 0; i < len(rel); i++ {
-			if rel[i] == '.' {
-				ver, ok := atoi(rel[:i])
-				rel = rel[i+1:]
-				return ver, ok
-			}
-		}
-		ver, ok := atoi(rel)
-		rel = ""
-		return ver, ok
-	}
-	if major, ok = next(); !ok || rel == "" {
-		return
-	}
-	if minor, ok = next(); !ok || rel == "" {
-		return
-	}
-	patch, ok = next()
-	return
 }

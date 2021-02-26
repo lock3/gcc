@@ -1,4 +1,4 @@
-/* Copyright (C) 1988-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1988-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -116,10 +116,8 @@ BDESC_VERIFYS (IX86_BUILTIN__BDESC_MULTI_ARG_FIRST,
 	       IX86_BUILTIN__BDESC_ROUND_ARGS_LAST, 1);
 BDESC_VERIFYS (IX86_BUILTIN__BDESC_CET_FIRST,
 	       IX86_BUILTIN__BDESC_MULTI_ARG_LAST, 1);
-BDESC_VERIFYS (IX86_BUILTIN__BDESC_CET_NORMAL_FIRST,
-	       IX86_BUILTIN__BDESC_CET_LAST, 1);
 BDESC_VERIFYS (IX86_BUILTIN_MAX,
-	       IX86_BUILTIN__BDESC_CET_NORMAL_LAST, 1);
+	       IX86_BUILTIN__BDESC_CET_LAST, 1);
 
 
 /* Table for the ix86 builtin non-function types.  */
@@ -276,6 +274,10 @@ def_builtin (HOST_WIDE_INT mask, HOST_WIDE_INT mask2,
       if (((mask2 == 0 || (mask2 & ix86_isa_flags2) != 0)
 	   && (mask == 0 || (mask & ix86_isa_flags) != 0))
 	  || ((mask & OPTION_MASK_ISA_MMX) != 0 && TARGET_MMX_WITH_SSE)
+	  /* "Unified" builtin used by either AVXVNNI intrinsics or AVX512VNNIVL
+	     non-mask intrinsics should be defined whenever avxvnni
+	     or avx512vnni && avx512vl exist.  */
+	  || (mask2 == OPTION_MASK_ISA2_AVXVNNI)
 	  || (lang_hooks.builtin_function
 	      == lang_hooks.builtin_function_ext_scope))
 	{
@@ -1196,6 +1198,11 @@ ix86_init_mmx_sse_builtins (void)
   def_builtin (0, OPTION_MASK_ISA2_WAITPKG, "__builtin_ia32_tpause",
 	       UINT8_FTYPE_UNSIGNED_UINT64, IX86_BUILTIN_TPAUSE);
 
+  /* UINTR.  */
+  def_builtin (OPTION_MASK_ISA_64BIT, OPTION_MASK_ISA2_UINTR,
+	       "__builtin_ia32_testui",
+	       UINT8_FTYPE_VOID, IX86_BUILTIN_TESTUI);
+
   /* CLDEMOTE.  */
   def_builtin (0, OPTION_MASK_ISA2_CLDEMOTE, "__builtin_ia32_cldemote",
 	       VOID_FTYPE_PCVOID, IX86_BUILTIN_CLDEMOTE);
@@ -1227,21 +1234,6 @@ ix86_init_mmx_sse_builtins (void)
   BDESC_VERIFYS (IX86_BUILTIN__BDESC_CET_LAST,
 		 IX86_BUILTIN__BDESC_CET_FIRST,
 		 ARRAY_SIZE (bdesc_cet) - 1);
-
-  for (i = 0, d = bdesc_cet_rdssp;
-       i < ARRAY_SIZE (bdesc_cet_rdssp);
-       i++, d++)
-    {
-      BDESC_VERIFY (d->code, IX86_BUILTIN__BDESC_CET_NORMAL_FIRST, i);
-      if (d->name == 0)
-	continue;
-
-      ftype = (enum ix86_builtin_func_type) d->flag;
-      def_builtin (d->mask, d->mask2, d->name, ftype, d->code);
-    }
-  BDESC_VERIFYS (IX86_BUILTIN__BDESC_CET_NORMAL_LAST,
-		 IX86_BUILTIN__BDESC_CET_NORMAL_FIRST,
-		 ARRAY_SIZE (bdesc_cet_rdssp) - 1);
 }
 
 #undef BDESC_VERIFY
@@ -1883,7 +1875,8 @@ get_builtin_code_for_version (tree decl, tree *predicate_list)
      before the ssse3 version. */
   if (strstr (attrs_str, "arch=") != NULL)
     {
-      cl_target_option_save (&cur_target, &global_options);
+      cl_target_option_save (&cur_target, &global_options,
+			     &global_options_set);
       target_node
 	= ix86_valid_target_attribute_tree (decl, attrs, &global_options,
 					    &global_options_set, 0);
@@ -1952,7 +1945,8 @@ get_builtin_code_for_version (tree decl, tree *predicate_list)
 	      break;
 	    }
 
-      cl_target_option_restore (&global_options, &cur_target);
+      cl_target_option_restore (&global_options, &global_options_set,
+				&cur_target);
 	
       if (predicate_list && arg_str == NULL)
 	{

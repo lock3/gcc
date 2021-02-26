@@ -1,5 +1,5 @@
 /* Native CPU detection for aarch64.
-   Copyright (C) 2015-2020 Free Software Foundation, Inc.
+   Copyright (C) 2015-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -191,10 +191,16 @@ readline (FILE *f)
       size += buf_size;
       buf = (char*) xrealloc (buf, size);
       gcc_assert (buf);
-      fgets (buf + last, buf_size, f);
+      /* If fgets fails it returns NULL, but if it reaches EOF
+	 with 0 characters read it also returns EOF.  However
+	 the condition on the loop would have broken out of the
+	 loop in that case,  and if we are in the first iteration
+	 then the empty string is the correct thing to return.  */
+      if (!fgets (buf + last, buf_size, f))
+	return std::string ();
       /* If we're not at the end of the line then override the
 	 \0 added by fgets.  */
-      last = strlen (buf) - 1;
+      last = strnlen (buf, size) - 1;
     }
   while (!feof (f) && buf[last] != '\n');
 

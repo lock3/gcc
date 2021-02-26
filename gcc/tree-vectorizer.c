@@ -1,5 +1,5 @@
 /* Vectorizer
-   Copyright (C) 2003-2020 Free Software Foundation, Inc.
+   Copyright (C) 2003-2021 Free Software Foundation, Inc.
    Contributed by Dorit Naishlos <dorit@il.ibm.com>
 
 This file is part of GCC.
@@ -473,7 +473,7 @@ vec_info::~vec_info ()
   unsigned int i;
 
   FOR_EACH_VEC_ELT (slp_instances, i, instance)
-    vect_free_slp_instance (instance, true);
+    vect_free_slp_instance (instance);
 
   destroy_cost_data (target_cost_data);
   free_stmt_vec_infos ();
@@ -522,6 +522,19 @@ vec_info::add_stmt (gimple *stmt)
 {
   stmt_vec_info res = new_stmt_vec_info (stmt);
   set_vinfo_for_stmt (stmt, res);
+  return res;
+}
+
+/* Record that STMT belongs to the vectorizable region.  Create a new
+   stmt_vec_info and mark VECINFO as being related and return the new
+   stmt_vec_info.  */
+
+stmt_vec_info
+vec_info::add_pattern_stmt (gimple *stmt, stmt_vec_info stmt_info)
+{
+  stmt_vec_info res = new_stmt_vec_info (stmt);
+  set_vinfo_for_stmt (stmt, res, false);
+  STMT_VINFO_RELATED_STMT (res) = stmt_info;
   return res;
 }
 
@@ -603,8 +616,8 @@ vec_info::remove_stmt (stmt_vec_info stmt_info)
 {
   gcc_assert (!stmt_info->pattern_stmt_p);
   set_vinfo_for_stmt (stmt_info->stmt, NULL);
-  gimple_stmt_iterator si = gsi_for_stmt (stmt_info->stmt);
   unlink_stmt_vdef (stmt_info->stmt);
+  gimple_stmt_iterator si = gsi_for_stmt (stmt_info->stmt);
   gsi_remove (&si, true);
   release_defs (stmt_info->stmt);
   free_stmt_vec_info (stmt_info);
@@ -649,7 +662,8 @@ vec_info::insert_seq_on_entry (stmt_vec_info context, gimple_seq seq)
   else
     {
       bb_vec_info bb_vinfo = as_a <bb_vec_info> (this);
-      gimple_stmt_iterator gsi_region_begin = bb_vinfo->region_begin;
+      gimple_stmt_iterator gsi_region_begin
+	= gsi_after_labels (bb_vinfo->bbs[0]);
       gsi_insert_seq_before (&gsi_region_begin, seq, GSI_SAME_STMT);
     }
 }
@@ -683,13 +697,13 @@ vec_info::new_stmt_vec_info (gimple *stmt)
   STMT_VINFO_SLP_VECT_ONLY (res) = false;
   STMT_VINFO_VEC_STMTS (res) = vNULL;
 
-  if (gimple_code (stmt) == GIMPLE_PHI
+  if (is_a <loop_vec_info> (this)
+      && gimple_code (stmt) == GIMPLE_PHI
       && is_loop_header_bb_p (gimple_bb (stmt)))
     STMT_VINFO_DEF_TYPE (res) = vect_unknown_def_type;
   else
     STMT_VINFO_DEF_TYPE (res) = vect_internal_def;
 
-  STMT_VINFO_SAME_ALIGN_REFS (res).create (0);
   STMT_SLP_TYPE (res) = loop_vect;
 
   /* This is really "uninitialized" until vect_compute_data_ref_alignment.  */
@@ -701,12 +715,12 @@ vec_info::new_stmt_vec_info (gimple *stmt)
 /* Associate STMT with INFO.  */
 
 void
-vec_info::set_vinfo_for_stmt (gimple *stmt, stmt_vec_info info)
+vec_info::set_vinfo_for_stmt (gimple *stmt, stmt_vec_info info, bool check_ro)
 {
   unsigned int uid = gimple_uid (stmt);
   if (uid == 0)
     {
-      gcc_assert (!stmt_vec_info_ro);
+      gcc_assert (!check_ro || !stmt_vec_info_ro);
       gcc_checking_assert (info);
       uid = stmt_vec_infos.length () + 1;
       gimple_set_uid (stmt, uid);
@@ -745,7 +759,6 @@ vec_info::free_stmt_vec_info (stmt_vec_info stmt_info)
 	release_ssa_name (lhs);
     }
 
-  STMT_VINFO_SAME_ALIGN_REFS (stmt_info).release ();
   STMT_VINFO_SIMD_CLONE_INFO (stmt_info).release ();
   STMT_VINFO_VEC_STMTS (stmt_info).release ();
   free (stmt_info);
@@ -1048,9 +1061,6 @@ try_vectorize_loop_1 (hash_table<simduid_to_vf> *&simduid_to_vf_htab,
 	    }
 	  if (!require_loop_vectorize && vect_slp_bb (bb))
 	    {
-	      if (dump_enabled_p ())
-		dump_printf_loc (MSG_NOTE, vect_location,
-				 "basic block vectorized\n");
 	      fold_loop_internal_call (loop_vectorized_call,
 				       boolean_true_node);
 	      loop_vectorized_call = NULL;
@@ -1066,7 +1076,8 @@ try_vectorize_loop_1 (hash_table<simduid_to_vf> *&simduid_to_vf_htab,
       return ret;
     }
 
-  if (!dbg_cnt (vect_loop))
+  /* Only count the original scalar loops.  */
+  if (!LOOP_VINFO_EPILOGUE_P (loop_vinfo) && !dbg_cnt (vect_loop))
     {
       /* Free existing information if loop is analyzed with some
 	 assumptions.  */
@@ -1172,6 +1183,8 @@ vectorize_loops (void)
   /* Bail out if there are no loops.  */
   if (vect_loops_num <= 1)
     return 0;
+
+  vect_slp_init ();
 
   if (cfun->has_simduid_loops)
     note_simd_array_uses (&simd_array_to_simduid_htab);
@@ -1283,7 +1296,11 @@ vectorize_loops (void)
 
   /* Fold IFN_GOMP_SIMD_{VF,LANE,LAST_LANE,ORDERED_{START,END}} builtins.  */
   if (cfun->has_simduid_loops)
-    adjust_simduid_builtins (simduid_to_vf_htab);
+    {
+      adjust_simduid_builtins (simduid_to_vf_htab);
+      /* Avoid stale SCEV cache entries for the SIMD_LANE defs.  */
+      scev_reset ();
+    }
 
   /* Shrink any "omp array simd" temporary arrays to the
      actual vectorization factors.  */
@@ -1291,6 +1308,7 @@ vectorize_loops (void)
     shrink_simd_arrays (simd_array_to_simduid_htab, simduid_to_vf_htab);
   delete simduid_to_vf_htab;
   cfun->has_simduid_loops = false;
+  vect_slp_fini ();
 
   if (num_vectorized_loops > 0)
     {
@@ -1410,6 +1428,13 @@ pass_slp_vectorize::execute (function *fun)
   /* Mark all stmts as not belonging to the current region and unvisited.  */
   FOR_EACH_BB_FN (bb, fun)
     {
+      for (gphi_iterator gsi = gsi_start_phis (bb); !gsi_end_p (gsi);
+	   gsi_next (&gsi))
+	{
+	  gphi *stmt = gsi.phi ();
+	  gimple_set_uid (stmt, -1);
+	  gimple_set_visited (stmt, false);
+	}
       for (gimple_stmt_iterator gsi = gsi_start_bb (bb); !gsi_end_p (gsi);
 	   gsi_next (&gsi))
 	{
@@ -1419,12 +1444,11 @@ pass_slp_vectorize::execute (function *fun)
 	}
     }
 
-  FOR_EACH_BB_FN (bb, fun)
-    {
-      if (vect_slp_bb (bb))
-	if (dump_enabled_p ())
-	  dump_printf_loc (MSG_NOTE, vect_location, "basic block vectorized\n");
-    }
+  vect_slp_init ();
+
+  vect_slp_function (fun);
+
+  vect_slp_fini ();
 
   if (!in_loop_pipeline)
     {

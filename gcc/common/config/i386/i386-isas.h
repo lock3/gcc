@@ -1,5 +1,5 @@
 /* i386 ISA table.
-   Copyright (C) 2020 Free Software Foundation, Inc.
+   Copyright (C) 2020-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -160,4 +160,13 @@ ISA_NAMES_TABLE_START
   ISA_NAMES_TABLE_ENTRY("xsaveopt", FEATURE_XSAVEOPT, P_NONE,
 			"-mxsaveopt")
   ISA_NAMES_TABLE_ENTRY("xsaves", FEATURE_XSAVES, P_NONE, "-mxsaves")
+  ISA_NAMES_TABLE_ENTRY("amx-tile", FEATURE_AMX_TILE, P_NONE, "-mamx-tile")
+  ISA_NAMES_TABLE_ENTRY("amx-int8", FEATURE_AMX_INT8, P_NONE, "-mamx-int8")
+  ISA_NAMES_TABLE_ENTRY("amx-bf16", FEATURE_AMX_BF16, P_NONE, "-mamx-bf16")
+  ISA_NAMES_TABLE_ENTRY("uintr", FEATURE_UINTR, P_NONE, "-muintr")
+  ISA_NAMES_TABLE_ENTRY("hreset", FEATURE_HRESET, P_NONE, "-mhreset")
+  ISA_NAMES_TABLE_ENTRY("kl", FEATURE_KL, P_NONE, "-mkl")
+  ISA_NAMES_TABLE_ENTRY("aeskle", FEATURE_AESKLE, P_NONE, NULL)
+  ISA_NAMES_TABLE_ENTRY("widekl", FEATURE_WIDEKL, P_NONE, "-mwidekl")
+  ISA_NAMES_TABLE_ENTRY("avxvnni", FEATURE_AVXVNNI, P_NONE, "-mavxvnni")
 ISA_NAMES_TABLE_END

@@ -51,6 +51,7 @@ alpha port		Richard Henderson	<rth@twiddle.net>
 amdgcn port		Julian Brown		<julian@codesourcery.com>
 amdgcn port		Andrew Stubbs		<ams@codesourcery.com>
 arc port		Joern Rennecke		<gnu@amylaar.uk>
+arc port		Claudiu Zissulescu	<claziss@synopsys.com>
 arm port		Nick Clifton		<nickc@redhat.com>
 arm port		Richard Earnshaw	<richard.earnshaw@arm.com>
 arm port		Ramana Radhakrishnan	<ramana.radhakrishnan@arm.com>
@@ -240,6 +241,7 @@ loop infrastructure	Zdenek Dvorak		<ook@ucw.cz>
 loop ivopts		Bin Cheng		<bin.cheng@linux.alibaba.com>
 loop optimizer		Bin Cheng		<bin.cheng@linux.alibaba.com>
 OpenACC			Thomas Schwinge		<thomas@codesourcery.com>
+OpenACC			Tobias Burnus		<tobias@codesourcery.com>
 OpenMP			Jakub Jelinek		<jakub@redhat.com>
 testsuite		Rainer Orth		<ro@CeBiTec.Uni-Bielefeld.DE>
 testsuite		Mike Stump		<mikestump@comcast.net>
@@ -322,6 +324,7 @@ Jon Beniston					<jon@beniston.com>
 Andrew Bennett					<andrew.bennett@imgtec.com>
 Andrew Benson					<abensonca@gmail.com>
 Daniel Berlin					<dberlin@dberlin.org>
+Pat Bernardi					<bernardi@adacore.com>
 Jan Beulich					<jbeulich@novell.com>
 David Billinghurst				<David.Billinghurst@riotinto.com>
 Tomas Bily					<tbily@suse.cz>
@@ -407,6 +410,7 @@ Matthew Gretton-Dann				<matthew.gretton-dann@arm.com>
 Yury Gribov					<tetra2005@gmail.com>
 Jon Grimm					<jgrimm2@us.ibm.com>
 Laurent Guerby					<laurent@guerby.net>
+Haochen Gui					<guihaoc@gcc.gnu.org>
 Jiufu Guo					<guojiufu@linux.ibm.com>
 Xuepeng Guo					<terry.xpguo@gmail.com>
 Wei Guozhi					<carrot@google.com>
@@ -424,6 +428,7 @@ George Helffrich				<george@gcc.gnu.org>
 Daniel Hellstrom				<daniel@gaisler.com>
 Fergus Henderson				<fjh@cs.mu.oz.au>
 Stuart Henderson				<shenders@gcc.gnu.org>
+Marius Hillenbrand				<mhillen@linux.ibm.com>
 Matthew Hiller					<hiller@redhat.com>
 Kazu Hirata					<kazu@codesourcery.com>
 Manfred Hollstein				<mh@suse.com>
@@ -462,6 +467,7 @@ Nicolas Koenig					<koenigni@student.ethz.ch>
 Boris Kolpackov                                 <boris@codesynthesis.com>
 Dave Korn					<dave.korn.cygwin@gmail.com>
 Julia Koval					<julia.koval@intel.com>
+Hongtao Liu					<hongtao.liu@intel.com>
 Matt Kraai					<kraai@ftbfs.org>
 Jan Kratochvil					<jan.kratochvil@redhat.com>
 Louis Krupp					<louis.krupp@zoho.com>
@@ -563,6 +569,7 @@ Vladimir Prus					<vladimir@codesourcery.com>
 Yao Qi						<yao@codesourcery.com>
 Jerry Quinn					<jlquinn@optonline.net>
 Easwaran Raman					<eraman@google.com>
+Joe Ramsay					<joe.ramsay@arm.com>
 Rolf Rasmussen					<rolfwr@gcc.gnu.org>
 Fritz Reese					<fritzoreese@gmail.com>
 Volker Reichelt					<v.reichelt@netcologne.de>
@@ -587,7 +594,7 @@ Stefan Schulze Frielinghaus			<stefansf@linux.ibm.com>
 Tilo Schwarz					<tilo@tilo-schwarz.de>
 Martin Sebor					<msebor@gcc.gnu.org>
 Svein Seldal					<svein@dev.seldal.com>
-Senthil Kumar Selvaraj				<senthil_kumar.selvaraj@atmel.com>
+Senthil Kumar Selvaraj				<saaadhu@gcc.gnu.org>
 Thiemo Seufer					<ths@networkno.de>
 Bill Seurer					<seurer@linux.vnet.ibm.com>
 Tim Shen					<timshen@google.com>
@@ -610,6 +617,7 @@ Robert Suchanek					<robert.suchanek@imgtec.com>
 Andrew Sutton					<andrew.n.sutton@gmail.com>
 Gabriele Svelto					<gabriele.svelto@st.com>
 Toma Tabacu					<toma.tabacu@imgtec.com>
+Omar Tahir					<omar.tahir@arm.com>
 Sriraman Tallam					<tmsriram@google.com>
 Samuel Tardieu					<sam@rfc1149.net>
 Sam Tebbs					<samuel.tebbs@gmail.com>
@@ -617,12 +625,13 @@ Dinar Temirbulatov				<dtemirbulatov@gmail.com>
 Kresten Krab Thorup				<krab@gcc.gnu.org>
 Kai Tietz					<ktietz70@googlemail.com>
 Ilya Tocar					<tocarip@gmail.com>
-Philipp Tomsich					<philipp.tomsich@theobroma-systems.com>
+Philipp Tomsich					<philipp.tomsich@vrull.eu>
 Daniel Towner					<dant@picochip.com>
 Konrad Trifunovic				<konrad.trifunovic@inria.fr>
 Markus Trippelsdorf				<markus@trippelsdorf.de>
+Sergei Trofimovich				<slyfox@gcc.gnu.org>
 Igor Tsimbalist					<igor.v.tsimbalist@intel.com>
-Martin Uecker					<uecker@eecs.berkeley.edu>
+Martin Uecker					<muecker@gwdg.de>
 David Ung					<davidu@mips.com>
 Neil Vachharajani				<nvachhar@gmail.com>
 Kris Van Hees					<kris.van.hees@oracle.com>

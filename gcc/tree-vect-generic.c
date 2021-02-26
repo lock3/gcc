@@ -1,5 +1,5 @@
 /* Lower vector operations to scalar operations.
-   Copyright (C) 2004-2020 Free Software Foundation, Inc.
+   Copyright (C) 2004-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -136,19 +136,7 @@ tree_vec_extract (gimple_stmt_iterator *gsi, tree type,
 	t = gimple_assign_rhs1 (def_stmt);
     }
   if (bitpos)
-    {
-      if (TREE_CODE (type) == BOOLEAN_TYPE)
-	{
-	  tree itype
-	    = build_nonstandard_integer_type (tree_to_uhwi (bitsize), 0);
-	  tree field = gimplify_build3 (gsi, BIT_FIELD_REF, itype, t,
-					bitsize, bitpos);
-	  return gimplify_build2 (gsi, NE_EXPR, type, field,
-				  build_zero_cst (itype));
-	}
-      else
-	return gimplify_build3 (gsi, BIT_FIELD_REF, type, t, bitsize, bitpos);
-    }
+    return gimplify_build3 (gsi, BIT_FIELD_REF, type, t, bitsize, bitpos);
   else
     return gimplify_build1 (gsi, VIEW_CONVERT_EXPR, type, t);
 }
@@ -1775,6 +1763,12 @@ expand_vector_conversion (gimple_stmt_iterator *gsi)
   gimple *stmt = gsi_stmt (*gsi);
   gimple *g;
   tree lhs = gimple_call_lhs (stmt);
+  if (lhs == NULL_TREE)
+    {
+      g = gimple_build_nop ();
+      gsi_replace (gsi, g, false);
+      return;
+    }
   tree arg = gimple_call_arg (stmt, 0);
   tree ret_type = TREE_TYPE (lhs);
   tree arg_type = TREE_TYPE (arg);
@@ -2095,7 +2089,7 @@ expand_vector_operations_1 (gimple_stmt_iterator *gsi,
       if (op >= FIRST_NORM_OPTAB && op <= LAST_NORM_OPTAB
 	  && optab_handler (op, TYPE_MODE (TREE_TYPE (type))) != CODE_FOR_nothing)
 	{
-	  tree slhs = make_ssa_name (TREE_TYPE (srhs1));
+	  tree slhs = make_ssa_name (TREE_TYPE (TREE_TYPE (lhs)));
 	  gimple *repl = gimple_build_assign (slhs, code, srhs1, srhs2);
 	  gsi_insert_before (gsi, repl, GSI_SAME_STMT);
 	  gimple_assign_set_rhs_from_tree (gsi,
@@ -2124,6 +2118,10 @@ expand_vector_operations_1 (gimple_stmt_iterator *gsi,
      arguments, not the widened result.  VEC_UNPACK_FLOAT_*_EXPR is
      calculated in the same way above.  */
   if (code == WIDEN_SUM_EXPR
+      || code == VEC_WIDEN_PLUS_HI_EXPR
+      || code == VEC_WIDEN_PLUS_LO_EXPR
+      || code == VEC_WIDEN_MINUS_HI_EXPR
+      || code == VEC_WIDEN_MINUS_LO_EXPR
       || code == VEC_WIDEN_MULT_HI_EXPR
       || code == VEC_WIDEN_MULT_LO_EXPR
       || code == VEC_WIDEN_MULT_EVEN_EXPR

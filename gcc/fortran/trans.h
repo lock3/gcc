@@ -1,5 +1,5 @@
 /* Header for code translation functions
-   Copyright (C) 2002-2020 Free Software Foundation, Inc.
+   Copyright (C) 2002-2021 Free Software Foundation, Inc.
    Contributed by Paul Brook
 
 This file is part of GCC.
@@ -423,6 +423,7 @@ tree gfc_class_data_get (tree);
 tree gfc_class_vptr_get (tree);
 tree gfc_class_len_get (tree);
 tree gfc_class_len_or_zero_get (tree);
+tree gfc_resize_class_size_with_len (stmtblock_t *, tree, tree);
 gfc_expr * gfc_find_and_cut_at_last_class_ref (gfc_expr *, bool is_mold = false);
 /* Get an accessor to the class' vtab's * field, when a class handle is
    available.  */
@@ -442,6 +443,7 @@ tree gfc_vptr_final_get (tree);
 tree gfc_vptr_deallocate_get (tree);
 void gfc_reset_vptr (stmtblock_t *, gfc_expr *);
 void gfc_reset_len (stmtblock_t *, gfc_expr *);
+tree gfc_get_class_from_gfc_expr (gfc_expr *);
 tree gfc_get_class_from_expr (tree);
 tree gfc_get_vptr_from_expr (tree);
 tree gfc_get_class_array_ref (tree, tree, tree, bool);
@@ -608,7 +610,8 @@ tree gfc_get_label_decl (gfc_st_label *);
 
 /* Return the decl for an external function.  */
 tree gfc_get_extern_function_decl (gfc_symbol *,
-				   gfc_actual_arglist *args = NULL);
+				   gfc_actual_arglist *args = NULL,
+				   const char *fnspec = NULL);
 
 /* Return the decl for a function.  */
 tree gfc_get_function_decl (gfc_symbol *);
@@ -810,13 +813,17 @@ tree gfc_omp_clause_copy_ctor (tree, tree, tree);
 tree gfc_omp_clause_assign_op (tree, tree, tree);
 tree gfc_omp_clause_linear_ctor (tree, tree, tree, tree);
 tree gfc_omp_clause_dtor (tree, tree);
-void gfc_omp_finish_clause (tree, gimple_seq *);
+void gfc_omp_finish_clause (tree, gimple_seq *, bool);
 bool gfc_omp_scalar_p (tree);
 bool gfc_omp_disregard_value_expr (tree, bool);
 bool gfc_omp_private_debug_clause (tree, bool);
 bool gfc_omp_private_outer_ref (tree);
 struct gimplify_omp_ctx;
 void gfc_omp_firstprivatize_type_sizes (struct gimplify_omp_ctx *, tree);
+
+/* In trans-intrinsic.c.  */
+void gfc_conv_intrinsic_mvbits (gfc_se *, gfc_actual_arglist *,
+				gfc_loopinfo *);
 
 /* Runtime library function decls.  */
 extern GTY(()) tree gfor_fndecl_pause_numeric;

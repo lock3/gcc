@@ -1,5 +1,5 @@
 ;; Constraint definitions for ARM and Thumb
-;; Copyright (C) 2006-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2021 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 
 ;; This file is part of GCC.
@@ -310,7 +310,7 @@
  "@internal
   In ARM/Thumb-2 state a vector of constant zeros."
  (and (match_code "const_vector")
-      (match_test "TARGET_NEON && op == CONST0_RTX (mode)")))
+      (match_test "(TARGET_NEON || TARGET_HAVE_MVE) && op == CONST0_RTX (mode)")))
 
 (define_constraint "Da"
  "@internal
@@ -451,6 +451,16 @@
   In ARM/Thumb-2 state a valid VFP load/store address."
  (and (match_code "mem")
       (match_test "TARGET_32BIT && arm_coproc_mem_operand (op, FALSE)")))
+
+(define_memory_constraint "Uj"
+ "@internal
+  In ARM/Thumb-2 state a VFP load/store address that supports writeback
+  for Neon but not for MVE"
+ (and (match_code "mem")
+      (match_test "TARGET_32BIT")
+      (match_test "TARGET_HAVE_MVE
+                   ? arm_coproc_mem_operand_no_writeback (op)
+                   : neon_vector_mem_operand (op, 2, true)")))
 
 (define_memory_constraint "Uy"
  "@internal

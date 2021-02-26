@@ -1,5 +1,5 @@
 /* Tree inlining.
-   Copyright (C) 2001-2020 Free Software Foundation, Inc.
+   Copyright (C) 2001-2021 Free Software Foundation, Inc.
    Contributed by Alexandre Oliva <aoliva@redhat.com>
 
 This file is part of GCC.
@@ -62,6 +62,10 @@ along with GCC; see the file COPYING3.  If not see
 #include "sreal.h"
 #include "tree-cfgcleanup.h"
 #include "tree-ssa-live.h"
+#include "alloc-pool.h"
+#include "symbol-summary.h"
+#include "symtab-thunks.h"
+#include "symtab-clones.h"
 
 /* I'm not real happy about this, but we need to handle gimple and
    non-gimple trees.  */
@@ -1816,12 +1820,11 @@ remap_gimple_stmt (gimple *stmt, copy_body_data *id)
 	  /* If the inlined function has too many debug markers,
 	     don't copy them.  */
 	  if (id->src_cfun->debug_marker_count
-	      > param_max_debug_marker_count)
+	      > param_max_debug_marker_count
+	      || id->reset_location)
 	    return stmts;
 
 	  gdebug *copy = as_a <gdebug *> (gimple_copy (stmt));
-	  if (id->reset_location)
-	    gimple_set_location (copy, input_location);
 	  id->debug_stmts.safe_push (copy);
 	  gimple_seq_add_stmt (&stmts, copy);
 	  return stmts;
@@ -2100,7 +2103,7 @@ copy_bb (copy_body_data *id, basic_block bb,
 	      /* Create the new array of arguments.  */
 	      n = nargs + gimple_call_num_args (call_stmt);
 	      argarray.create (n);
-	      argarray.safe_grow_cleared (n);
+	      argarray.safe_grow_cleared (n, true);
 
 	      /* Copy all the arguments before '...'  */
 	      memcpy (argarray.address (),
@@ -3166,7 +3169,14 @@ copy_debug_stmt (gdebug *stmt, copy_body_data *id)
     }
 
   if (gimple_debug_nonbind_marker_p (stmt))
-    return;
+    {
+      if (id->call_stmt && !gimple_block (stmt))
+	{
+	  gimple_stmt_iterator gsi = gsi_for_stmt (stmt);
+	  gsi_remove (&gsi, true);
+	}
+      return;
+    }
 
   /* Remap all the operands in COPY.  */
   memset (&wi, 0, sizeof (wi));
@@ -4221,6 +4231,8 @@ estimate_operator_cost (enum tree_code code, eni_weights *weights,
 
     case REALIGN_LOAD_EXPR:
 
+    case WIDEN_PLUS_EXPR:
+    case WIDEN_MINUS_EXPR:
     case WIDEN_SUM_EXPR:
     case WIDEN_MULT_EXPR:
     case DOT_PROD_EXPR:
@@ -4229,6 +4241,10 @@ estimate_operator_cost (enum tree_code code, eni_weights *weights,
     case WIDEN_MULT_MINUS_EXPR:
     case WIDEN_LSHIFT_EXPR:
 
+    case VEC_WIDEN_PLUS_HI_EXPR:
+    case VEC_WIDEN_PLUS_LO_EXPR:
+    case VEC_WIDEN_MINUS_HI_EXPR:
+    case VEC_WIDEN_MINUS_LO_EXPR:
     case VEC_WIDEN_MULT_HI_EXPR:
     case VEC_WIDEN_MULT_LO_EXPR:
     case VEC_WIDEN_MULT_EVEN_EXPR:
@@ -4700,6 +4716,7 @@ expand_call_inline (basic_block bb, gimple *stmt, copy_body_data *id,
   use_operand_p use;
   gimple *simtenter_stmt = NULL;
   vec<tree> *simtvars_save;
+  clone_info *info;
 
   /* The gimplifier uses input_location in too many places, such as
      internal_get_tmp_var ().  */
@@ -4793,13 +4810,14 @@ expand_call_inline (basic_block bb, gimple *stmt, copy_body_data *id,
 
   /* If callee is thunk, all we need is to adjust the THIS pointer
      and redirect to function being thunked.  */
-  if (id->src_node->thunk.thunk_p)
+  if (id->src_node->thunk)
     {
       cgraph_edge *edge;
       tree virtual_offset = NULL;
       profile_count count = cg_edge->count;
       tree op;
       gimple_stmt_iterator iter = gsi_for_stmt (stmt);
+      thunk_info *info = thunk_info::get (id->src_node);
 
       cgraph_edge::remove (cg_edge);
       edge = id->src_node->callees->clone (id->dst_node, call_stmt,
@@ -4808,24 +4826,26 @@ expand_call_inline (basic_block bb, gimple *stmt, copy_body_data *id,
 					   profile_count::one (),
 				           true);
       edge->count = count;
-      if (id->src_node->thunk.virtual_offset_p)
-        virtual_offset = size_int (id->src_node->thunk.virtual_value);
+      if (info->virtual_offset_p)
+	virtual_offset = size_int (info->virtual_value);
       op = create_tmp_reg_fn (cfun, TREE_TYPE (gimple_call_arg (stmt, 0)),
 			      NULL);
       gsi_insert_before (&iter, gimple_build_assign (op,
 						    gimple_call_arg (stmt, 0)),
 			 GSI_NEW_STMT);
-      gcc_assert (id->src_node->thunk.this_adjusting);
-      op = thunk_adjust (&iter, op, 1, id->src_node->thunk.fixed_offset,
-			 virtual_offset, id->src_node->thunk.indirect_offset);
+      gcc_assert (info->this_adjusting);
+      op = thunk_adjust (&iter, op, 1, info->fixed_offset,
+			 virtual_offset, info->indirect_offset);
 
       gimple_call_set_arg (stmt, 0, op);
       gimple_call_set_fndecl (stmt, edge->callee->decl);
       update_stmt (stmt);
       id->src_node->remove ();
-      expand_call_inline (bb, stmt, id, to_purge);
+      successfully_inlined = expand_call_inline (bb, stmt, id, to_purge);
       maybe_remove_unused_call_args (cfun, stmt);
-      return true;
+      /* This used to return true even though we do fail to inline in
+	 some cases.  See PR98525.  */
+      goto egress;
     }
   fn = cg_edge->callee->decl;
   cg_edge->callee->get_untransformed_body ();
@@ -5021,31 +5041,33 @@ expand_call_inline (basic_block bb, gimple *stmt, copy_body_data *id,
   /* Add local vars in this inlined callee to caller.  */
   add_local_variables (id->src_cfun, cfun, id);
 
-  if (id->src_node->clone.performed_splits)
+  info = clone_info::get (id->src_node);
+  if (info && info->performed_splits)
     {
+      clone_info *dst_info = clone_info::get_create (id->dst_node);
       /* Any calls from the inlined function will be turned into calls from the
 	 function we inline into.  We must preserve notes about how to split
 	 parameters such calls should be redirected/updated.  */
-      unsigned len = vec_safe_length (id->src_node->clone.performed_splits);
+      unsigned len = vec_safe_length (info->performed_splits);
       for (unsigned i = 0; i < len; i++)
 	{
 	  ipa_param_performed_split ps
-	    = (*id->src_node->clone.performed_splits)[i];
+	    = (*info->performed_splits)[i];
 	  ps.dummy_decl = remap_decl (ps.dummy_decl, id);
-	  vec_safe_push (id->dst_node->clone.performed_splits, ps);
+	  vec_safe_push (dst_info->performed_splits, ps);
 	}
 
       if (flag_checking)
 	{
-	  len = vec_safe_length (id->dst_node->clone.performed_splits);
+	  len = vec_safe_length (dst_info->performed_splits);
 	  for (unsigned i = 0; i < len; i++)
 	    {
 	      ipa_param_performed_split *ps1
-		= &(*id->dst_node->clone.performed_splits)[i];
+		= &(*dst_info->performed_splits)[i];
 	      for (unsigned j = i + 1; j < len; j++)
 		{
 		  ipa_param_performed_split *ps2
-		    = &(*id->dst_node->clone.performed_splits)[j];
+		    = &(*dst_info->performed_splits)[j];
 		  gcc_assert (ps1->dummy_decl != ps2->dummy_decl
 			      || ps1->unit_offset != ps2->unit_offset);
 		}
@@ -6071,8 +6093,9 @@ tree_versionable_function_p (tree fndecl)
 static void
 update_clone_info (copy_body_data * id)
 {
+  clone_info *dst_info = clone_info::get (id->dst_node);
   vec<ipa_param_performed_split, va_gc> *cur_performed_splits
-    = id->dst_node->clone.performed_splits;
+    = dst_info ? dst_info->performed_splits : NULL;
   if (cur_performed_splits)
     {
       unsigned len = cur_performed_splits->length ();
@@ -6089,23 +6112,24 @@ update_clone_info (copy_body_data * id)
   for (node = id->dst_node->clones; node != id->dst_node;)
     {
       /* First update replace maps to match the new body.  */
-      if (node->clone.tree_map)
-        {
+      clone_info *info = clone_info::get (node);
+      if (info && info->tree_map)
+	{
 	  unsigned int i;
-          for (i = 0; i < vec_safe_length (node->clone.tree_map); i++)
+	  for (i = 0; i < vec_safe_length (info->tree_map); i++)
 	    {
 	      struct ipa_replace_map *replace_info;
-	      replace_info = (*node->clone.tree_map)[i];
+	      replace_info = (*info->tree_map)[i];
 	      walk_tree (&replace_info->new_tree, copy_tree_body_r, id, NULL);
 	    }
 	}
-      if (node->clone.performed_splits)
+      if (info && info->performed_splits)
 	{
-	  unsigned len = vec_safe_length (node->clone.performed_splits);
+	  unsigned len = vec_safe_length (info->performed_splits);
 	  for (unsigned i = 0; i < len; i++)
 	    {
 	      ipa_param_performed_split *ps
-		= &(*node->clone.performed_splits)[i];
+		= &(*info->performed_splits)[i];
 	      ps->dummy_decl = remap_decl (ps->dummy_decl, id);
 	    }
 	}
@@ -6115,10 +6139,12 @@ update_clone_info (copy_body_data * id)
 	     a copy of function body for later during inlining, that would just
 	     duplicate all entries.  So let's have a look whether anything
 	     referring to the first dummy_decl is present.  */
-	  unsigned dst_len = vec_safe_length (node->clone.performed_splits);
+	  if (!info)
+	    info = clone_info::get_create (node);
+	  unsigned dst_len = vec_safe_length (info->performed_splits);
 	  ipa_param_performed_split *first = &(*cur_performed_splits)[0];
 	  for (unsigned i = 0; i < dst_len; i++)
-	    if ((*node->clone.performed_splits)[i].dummy_decl
+	    if ((*info->performed_splits)[i].dummy_decl
 		== first->dummy_decl)
 	      {
 		len = 0;
@@ -6126,18 +6152,18 @@ update_clone_info (copy_body_data * id)
 	      }
 
 	  for (unsigned i = 0; i < len; i++)
-	    vec_safe_push (node->clone.performed_splits,
+	    vec_safe_push (info->performed_splits,
 			   (*cur_performed_splits)[i]);
 	  if (flag_checking)
 	    {
 	      for (unsigned i = 0; i < dst_len; i++)
 		{
 		  ipa_param_performed_split *ps1
-		    = &(*node->clone.performed_splits)[i];
+		    = &(*info->performed_splits)[i];
 		  for (unsigned j = i + 1; j < dst_len; j++)
 		    {
 		      ipa_param_performed_split *ps2
-			= &(*node->clone.performed_splits)[j];
+			= &(*info->performed_splits)[j];
 		      gcc_assert (ps1->dummy_decl != ps2->dummy_decl
 				  || ps1->unit_offset != ps2->unit_offset);
 		    }
@@ -6267,8 +6293,9 @@ tree_function_versioning (tree old_decl, tree new_decl,
       = copy_static_chain (p, &id);
 
   auto_vec<int, 16> new_param_indices;
+  clone_info *info = clone_info::get (old_version_node);
   ipa_param_adjustments *old_param_adjustments
-    = old_version_node->clone.param_adjustments;
+    = info ? info->param_adjustments : NULL;
   if (old_param_adjustments)
     old_param_adjustments->get_updated_indices (&new_param_indices);
 
@@ -6682,56 +6709,5 @@ remap_contract (tree src, tree dst, tree contract)
     return;
 
   walk_tree (&CONTRACT_CONDITION (contract), copy_tree_body_r, &id, NULL);
-}
-
-/* Like copy_fn; rebuild UNCHECKED's DECL_SAVED_TREE to have its own locals
-   and point to its own DECL_ARGUMENTS and DECL_RESULT instead of pointing at
-   CHECKED's.
-
-   Unlike copy_fn, UNCHECKED (the target) does not need to be
-   current_function_decl.  */
-
-tree
-remap_unchecked_body (tree checked, tree unchecked)
-{
-  copy_body_data id;
-  tree param;
-  hash_map<tree, tree> decl_map;
-
-  tree *p = &DECL_ARGUMENTS (unchecked);
-  *p = NULL_TREE;
-
-  memset (&id, 0, sizeof (id));
-  id.src_fn = checked;
-  id.dst_fn = unchecked;
-  id.src_cfun = DECL_STRUCT_FUNCTION (checked);
-  id.decl_map = &decl_map;
-
-  id.copy_decl = copy_decl_no_change;
-  id.transform_call_graph_edges = CB_CGE_DUPLICATE;
-  id.transform_new_cfg = false;
-  id.transform_return_to_modify = false;
-  id.transform_parameter = true;
-  id.transform_lang_insert_block = NULL;
-
-  /* Make sure not to unshare trees behind the front-end's back
-     since front-end specific mechanisms may rely on sharing.  */
-  id.regimplify = false;
-  id.do_not_unshare = true;
-  id.do_not_fold = true;
-
-  /* We're not inside any EH region.  */
-  id.eh_lp_nr = 0;
-
-  /* Remap the parameters and result and return them to the caller.  */
-  for (param = DECL_ARGUMENTS (checked);
-       param;
-       param = DECL_CHAIN (param))
-    {
-      *p = remap_decl (param, &id);
-      p = &DECL_CHAIN (*p);
-    }
-
-  return copy_tree_body (&id);
 }
 

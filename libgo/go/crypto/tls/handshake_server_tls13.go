@@ -6,6 +6,7 @@ package tls
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/hmac"
 	"crypto/rsa"
@@ -23,6 +24,7 @@ const maxClientPSKIdentities = 5
 
 type serverHandshakeStateTLS13 struct {
 	c               *Conn
+	ctx             context.Context
 	clientHello     *clientHelloMsg
 	hello           *serverHelloMsg
 	sentDummyCCS    bool
@@ -151,9 +153,22 @@ func (hs *serverHandshakeStateTLS13) processClientHello() error {
 	if c.config.PreferServerCipherSuites {
 		preferenceList = defaultCipherSuitesTLS13()
 		supportedList = hs.clientHello.cipherSuites
+
+		// If the client does not seem to have hardware support for AES-GCM,
+		// prefer other AEAD ciphers even if we prioritized AES-GCM ciphers
+		// by default.
+		if !aesgcmPreferred(hs.clientHello.cipherSuites) {
+			preferenceList = deprioritizeAES(preferenceList)
+		}
 	} else {
 		preferenceList = hs.clientHello.cipherSuites
 		supportedList = defaultCipherSuitesTLS13()
+
+		// If we don't have hardware support for AES-GCM, prefer other AEAD
+		// ciphers even if the client prioritized AES-GCM.
+		if !hasAESGCMHardwareSupport {
+			preferenceList = deprioritizeAES(preferenceList)
+		}
 	}
 	for _, suiteID := range preferenceList {
 		hs.suite = mutualCipherSuiteTLS13(supportedList, suiteID)
@@ -306,6 +321,7 @@ func (hs *serverHandshakeStateTLS13) checkForResumption() error {
 			return errors.New("tls: invalid PSK binder")
 		}
 
+		c.didResume = true
 		if err := c.processCertsFromClient(sessionState.certificate); err != nil {
 			return err
 		}
@@ -313,7 +329,6 @@ func (hs *serverHandshakeStateTLS13) checkForResumption() error {
 		hs.hello.selectedIdentityPresent = true
 		hs.hello.selectedIdentity = uint16(i)
 		hs.usingPSK = true
-		c.didResume = true
 		return nil
 	}
 
@@ -361,7 +376,7 @@ func (hs *serverHandshakeStateTLS13) pickCertificate() error {
 		return c.sendAlert(alertMissingExtension)
 	}
 
-	certificate, err := c.config.getCertificate(clientHelloInfo(c, hs.clientHello))
+	certificate, err := c.config.getCertificate(clientHelloInfo(hs.ctx, c, hs.clientHello))
 	if err != nil {
 		if err == errNoCertificates {
 			c.sendAlert(alertUnrecognizedName)
@@ -553,7 +568,7 @@ func (hs *serverHandshakeStateTLS13) sendServerParameters() error {
 	encryptedExtensions := new(encryptedExtensionsMsg)
 
 	if len(hs.clientHello.alpnProtocols) > 0 {
-		if selectedProto, fallback := mutualProtocol(hs.clientHello.alpnProtocols, c.config.NextProtos); !fallback {
+		if selectedProto := mutualProtocol(hs.clientHello.alpnProtocols, c.config.NextProtos); selectedProto != "" {
 			encryptedExtensions.alpnProtocol = selectedProto
 			c.clientProtocol = selectedProto
 		}
@@ -753,6 +768,14 @@ func (hs *serverHandshakeStateTLS13) readClientCertificate() error {
 	c := hs.c
 
 	if !hs.requestClientCert() {
+		// Make sure the connection is still being verified whether or not
+		// the server requested a client certificate.
+		if c.config.VerifyConnection != nil {
+			if err := c.config.VerifyConnection(c.connectionStateLocked()); err != nil {
+				c.sendAlert(alertBadCertificate)
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -773,6 +796,13 @@ func (hs *serverHandshakeStateTLS13) readClientCertificate() error {
 
 	if err := c.processCertsFromClient(certMsg.certificate); err != nil {
 		return err
+	}
+
+	if c.config.VerifyConnection != nil {
+		if err := c.config.VerifyConnection(c.connectionStateLocked()); err != nil {
+			c.sendAlert(alertBadCertificate)
+			return err
+		}
 	}
 
 	if len(certMsg.certificate.Certificate) != 0 {

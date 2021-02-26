@@ -1,4 +1,4 @@
-;; Copyright (C) 2016-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2021 Free Software Foundation, Inc.
 
 ;; This file is free software; you can redistribute it and/or modify it under
 ;; the terms of the GNU General Public License as published by the Free
@@ -923,7 +923,7 @@
   {
     addr_space_t as = INTVAL (operands[3]);
     static char buf[200];
-    sprintf (buf, "ds_write%%b2\t%%0, %%2 offset:%%1%s",
+    sprintf (buf, "ds_write%%b2\t%%0, %%2 offset:%%1%s\;s_waitcnt\tlgkmcnt(0)",
 	     (AS_GDS_P (as) ? " gds" : ""));
     return buf;
   }

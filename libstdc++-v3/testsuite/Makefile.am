@@ -1,6 +1,6 @@
 ## Makefile for the testsuite subdirectory of the GNU C++ Standard library.
 ##
-## Copyright (C) 2001-2020 Free Software Foundation, Inc.
+## Copyright (C) 2001-2021 Free Software Foundation, Inc.
 ##
 ## This file is part of the libstdc++ version 3 distribution.
 ## Process this file with automake to produce Makefile.in.
@@ -182,6 +182,7 @@ check-compile: testsuite_files ${compile_script}
 check_performance_script=${glibcxx_srcdir}/scripts/check_performance
 check-performance: testsuite_files_performance ${performance_script}
 	-@(chmod + ${check_performance_script}; \
+	  CXXFLAGS='$(CXXFLAGS)'; export CXXFLAGS; \
 	  ${check_performance_script} ${glibcxx_srcdir} ${glibcxx_builddir})
 
 # Runs the testsuite in debug mode.

@@ -1,5 +1,5 @@
 /* Matching subroutines in all sizes, shapes and colors.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -1388,9 +1388,6 @@ gfc_match_assignment (void)
   new_st.expr2 = rvalue;
 
   gfc_check_do_variable (lvalue->symtree);
-
-  if (lvalue->ts.type == BT_CLASS)
-    gfc_find_vtab (&rvalue->ts);
 
   return MATCH_YES;
 }
@@ -5166,7 +5163,8 @@ gfc_get_common (const char *name, int from_module)
 
 /* Match a common block name.  */
 
-match match_common_name (char *name)
+match
+gfc_match_common_name (char *name)
 {
   match m;
 
@@ -5218,7 +5216,7 @@ gfc_match_common (void)
 
   for (;;)
     {
-      m = match_common_name (name);
+      m = gfc_match_common_name (name);
       if (m == MATCH_ERROR)
 	goto cleanup;
 

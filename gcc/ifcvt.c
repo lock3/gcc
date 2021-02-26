@@ -1,5 +1,5 @@
 /* If-conversion support.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -5127,6 +5127,11 @@ dead_or_predicable (basic_block test_bb, basic_block merge_bb,
 
       rtx cond;
 
+      /* If the conditional jump is more than just a conditional jump,
+	 then we cannot do conditional execution conversion on this block.  */
+      if (!onlyjump_p (jump))
+	goto nce;
+
       cond = cond_exec_get_condition (jump);
       if (! cond)
 	return FALSE;
@@ -5154,6 +5159,7 @@ dead_or_predicable (basic_block test_bb, basic_block merge_bb,
 
       earliest = jump;
     }
+ nce:
 #endif
 
   /* If we allocated new pseudos (e.g. in the conditional move

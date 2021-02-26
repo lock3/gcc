@@ -1,7 +1,7 @@
 /* General types and functions that are uselful for processing of OpenMP,
    OpenACC and similar directivers at various stages of compilation.
 
-   Copyright (C) 2005-2020 Free Software Foundation, Inc.
+   Copyright (C) 2005-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -39,10 +39,11 @@ along with GCC; see the file COPYING3.  If not see
 #include "cgraph.h"
 #include "alloc-pool.h"
 #include "symbol-summary.h"
-#include "hsa-common.h"
 #include "tree-pass.h"
 #include "omp-device-properties.h"
 #include "tree-iterator.h"
+#include "data-streamer.h"
+#include "streamer-hooks.h"
 
 enum omp_requires omp_requires_mask;
 
@@ -445,10 +446,6 @@ omp_extract_for_data (gomp_for *for_stmt, struct omp_for_data *fd,
 	      = build_nonstandard_integer_type
 		  (TYPE_PRECISION (TREE_TYPE (loop->v)), 1);
 	}
-      else if (loop->m1 || loop->m2)
-	/* Non-rectangular loops should use static schedule and no
-	   ordered clause.  */
-	gcc_unreachable ();
       else if (iter_type != long_long_unsigned_type_node)
 	{
 	  if (POINTER_TYPE_P (TREE_TYPE (loop->v)))
@@ -464,7 +461,9 @@ omp_extract_for_data (gomp_for *for_stmt, struct omp_for_data *fd,
 				     loop->n2, loop->step);
 	      else
 		n = loop->n1;
-	      if (TREE_CODE (n) != INTEGER_CST
+	      if (loop->m1
+		  || loop->m2
+		  || TREE_CODE (n) != INTEGER_CST
 		  || tree_int_cst_lt (TYPE_MAX_VALUE (iter_type), n))
 		iter_type = long_long_unsigned_type_node;
 	    }
@@ -485,7 +484,9 @@ omp_extract_for_data (gomp_for *for_stmt, struct omp_for_data *fd,
 					loop->n2, loop->step);
 		  n2 = loop->n1;
 		}
-	      if (TREE_CODE (n1) != INTEGER_CST
+	      if (loop->m1
+		  || loop->m2
+		  || TREE_CODE (n1) != INTEGER_CST
 		  || TREE_CODE (n2) != INTEGER_CST
 		  || !tree_int_cst_lt (TYPE_MIN_VALUE (iter_type), n1)
 		  || !tree_int_cst_lt (n2, TYPE_MAX_VALUE (iter_type)))
@@ -1052,14 +1053,12 @@ omp_offload_device_kind_arch_isa (const char *props, const char *prop)
 static bool
 omp_maybe_offloaded (void)
 {
-  if (!hsa_gen_requested_p ())
-    {
-      if (!ENABLE_OFFLOADING)
-	return false;
-      const char *names = getenv ("OFFLOAD_TARGET_NAMES");
-      if (names == NULL || *names == '\0')
-	return false;
-    }
+  if (!ENABLE_OFFLOADING)
+    return false;
+  const char *names = getenv ("OFFLOAD_TARGET_NAMES");
+  if (names == NULL || *names == '\0')
+    return false;
+
   if (symtab->state == PARSING)
     /* Maybe.  */
     return true;
@@ -1234,12 +1233,6 @@ omp_context_selector_matches (tree ctx)
 			   also offloading values.  */
 			if (!omp_maybe_offloaded ())
 			  return 0;
-			if (strcmp (arch, "hsa") == 0
-			    && hsa_gen_requested_p ())
-			  {
-			    ret = -1;
-			    continue;
-			  }
 			if (ENABLE_OFFLOADING)
 			  {
 			    const char *arches = omp_offload_device_arch;
@@ -1360,12 +1353,6 @@ omp_context_selector_matches (tree ctx)
 			   also offloading values.  */
 			if (!omp_maybe_offloaded ())
 			  return 0;
-			if (strcmp (prop, "gpu") == 0
-			    && hsa_gen_requested_p ())
-			  {
-			    ret = -1;
-			    continue;
-			  }
 			if (ENABLE_OFFLOADING)
 			  {
 			    const char *kinds = omp_offload_device_kind;
@@ -1506,7 +1493,7 @@ omp_construct_simd_compare (tree clauses1, tree clauses2)
 	  }
 	unsigned HOST_WIDE_INT argno = tree_to_uhwi (OMP_CLAUSE_DECL (c));
 	if (argno >= v->length ())
-	  v->safe_grow_cleared (argno + 1);
+	  v->safe_grow_cleared (argno + 1, true);
 	(*v)[argno] = c;
       }
   /* Here, r is used as a bitmask, 2 is set if CLAUSES1 has something
@@ -2352,6 +2339,125 @@ omp_resolve_declare_variant (tree base)
 	  ? TREE_PURPOSE (TREE_VALUE (variant1)) : base);
 }
 
+void
+omp_lto_output_declare_variant_alt (lto_simple_output_block *ob,
+				    cgraph_node *node,
+				    lto_symtab_encoder_t encoder)
+{
+  gcc_assert (node->declare_variant_alt);
+
+  omp_declare_variant_base_entry entry;
+  entry.base = NULL;
+  entry.node = node;
+  entry.variants = NULL;
+  omp_declare_variant_base_entry *entryp
+    = omp_declare_variant_alt->find_with_hash (&entry, DECL_UID (node->decl));
+  gcc_assert (entryp);
+
+  int nbase = lto_symtab_encoder_lookup (encoder, entryp->base);
+  gcc_assert (nbase != LCC_NOT_FOUND);
+  streamer_write_hwi_stream (ob->main_stream, nbase);
+
+  streamer_write_hwi_stream (ob->main_stream, entryp->variants->length ());
+
+  unsigned int i;
+  omp_declare_variant_entry *varentry;
+  FOR_EACH_VEC_SAFE_ELT (entryp->variants, i, varentry)
+    {
+      int nvar = lto_symtab_encoder_lookup (encoder, varentry->variant);
+      gcc_assert (nvar != LCC_NOT_FOUND);
+      streamer_write_hwi_stream (ob->main_stream, nvar);
+
+      for (widest_int *w = &varentry->score; ;
+	   w = &varentry->score_in_declare_simd_clone)
+	{
+	  unsigned len = w->get_len ();
+	  streamer_write_hwi_stream (ob->main_stream, len);
+	  const HOST_WIDE_INT *val = w->get_val ();
+	  for (unsigned j = 0; j < len; j++)
+	    streamer_write_hwi_stream (ob->main_stream, val[j]);
+	  if (w == &varentry->score_in_declare_simd_clone)
+	    break;
+	}
+
+      HOST_WIDE_INT cnt = -1;
+      HOST_WIDE_INT i = varentry->matches ? 1 : 0;
+      for (tree attr = DECL_ATTRIBUTES (entryp->base->decl);
+	   attr; attr = TREE_CHAIN (attr), i += 2)
+	{
+	  attr = lookup_attribute ("omp declare variant base", attr);
+	  if (attr == NULL_TREE)
+	    break;
+
+	  if (varentry->ctx == TREE_VALUE (TREE_VALUE (attr)))
+	    {
+	      cnt = i;
+	      break;
+	    }
+	}
+
+      gcc_assert (cnt != -1);
+      streamer_write_hwi_stream (ob->main_stream, cnt);
+    }
+}
+
+void
+omp_lto_input_declare_variant_alt (lto_input_block *ib, cgraph_node *node,
+				   vec<symtab_node *> nodes)
+{
+  gcc_assert (node->declare_variant_alt);
+  omp_declare_variant_base_entry *entryp
+    = ggc_cleared_alloc<omp_declare_variant_base_entry> ();
+  entryp->base = dyn_cast<cgraph_node *> (nodes[streamer_read_hwi (ib)]);
+  entryp->node = node;
+  unsigned int len = streamer_read_hwi (ib);
+  vec_alloc (entryp->variants, len);
+
+  for (unsigned int i = 0; i < len; i++)
+    {
+      omp_declare_variant_entry varentry;
+      varentry.variant
+	= dyn_cast<cgraph_node *> (nodes[streamer_read_hwi (ib)]);
+      for (widest_int *w = &varentry.score; ;
+	   w = &varentry.score_in_declare_simd_clone)
+	{
+	  unsigned len2 = streamer_read_hwi (ib);
+	  HOST_WIDE_INT arr[WIDE_INT_MAX_ELTS];
+	  gcc_assert (len2 <= WIDE_INT_MAX_ELTS);
+	  for (unsigned int j = 0; j < len2; j++)
+	    arr[j] = streamer_read_hwi (ib);
+	  *w = widest_int::from_array (arr, len2, true);
+	  if (w == &varentry.score_in_declare_simd_clone)
+	    break;
+	}
+
+      HOST_WIDE_INT cnt = streamer_read_hwi (ib);
+      HOST_WIDE_INT j = 0;
+      varentry.ctx = NULL_TREE;
+      varentry.matches = (cnt & 1) ? true : false;
+      cnt &= ~HOST_WIDE_INT_1;
+      for (tree attr = DECL_ATTRIBUTES (entryp->base->decl);
+	   attr; attr = TREE_CHAIN (attr), j += 2)
+	{
+	  attr = lookup_attribute ("omp declare variant base", attr);
+	  if (attr == NULL_TREE)
+	    break;
+
+	  if (cnt == j)
+	    {
+	      varentry.ctx = TREE_VALUE (TREE_VALUE (attr));
+	      break;
+	    }
+	}
+      gcc_assert (varentry.ctx != NULL_TREE);
+      entryp->variants->quick_push (varentry);
+    }
+  if (omp_declare_variant_alt == NULL)
+    omp_declare_variant_alt
+      = hash_table<omp_declare_variant_alt_hasher>::create_ggc (64);
+  *omp_declare_variant_alt->find_slot_with_hash (entryp, DECL_UID (node->decl),
+						 INSERT) = entryp;
+}
 
 /* Encode an oacc launch argument.  This matches the GOMP_LAUNCH_PACK
    macro on gomp-constants.h.  We do not check for overflow.  */

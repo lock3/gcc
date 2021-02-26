@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler, for IBM S/390
-   Copyright (C) 1999-2020 Free Software Foundation, Inc.
+   Copyright (C) 1999-2021 Free Software Foundation, Inc.
    Contributed by Hartmut Penner (hpenner@de.ibm.com) and
 		  Ulrich Weigand (uweigand@de.ibm.com).
 		  Andreas Krebbel (Andreas.Krebbel@de.ibm.com)
@@ -174,6 +174,11 @@ enum processor_flags
 #else
 #define TARGET_VECTOR_LOADSTORE_ALIGNMENT_HINTS 0
 #endif
+
+/* Evaluate to true if it is ok to emit a non-signaling vector
+   comparison.  */
+#define TARGET_NONSIGNALING_VECTOR_COMPARE_OK \
+  (TARGET_VX && !TARGET_VXE && (flag_finite_math_only || !flag_trapping_math))
 
 #ifdef HAVE_AS_MACHINE_MACHINEMODE
 #define S390_USE_TARGET_ATTRIBUTE 1
@@ -1181,5 +1186,41 @@ struct GTY(()) machine_function
 
 #define TARGET_INDIRECT_BRANCH_TABLE s390_indirect_branch_table
 
+#ifdef GENERATOR_FILE
+/* gencondmd.c is built before insn-flags.h.  Use an arbitrary opaque value
+   that cannot be optimized away by gen_insn.  */
+#define HAVE_TF(icode) TARGET_HARD_FLOAT
+#else
+#define HAVE_TF(icode) (HAVE_##icode##_fpr || HAVE_##icode##_vr)
+#endif
+
+/* Dispatcher for movtf.  */
+#define EXPAND_MOVTF(icode)                                                   \
+  do                                                                          \
+    {                                                                         \
+      if (TARGET_VXE)                                                         \
+	emit_insn (gen_##icode##_vr (operands[0], operands[1]));              \
+      else                                                                    \
+	emit_insn (gen_##icode##_fpr (operands[0], operands[1]));             \
+      DONE;                                                                   \
+    }                                                                         \
+  while (false)
+
+/* Like EXPAND_MOVTF, but also legitimizes operands.  */
+#define EXPAND_TF(icode, nops)                                                \
+  do                                                                          \
+    {                                                                         \
+      const size_t __nops = (nops);                                           \
+      expand_operand ops[__nops];                                             \
+      create_output_operand (&ops[0], operands[0], GET_MODE (operands[0]));   \
+      for (size_t i = 1; i < __nops; i++)                                     \
+	create_input_operand (&ops[i], operands[i], GET_MODE (operands[i]));  \
+      if (TARGET_VXE)                                                         \
+	expand_insn (CODE_FOR_##icode##_vr, __nops, ops);                     \
+      else                                                                    \
+	expand_insn (CODE_FOR_##icode##_fpr, __nops, ops);                    \
+      DONE;                                                                   \
+    }                                                                         \
+  while (false)
 
 #endif /* S390_H */

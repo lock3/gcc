@@ -1,7 +1,7 @@
 /* Run a stand-alone AMD GCN kernel.
 
    Copyright 2017 Mentor Graphics Corporation
-   Copyright (C) 2018-2020 Free Software Foundation, Inc.
+   Copyright (C) 2018-2021 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -33,24 +33,6 @@
 #include <unistd.h>
 #include <elf.h>
 #include <signal.h>
-
-/* These probably won't be in elf.h for a while.  */
-#ifndef R_AMDGPU_NONE
-#define R_AMDGPU_NONE		0
-#define R_AMDGPU_ABS32_LO	1	/* (S + A) & 0xFFFFFFFF  */
-#define R_AMDGPU_ABS32_HI	2	/* (S + A) >> 32  */
-#define R_AMDGPU_ABS64		3	/* S + A  */
-#define R_AMDGPU_REL32		4	/* S + A - P  */
-#define R_AMDGPU_REL64		5	/* S + A - P  */
-#define R_AMDGPU_ABS32		6	/* S + A  */
-#define R_AMDGPU_GOTPCREL	7	/* G + GOT + A - P  */
-#define R_AMDGPU_GOTPCREL32_LO	8	/* (G + GOT + A - P) & 0xFFFFFFFF  */
-#define R_AMDGPU_GOTPCREL32_HI	9	/* (G + GOT + A - P) >> 32  */
-#define R_AMDGPU_REL32_LO	10	/* (S + A - P) & 0xFFFFFFFF  */
-#define R_AMDGPU_REL32_HI	11	/* (S + A - P) >> 32  */
-#define reserved		12
-#define R_AMDGPU_RELATIVE64	13	/* B + A  */
-#endif
 
 #include "hsa.h"
 

@@ -1,5 +1,5 @@
 /* d-convert.cc -- Data type conversion routines.
-   Copyright (C) 2006-2020 Free Software Foundation, Inc.
+   Copyright (C) 2006-2021 Free Software Foundation, Inc.
 
 GCC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -430,10 +430,10 @@ convert_expr (tree exp, Type *etype, Type *totype)
 	      /* d_convert will make a no-op cast.  */
 	      break;
 	    }
-	  else if (cdfrom->isCPPclass ())
+	  else if (cdfrom->isCPPclass () || cdto->isCPPclass ())
 	    {
 	      /* Downcasting in C++ is a no-op.  */
-	      if (cdto->isCPPclass ())
+	      if (cdfrom->isCPPclass () && cdto->isCPPclass ())
 		break;
 
 	      /* Casting from a C++ interface to a class/non-C++ interface

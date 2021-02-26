@@ -1,5 +1,5 @@
 /* PowerPC AltiVec include file.
-   Copyright (C) 2002-2020 Free Software Foundation, Inc.
+   Copyright (C) 2002-2021 Free Software Foundation, Inc.
    Contributed by Aldy Hernandez (aldyh@redhat.com).
    Rewritten by Paolo Bonzini (bonzini@gnu.org).
 
@@ -236,6 +236,9 @@
 #define vec_lvebx __builtin_vec_lvebx
 #define vec_lvehx __builtin_vec_lvehx
 #define vec_lvewx __builtin_vec_lvewx
+#define vec_xl_zext __builtin_vec_ze_lxvrx
+#define vec_xl_sext __builtin_vec_se_lxvrx
+#define vec_xst_trunc __builtin_vec_tr_stxvrx
 #define vec_neg __builtin_vec_neg
 #define vec_pmsum_be __builtin_vec_vpmsum
 #define vec_shasigma_be __builtin_crypto_vshasigma
@@ -407,10 +410,6 @@
 #define vec_vpopcnth __builtin_vec_vpopcnth
 #define vec_vpopcntw __builtin_vec_vpopcntw
 #define vec_popcnt __builtin_vec_vpopcntu
-#define vec_popcntb __builtin_vec_vpopcntub
-#define vec_popcnth __builtin_vec_vpopcntuh
-#define vec_popcntw __builtin_vec_vpopcntuw
-#define vec_popcntd __builtin_vec_vpopcntud
 #define vec_vrld __builtin_vec_vrld
 #define vec_vsld __builtin_vec_vsld
 #define vec_vsrad __builtin_vec_vsrad
@@ -493,9 +492,37 @@
 #define vec_cntlz_lsbb __builtin_vec_vclzlsbb
 #define vec_cnttz_lsbb __builtin_vec_vctzlsbb
 
+#define vec_test_lsbb_all_ones __builtin_vec_xvtlsbb_all_ones
+#define vec_test_lsbb_all_zeros __builtin_vec_xvtlsbb_all_zeros
+
 #define vec_xlx __builtin_vec_vextulx
 #define vec_xrx __builtin_vec_vexturx
+
 #endif
+
+/* BCD builtins, map ABI builtin name to existing builtin name.  */
+#define __builtin_bcdadd     __builtin_vec_bcdadd
+#define __builtin_bcdadd_lt  __builtin_vec_bcdadd_lt
+#define __builtin_bcdadd_eq  __builtin_vec_bcdadd_eq
+#define __builtin_bcdadd_gt  __builtin_vec_bcdadd_gt
+#define __builtin_bcdadd_ofl __builtin_vec_bcdadd_ov
+#define __builtin_bcdadd_ov  __builtin_vec_bcdadd_ov
+#define __builtin_bcdsub     __builtin_vec_bcdsub
+#define __builtin_bcdsub_lt  __builtin_vec_bcdsub_lt
+#define __builtin_bcdsub_eq  __builtin_vec_bcdsub_eq
+#define __builtin_bcdsub_gt  __builtin_vec_bcdsub_gt
+#define __builtin_bcdsub_ofl __builtin_vec_bcdsub_ov
+#define __builtin_bcdsub_ov  __builtin_vec_bcdsub_ov
+#define __builtin_bcdinvalid __builtin_vec_bcdinvalid
+#define __builtin_bcdmul10   __builtin_vec_bcdmul10
+#define __builtin_bcddiv10   __builtin_vec_bcddiv10
+#define __builtin_bcd2dfp    __builtin_vec_denb2dfp
+#define __builtin_bcdcmpeq(a,b)   __builtin_vec_bcdsub_eq(a,b,0)
+#define __builtin_bcdcmpgt(a,b)   __builtin_vec_bcdsub_gt(a,b,0)
+#define __builtin_bcdcmplt(a,b)   __builtin_vec_bcdsub_lt(a,b,0)
+#define __builtin_bcdcmpge(a,b)   __builtin_vec_bcdsub_ge(a,b,0)
+#define __builtin_bcdcmple(a,b)   __builtin_vec_bcdsub_le(a,b,0)
+
 
 /* Predicates.
    For C++, we use templates in order to allow non-parenthesized arguments.
@@ -700,6 +727,17 @@ __altivec_scalar_pred(vec_any_nle,
 /* Overloaded built-in functions for ISA 3.1.  */
 #define vec_extractl(a, b, c)	__builtin_vec_extractl (a, b, c)
 #define vec_extracth(a, b, c)	__builtin_vec_extracth (a, b, c)
+#define vec_insertl(a, b, c)   __builtin_vec_insertl (a, b, c)
+#define vec_inserth(a, b, c)   __builtin_vec_inserth (a, b, c)
+#define vec_replace_elt(a, b, c)       __builtin_vec_replace_elt (a, b, c)
+#define vec_replace_unaligned(a, b, c) __builtin_vec_replace_un (a, b, c)
+#define vec_sldb(a, b, c)      __builtin_vec_sldb (a, b, c)
+#define vec_srdb(a, b, c)      __builtin_vec_srdb (a, b, c)
+#define vec_splati(a)  __builtin_vec_xxspltiw (a)
+#define vec_splatid(a) __builtin_vec_xxspltid (a)
+#define vec_splati_ins(a, b, c)        __builtin_vec_xxsplti32dx (a, b, c)
+#define vec_blendv(a, b, c)    __builtin_vec_xxblend (a, b, c)
+#define vec_permx(a, b, c, d)  __builtin_vec_xxpermx (a, b, c, d)
 
 #define vec_gnb(a, b)	__builtin_vec_gnb (a, b)
 #define vec_clrl(a, b)	__builtin_vec_clrl (a, b)

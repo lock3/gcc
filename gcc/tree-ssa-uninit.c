@@ -1,5 +1,5 @@
 /* Predicate aware uninitialized variable warning.
-   Copyright (C) 2001-2020 Free Software Foundation, Inc.
+   Copyright (C) 2001-2021 Free Software Foundation, Inc.
    Contributed by Xinliang David Li <davidxl@google.com>
 
 This file is part of GCC.
@@ -18,6 +18,7 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
+#define INCLUDE_STRING
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"
@@ -401,10 +402,9 @@ maybe_warn_operand (ao_ref &ref, gimple *stmt, tree lhs, tree rhs,
      The first_field() test is important for C++ where the predicate
      alone isn't always sufficient.  */
   tree rhstype = TREE_TYPE (rhs);
-  if (TYPE_EMPTY_P (rhstype)
-      || (RECORD_OR_UNION_TYPE_P (rhstype)
-	  && (!first_field (rhstype)
-	      || default_is_empty_record (rhstype))))
+  if (POINTER_TYPE_P (rhstype))
+    rhstype = TREE_TYPE (rhstype);
+  if (is_empty_type (rhstype))
     return NULL_TREE;
 
   bool warned = false;
@@ -440,7 +440,7 @@ maybe_warn_operand (ao_ref &ref, gimple *stmt, tree lhs, tree rhs,
    access implying read access to those objects.  */
 
 static void
-maybe_warn_pass_by_reference (gimple *stmt, wlimits &wlims)
+maybe_warn_pass_by_reference (gcall *stmt, wlimits &wlims)
 {
   if (!wlims.wmaybe_uninit)
     return;
@@ -452,6 +452,10 @@ maybe_warn_pass_by_reference (gimple *stmt, wlimits &wlims)
   tree fndecl = gimple_call_fndecl (stmt);
   tree fntype = gimple_call_fntype (stmt);
   if (!fntype)
+    return;
+
+  /* Const function do not read their arguments.  */
+  if (gimple_call_flags (stmt) & ECF_CONST)
     return;
 
   const built_in_function fncode
@@ -470,9 +474,10 @@ maybe_warn_pass_by_reference (gimple *stmt, wlimits &wlims)
      read_only.  */
   const bool save_always_executed = wlims.always_executed;
 
-  /* Map of attribute access specifications for function arguments.  */
+  /* Initialize a map of attribute access specifications for arguments
+     to the function function call.  */
   rdwr_map rdwr_idx;
-  init_attr_rdwr_indices (&rdwr_idx, fntype);
+  init_attr_rdwr_indices (&rdwr_idx, TYPE_ATTRIBUTES (fntype));
 
   tree argtype;
   unsigned argno = 0;
@@ -486,13 +491,18 @@ maybe_warn_pass_by_reference (gimple *stmt, wlimits &wlims)
 	continue;
 
       tree access_size = NULL_TREE;
-      attr_access *access = rdwr_idx.get (argno - 1);
+      const attr_access* access = rdwr_idx.get (argno - 1);
       if (access)
 	{
-	  if (access->mode == attr_access::none
-	      || access->mode == attr_access::write_only)
+	  if (access->mode == access_none
+	      || access->mode == access_write_only)
 	    continue;
-	  if (save_always_executed && access->mode == attr_access::read_only)
+
+	  if (access->mode == access_deferred
+	      && !TYPE_READONLY (TREE_TYPE (argtype)))
+	    continue;
+
+	  if (save_always_executed && access->mode == access_read_only)
 	    /* Attribute read_only arguments imply read access.  */
 	    wlims.always_executed = true;
 	  else
@@ -514,6 +524,10 @@ maybe_warn_pass_by_reference (gimple *stmt, wlimits &wlims)
 	   (but not definitive) read access.  */
 	wlims.always_executed = false;
 
+      /* Ignore args we are not going to read from.  */
+      if (gimple_call_arg_flags (stmt, argno - 1) & EAF_UNUSED)
+	continue;
+
       tree arg = gimple_call_arg (stmt, argno - 1);
 
       ao_ref ref;
@@ -522,45 +536,48 @@ maybe_warn_pass_by_reference (gimple *stmt, wlimits &wlims)
       if (!argbase)
 	continue;
 
-      if (access)
+      if (access && access->mode != access_deferred)
 	{
-	  const char* const mode = (access->mode == attr_access::read_only
-				    ? "read_only" : "read_write");
-	  char attrstr[80];
-	  int n = sprintf (attrstr, "access (%s, %u", mode, argno);
-	  if (access->sizarg < UINT_MAX)
-	    sprintf (attrstr + n, ", %u)", access->sizarg);
-	  else
-	    strcpy (attrstr + n, ")");
+	  const char* const access_str =
+	    TREE_STRING_POINTER (access->to_external_string ());
 
 	  if (fndecl)
 	    {
 	      location_t loc = DECL_SOURCE_LOCATION (fndecl);
-	      inform (loc, "in a call to %qD declared "
-		      "with attribute %<access (%s, %u)%> here",
-		      fndecl, mode, argno);
+	      inform (loc, "in a call to %qD declared with "
+		      "attribute %<%s%> here", fndecl, access_str);
 	    }
 	  else
 	    {
 	      /* Handle calls through function pointers.  */
 	      location_t loc = gimple_location (stmt);
 	      inform (loc, "in a call to %qT declared with "
-		      "attribute %<access (%s, %u)%>",
-		      fntype, mode, argno);
+		      "attribute %<%s%>", fntype, access_str);
 	    }
-	}
-      else if (fndecl)
-	{
-	  location_t loc = DECL_SOURCE_LOCATION (fndecl);
-	  inform (loc, "by argument %u of type %qT to %qD declared here",
-		  argno, argtype, fndecl);
 	}
       else
 	{
-	  /* Handle calls through function pointers.  */
-	  location_t loc = gimple_location (stmt);
-	  inform (loc, "by argument %u of type %qT to %qT",
-		  argno, argtype, fntype);
+	  /* For a declaration with no relevant attribute access create
+	     a dummy object and use the formatting function to avoid
+	     having to complicate things here.  */
+	  attr_access ptr_access = { };
+	  if (!access)
+	    access = &ptr_access;
+	  const std::string argtypestr = access->array_as_string (argtype);
+	  if (fndecl)
+	    {
+	      location_t loc (DECL_SOURCE_LOCATION (fndecl));
+	      inform (loc, "by argument %u of type %s to %qD "
+		      "declared here",
+		      argno, argtypestr.c_str (), fndecl);
+	    }
+	  else
+	    {
+	      /* Handle calls through function pointers.  */
+	      location_t loc (gimple_location (stmt));
+	      inform (loc, "by argument %u of type %s to %qT",
+		      argno, argtypestr.c_str (), fntype);
+	    }
 	}
 
       if (DECL_P (argbase))
@@ -627,8 +644,8 @@ warn_uninitialized_vars (bool wmaybe_uninit)
 	  if (gimple_vdef (stmt))
 	    wlims.vdef_cnt++;
 
-	  if (is_gimple_call (stmt))
-	    maybe_warn_pass_by_reference (stmt, wlims);
+	  if (gcall *call = dyn_cast <gcall *> (stmt))
+	    maybe_warn_pass_by_reference (call, wlims);
 	  else if (gimple_assign_load_p (stmt)
 		   && gimple_has_location (stmt))
 	    {
@@ -1333,21 +1350,18 @@ value_sat_pred_p (tree val, tree boundary, enum tree_code cmpc,
 }
 
 /* Returns true if PRED is common among all the predicate
-   chains (PREDS) (and therefore can be factored out).
-   NUM_PRED_CHAIN is the size of array PREDS.  */
+   chains (PREDS) (and therefore can be factored out).  */
 
 static bool
-find_matching_predicate_in_rest_chains (pred_info pred,
-					pred_chain_union preds,
-					size_t num_pred_chains)
+find_matching_predicate_in_rest_chains (pred_info pred, pred_chain_union preds)
 {
   size_t i, j, n;
 
   /* Trival case.  */
-  if (num_pred_chains == 1)
+  if (preds.length () == 1)
     return true;
 
-  for (i = 1; i < num_pred_chains; i++)
+  for (i = 1; i < preds.length (); i++)
     {
       bool found = false;
       pred_chain one_chain = preds[i];
@@ -1518,6 +1532,129 @@ prune_uninit_phi_opnds (gphi *phi, unsigned uninit_opnds, gphi *flag_def,
   return true;
 }
 
+/* A helper function finds predicate which will be examined against uninit
+   paths.  If there is no "flag_var cmp const" form predicate, the function
+   tries to find predicate of form like "flag_var cmp flag_var" with value
+   range info.  PHI is the phi node whose incoming (undefined) paths need to
+   be examined.  On success, the function returns the comparsion code, sets
+   defintion gimple of the flag_var to FLAG_DEF, sets boundary_cst to
+   BOUNDARY_CST.  On fail, the function returns ERROR_MARK.  */
+
+static enum tree_code
+find_var_cmp_const (pred_chain_union preds, gphi *phi, gimple **flag_def,
+		    tree *boundary_cst)
+{
+  enum tree_code vrinfo_code = ERROR_MARK, code;
+  gimple *vrinfo_def = NULL;
+  tree vrinfo_cst = NULL, cond_lhs, cond_rhs;
+
+  gcc_assert (preds.length () > 0);
+  pred_chain the_pred_chain = preds[0];
+  for (unsigned i = 0; i < the_pred_chain.length (); i++)
+    {
+      bool use_vrinfo_p = false;
+      pred_info the_pred = the_pred_chain[i];
+      cond_lhs = the_pred.pred_lhs;
+      cond_rhs = the_pred.pred_rhs;
+      if (cond_lhs == NULL_TREE || cond_rhs == NULL_TREE)
+	continue;
+
+      code = get_cmp_code (the_pred.cond_code, false, the_pred.invert);
+      if (code == ERROR_MARK)
+	continue;
+
+      if (TREE_CODE (cond_lhs) == SSA_NAME && is_gimple_constant (cond_rhs))
+	;
+      else if (TREE_CODE (cond_rhs) == SSA_NAME
+	       && is_gimple_constant (cond_lhs))
+	{
+	  std::swap (cond_lhs, cond_rhs);
+	  if ((code = get_cmp_code (code, true, false)) == ERROR_MARK)
+	    continue;
+	}
+      /* Check if we can take advantage of "flag_var comp flag_var" predicate
+	 with value range info.  Note only first of such case is handled.  */
+      else if (vrinfo_code == ERROR_MARK
+	       && TREE_CODE (cond_lhs) == SSA_NAME
+	       && TREE_CODE (cond_rhs) == SSA_NAME)
+	{
+	  gimple* lhs_def = SSA_NAME_DEF_STMT (cond_lhs);
+	  if (!lhs_def || gimple_code (lhs_def) != GIMPLE_PHI
+	      || gimple_bb (lhs_def) != gimple_bb (phi))
+	    {
+	      std::swap (cond_lhs, cond_rhs);
+	      if ((code = get_cmp_code (code, true, false)) == ERROR_MARK)
+		continue;
+	    }
+
+	  /* Check value range info of rhs, do following transforms:
+	       flag_var < [min, max]  ->  flag_var < max
+	       flag_var > [min, max]  ->  flag_var > min
+
+	     We can also transform LE_EXPR/GE_EXPR to LT_EXPR/GT_EXPR:
+	       flag_var <= [min, max] ->  flag_var < [min, max+1]
+	       flag_var >= [min, max] ->  flag_var > [min-1, max]
+	     if no overflow/wrap.  */
+	  wide_int min, max;
+	  tree type = TREE_TYPE (cond_lhs);
+	  if (!INTEGRAL_TYPE_P (type)
+	      || get_range_info (cond_rhs, &min, &max) != VR_RANGE)
+	    continue;
+	  if (code == LE_EXPR
+	      && max != wi::max_value (TYPE_PRECISION (type), TYPE_SIGN (type)))
+	    {
+	      code = LT_EXPR;
+	      max = max + 1;
+	    }
+	  if (code == GE_EXPR
+	      && min != wi::min_value (TYPE_PRECISION (type), TYPE_SIGN (type)))
+	    {
+	      code = GT_EXPR;
+	      min = min - 1;
+	    }
+	  if (code == LT_EXPR)
+	    cond_rhs = wide_int_to_tree (type, max);
+	  else if (code == GT_EXPR)
+	    cond_rhs = wide_int_to_tree (type, min);
+	  else
+	    continue;
+
+	  use_vrinfo_p = true;
+	}
+      else
+	continue;
+
+      if ((*flag_def = SSA_NAME_DEF_STMT (cond_lhs)) == NULL)
+	continue;
+
+      if (gimple_code (*flag_def) != GIMPLE_PHI
+	  || gimple_bb (*flag_def) != gimple_bb (phi)
+	  || !find_matching_predicate_in_rest_chains (the_pred, preds))
+	continue;
+
+      /* Return if any "flag_var comp const" predicate is found.  */
+      if (!use_vrinfo_p)
+	{
+	  *boundary_cst = cond_rhs;
+	  return code;
+	}
+      /* Record if any "flag_var comp flag_var[vinfo]" predicate is found.  */
+      else if (vrinfo_code == ERROR_MARK)
+	{
+	  vrinfo_code = code;
+	  vrinfo_def = *flag_def;
+	  vrinfo_cst = cond_rhs;
+	}
+    }
+  /* Return the "flag_var cmp flag_var[vinfo]" predicate we found.  */
+  if (vrinfo_code != ERROR_MARK)
+    {
+      *flag_def = vrinfo_def;
+      *boundary_cst = vrinfo_cst;
+    }
+  return vrinfo_code;
+}
+
 /* A helper function that determines if the predicate set
    of the use is not overlapping with that of the uninit paths.
    The most common senario of guarded use is in Example 1:
@@ -1595,75 +1732,21 @@ use_pred_not_overlap_with_undef_path_pred (pred_chain_union preds,
 					   gphi *phi, unsigned uninit_opnds,
 					   hash_set<gphi *> *visited_phis)
 {
-  unsigned int i, n;
   gimple *flag_def = 0;
   tree boundary_cst = 0;
   enum tree_code cmp_code;
-  bool swap_cond = false;
-  bool invert = false;
-  pred_chain the_pred_chain = vNULL;
   bitmap visited_flag_phis = NULL;
   bool all_pruned = false;
-  size_t num_preds = preds.length ();
 
-  gcc_assert (num_preds > 0);
   /* Find within the common prefix of multiple predicate chains
      a predicate that is a comparison of a flag variable against
      a constant.  */
-  the_pred_chain = preds[0];
-  n = the_pred_chain.length ();
-  for (i = 0; i < n; i++)
-    {
-      tree cond_lhs, cond_rhs, flag = 0;
-
-      pred_info the_pred = the_pred_chain[i];
-
-      invert = the_pred.invert;
-      cond_lhs = the_pred.pred_lhs;
-      cond_rhs = the_pred.pred_rhs;
-      cmp_code = the_pred.cond_code;
-
-      if (cond_lhs != NULL_TREE && TREE_CODE (cond_lhs) == SSA_NAME
-	  && cond_rhs != NULL_TREE && is_gimple_constant (cond_rhs))
-	{
-	  boundary_cst = cond_rhs;
-	  flag = cond_lhs;
-	}
-      else if (cond_rhs != NULL_TREE && TREE_CODE (cond_rhs) == SSA_NAME
-	       && cond_lhs != NULL_TREE && is_gimple_constant (cond_lhs))
-	{
-	  boundary_cst = cond_lhs;
-	  flag = cond_rhs;
-	  swap_cond = true;
-	}
-
-      if (!flag)
-	continue;
-
-      flag_def = SSA_NAME_DEF_STMT (flag);
-
-      if (!flag_def)
-	continue;
-
-      if ((gimple_code (flag_def) == GIMPLE_PHI)
-	  && (gimple_bb (flag_def) == gimple_bb (phi))
-	  && find_matching_predicate_in_rest_chains (the_pred, preds,
-						     num_preds))
-	break;
-
-      flag_def = 0;
-    }
-
-  if (!flag_def)
+  cmp_code = find_var_cmp_const (preds, phi, &flag_def, &boundary_cst);
+  if (cmp_code == ERROR_MARK)
     return false;
 
   /* Now check all the uninit incoming edge has a constant flag value
      that is in conflict with the use guard/predicate.  */
-  cmp_code = get_cmp_code (cmp_code, swap_cond, invert);
-
-  if (cmp_code == ERROR_MARK)
-    return false;
-
   all_pruned = prune_uninit_phi_opnds
     (phi, uninit_opnds, as_a<gphi *> (flag_def), boundary_cst, cmp_code,
      visited_phis, &visited_flag_phis);

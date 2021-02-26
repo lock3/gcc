@@ -1,6 +1,6 @@
 /* coroutine-specific state, expansions and tests.
 
-   Copyright (C) 2018-2020 Free Software Foundation, Inc.
+   Copyright (C) 2018-2021 Free Software Foundation, Inc.
 
  Contributed by Iain Sandoe <iain@sandoe.co.uk> under contract to Facebook.
 
@@ -94,6 +94,7 @@ struct GTY((for_user)) coroutine_info
   /* Flags to avoid repeated errors for per-function issues.  */
   bool coro_ret_type_error_emitted;
   bool coro_promise_error_emitted;
+  bool coro_co_return_error_emitted;
 };
 
 struct coroutine_info_hasher : ggc_ptr_hash<coroutine_info>
@@ -267,7 +268,7 @@ find_coro_traits_template_decl (location_t kw)
   static bool traits_error_emitted = false;
 
   tree traits_decl = lookup_qualified_name (std_node, coro_traits_identifier,
-					    0,
+					    LOOK_want::NORMAL,
 					    /*complain=*/!traits_error_emitted);
   if (traits_decl == error_mark_node
       || !DECL_TYPE_TEMPLATE_P (traits_decl))
@@ -348,7 +349,8 @@ find_coro_handle_template_decl (location_t kw)
     it once.  */
   static bool coro_handle_error_emitted = false;
   tree handle_decl = lookup_qualified_name (std_node, coro_handle_identifier,
-					    0, !coro_handle_error_emitted);
+					    LOOK_want::NORMAL,
+					    !coro_handle_error_emitted);
   if (handle_decl == error_mark_node
       || !DECL_CLASS_TEMPLATE_P (handle_decl))
     {
@@ -466,6 +468,30 @@ coro_promise_type_found_p (tree fndecl, location_t loc)
 	    error_at (loc, "unable to find the promise type for"
 		      " this coroutine");
 	  coro_info->coro_promise_error_emitted = true;
+	  return false;
+	}
+
+      /* Test for errors in the promise type that can be determined now.  */
+      tree has_ret_void = lookup_member (coro_info->promise_type,
+					 coro_return_void_identifier,
+					 /*protect=*/1, /*want_type=*/0,
+					 tf_none);
+      tree has_ret_val = lookup_member (coro_info->promise_type,
+					coro_return_value_identifier,
+					/*protect=*/1, /*want_type=*/0,
+					tf_none);
+      if (has_ret_void && has_ret_val)
+	{
+	  location_t ploc = DECL_SOURCE_LOCATION (fndecl);
+	  if (!coro_info->coro_co_return_error_emitted)
+	    error_at (ploc, "the coroutine promise type %qT declares both"
+		      " %<return_value%> and %<return_void%>",
+		      coro_info->promise_type);
+	  inform (DECL_SOURCE_LOCATION (BASELINK_FUNCTIONS (has_ret_void)),
+		  "%<return_void%> declared here");
+	  inform (DECL_SOURCE_LOCATION (BASELINK_FUNCTIONS (has_ret_val)),
+		  "%<return_value%> declared here");
+	  coro_info->coro_co_return_error_emitted = true;
 	  return false;
 	}
 
@@ -1189,29 +1215,15 @@ finish_co_return_stmt (location_t kw, tree expr)
 	 treating the object as an rvalue, if that fails, then we fall back
 	 to regular overload resolution.  */
 
-      if (treat_lvalue_as_rvalue_p (expr, /*parm_ok*/true)
-	  && CLASS_TYPE_P (TREE_TYPE (expr))
-	  && !TYPE_VOLATILE (TREE_TYPE (expr)))
-	{
-	  /* It's OK if this fails... */
-	  vec<tree, va_gc> *args = make_tree_vector_single (move (expr));
-	  co_ret_call
-	    = coro_build_promise_expression (current_function_decl, NULL,
-					     coro_return_value_identifier, kw,
-					     &args, /*musthave=*/false);
-	  release_tree_vector (args);
-	}
+      tree arg = expr;
+      if (tree moved = treat_lvalue_as_rvalue_p (expr, /*return*/true))
+	arg = moved;
 
-      if (!co_ret_call || co_ret_call == error_mark_node)
-	{
-	  /* ... but this must succeed if we didn't get the move variant.  */
-	  vec<tree, va_gc> *args = make_tree_vector_single (expr);
-	  co_ret_call
-	    = coro_build_promise_expression (current_function_decl, NULL,
-					     coro_return_value_identifier, kw,
-					     &args, /*musthave=*/true);
-	  release_tree_vector (args);
-	}
+      releasing_vec args = make_tree_vector_single (arg);
+      co_ret_call
+	= coro_build_promise_expression (current_function_decl, NULL,
+					 coro_return_value_identifier, kw,
+					 &args, /*musthave=*/true);
     }
 
   /* Makes no sense for a co-routine really. */
@@ -3744,7 +3756,7 @@ act_des_fn (tree orig, tree fn_type, tree coro_frame_ptr, const char* name)
   /* Copy selected attributes from the original function.  */
   TREE_USED (fn) = TREE_USED (orig);
   if (DECL_SECTION_NAME (orig))
-    set_decl_section_name (fn, DECL_SECTION_NAME (orig));
+    set_decl_section_name (fn, orig);
   /* Copy any alignment that the FE added.  */
   if (DECL_ALIGN (orig))
     SET_DECL_ALIGN (fn, DECL_ALIGN (orig));
@@ -4024,7 +4036,7 @@ morph_fn_to_coro (tree orig, tree *resumer, tree *destroyer)
   /* 2. Types we need to define or look up.  */
 
   tree fr_name = get_fn_local_identifier (orig, "frame");
-  tree coro_frame_type = xref_tag (record_type, fr_name, ts_current, false);
+  tree coro_frame_type = xref_tag (record_type, fr_name);
   DECL_CONTEXT (TYPE_NAME (coro_frame_type)) = current_scope ();
   tree coro_frame_ptr = build_pointer_type (coro_frame_type);
   tree act_des_fn_type
@@ -4323,7 +4335,8 @@ morph_fn_to_coro (tree orig, tree *resumer, tree *destroyer)
 	   non-throwing noexcept-specification.  So we need std::nothrow.  */
 	  tree std_nt = lookup_qualified_name (std_node,
 					       get_identifier ("nothrow"),
-					       0, /*complain=*/true, false);
+					       LOOK_want::NORMAL,
+					       /*complain=*/true);
 	  if (!std_nt || std_nt == error_mark_node)
 	    error_at (fn_start, "%qE is provided by %qT but %<std::nothrow%> "
 		      "cannot be found", grooaf, promise_type);

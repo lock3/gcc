@@ -1,5 +1,5 @@
 /* Header file for libgcov-*.c.
-   Copyright (C) 1996-2020 Free Software Foundation, Inc.
+   Copyright (C) 1996-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -250,6 +250,8 @@ struct indirect_call_tuple
   
 /* Exactly one of these will be active in the process.  */
 extern struct gcov_master __gcov_master;
+extern struct gcov_kvp __gcov_kvp_pool[GCOV_PREALLOCATED_KVP];
+extern unsigned __gcov_kvp_pool_index;
 
 /* Dump a set of gcov objects.  */
 extern void __gcov_dump_one (struct gcov_root *) ATTRIBUTE_HIDDEN;
@@ -402,6 +404,35 @@ gcov_counter_add (gcov_type *counter, gcov_type value,
     *counter += value;
 }
 
+/* Allocate gcov_kvp from statically pre-allocated pool,
+   or use heap otherwise.  */
+
+static inline struct gcov_kvp *
+allocate_gcov_kvp (void)
+{
+  struct gcov_kvp *new_node = NULL;
+
+#if !defined(IN_GCOV_TOOL) && !defined(L_gcov_merge_topn)
+  if (__gcov_kvp_pool_index < GCOV_PREALLOCATED_KVP)
+    {
+      unsigned index;
+#if GCOV_SUPPORTS_ATOMIC
+      index
+	= __atomic_fetch_add (&__gcov_kvp_pool_index, 1, __ATOMIC_RELAXED);
+#else
+      index = __gcov_kvp_pool_index++;
+#endif
+      if (index < GCOV_PREALLOCATED_KVP)
+	new_node = &__gcov_kvp_pool[index];
+    }
+#endif
+
+  if (new_node == NULL)
+    new_node = (struct gcov_kvp *)xcalloc (1, sizeof (struct gcov_kvp));
+
+  return new_node;
+}
+
 /* Add key value pair VALUE:COUNT to a top N COUNTERS.  When INCREMENT_TOTAL
    is true, add COUNT to total of the TOP counter.  If USE_ATOMIC is true,
    do it in atomic way.  */
@@ -443,8 +474,10 @@ gcov_topn_add_value (gcov_type *counters, gcov_type value, gcov_type count,
     }
   else
     {
-      struct gcov_kvp *new_node
-	= (struct gcov_kvp *)xcalloc (1, sizeof (struct gcov_kvp));
+      struct gcov_kvp *new_node = allocate_gcov_kvp ();
+      if (new_node == NULL)
+	return;
+
       new_node->value = value;
       new_node->count = count;
 

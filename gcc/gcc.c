@@ -1,5 +1,5 @@
 /* Compiler driver program that can handle many languages.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -416,6 +416,7 @@ static void try_generate_repro (const char **argv);
 static const char *getenv_spec_function (int, const char **);
 static const char *if_exists_spec_function (int, const char **);
 static const char *if_exists_else_spec_function (int, const char **);
+static const char *if_exists_then_else_spec_function (int, const char **);
 static const char *sanitize_spec_function (int, const char **);
 static const char *replace_outfile_spec_function (int, const char **);
 static const char *remove_outfile_spec_function (int, const char **);
@@ -430,6 +431,7 @@ static const char *pass_through_libs_spec_func (int, const char **);
 static const char *dumps_spec_func (int, const char **);
 static const char *greater_than_spec_func (int, const char **);
 static const char *debug_level_greater_than_spec_func (int, const char **);
+static const char *dwarf_version_greater_than_spec_func (int, const char **);
 static const char *find_fortran_preinclude_file (int, const char **);
 static char *convert_white_space (char *);
 static char *quote_spec (char *);
@@ -540,6 +542,12 @@ or with constant text in a single argument.
  %s     current argument is the name of a library or startup file of some sort.
         Search for that file in a standard list of directories
 	and substitute the full name found.
+ %T	current argument is the name of a linker script.
+	Search for that file in the current list of directories to scan for
+	libraries.  If the file is located, insert a --script option into the
+	command line followed by the full path name found.  If the file is
+	not found then generate an error message.
+	Note: the current working directory is not searched.
  %eSTR  Print STR as an error message.  STR is terminated by a newline.
         Use this when inconsistent options are detected.
  %nSTR  Print STR as a notice.  STR is terminated by a newline.
@@ -741,6 +749,24 @@ proper position among the other output files.  */
 #define LIBASAN_EARLY_SPEC ""
 #endif
 
+#ifndef LIBHWASAN_SPEC
+#define STATIC_LIBHWASAN_LIBS \
+  " %{static-libhwasan|static:%:include(libsanitizer.spec)%(link_libhwasan)}"
+#ifdef LIBHWASAN_EARLY_SPEC
+#define LIBHWASAN_SPEC STATIC_LIBHWASAN_LIBS
+#elif defined(HAVE_LD_STATIC_DYNAMIC)
+#define LIBHWASAN_SPEC "%{static-libhwasan:" LD_STATIC_OPTION \
+		     "} -lhwasan %{static-libhwasan:" LD_DYNAMIC_OPTION "}" \
+		     STATIC_LIBHWASAN_LIBS
+#else
+#define LIBHWASAN_SPEC "-lhwasan" STATIC_LIBHWASAN_LIBS
+#endif
+#endif
+
+#ifndef LIBHWASAN_EARLY_SPEC
+#define LIBHWASAN_EARLY_SPEC ""
+#endif
+
 #ifndef LIBTSAN_SPEC
 #define STATIC_LIBTSAN_LIBS \
   " %{static-libtsan|static:%:include(libsanitizer.spec)%(link_libtsan)}"
@@ -876,27 +902,70 @@ proper position among the other output files.  */
 #endif /* HAVE_LD_COMPRESS_DEBUG >= 2 */
 
 /* Define ASM_DEBUG_SPEC to be a spec suitable for translating '-g'
-   to the assembler.  */
+   to the assembler, when compiling assembly sources only.  */
 #ifndef ASM_DEBUG_SPEC
+# if defined(HAVE_AS_GDWARF_5_DEBUG_FLAG) && defined(HAVE_AS_WORKING_DWARF_N_FLAG)
+/* If --gdwarf-N is supported and as can handle even compiler generated
+   .debug_line with it, supply --gdwarf-N in ASM_DEBUG_OPTION_SPEC rather
+   than in ASM_DEBUG_SPEC, so that it applies to both .s and .c etc.
+   compilations.  */
+#  define ASM_DEBUG_DWARF_OPTION ""
+# elif defined(HAVE_AS_GDWARF_5_DEBUG_FLAG)
+#  define ASM_DEBUG_DWARF_OPTION "%{%:dwarf-version-gt(4):--gdwarf-5;" \
+	"%:dwarf-version-gt(3):--gdwarf-4;"				\
+	"%:dwarf-version-gt(2):--gdwarf-3;"				\
+	":--gdwarf2}"
+# else
+#  define ASM_DEBUG_DWARF_OPTION "--gdwarf2"
+# endif
 # if defined(DBX_DEBUGGING_INFO) && defined(DWARF2_DEBUGGING_INFO) \
      && defined(HAVE_AS_GDWARF2_DEBUG_FLAG) && defined(HAVE_AS_GSTABS_DEBUG_FLAG)
 #  define ASM_DEBUG_SPEC						\
       (PREFERRED_DEBUGGING_TYPE == DBX_DEBUG				\
        ? "%{%:debug-level-gt(0):"					\
-	 "%{gdwarf*:--gdwarf2}%{!gdwarf*:%{g*:--gstabs}}}" ASM_MAP	\
+	 "%{gdwarf*:" ASM_DEBUG_DWARF_OPTION "};"			\
+	 ":%{g*:--gstabs}}" ASM_MAP					\
        : "%{%:debug-level-gt(0):"					\
-	 "%{gstabs*:--gstabs}%{!gstabs*:%{g*:--gdwarf2}}}" ASM_MAP)
+	 "%{gstabs*:--gstabs;"						\
+	 ":%{g*:" ASM_DEBUG_DWARF_OPTION "}}}" ASM_MAP)
 # else
 #  if defined(DBX_DEBUGGING_INFO) && defined(HAVE_AS_GSTABS_DEBUG_FLAG)
 #   define ASM_DEBUG_SPEC "%{g*:%{%:debug-level-gt(0):--gstabs}}" ASM_MAP
 #  endif
 #  if defined(DWARF2_DEBUGGING_INFO) && defined(HAVE_AS_GDWARF2_DEBUG_FLAG)
-#   define ASM_DEBUG_SPEC "%{g*:%{%:debug-level-gt(0):--gdwarf2}}" ASM_MAP
+#   define ASM_DEBUG_SPEC "%{g*:%{%:debug-level-gt(0):" \
+	ASM_DEBUG_DWARF_OPTION "}}" ASM_MAP
 #  endif
 # endif
 #endif
 #ifndef ASM_DEBUG_SPEC
 # define ASM_DEBUG_SPEC ""
+#endif
+
+/* Define ASM_DEBUG_OPTION_SPEC to be a spec suitable for translating '-g'
+   to the assembler when compiling all sources.  */
+#ifndef ASM_DEBUG_OPTION_SPEC
+# if defined(HAVE_AS_GDWARF_5_DEBUG_FLAG) && defined(HAVE_AS_WORKING_DWARF_N_FLAG)
+#  define ASM_DEBUG_OPTION_DWARF_OPT					\
+	"%{%:dwarf-version-gt(4):--gdwarf-5 ;"				\
+	"%:dwarf-version-gt(3):--gdwarf-4 ;"				\
+	"%:dwarf-version-gt(2):--gdwarf-3 ;"				\
+	":--gdwarf2 }"
+#  if defined(DBX_DEBUGGING_INFO) && defined(DWARF2_DEBUGGING_INFO)
+#  define ASM_DEBUG_OPTION_SPEC						\
+      (PREFERRED_DEBUGGING_TYPE == DBX_DEBUG				\
+       ? "%{%:debug-level-gt(0):"					\
+	 "%{gdwarf*:" ASM_DEBUG_OPTION_DWARF_OPT "}}" 			\
+       : "%{%:debug-level-gt(0):"					\
+	 "%{!gstabs*:%{g*:" ASM_DEBUG_OPTION_DWARF_OPT "}}}")
+# elif defined(DWARF2_DEBUGGING_INFO)
+#   define ASM_DEBUG_OPTION_SPEC "%{g*:%{%:debug-level-gt(0):" \
+	ASM_DEBUG_OPTION_DWARF_OPT "}}"
+#  endif
+# endif
+#endif
+#ifndef ASM_DEBUG_OPTION_SPEC
+# define ASM_DEBUG_OPTION_SPEC ""
 #endif
 
 /* Here is the spec for running the linker, after compiling all files.  */
@@ -1020,6 +1089,7 @@ proper position among the other output files.  */
 #ifndef SANITIZER_EARLY_SPEC
 #define SANITIZER_EARLY_SPEC "\
 %{!nostdlib:%{!r:%{!nodefaultlibs:%{%:sanitize(address):" LIBASAN_EARLY_SPEC "} \
+    %{%:sanitize(hwaddress):" LIBHWASAN_EARLY_SPEC "} \
     %{%:sanitize(thread):" LIBTSAN_EARLY_SPEC "} \
     %{%:sanitize(leak):" LIBLSAN_EARLY_SPEC "}}}}"
 #endif
@@ -1029,6 +1099,8 @@ proper position among the other output files.  */
 #define SANITIZER_SPEC "\
 %{!nostdlib:%{!r:%{!nodefaultlibs:%{%:sanitize(address):" LIBASAN_SPEC "\
     %{static:%ecannot specify -static with -fsanitize=address}}\
+    %{%:sanitize(hwaddress):" LIBHWASAN_SPEC "\
+	%{static:%ecannot specify -static with -fsanitize=hwaddress}}\
     %{%:sanitize(thread):" LIBTSAN_SPEC "\
     %{static:%ecannot specify -static with -fsanitize=thread}}\
     %{%:sanitize(undefined):" LIBUBSAN_SPEC "}\
@@ -1113,6 +1185,7 @@ proper position among the other output files.  */
 #endif
 
 static const char *asm_debug = ASM_DEBUG_SPEC;
+static const char *asm_debug_option = ASM_DEBUG_OPTION_SPEC;
 static const char *cpp_spec = CPP_SPEC;
 static const char *cc1_spec = CC1_SPEC;
 static const char *cc1plus_spec = CC1PLUS_SPEC;
@@ -1159,8 +1232,9 @@ static const char *cpp_unique_options =
  %{MD:-MD %{!o:%b.d}%{o*:%.d%*}}\
  %{MMD:-MMD %{!o:%b.d}%{o*:%.d%*}}\
  %{M} %{MM} %{MF*} %{MG} %{MP} %{MQ*} %{MT*}\
+ %{Mmodules} %{Mno-modules}\
  %{!E:%{!M:%{!MM:%{!MT:%{!MQ:%{MD|MMD:%{o*:-MQ %*}}}}}}}\
- %{remap} %{g3|ggdb3|gstabs3|gxcoff3|gvms3:-dD}\
+ %{remap} %{%:debug-level-gt(2):-dD}\
  %{!iplugindir*:%{fplugin*:%:find-plugindir()}}\
  %{H} %C %{D*&U*&A*} %{K*} %{i*} %Z %i\
  %{E|M|MM:%W{o*}}";
@@ -1212,6 +1286,7 @@ static const char *asm_options =
    to the assembler equivalents.  */
 "%{v} %{w:-W} %{I*} "
 #endif
+"%(asm_debug_option)"
 ASM_COMPRESS_DEBUG_SPEC
 "%a %Y %{c:%W{o*}%{!o*:-o %w%b%O}}%{!c:-o %d%w%u%O}";
 
@@ -1608,6 +1683,7 @@ static struct spec_list static_specs[] =
 {
   INIT_STATIC_SPEC ("asm",			&asm_spec),
   INIT_STATIC_SPEC ("asm_debug",		&asm_debug),
+  INIT_STATIC_SPEC ("asm_debug_option",		&asm_debug_option),
   INIT_STATIC_SPEC ("asm_final",		&asm_final_spec),
   INIT_STATIC_SPEC ("asm_options",		&asm_options),
   INIT_STATIC_SPEC ("invoke_as",		&invoke_as),
@@ -1676,6 +1752,7 @@ static const struct spec_function static_spec_functions[] =
   { "getenv",                   getenv_spec_function },
   { "if-exists",		if_exists_spec_function },
   { "if-exists-else",		if_exists_else_spec_function },
+  { "if-exists-then-else",	if_exists_then_else_spec_function },
   { "sanitize",			sanitize_spec_function },
   { "replace-outfile",		replace_outfile_spec_function },
   { "remove-outfile",		remove_outfile_spec_function },
@@ -1690,6 +1767,7 @@ static const struct spec_function static_spec_functions[] =
   { "dumps",                    dumps_spec_func },
   { "gt",			greater_than_spec_func },
   { "debug-level-gt",		debug_level_greater_than_spec_func },
+  { "dwarf-version-gt",		dwarf_version_greater_than_spec_func },
   { "fortran-preinclude-file",	find_fortran_preinclude_file},
 #ifdef EXTRA_SPEC_FUNCTIONS
   EXTRA_SPEC_FUNCTIONS
@@ -1908,6 +1986,51 @@ init_spec (void)
 
   specs = sl;
 }
+
+/* Update the entry for SPEC in the static_specs table to point to VALUE,
+   ensuring that we free the previous value if necessary.  Set alloc_p for the
+   entry to ALLOC_P: this determines whether we take ownership of VALUE (i.e.
+   whether we need to free it later on).  */
+static void
+set_static_spec (const char **spec, const char *value, bool alloc_p)
+{
+  struct spec_list *sl = NULL;
+
+  for (unsigned i = 0; i < ARRAY_SIZE (static_specs); i++)
+    {
+      if (static_specs[i].ptr_spec == spec)
+	{
+	  sl = static_specs + i;
+	  break;
+	}
+    }
+
+  gcc_assert (sl);
+
+  if (sl->alloc_p)
+    {
+      const char *old = *spec;
+      free (const_cast <char *> (old));
+    }
+
+  *spec = value;
+  sl->alloc_p = alloc_p;
+}
+
+/* Update a static spec to a new string, taking ownership of that
+   string's memory.  */
+static void set_static_spec_owned (const char **spec, const char *val)
+{
+  return set_static_spec (spec, val, true);
+}
+
+/* Update a static spec to point to a new value, but don't take
+   ownership of (i.e. don't free) that string.  */
+static void set_static_spec_shared (const char **spec, const char *val)
+{
+  return set_static_spec (spec, val, false);
+}
+
 
 /* Change the value of spec NAME to SPEC.  If SPEC is empty, then the spec is
    removed; If the spec starts with a + then SPEC is added to the end of the
@@ -2073,6 +2196,32 @@ open_at_file (void)
      in_at_file = true;
 }
 
+/* Create a temporary @file name.  */
+
+static char *make_at_file (void)
+{
+  static int fileno = 0;
+  char filename[20];
+  const char *base, *ext;
+
+  if (!save_temps_flag)
+    return make_temp_file ("");
+
+  base = dumpbase;
+  if (!(base && *base))
+    base = dumpdir;
+  if (!(base && *base))
+    base = "a";
+
+  sprintf (filename, ".args.%d", fileno++);
+  ext = filename;
+
+  if (base == dumpdir && dumpdir_trailing_dash_added)
+    ext++;
+
+  return concat (base, ext, NULL);
+}
+
 /* Close the temporary @file and add @file to the argument list.  */
 
 static void
@@ -2088,7 +2237,7 @@ close_at_file (void)
     return;
 
   char **argv = (char **) alloca (sizeof (char *) * (n_args + 1));
-  char *temp_file = make_temp_file ("");
+  char *temp_file = make_at_file ();
   char *at_argument = concat ("@", temp_file, NULL);
   FILE *f = fopen (temp_file, "w");
   int status;
@@ -3558,7 +3707,7 @@ convert_filename (const char *name, int do_exe ATTRIBUTE_UNUSED,
 #if defined(HAVE_TARGET_EXECUTABLE_SUFFIX)
   /* If there is no filetype, make it the executable suffix (which includes
      the ".").  But don't get confused if we have just "-o".  */
-  if (! do_exe || TARGET_EXECUTABLE_SUFFIX[0] == 0 || (len == 2 && name[0] == '-'))
+  if (! do_exe || TARGET_EXECUTABLE_SUFFIX[0] == 0 || not_actual_file_p (name))
     return name;
 
   for (i = len - 1; i >= 0; i--)
@@ -5437,7 +5586,7 @@ insert_wrapper (const char *wrapper)
     }
   while ((p = strchr (p, ',')) != NULL);
 
-  argbuf.safe_grow (old_length + n);
+  argbuf.safe_grow (old_length + n, true);
   memmove (argbuf.address () + n,
 	   argbuf.address (),
 	   old_length * sizeof (const_char_p));
@@ -8344,7 +8493,7 @@ driver::maybe_putenv_COLLECT_LTO_WRAPPER () const
   if (lto_wrapper_file)
     {
       lto_wrapper_file = convert_white_space (lto_wrapper_file);
-      lto_wrapper_spec = lto_wrapper_file;
+      set_static_spec_owned (&lto_wrapper_spec, lto_wrapper_file);
       obstack_init (&collect_obstack);
       obstack_grow (&collect_obstack, "COLLECT_LTO_WRAPPER=",
 		    sizeof ("COLLECT_LTO_WRAPPER=") - 1);
@@ -8540,7 +8689,7 @@ driver::maybe_print_and_exit () const
     {
       printf (_("%s %s%s\n"), progname, pkgversion_string,
 	      version_string);
-      printf ("Copyright %s 2020 Free Software Foundation, Inc.\n",
+      printf ("Copyright %s 2021 Free Software Foundation, Inc.\n",
 	      _("(C)"));
       fputs (_("This is free software; see the source for copying conditions.  There is NO\n\
 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"),
@@ -8851,7 +9000,7 @@ driver::maybe_run_linker (const char *argv0) const
 	    {
 	      char *s = find_a_file (&exec_prefixes, "collect2", X_OK, false);
 	      if (s == NULL)
-		linker_name_spec = "ld";
+		set_static_spec_shared (&linker_name_spec, "ld");
 	    }
 
 #if HAVE_LTO_PLUGIN > 0
@@ -8875,7 +9024,7 @@ driver::maybe_run_linker (const char *argv0) const
 	      linker_plugin_file_spec = convert_white_space (temp_spec);
 	    }
 #endif
-	  lto_gcc_spec = argv0;
+	  set_static_spec_shared (&lto_gcc_spec, argv0);
 	}
 
       /* Rebuild the COMPILER_PATH and LIBRARY_PATH environment variables
@@ -9653,6 +9802,7 @@ print_multilib_info (void)
   const char *p = multilib_select;
   const char *last_path = 0, *this_path;
   int skip;
+  int not_arg;
   unsigned int last_path_len = 0;
 
   while (*p != '\0')
@@ -9807,9 +9957,13 @@ print_multilib_info (void)
 		goto invalid_select;
 
 	      if (*q == '!')
-		arg = NULL;
+		{
+		  not_arg = 1;
+		  q++;
+		}
 	      else
-		arg = q;
+		not_arg = 0;
+	      arg = q;
 
 	      while (*q != ' ' && *q != ';')
 		{
@@ -9818,11 +9972,17 @@ print_multilib_info (void)
 		  ++q;
 		}
 
-	      if (arg != NULL
-		  && default_arg (arg, q - arg))
+	      if (default_arg (arg, q - arg))
 		{
-		  skip = 1;
-		  break;
+		  /* Stop checking if any default arguments appeared in not
+		     list.  */
+		  if (not_arg)
+		    {
+		      skip = 0;
+		      break;
+		    }
+		  else
+		    skip = 1;
 		}
 
 	      if (*q == ' ')
@@ -9994,6 +10154,29 @@ if_exists_else_spec_function (int argc, const char **argv)
   return argv[1];
 }
 
+/* if-exists-then-else built-in spec function.
+
+   Checks to see if the file specified by the absolute pathname in
+   the first arg exists.  Returns the second arg if so, otherwise returns
+   the third arg if it is present.  */
+
+static const char *
+if_exists_then_else_spec_function (int argc, const char **argv)
+{
+
+  /* Must have two or three arguments.  */
+  if (argc != 2 && argc != 3)
+    return NULL;
+
+  if (IS_ABSOLUTE_PATH (argv[0]) && ! access (argv[0], R_OK))
+    return argv[1];
+
+  if (argc == 3)
+    return argv[2];
+
+  return NULL;
+}
+
 /* sanitize built-in spec function.
 
    This returns non-NULL, if sanitizing address, thread or
@@ -10007,8 +10190,12 @@ sanitize_spec_function (int argc, const char **argv)
 
   if (strcmp (argv[0], "address") == 0)
     return (flag_sanitize & SANITIZE_USER_ADDRESS) ? "" : NULL;
+  if (strcmp (argv[0], "hwaddress") == 0)
+    return (flag_sanitize & SANITIZE_USER_HWADDRESS) ? "" : NULL;
   if (strcmp (argv[0], "kernel-address") == 0)
     return (flag_sanitize & SANITIZE_KERNEL_ADDRESS) ? "" : NULL;
+  if (strcmp (argv[0], "kernel-hwaddress") == 0)
+    return (flag_sanitize & SANITIZE_KERNEL_HWADDRESS) ? "" : NULL;
   if (strcmp (argv[0], "thread") == 0)
     return (flag_sanitize & SANITIZE_THREAD) ? "" : NULL;
   if (strcmp (argv[0], "undefined") == 0)
@@ -10426,7 +10613,7 @@ static bool
 not_actual_file_p (const char *name)
 {
   return (strcmp (name, "-") == 0
-	  || strcmp (output_file, HOST_BIT_BUCKET) == 0);
+	  || strcmp (name, HOST_BIT_BUCKET) == 0);
 }
 
 /* %:dumps spec function.  Take an optional argument that overrides
@@ -10564,6 +10751,27 @@ debug_level_greater_than_spec_func (int argc, const char **argv)
   gcc_assert (converted != argv[0]);
 
   if (debug_info_level > arg)
+    return "";
+
+  return NULL;
+}
+
+/* Returns "" if dwarf_version is greater than ARGV[ARGC-1].
+   Otherwise, return NULL.  */
+
+static const char *
+dwarf_version_greater_than_spec_func (int argc, const char **argv)
+{
+  char *converted;
+
+  if (argc != 1)
+    fatal_error (input_location,
+		 "wrong number of arguments to %%:dwarf-version-gt");
+
+  long arg = strtol (argv[0], &converted, 10);
+  gcc_assert (converted != argv[0]);
+
+  if (dwarf_version > arg)
     return "";
 
   return NULL;
@@ -10817,9 +11025,9 @@ driver::finalize ()
   just_machine_suffix = 0;
   gcc_exec_prefix = 0;
   gcc_libexec_prefix = 0;
-  md_exec_prefix = MD_EXEC_PREFIX;
-  md_startfile_prefix = MD_STARTFILE_PREFIX;
-  md_startfile_prefix_1 = MD_STARTFILE_PREFIX_1;
+  set_static_spec_shared (&md_exec_prefix, MD_EXEC_PREFIX);
+  set_static_spec_shared (&md_startfile_prefix, MD_STARTFILE_PREFIX);
+  set_static_spec_shared (&md_startfile_prefix_1, MD_STARTFILE_PREFIX_1);
   multilib_dir = 0;
   multilib_os_dir = 0;
   multiarch_dir = 0;
@@ -10843,8 +11051,7 @@ driver::finalize ()
       spec_list *sl = &static_specs[i];
       if (sl->alloc_p)
 	{
-	  if (0)
-	    free (const_cast <char *> (*(sl->ptr_spec)));
+	  free (const_cast <char *> (*(sl->ptr_spec)));
 	  sl->alloc_p = false;
 	}
       *(sl->ptr_spec) = sl->default_ptr;

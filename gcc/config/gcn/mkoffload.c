@@ -1,6 +1,6 @@
 /* Offload image generation tool for AMD GCN.
 
-   Copyright (C) 2014-2020 Free Software Foundation, Inc.
+   Copyright (C) 2014-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -336,19 +336,24 @@ copy_early_debug_info (const char *infile, const char *outfile)
 	    {
 	    case R_X86_64_32:
 	    case R_X86_64_32S:
-	      reloc->r_info = R_AMDGPU_ABS32;
+	      reloc->r_info = ELF32_R_INFO(ELF32_R_SYM(reloc->r_info),
+					   R_AMDGPU_ABS32);
 	      break;
 	    case R_X86_64_PC32:
-	      reloc->r_info = R_AMDGPU_REL32;
+	      reloc->r_info = ELF32_R_INFO(ELF32_R_SYM(reloc->r_info),
+					   R_AMDGPU_REL32);
 	      break;
 	    case R_X86_64_PC64:
-	      reloc->r_info = R_AMDGPU_REL64;
+	      reloc->r_info = ELF32_R_INFO(ELF32_R_SYM(reloc->r_info),
+					   R_AMDGPU_REL64);
 	      break;
 	    case R_X86_64_64:
-	      reloc->r_info = R_AMDGPU_ABS64;
+	      reloc->r_info = ELF32_R_INFO(ELF32_R_SYM(reloc->r_info),
+					   R_AMDGPU_ABS64);
 	      break;
 	    case R_X86_64_RELATIVE:
-	      reloc->r_info = R_AMDGPU_RELATIVE64;
+	      reloc->r_info = ELF32_R_INFO(ELF32_R_SYM(reloc->r_info),
+					   R_AMDGPU_RELATIVE64);
 	      break;
 	    default:
 	      gcc_unreachable ();
@@ -432,7 +437,7 @@ process_asm (FILE *in, FILE *out, FILE *cfile)
     int sgpr_count;
     int vgpr_count;
     char *kernel_name;
-  } regcount;
+  } regcount = { -1, -1, NULL };
 
   /* Always add _init_array and _fini_array as kernels.  */
   obstack_ptr_grow (&fns_os, xstrdup ("_init_array"));
@@ -440,7 +445,12 @@ process_asm (FILE *in, FILE *out, FILE *cfile)
   fn_count += 2;
 
   char buf[1000];
-  enum { IN_CODE, IN_AMD_KERNEL_CODE_T, IN_VARS, IN_FUNCS } state = IN_CODE;
+  enum
+    { IN_CODE,
+      IN_METADATA,
+      IN_VARS,
+      IN_FUNCS
+    } state = IN_CODE;
   while (fgets (buf, sizeof (buf), in))
     {
       switch (state)
@@ -453,21 +463,25 @@ process_asm (FILE *in, FILE *out, FILE *cfile)
 		obstack_grow (&dims_os, &dim, sizeof (dim));
 		dims_count++;
 	      }
-	    else if (sscanf (buf, " .amdgpu_hsa_kernel %ms\n",
-			     &regcount.kernel_name) == 1)
-	      break;
 
 	    break;
 	  }
-	case IN_AMD_KERNEL_CODE_T:
+	case IN_METADATA:
 	  {
-	    gcc_assert (regcount.kernel_name);
-	    if (sscanf (buf, " wavefront_sgpr_count = %d\n",
-			&regcount.sgpr_count) == 1)
+	    if (sscanf (buf, " - .name: %ms\n", &regcount.kernel_name) == 1)
 	      break;
-	    else if (sscanf (buf, " workitem_vgpr_count = %d\n",
+	    else if (sscanf (buf, " .sgpr_count: %d\n",
+			     &regcount.sgpr_count) == 1)
+	      {
+		gcc_assert (regcount.kernel_name);
+		break;
+	      }
+	    else if (sscanf (buf, " .vgpr_count: %d\n",
 			     &regcount.vgpr_count) == 1)
-	      break;
+	      {
+		gcc_assert (regcount.kernel_name);
+		break;
+	      }
 
 	    break;
 	  }
@@ -508,9 +522,10 @@ process_asm (FILE *in, FILE *out, FILE *cfile)
 	state = IN_VARS;
       else if (sscanf (buf, " .section .gnu.offload_funcs%c", &dummy) > 0)
 	state = IN_FUNCS;
-      else if (sscanf (buf, " .amd_kernel_code_%c", &dummy) > 0)
+      else if (sscanf (buf, " .amdgpu_metadata%c", &dummy) > 0)
 	{
-	  state = IN_AMD_KERNEL_CODE_T;
+	  state = IN_METADATA;
+	  regcount.kernel_name = NULL;
 	  regcount.sgpr_count = regcount.vgpr_count = -1;
 	}
       else if (sscanf (buf, " .section %c", &dummy) > 0
@@ -519,7 +534,7 @@ process_asm (FILE *in, FILE *out, FILE *cfile)
 	       || sscanf (buf, " .data%c", &dummy) > 0
 	       || sscanf (buf, " .ident %c", &dummy) > 0)
 	state = IN_CODE;
-      else if (sscanf (buf, " .end_amd_kernel_code_%c", &dummy) > 0)
+      else if (sscanf (buf, " .end_amdgpu_metadata%c", &dummy) > 0)
 	{
 	  state = IN_CODE;
 	  gcc_assert (regcount.kernel_name != NULL
@@ -531,7 +546,7 @@ process_asm (FILE *in, FILE *out, FILE *cfile)
 	  regcount.sgpr_count = regcount.vgpr_count = -1;
 	}
 
-      if (state == IN_CODE || state == IN_AMD_KERNEL_CODE_T)
+      if (state == IN_CODE || state == IN_METADATA)
 	fputs (buf, out);
     }
 
@@ -727,7 +742,8 @@ compile_native (const char *infile, const char *outfile, const char *compiler,
   obstack_ptr_grow (&argv_obstack, NULL);
 
   const char **new_argv = XOBFINISH (&argv_obstack, const char **);
-  fork_execute (new_argv[0], CONST_CAST (char **, new_argv), true);
+  fork_execute (new_argv[0], CONST_CAST (char **, new_argv), true,
+		".gccnative_args");
   obstack_free (&argv_obstack, NULL);
 }
 
@@ -991,7 +1007,7 @@ main (int argc, char **argv)
   unsetenv ("LIBRARY_PATH");
 
   /* Run the compiler pass.  */
-  fork_execute (cc_argv[0], CONST_CAST (char **, cc_argv), true);
+  fork_execute (cc_argv[0], CONST_CAST (char **, cc_argv), true,  ".gcc_args");
   obstack_free (&cc_argv_obstack, NULL);
 
   in = fopen (gcn_s1_name, "r");
@@ -1012,7 +1028,7 @@ main (int argc, char **argv)
   fclose (out);
 
   /* Run the assemble/link pass.  */
-  fork_execute (ld_argv[0], CONST_CAST (char **, ld_argv), true);
+  fork_execute (ld_argv[0], CONST_CAST (char **, ld_argv), true, ".ld_args");
   obstack_free (&ld_argv_obstack, NULL);
 
   in = fopen (gcn_o_name, "r");

@@ -1,6 +1,6 @@
 // Core algorithmic facilities -*- C++ -*-
 
-// Copyright (C) 2020 Free Software Foundation, Inc.
+// Copyright (C) 2020-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -34,9 +34,8 @@
 
 #include <compare>
 #include <iterator>
-// #include <bits/range_concepts.h>
-#include <ranges>
-#include <bits/invoke.h>
+#include <bits/ranges_base.h> // ranges::begin, ranges::range etc.
+#include <bits/invoke.h>      // __invoke
 #include <bits/cpp_type_traits.h> // __is_byte
 
 #if __cpp_lib_concepts
@@ -105,7 +104,6 @@ namespace ranges
 	      return false;
 
 	    using _ValueType1 = iter_value_t<_Iter1>;
-	    using _ValueType2 = iter_value_t<_Iter2>;
 	    constexpr bool __use_memcmp
 	      = ((is_integral_v<_ValueType1> || is_pointer_v<_ValueType1>)
 		 && __memcmpable<_Iter1, _Iter2>::__value

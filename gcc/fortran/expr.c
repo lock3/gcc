@@ -1,5 +1,5 @@
 /* Routines for manipulation of expression nodes.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -2096,6 +2096,9 @@ simplify_parameter_variable (gfc_expr *p, int type)
 	return false;
 
       e->rank = p->rank;
+
+      if (e->ts.type == BT_CHARACTER && p->ts.u.cl)
+	e->ts = p->ts;
     }
 
   if (e->ts.type == BT_CHARACTER && e->ts.u.cl == NULL)
@@ -2904,7 +2907,7 @@ gfc_check_init_expr (gfc_expr *e)
 		   && (e->value.function.isym->conversion == 1);
 
 	if (!conversion && (!gfc_is_intrinsic (sym, 0, e->where)
-	    || (m = gfc_intrinsic_func_interface (e, 0)) != MATCH_YES))
+	    || (m = gfc_intrinsic_func_interface (e, 0)) == MATCH_NO))
 	  {
 	    gfc_error ("Function %qs in initialization expression at %L "
 		       "must be an intrinsic function",
@@ -3004,6 +3007,12 @@ gfc_check_init_expr (gfc_expr *e)
 	      case AS_EXPLICIT:
 		gfc_error ("Array %qs at %L is a variable, which does "
 			   "not reduce to a constant expression",
+			   e->symtree->n.sym->name, &e->where);
+		break;
+
+	      case AS_ASSUMED_RANK:
+		gfc_error ("Assumed-rank array %qs at %L is not permitted "
+			   "in an initialization expression",
 			   e->symtree->n.sym->name, &e->where);
 		break;
 
@@ -3273,7 +3282,7 @@ check_references (gfc_ref* ref, bool (*checker) (gfc_expr*))
   switch (ref->type)
     {
     case REF_ARRAY:
-      for (dim = 0; dim != ref->u.ar.dimen; ++dim)
+      for (dim = 0; dim < ref->u.ar.dimen; ++dim)
 	{
 	  if (!checker (ref->u.ar.start[dim]))
 	    return false;
@@ -4360,10 +4369,18 @@ gfc_check_pointer_assign (gfc_expr *lvalue, gfc_expr *rvalue,
      contiguous.  */
 
   if (lhs_attr.contiguous
-      && lhs_attr.dimension > 0
-      && !gfc_is_simply_contiguous (rvalue, false, true))
-    gfc_warning (OPT_Wextra, "Assignment to contiguous pointer from "
-		 "non-contiguous target at %L", &rvalue->where);
+      && lhs_attr.dimension > 0)
+    {
+      if (gfc_is_not_contiguous (rvalue))
+	{
+	  gfc_error ("Assignment to contiguous pointer from "
+		     "non-contiguous target at %L", &rvalue->where);
+	  return false;
+	}
+      if (!gfc_is_simply_contiguous (rvalue, false, true))
+	gfc_warning (OPT_Wextra, "Assignment to contiguous pointer from "
+				 "non-contiguous target at %L", &rvalue->where);
+    }
 
   /* Warn if it is the LHS pointer may lives longer than the RHS target.  */
   if (warn_target_lifetime
@@ -5929,7 +5946,7 @@ gfc_is_not_contiguous (gfc_expr *array)
     {
       /* Array-ref shall be last ref.  */
 
-      if (ar)
+      if (ar && ar->type != AR_ELEMENT)
 	return true;
 
       if (ref->type == REF_ARRAY)
@@ -5949,10 +5966,11 @@ gfc_is_not_contiguous (gfc_expr *array)
 
       if (gfc_ref_dimen_size (ar, i, &ref_size, NULL))
 	{
-	  if (gfc_dep_difference (ar->as->lower[i], ar->as->upper[i], &arr_size))
+	  if (gfc_dep_difference (ar->as->upper[i], ar->as->lower[i], &arr_size))
 	    {
 	      /* a(2:4,2:) is known to be non-contiguous, but
 		 a(2:4,i:i) can be contiguous.  */
+	      mpz_add_ui (arr_size, arr_size, 1L);
 	      if (previous_incomplete && mpz_cmp_si (ref_size, 1) != 0)
 		{
 		  mpz_clear (arr_size);
@@ -5973,7 +5991,10 @@ gfc_is_not_contiguous (gfc_expr *array)
 	      && ar->dimen_type[i] == DIMEN_RANGE
 	      && ar->stride[i] && ar->stride[i]->expr_type == EXPR_CONSTANT
 	      && mpz_cmp_si (ar->stride[i]->value.integer, 1) != 0)
-	    return true;
+	    {
+	      mpz_clear (ref_size);
+	      return true;
+	    }
 
 	  mpz_clear (ref_size);
 	}

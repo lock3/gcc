@@ -1,5 +1,5 @@
 /* Callgraph based analysis of static variables.
-   Copyright (C) 2004-2020 Free Software Foundation, Inc.
+   Copyright (C) 2004-2021 Free Software Foundation, Inc.
    Contributed by Kenneth Zadeck <zadeck@naturalbridge.com>
 
 This file is part of GCC.
@@ -894,7 +894,10 @@ propagate (void)
     }
 
   if (ipa_ref_opt_sum_summaries == NULL)
-    ipa_ref_opt_sum_summaries = new ipa_ref_opt_summary_t (symtab);
+    {
+      ipa_ref_opt_sum_summaries = new ipa_ref_opt_summary_t (symtab);
+      ipa_ref_opt_sum_summaries->disable_insertion_hook ();
+    }
 
   /* Cleanup. */
   FOR_EACH_DEFINED_FUNCTION (node)
@@ -1057,7 +1060,7 @@ ipa_reference_write_optimization_summary (void)
   int i;
 
   vec_alloc (reference_vars_to_consider, ipa_reference_vars_uids);
-  reference_vars_to_consider->safe_grow (ipa_reference_vars_uids);
+  reference_vars_to_consider->safe_grow (ipa_reference_vars_uids, true);
 
   /* See what variables we are interested in.  */
   for (i = 0; i < lto_symtab_encoder_size (encoder); i++)
@@ -1130,6 +1133,7 @@ ipa_reference_read_optimization_summary (void)
 
   gcc_checking_assert (ipa_ref_opt_sum_summaries == NULL);
   ipa_ref_opt_sum_summaries = new ipa_ref_opt_summary_t (symtab);
+  ipa_ref_opt_sum_summaries->disable_insertion_hook ();
   ipa_reference_vars_map = new reference_vars_map_t(257);
   varpool_node_hooks
 	 = symtab->add_varpool_removal_hook (varpool_removal_hook, NULL);

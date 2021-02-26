@@ -1,5 +1,5 @@
 /* C-compiler utilities for types and variables storage layout
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -392,6 +392,9 @@ int_mode_for_mode (machine_mode mode)
     case MODE_VECTOR_UFRACT:
     case MODE_VECTOR_UACCUM:
       return int_mode_for_size (GET_MODE_BITSIZE (mode), 0);
+
+    case MODE_OPAQUE:
+	return opt_scalar_int_mode ();
 
     case MODE_RANDOM:
       if (mode == BLKmode)
@@ -2579,10 +2582,19 @@ layout_type (tree type)
 	    /* If TYPE_SIZE_UNIT overflowed, then it is certainly larger than
 	       TYPE_ALIGN_UNIT.  */
 	    && !TREE_OVERFLOW (TYPE_SIZE_UNIT (element))
-	    && !integer_zerop (TYPE_SIZE_UNIT (element))
-	    && compare_tree_int (TYPE_SIZE_UNIT (element),
-			  	 TYPE_ALIGN_UNIT (element)) < 0)
-	  error ("alignment of array elements is greater than element size");
+	    && !integer_zerop (TYPE_SIZE_UNIT (element)))
+	  {
+	    if (compare_tree_int (TYPE_SIZE_UNIT (element),
+				  TYPE_ALIGN_UNIT (element)) < 0)
+	      error ("alignment of array elements is greater than "
+		     "element size");
+	    else if (TYPE_ALIGN_UNIT (element) > 1
+		     && (wi::zext (wi::to_wide (TYPE_SIZE_UNIT (element)),
+				  ffs_hwi (TYPE_ALIGN_UNIT (element)) - 1)
+			 != 0))
+	      error ("size of array element is not a multiple of its "
+		     "alignment");
+	  }
 	break;
       }
 

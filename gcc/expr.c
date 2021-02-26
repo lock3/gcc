@@ -1,5 +1,5 @@
 /* Convert tree expression to rtl instructions, for GNU compiler.
-   Copyright (C) 1988-2020 Free Software Foundation, Inc.
+   Copyright (C) 1988-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -29,8 +29,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "memmodel.h"
 #include "tm_p.h"
 #include "ssa.h"
-#include "expmed.h"
 #include "optabs.h"
+#include "expmed.h"
 #include "regs.h"
 #include "emit-rtl.h"
 #include "recog.h"
@@ -62,6 +62,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "ccmp.h"
 #include "gimple-fold.h"
 #include "rtx-vector-builder.h"
+#include "tree-pretty-print.h"
+#include "flags.h"
 
 
 /* If this is nonzero, we do not bother generating VOLATILE
@@ -96,7 +98,6 @@ static void emit_single_push_insn (machine_mode, rtx, tree);
 static void do_tablejump (rtx, machine_mode, rtx, rtx, rtx,
 			  profile_probability);
 static rtx const_vector_from_tree (tree);
-static rtx const_scalar_mask_from_tree (scalar_int_mode, tree);
 static tree tree_expr_size (const_tree);
 static HOST_WIDE_INT int_expr_size (tree);
 static void convert_mode_scalar (rtx, rtx, int);
@@ -1636,6 +1637,12 @@ emit_block_move_hints (rtx x, rtx y, rtx size, enum block_op_methods method,
      block copy is more efficient for other large modes, e.g. DCmode.  */
   x = adjust_address (x, BLKmode, 0);
   y = adjust_address (y, BLKmode, 0);
+
+  /* If source and destination are the same, no need to copy anything.  */
+  if (rtx_equal_p (x, y)
+      && !MEM_VOLATILE_P (x)
+      && !MEM_VOLATILE_P (y))
+    return 0;
 
   /* Set MEM_SIZE as appropriate for this block copy.  The main place this
      can be incorrect is coming from __builtin_memcpy.  */
@@ -5162,6 +5169,8 @@ expand_assignment (tree to, tree from, bool nontemporal)
       rtx reg, mem;
 
       reg = expand_expr (from, NULL_RTX, VOIDmode, EXPAND_NORMAL);
+      /* Handle PARALLEL.  */
+      reg = maybe_emit_group_store (reg, TREE_TYPE (from));
       reg = force_not_mem (reg);
       mem = expand_expr (to, NULL_RTX, VOIDmode, EXPAND_WRITE);
       if (TREE_CODE (to) == MEM_REF && REF_REVERSE_STORAGE_ORDER (to))
@@ -5444,6 +5453,30 @@ expand_assignment (tree to, tree from, bool nontemporal)
 					       mode1, to_rtx, to, from,
 					       reversep))
 	    result = NULL;
+	  else if (SUBREG_P (to_rtx)
+		   && SUBREG_PROMOTED_VAR_P (to_rtx))
+	    {
+	      /* If to_rtx is a promoted subreg, we need to zero or sign
+		 extend the value afterwards.  */
+	      if (TREE_CODE (to) == MEM_REF
+		  && !REF_REVERSE_STORAGE_ORDER (to)
+		  && known_eq (bitpos, 0)
+		  && known_eq (bitsize, GET_MODE_BITSIZE (GET_MODE (to_rtx))))
+		result = store_expr (from, to_rtx, 0, nontemporal, false);
+	      else
+		{
+		  rtx to_rtx1
+		    = lowpart_subreg (subreg_unpromoted_mode (to_rtx),
+				      SUBREG_REG (to_rtx),
+				      subreg_promoted_mode (to_rtx));
+		  result = store_field (to_rtx1, bitsize, bitpos,
+					bitregion_start, bitregion_end,
+					mode1, from, get_alias_set (to),
+					nontemporal, reversep);
+		  convert_move (SUBREG_REG (to_rtx), to_rtx1,
+				SUBREG_PROMOTED_SIGN (to_rtx));
+		}
+	    }
 	  else
 	    result = store_field (to_rtx, bitsize, bitpos,
 				  bitregion_start, bitregion_end,
@@ -6164,6 +6197,7 @@ count_type_elements (const_tree type, bool for_ctor_p)
       return 0;
 
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case METHOD_TYPE:
     case FUNCTION_TYPE:
     case LANG_TYPE:
@@ -6916,7 +6950,7 @@ store_constructor (tree exp, rtx target, int cleared, poly_int64 size,
 	insn_code icode = CODE_FOR_nothing;
 	tree elt;
 	tree elttype = TREE_TYPE (type);
-	int elt_size = tree_to_uhwi (TYPE_SIZE (elttype));
+	int elt_size = vector_element_bits (type);
 	machine_mode eltmode = TYPE_MODE (elttype);
 	HOST_WIDE_INT bitsize;
 	HOST_WIDE_INT bitpos;
@@ -6981,6 +7015,15 @@ store_constructor (tree exp, rtx target, int cleared, poly_int64 size,
 	      }
 	  }
 
+	/* Compute the size of the elements in the CTOR.  It differs
+	   from the size of the vector type elements only when the
+	   CTOR elements are vectors themselves.  */
+	tree val_type = TREE_TYPE (CONSTRUCTOR_ELT (exp, 0)->value);
+	if (VECTOR_TYPE_P (val_type))
+	  bitsize = tree_to_uhwi (TYPE_SIZE (val_type));
+	else
+	  bitsize = elt_size;
+
 	/* If the constructor has fewer elements than the vector,
 	   clear the whole array first.  Similarly if this is static
 	   constructor of a non-BLKmode object.  */
@@ -6995,11 +7038,7 @@ store_constructor (tree exp, rtx target, int cleared, poly_int64 size,
 
 	    FOR_EACH_CONSTRUCTOR_VALUE (CONSTRUCTOR_ELTS (exp), idx, value)
 	      {
-		tree sz = TYPE_SIZE (TREE_TYPE (value));
-		int n_elts_here
-		  = tree_to_uhwi (int_const_binop (TRUNC_DIV_EXPR, sz,
-						   TYPE_SIZE (elttype)));
-
+		int n_elts_here = bitsize / elt_size;
 		count += n_elts_here;
 		if (mostly_zeros_p (value))
 		  zero_count += n_elts_here;
@@ -7039,7 +7078,6 @@ store_constructor (tree exp, rtx target, int cleared, poly_int64 size,
 	    HOST_WIDE_INT eltpos;
 	    tree value = ce->value;
 
-	    bitsize = tree_to_uhwi (TYPE_SIZE (TREE_TYPE (value)));
 	    if (cleared && initializer_zerop (value))
 	      continue;
 
@@ -9023,6 +9061,8 @@ expand_expr_real_2 (sepops ops, rtx target, machine_mode tmode,
 					  target, unsignedp);
       return target;
 
+    case WIDEN_PLUS_EXPR:
+    case WIDEN_MINUS_EXPR:
     case WIDEN_MULT_EXPR:
       /* If first operand is constant, swap them.
 	 Thus the following special case checks need only
@@ -9743,6 +9783,10 @@ expand_expr_real_2 (sepops ops, rtx target, machine_mode tmode,
 	return temp;
       }
 
+    case VEC_WIDEN_PLUS_HI_EXPR:
+    case VEC_WIDEN_PLUS_LO_EXPR:
+    case VEC_WIDEN_MINUS_HI_EXPR:
+    case VEC_WIDEN_MINUS_LO_EXPR:
     case VEC_WIDEN_MULT_HI_EXPR:
     case VEC_WIDEN_MULT_LO_EXPR:
     case VEC_WIDEN_MULT_EVEN_EXPR:
@@ -10344,16 +10388,10 @@ expand_expr_real_1 (tree exp, rtx target, machine_mode tmode,
 	scalar_int_mode int_mode;
 	if (is_int_mode (mode, &int_mode))
 	  {
-	    if (VECTOR_BOOLEAN_TYPE_P (TREE_TYPE (exp)))
-	      return const_scalar_mask_from_tree (int_mode, exp);
-	    else
-	      {
-		tree type_for_mode
-		  = lang_hooks.types.type_for_mode (int_mode, 1);
-		if (type_for_mode)
-		  tmp = fold_unary_loc (loc, VIEW_CONVERT_EXPR,
-					type_for_mode, exp);
-	      }
+	    tree type_for_mode = lang_hooks.types.type_for_mode (int_mode, 1);
+	    if (type_for_mode)
+	      tmp = fold_unary_loc (loc, VIEW_CONVERT_EXPR,
+				    type_for_mode, exp);
 	  }
 	if (!tmp)
 	  {
@@ -11594,17 +11632,20 @@ is_aligning_offset (const_tree offset, const_tree exp)
   /* This must now be the address of EXP.  */
   return TREE_CODE (offset) == ADDR_EXPR && TREE_OPERAND (offset, 0) == exp;
 }
-
-/* Return the tree node if an ARG corresponds to a string constant or zero
-   if it doesn't.  If we return nonzero, set *PTR_OFFSET to the (possibly
-   non-constant) offset in bytes within the string that ARG is accessing.
-   If MEM_SIZE is non-zero the storage size of the memory is returned.
-   If DECL is non-zero the constant declaration is returned if available.  */
 
-tree
-string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
+/* Return a STRING_CST corresponding to ARG's constant initializer either
+   if it's a string constant, or, when VALREP is set, any other constant,
+   or null otherwise.
+   On success, set *PTR_OFFSET to the (possibly non-constant) byte offset
+   within the byte string that ARG is references.  If nonnull set *MEM_SIZE
+   to the size of the byte string.  If nonnull, set *DECL to the constant
+   declaration ARG refers to.  */
+
+static tree
+constant_byte_string (tree arg, tree *ptr_offset, tree *mem_size, tree *decl,
+		      bool valrep = false)
 {
-  tree dummy = NULL_TREE;;
+  tree dummy = NULL_TREE;
   if (!mem_size)
     mem_size = &dummy;
 
@@ -11749,18 +11790,67 @@ string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
       return array;
     }
 
-  if (!VAR_P (array) && TREE_CODE (array) != CONST_DECL)
-    return NULL_TREE;
-
   tree init = ctor_for_folding (array);
-
-  /* Handle variables initialized with string literals.  */
   if (!init || init == error_mark_node)
     return NULL_TREE;
+
+  if (valrep)
+    {
+      HOST_WIDE_INT cstoff;
+      if (!base_off.is_constant (&cstoff))
+	return NULL_TREE;
+
+      /* Check that the host and target are sane.  */
+      if (CHAR_BIT != 8 || BITS_PER_UNIT != 8)
+	return NULL_TREE;
+
+      HOST_WIDE_INT typesz = int_size_in_bytes (TREE_TYPE (init));
+      if (typesz <= 0 || (int) typesz != typesz)
+	return NULL_TREE;
+
+      HOST_WIDE_INT size = typesz;
+      if (VAR_P (array)
+	  && DECL_SIZE_UNIT (array)
+	  && tree_fits_shwi_p (DECL_SIZE_UNIT (array)))
+	{
+	  size = tree_to_shwi (DECL_SIZE_UNIT (array));
+	  gcc_checking_assert (size >= typesz);
+	}
+
+      /* If value representation was requested convert the initializer
+	 for the whole array or object into a string of bytes forming
+	 its value representation and return it.  */
+      unsigned char *bytes = XNEWVEC (unsigned char, size);
+      int r = native_encode_initializer (init, bytes, size);
+      if (r < typesz)
+	{
+	  XDELETEVEC (bytes);
+	  return NULL_TREE;
+	}
+
+      if (r < size)
+	memset (bytes + r, '\0', size - r);
+
+      const char *p = reinterpret_cast<const char *>(bytes);
+      init = build_string_literal (size, p, char_type_node);
+      init = TREE_OPERAND (init, 0);
+      init = TREE_OPERAND (init, 0);
+      XDELETE (bytes);
+
+      *mem_size = size_int (TREE_STRING_LENGTH (init));
+      *ptr_offset = wide_int_to_tree (ssizetype, base_off);
+
+      if (decl)
+	*decl = array;
+
+      return init;
+    }
+
   if (TREE_CODE (init) == CONSTRUCTOR)
     {
       /* Convert the 64-bit constant offset to a wider type to avoid
-	 overflow.  */
+	 overflow and use it to obtain the initializer for the subobject
+	 it points into.  */
       offset_int wioff;
       if (!base_off.is_constant (&wioff))
 	return NULL_TREE;
@@ -11773,6 +11863,9 @@ string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
       unsigned HOST_WIDE_INT fieldoff = 0;
       init = fold_ctor_reference (TREE_TYPE (arg), init, base_off, 0, array,
 				  &fieldoff);
+      if (!init || init == error_mark_node)
+	return NULL_TREE;
+
       HOST_WIDE_INT cstoff;
       if (!base_off.is_constant (&cstoff))
 	return NULL_TREE;
@@ -11785,9 +11878,6 @@ string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
 	offset = off;
     }
 
-  if (!init)
-    return NULL_TREE;
-
   *ptr_offset = offset;
 
   tree inittype = TREE_TYPE (init);
@@ -11796,6 +11886,10 @@ string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
       && (TREE_CODE (TREE_TYPE (array)) == INTEGER_TYPE
 	  || TYPE_MAIN_VARIANT (inittype) == char_type_node))
     {
+      /* Check that the host and target are sane.  */
+      if (CHAR_BIT != 8 || BITS_PER_UNIT != 8)
+	return NULL_TREE;
+
       /* For a reference to (address of) a single constant character,
 	 store the native representation of the character in CHARBUF.
 	 If the reference is to an element of an array or a member
@@ -11838,6 +11932,9 @@ string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
 	    initsize = integer_zero_node;
 
 	  unsigned HOST_WIDE_INT size = tree_to_uhwi (initsize);
+	  if (size > (unsigned HOST_WIDE_INT) INT_MAX)
+	    return NULL_TREE;
+
 	  init = build_string_literal (size, NULL, chartype, size);
 	  init = TREE_OPERAND (init, 0);
 	  init = TREE_OPERAND (init, 0);
@@ -11858,37 +11955,27 @@ string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
 
   return init;
 }
-
-/* Compute the modular multiplicative inverse of A modulo M
-   using extended Euclid's algorithm.  Assumes A and M are coprime.  */
-static wide_int
-mod_inv (const wide_int &a, const wide_int &b)
+
+/* Return STRING_CST if an ARG corresponds to a string constant or zero
+   if it doesn't.  If we return nonzero, set *PTR_OFFSET to the (possibly
+   non-constant) offset in bytes within the string that ARG is accessing.
+   If MEM_SIZE is non-zero the storage size of the memory is returned.
+   If DECL is non-zero the constant declaration is returned if available.  */
+
+tree
+string_constant (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
 {
-  /* Verify the assumption.  */
-  gcc_checking_assert (wi::eq_p (wi::gcd (a, b), 1));
+  return constant_byte_string (arg, ptr_offset, mem_size, decl, false);
+}
 
-  unsigned int p = a.get_precision () + 1;
-  gcc_checking_assert (b.get_precision () + 1 == p);
-  wide_int c = wide_int::from (a, p, UNSIGNED);
-  wide_int d = wide_int::from (b, p, UNSIGNED);
-  wide_int x0 = wide_int::from (0, p, UNSIGNED);
-  wide_int x1 = wide_int::from (1, p, UNSIGNED);
+/* Similar to string_constant, return a STRING_CST corresponding
+   to the value representation of the first argument if it's
+   a constant.  */
 
-  if (wi::eq_p (b, 1))
-    return wide_int::from (1, p, UNSIGNED);
-
-  while (wi::gt_p (c, 1, UNSIGNED))
-    {
-      wide_int t = d;
-      wide_int q = wi::divmod_trunc (c, d, UNSIGNED, &d);
-      c = t;
-      wide_int s = x0;
-      x0 = wi::sub (x1, wi::mul (q, x0));
-      x1 = s;
-    }
-  if (wi::lt_p (x1, 0, SIGNED))
-    x1 += d;
-  return x1;
+tree
+byte_representation (tree arg, tree *ptr_offset, tree *mem_size, tree *decl)
+{
+  return constant_byte_string (arg, ptr_offset, mem_size, decl, true);
 }
 
 /* Optimize x % C1 == C2 for signed modulo if C1 is a power of two and C2
@@ -12101,7 +12188,7 @@ maybe_optimize_mod_cmp (enum tree_code code, tree *arg0, tree *arg1)
   w = wi::lrshift (w, shift);
   wide_int a = wide_int::from (w, prec + 1, UNSIGNED);
   wide_int b = wi::shifted_mask (prec, 1, false, prec + 1);
-  wide_int m = wide_int::from (mod_inv (a, b), prec, UNSIGNED);
+  wide_int m = wide_int::from (wi::mod_inv (a, b), prec, UNSIGNED);
   tree c3 = wide_int_to_tree (type, m);
   tree c5 = NULL_TREE;
   wide_int d, e;
@@ -12190,6 +12277,37 @@ maybe_optimize_mod_cmp (enum tree_code code, tree *arg0, tree *arg1)
   *arg1 = c4;
   return code == EQ_EXPR ? LE_EXPR : GT_EXPR;
 }
+
+/* Optimize x - y < 0 into x < 0 if x - y has undefined overflow.  */
+
+void
+maybe_optimize_sub_cmp_0 (enum tree_code code, tree *arg0, tree *arg1)
+{
+  gcc_checking_assert (code == GT_EXPR || code == GE_EXPR
+		       || code == LT_EXPR || code == LE_EXPR);
+  gcc_checking_assert (integer_zerop (*arg1));
+
+  if (!optimize)
+    return;
+
+  gimple *stmt = get_def_for_expr (*arg0, MINUS_EXPR);
+  if (stmt == NULL)
+    return;
+
+  tree treeop0 = gimple_assign_rhs1 (stmt);
+  tree treeop1 = gimple_assign_rhs2 (stmt);
+  if (!TYPE_OVERFLOW_UNDEFINED (TREE_TYPE (treeop0)))
+    return;
+
+  if (issue_strict_overflow_warning (WARN_STRICT_OVERFLOW_COMPARISON))
+    warning_at (gimple_location (stmt), OPT_Wstrict_overflow,
+		"assuming signed overflow does not occur when "
+		"simplifying %<X - Y %s 0%> to %<X %s Y%>",
+		op_symbol_code (code), op_symbol_code (code));
+
+  *arg0 = treeop0;
+  *arg1 = treeop1;
+}
 
 /* Generate code to calculate OPS, and exploded expression
    using a store-flag instruction and return an rtx for the result.
@@ -12277,6 +12395,14 @@ do_store_flag (sepops ops, rtx target, machine_mode mode)
 	  return do_store_flag (&nops, target, mode);
 	}
     }
+
+  /* Optimize (x - y) < 0 into x < y if x - y has undefined overflow.  */
+  if (!unsignedp
+      && (ops->code == LT_EXPR || ops->code == LE_EXPR
+	  || ops->code == GT_EXPR || ops->code == GE_EXPR)
+      && integer_zerop (arg1)
+      && TREE_CODE (arg0) == SSA_NAME)
+    maybe_optimize_sub_cmp_0 (ops->code, &arg0, &arg1);
 
   /* Get the rtx comparison code to use.  We know that EXP is a comparison
      operation of some type.  Some comparisons against 1 and -1 can be
@@ -12602,30 +12728,6 @@ const_vector_mask_from_tree (tree exp)
 	gcc_unreachable ();
     }
   return builder.build ();
-}
-
-/* EXP is a VECTOR_CST in which each element is either all-zeros or all-ones.
-   Return a constant scalar rtx of mode MODE in which bit X is set if element
-   X of EXP is nonzero.  */
-static rtx
-const_scalar_mask_from_tree (scalar_int_mode mode, tree exp)
-{
-  wide_int res = wi::zero (GET_MODE_PRECISION (mode));
-  tree elt;
-
-  /* The result has a fixed number of bits so the input must too.  */
-  unsigned int nunits = VECTOR_CST_NELTS (exp).to_constant ();
-  for (unsigned int i = 0; i < nunits; ++i)
-    {
-      elt = VECTOR_CST_ELT (exp, i);
-      gcc_assert (TREE_CODE (elt) == INTEGER_CST);
-      if (integer_all_onesp (elt))
-	res = wi::set_bit (res, i);
-      else
-	gcc_assert (integer_zerop (elt));
-    }
-
-  return immed_wide_int_const (res, mode);
 }
 
 /* Return a CONST_VECTOR rtx for a VECTOR_CST tree.  */

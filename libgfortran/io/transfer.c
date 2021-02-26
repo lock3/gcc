@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2020 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2021 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    Namelist transfer functions contributed by Paul Thomas
    F2003 I/O support contributed by Jerry DeLisle
@@ -3410,7 +3410,7 @@ data_transfer_init_worker (st_parameter_dt *dtp, int read_flag)
 
   if (dtp->u.p.current_unit->flags.form == FORM_FORMATTED)
     {
-#ifdef HAVE_USELOCALE
+#ifdef HAVE_POSIX_2008_LOCALE
       dtp->u.p.old_locale = uselocale (c_locale);
 #else
       __gthread_mutex_lock (&old_locale_lock);
@@ -4243,7 +4243,7 @@ finalize_transfer (st_parameter_dt *dtp)
 	}
     }
 
-#ifdef HAVE_USELOCALE
+#ifdef HAVE_POSIX_2008_LOCALE
   if (dtp->u.p.old_locale != (locale_t) 0)
     {
       uselocale (dtp->u.p.old_locale);

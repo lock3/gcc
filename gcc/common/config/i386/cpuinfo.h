@@ -1,5 +1,5 @@
 /* Get CPU type and Features for x86 processors.
-   Copyright (C) 2012-2020 Free Software Foundation, Inc.
+   Copyright (C) 2012-2021 Free Software Foundation, Inc.
    Contributed by Sriraman Tallam (tmsriram@google.com)
 
 This file is part of GCC.
@@ -241,6 +241,23 @@ get_amd_cpu (struct __processor_model *cpu_model,
 	  cpu_model->__cpu_subtype = AMDFAM17H_ZNVER1;
 	}
       break;
+    case 0x19:
+      cpu_model->__cpu_type = AMDFAM19H;
+      /* AMD family 19h version 1.  */
+      if (model <= 0x0f)
+	{
+	  cpu = "znver3";
+	  CHECK___builtin_cpu_is ("znver3");
+	  cpu_model->__cpu_subtype = AMDFAM19H_ZNVER3;
+	}
+      else if (has_cpu_feature (cpu_model, cpu_features2,
+				FEATURE_VAES))
+	{
+	  cpu = "znver3";
+	  CHECK___builtin_cpu_is ("znver3");
+	  cpu_model->__cpu_subtype = AMDFAM19H_ZNVER3;
+	}
+      break;
     default:
       break;
     }
@@ -387,6 +404,8 @@ get_intel_cpu (struct __processor_model *cpu_model,
     case 0xa5:
     case 0xa6:
       /* Comet Lake.  */
+    case 0xa7:
+      /* Rocket Lake.  */
       cpu = "skylake";
       CHECK___builtin_cpu_is ("corei7");
       CHECK___builtin_cpu_is ("skylake");
@@ -456,6 +475,14 @@ get_intel_cpu (struct __processor_model *cpu_model,
       cpu_model->__cpu_type = INTEL_COREI7;
       cpu_model->__cpu_subtype = INTEL_COREI7_TIGERLAKE;
       break;
+    case 0x97:
+      /* Alder Lake.  */
+      cpu = "alderlake";
+      CHECK___builtin_cpu_is ("corei7");
+      CHECK___builtin_cpu_is ("alderlake");
+      cpu_model->__cpu_type = INTEL_COREI7;
+      cpu_model->__cpu_subtype = INTEL_COREI7_ALDERLAKE;
+      break;
     case 0x8f:
       /* Sapphire Rapids.  */
       cpu = "sapphirerapids";
@@ -499,15 +526,22 @@ get_available_features (struct __processor_model *cpu_model,
 #define XSTATE_OPMASK			0x20
 #define XSTATE_ZMM			0x40
 #define XSTATE_HI_ZMM			0x80
+#define XSTATE_TILECFG			0x20000
+#define XSTATE_TILEDATA		0x40000
 
 #define XCR_AVX_ENABLED_MASK \
   (XSTATE_SSE | XSTATE_YMM)
 #define XCR_AVX512F_ENABLED_MASK \
   (XSTATE_SSE | XSTATE_YMM | XSTATE_OPMASK | XSTATE_ZMM | XSTATE_HI_ZMM)
+#define XCR_AMX_ENABLED_MASK \
+  (XSTATE_TILECFG | XSTATE_TILEDATA)
 
   /* Check if AVX and AVX512 are usable.  */
   int avx_usable = 0;
   int avx512_usable = 0;
+  int amx_usable = 0;
+  /* Check if KL is usable.  */
+  int has_kl = 0;
   if ((ecx & bit_OSXSAVE))
     {
       /* Check if XMM, YMM, OPMASK, upper 256 bits of ZMM0-ZMM15 and
@@ -523,6 +557,8 @@ get_available_features (struct __processor_model *cpu_model,
 	  avx512_usable = ((xcrlow & XCR_AVX512F_ENABLED_MASK)
 			   == XCR_AVX512F_ENABLED_MASK);
 	}
+      amx_usable = ((xcrlow & XCR_AMX_ENABLED_MASK)
+		    == XCR_AMX_ENABLED_MASK);
     }
 
 #define set_feature(f) \
@@ -633,6 +669,8 @@ get_available_features (struct __processor_model *cpu_model,
 	set_feature (FEATURE_WAITPKG);
       if (ecx & bit_SHSTK)
 	set_feature (FEATURE_SHSTK);
+      if (ecx & bit_KL)
+	has_kl = 1;
       if (edx & bit_SERIALIZE)
 	set_feature (FEATURE_SERIALIZE);
       if (edx & bit_TSXLDTRK)
@@ -641,6 +679,17 @@ get_available_features (struct __processor_model *cpu_model,
 	set_feature (FEATURE_PCONFIG);
       if (edx & bit_IBT)
 	set_feature (FEATURE_IBT);
+      if (edx & bit_UINTR)
+	set_feature (FEATURE_UINTR);
+      if (amx_usable)
+	{
+	  if (edx & bit_AMX_TILE)
+	    set_feature (FEATURE_AMX_TILE);
+	  if (edx & bit_AMX_INT8)
+	    set_feature (FEATURE_AMX_INT8);
+	  if (edx & bit_AMX_BF16)
+	    set_feature (FEATURE_AMX_BF16);
+	}
       if (avx512_usable)
 	{
 	  if (ebx & bit_AVX512F)
@@ -675,8 +724,18 @@ get_available_features (struct __processor_model *cpu_model,
 	    set_feature (FEATURE_AVX5124FMAPS);
 	  if (edx & bit_AVX512VP2INTERSECT)
 	    set_feature (FEATURE_AVX512VP2INTERSECT);
+	}
 
-	  __cpuid_count (7, 1, eax, ebx, ecx, edx);
+      __cpuid_count (7, 1, eax, ebx, ecx, edx);
+      if (eax & bit_HRESET)
+	set_feature (FEATURE_HRESET);
+      if (avx_usable)
+	{
+	  if (eax & bit_AVXVNNI)
+	    set_feature (FEATURE_AVXVNNI);
+	}
+      if (avx512_usable)
+	{
 	  if (eax & bit_AVX512BF16)
 	    set_feature (FEATURE_AVX512BF16);
 	}
@@ -700,6 +759,21 @@ get_available_features (struct __processor_model *cpu_model,
       __cpuid_count (0x14, 0, eax, ebx, ecx, edx);
       if (ebx & bit_PTWRITE)
 	set_feature (FEATURE_PTWRITE);
+    }
+
+  /* Get Advanced Features at level 0x19 (eax = 0x19).  */
+  if (max_cpuid_level >= 0x19)
+    {
+      set_feature (FEATURE_AESKLE);
+      __cpuid (19, eax, ebx, ecx, edx);
+      /* Check if OS support keylocker.  */
+      if (ebx & bit_AESKLE)
+	{
+	  if (ebx & bit_WIDEKL)
+	    set_feature (FEATURE_WIDEKL);
+	  if (has_kl)
+	    set_feature (FEATURE_KL);
+	}
     }
 
   /* Check cpuid level of extended features.  */

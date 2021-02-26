@@ -2,9 +2,16 @@
 // { dg-do compile }
 // { dg-options "-std=c++2a -fcontracts" }
 
-// OK if equivalent.
+// OK if equivalent -- even through renames.
 int g0(int a) [[ pre: a > 0 ]];
 int g0(int a) [[ pre: a > 0 ]];
+
+int g0b(int a) [[ pre: a > 0 ]];
+int g0b(int b) [[ pre: b > 0 ]];
+int g0b(int c) [[ pre: c > 0 ]]
+{
+  return 0;
+}
 
 // OK if specified before.
 int g1(int a) [[ pre: a > 0 ]];
@@ -13,6 +20,9 @@ int g1(int a);
 // OK if specified after.
 int g2(int a);
 int g2(int a) [[ pre: a > 0 ]];
+
+int g2b(int a);
+int g2b(int b) [[ pre: b > 0 ]];
 
 // can add to non-virtual methods
 struct G0

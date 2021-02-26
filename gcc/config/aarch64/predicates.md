@@ -1,5 +1,5 @@
 ;; Machine description for AArch64 architecture.
-;; Copyright (C) 2009-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2021 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 ;;
 ;; This file is part of GCC.
@@ -17,6 +17,8 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GCC; see the file COPYING3.  If not see
 ;; <http://www.gnu.org/licenses/>.
+
+(include "../arm/common.md")
 
 (define_special_predicate "cc_register"
   (and (match_code "reg")
@@ -234,21 +236,6 @@
 (define_predicate "aarch64_imm24"
   (and (match_code "const_int")
        (match_test "IN_RANGE (UINTVAL (op), 0, 0xffffff)")))
-
-(define_predicate "aarch64_pwr_imm3"
-  (and (match_code "const_int")
-       (match_test "INTVAL (op) != 0
-		    && (unsigned) exact_log2 (INTVAL (op)) <= 4")))
-
-(define_predicate "aarch64_pwr_2_si"
-  (and (match_code "const_int")
-       (match_test "INTVAL (op) != 0
-		    && (unsigned) exact_log2 (INTVAL (op)) < 32")))
-
-(define_predicate "aarch64_pwr_2_di"
-  (and (match_code "const_int")
-       (match_test "INTVAL (op) != 0
-		    && (unsigned) exact_log2 (INTVAL (op)) < 64")))
 
 (define_predicate "aarch64_mem_pair_offset"
   (and (match_code "const_int")

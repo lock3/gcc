@@ -1,4 +1,4 @@
-/* Copyright (C) 1988-2020 Free Software Foundation, Inc.
+/* Copyright (C) 1988-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -40,6 +40,7 @@ enum ix86_builtins
   IX86_BUILTIN_UMONITOR,
   IX86_BUILTIN_UMWAIT,
   IX86_BUILTIN_TPAUSE,
+  IX86_BUILTIN_TESTUI,
   IX86_BUILTIN_CLZERO,
   IX86_BUILTIN_CLDEMOTE,
   IX86_BUILTIN_VEC_INIT_V2SI,

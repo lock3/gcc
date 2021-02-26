@@ -1,5 +1,5 @@
 # -*- shell-script -*-
-#  Copyright (C) 2012-2020 Free Software Foundation, Inc.
+#  Copyright (C) 2012-2021 Free Software Foundation, Inc.
 #  Contributed by Richard Henderson <rth@redhat.com>.
 #
 #  This file is part of the GNU Atomic Library (libatomic).
@@ -172,6 +172,9 @@ case "${target}" in
 	# If the target supports disabling interrupts, we can work in
 	# kernel-mode, given the system is not multi-processor.
 	UNSUPPORTED=1
+	;;
+
+  nvptx*-*-*)
 	;;
 
   *)

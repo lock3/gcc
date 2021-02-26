@@ -1,5 +1,5 @@
 /* Subclasses of diagnostic_path and diagnostic_event for analyzer diagnostics.
-   Copyright (C) 2019-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2021 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -97,7 +97,15 @@ public:
   virtual bool is_function_entry_p () const  { return false; }
   virtual bool is_return_p () const  { return false; }
 
+  /* For use with %@.  */
+  const diagnostic_event_id_t *get_id_ptr () const
+  {
+    return &m_emission_id;
+  }
+
   void dump (pretty_printer *pp) const;
+
+  void set_location (location_t loc) { m_loc = loc; }
 
  public:
   const enum event_kind m_kind;
@@ -193,26 +201,26 @@ public:
   state_change_event (const supernode *node, const gimple *stmt,
 		      int stack_depth,
 		      const state_machine &sm,
-		      tree var,
+		      const svalue *sval,
 		      state_machine::state_t from,
 		      state_machine::state_t to,
-		      tree origin,
+		      const svalue *origin,
 		      const program_state &dst_state);
 
   label_text get_desc (bool can_colorize) const FINAL OVERRIDE;
 
-  region_id get_lvalue (tree expr, region_model_context *ctxt) const
+  function *get_dest_function () const
   {
-    return m_dst_state.m_region_model->get_lvalue (expr, ctxt);
+    return m_dst_state.get_current_function ();
   }
 
   const supernode *m_node;
   const gimple *m_stmt;
   const state_machine &m_sm;
-  tree m_var;
+  const svalue *m_sval;
   state_machine::state_t m_from;
   state_machine::state_t m_to;
-  tree m_origin;
+  const svalue *m_origin;
   program_state m_dst_state;
 };
 
@@ -497,6 +505,8 @@ public:
     FOR_EACH_VEC_ELT (m_events, i, e)
       e->prepare_for_emission (this, pd, diagnostic_event_id_t (i));
   }
+
+  void fixup_locations (pending_diagnostic *pd);
 
   void record_setjmp_event (const exploded_node *enode,
 			    diagnostic_event_id_t setjmp_emission_id)

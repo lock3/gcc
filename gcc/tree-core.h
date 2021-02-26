@@ -1,5 +1,5 @@
 /* Core data structures for the 'tree' type.
-   Copyright (C) 1989-2020 Free Software Foundation, Inc.
+   Copyright (C) 1989-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -109,6 +109,10 @@ struct die_struct;
 
 /* Nonzero if the argument is not used by the function.  */
 #define EAF_UNUSED		(1 << 3)
+
+/* Nonzero if the argument itself does not escape but memory
+   referenced by it can escape.  */
+#define EAF_NODIRECTESCAPE	(1 << 4)
 
 /* Call return flags.  */
 /* Mask for the argument number that is returned.  Lower two bits of
@@ -275,6 +279,9 @@ enum omp_clause_code {
 
   /* OpenMP clause: aligned (variable-list[:alignment]).  */
   OMP_CLAUSE_ALIGNED,
+
+  /* OpenMP clause: allocate ([allocator:]variable-list).  */
+  OMP_CLAUSE_ALLOCATE,
 
   /* OpenMP clause: depend ({in,out,inout}:variable-list).  */
   OMP_CLAUSE_DEPEND,
@@ -487,10 +494,6 @@ enum omp_clause_code {
 
   /* OpenACC clause: tile ( size-expr-list ).  */
   OMP_CLAUSE_TILE,
-
-  /* OpenMP internal-only clause to specify grid dimensions of a gridified
-     kernel.  */
-  OMP_CLAUSE__GRIDDIM_,
 
   /* OpenACC clause: if_present.  */
   OMP_CLAUSE_IF_PRESENT,
@@ -770,6 +773,10 @@ enum tree_index {
   TI_SAT_UDA_TYPE,
   TI_SAT_UTA_TYPE,
 
+  TI_MODULE_HWM,
+  /* Nodes below here change during compilation, and should therefore
+     not be in the C++ module's global tree table.  */
+
   TI_OPTIMIZATION_DEFAULT,
   TI_OPTIMIZATION_CURRENT,
   TI_TARGET_OPTION_DEFAULT,
@@ -860,7 +867,10 @@ enum attribute_flags {
      are not in fact compatible with the function type.  */
   ATTR_FLAG_BUILT_IN = 16,
   /* A given attribute has been parsed as a C++-11 attribute.  */
-  ATTR_FLAG_CXX11 = 32
+  ATTR_FLAG_CXX11 = 32,
+  /* The attribute handler is being invoked with an internal argument
+     that may not otherwise be valid when specified in source code.  */
+  ATTR_FLAG_INTERNAL = 64
 };
 
 /* Types used to represent sizes.  */
@@ -1224,7 +1234,8 @@ struct GTY(()) tree_base {
            all decls
 
        CALL_FROM_THUNK_P and
-       CALL_ALLOCA_FOR_VAR_P in
+       CALL_ALLOCA_FOR_VAR_P and
+       CALL_FROM_NEW_OR_DELETE_P in
            CALL_EXPR
 
        OMP_CLAUSE_LINEAR_VARIABLE_STRIDE in
@@ -1557,9 +1568,6 @@ struct GTY(()) tree_omp_clause {
     enum omp_clause_defaultmap_kind defaultmap_kind;
     enum omp_clause_bind_kind      bind_kind;
     enum omp_clause_device_type_kind device_type_kind;
-    /* The dimension a OMP_CLAUSE__GRIDDIM_ clause of a gridified target
-       construct describes.  */
-    unsigned int		   dimension;
   } GTY ((skip)) subcode;
 
   /* The gimplification of OMP_CLAUSE_REDUCTION_{INIT,MERGE} for omp-low's

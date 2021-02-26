@@ -1,6 +1,6 @@
 // Iterators -*- C++ -*-
 
-// Copyright (C) 2001-2020 Free Software Foundation, Inc.
+// Copyright (C) 2001-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -79,6 +79,7 @@
 #if __cplusplus > 201703L
 # include <compare>
 # include <new>
+# include <bits/exception_defines.h>
 # include <bits/iterator_concepts.h>
 #endif
 
@@ -129,10 +130,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		      typename iterator_traits<_Iterator>::pointer,
                       typename iterator_traits<_Iterator>::reference>
     {
-#if __cplusplus >= 201103L
       template<typename _Iter>
 	friend class reverse_iterator;
-#endif
 
 #if __cpp_lib_concepts
       // _GLIBCXX_RESOLVE_LIB_DEFECTS
@@ -362,6 +361,31 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _GLIBCXX17_CONSTEXPR reference
       operator[](difference_type __n) const
       { return *(*this + __n); }
+
+#if __cplusplus > 201703L && __cpp_lib_concepts
+      friend constexpr iter_rvalue_reference_t<_Iterator>
+      iter_move(const reverse_iterator& __i)
+      noexcept(is_nothrow_copy_constructible_v<_Iterator>
+	       && noexcept(ranges::iter_move(--std::declval<_Iterator&>())))
+      {
+	auto __tmp = __i.base();
+	return ranges::iter_move(--__tmp);
+      }
+
+      template<indirectly_swappable<_Iterator> _Iter2>
+	friend constexpr void
+	iter_swap(const reverse_iterator& __x,
+		  const reverse_iterator<_Iter2>& __y)
+	noexcept(is_nothrow_copy_constructible_v<_Iterator>
+		 && is_nothrow_copy_constructible_v<_Iter2>
+		 && noexcept(ranges::iter_swap(--std::declval<_Iterator&>(),
+					       --std::declval<_Iter2&>())))
+	{
+	  auto __xtmp = __x.base();
+	  auto __ytmp = __y.base();
+	  ranges::iter_swap(--__xtmp, --__ytmp);
+	}
+#endif
 
     private:
       template<typename _Tp>
@@ -933,13 +957,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     inserter(_Container& __x, std::__detail::__range_iter_t<_Container> __i)
     { return insert_iterator<_Container>(__x, __i); }
 #else
-  template<typename _Container, typename _Iterator>
+  template<typename _Container>
     inline insert_iterator<_Container>
-    inserter(_Container& __x, _Iterator __i)
-    {
-      return insert_iterator<_Container>(__x,
-					 typename _Container::iterator(__i));
-    }
+    inserter(_Container& __x, typename _Container::iterator __i)
+    { return insert_iterator<_Container>(__x, __i); }
 #endif
 
   // @} group iterators
@@ -1383,7 +1404,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       _GLIBCXX17_CONSTEXPR reference
       operator*() const
+#if __cplusplus > 201703L && __cpp_lib_concepts
+      { return ranges::iter_move(_M_current); }
+#else
       { return static_cast<reference>(*_M_current); }
+#endif
 
       _GLIBCXX17_CONSTEXPR pointer
       operator->() const
@@ -1449,7 +1474,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       _GLIBCXX17_CONSTEXPR reference
       operator[](difference_type __n) const
+#if __cplusplus > 201703L && __cpp_lib_concepts
+      { return ranges::iter_move(_M_current + __n); }
+#else
       { return std::move(_M_current[__n]); }
+#endif
 
 #if __cplusplus > 201703L && __cpp_lib_concepts
       template<sentinel_for<_Iterator> _Sent>
@@ -2040,13 +2069,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       constexpr decltype(auto)
       operator*()
       noexcept(noexcept(*_M_current))
-      { return *_M_current; }
+      {
+	__glibcxx_assert( _M_length > 0 );
+	return *_M_current;
+      }
 
       constexpr decltype(auto)
       operator*() const
       noexcept(noexcept(*_M_current))
       requires __detail::__dereferenceable<const _It>
-      { return *_M_current; }
+      {
+	__glibcxx_assert( _M_length > 0 );
+	return *_M_current;
+      }
 
       constexpr counted_iterator&
       operator++()
@@ -2067,7 +2102,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    return _M_current++;
 	  } __catch(...) {
 	    ++_M_length;
-	    throw;
+	    __throw_exception_again;
 	  }
 
       }
@@ -2174,14 +2209,20 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       iter_move(const counted_iterator& __i)
       noexcept(noexcept(ranges::iter_move(__i._M_current)))
       requires input_iterator<_It>
-      { return ranges::iter_move(__i._M_current); }
+      {
+	__glibcxx_assert( __i._M_length > 0 );
+	return ranges::iter_move(__i._M_current);
+      }
 
       template<indirectly_swappable<_It> _It2>
 	friend constexpr void
 	iter_swap(const counted_iterator& __x,
 		  const counted_iterator<_It2>& __y)
 	noexcept(noexcept(ranges::iter_swap(__x._M_current, __y._M_current)))
-	{ ranges::iter_swap(__x._M_current, __y._M_current); }
+	{
+	  __glibcxx_assert( __x._M_length > 0 && __y._M_length > 0 );
+	  ranges::iter_swap(__x._M_current, __y._M_current);
+	}
 
     private:
       template<input_or_output_iterator _It2> friend class counted_iterator;

@@ -23,42 +23,37 @@ int fn3<T>(int x, T *z) [[ pre: x > 1 ]];
 
 struct T
 {
-  friend int both(int x, T *t) [[ pre: x > 1 ]]; // { dg-error "mismatched" }
   friend int both2(int x, T *t) [[ pre: x > 1 ]] // { dg-error "mismatched" }
   {
     return 0;
   }
-  friend int both3(int x, T *t)
-    [[ pre: x > 1 ]] [[ pre: t->pri > 0 ]]; // { dg-error "mismatched" }
-  friend int both4(int x, T *t)
-    [[ pre: x > 1 ]] [[ pre: t->pri > 0 ]]; // { dg-error "mismatched" }
   friend int hidden(int x, T *t)
     [[ pre: x > 1 ]] [[ pre: t->pri > 0 ]]
   {
     return x;
   }
 
-  // fine, spec can have its own contracts
+  /* cannot define friend spec, so we never get to matching contracts
   friend int fn<T>(int x, T *t)
-    [[ pre: t->pri > 0 ]]; // { dg-bogus "mismatched" }
+    [[ pre: t->pri > 0 ]] { return 0; } // error defining explicit spec friend
+    */
+
   // bad, general contracts must match general
   template<typename Z>
   friend int fn(int x, Z *z)
-    [[ pre: z->pri > 1 ]]; // { dg-error "mismatched" }
+    [[ pre: z->pri > 1 ]] { return 0; } // { dg-error "mismatched" }
 
   // fine, can add contracts
   template<typename Z>
   friend int fn2(int x, Z *z)
-    [[ pre: z->pri > 1 ]]; // { dg-bogus "mismatched" }
+    [[ pre: z->pri > 1 ]] { return 0; } // { dg-bogus "mismatched" }
 
-  // bad, spec's contracts must match spec's prior contracts
-  friend int fn3<T>(int x, T *t)
-    [[ pre: t->pri > 0 ]]; // { dg-error "mismatched" }
-
+  /* cannot declare without definition, so dup friend can't occur:
   friend int dup(int x, T *t)
-    [[ pre: t->pri > 0 ]];
+    [[ pre: t->pri > 0 ]]; // error non-defining friend with contracts
   friend int dup(int x, T *t)
-    [[ pre: t->pri > 1 ]]; // { dg-error "mismatched" }
+    [[ pre: t->pri > 1 ]]; // error non-defining friend with contracts
+    */
 
   int x{1};
   private:

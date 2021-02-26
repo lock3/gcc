@@ -1,5 +1,5 @@
 ;; ARM Thumb-2 Machine Description
-;; Copyright (C) 2007-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2021 Free Software Foundation, Inc.
 ;; Written by CodeSourcery, LLC.
 ;;
 ;; This file is part of GCC.
@@ -744,6 +744,10 @@
       return \"%i5\\t%0, %1, %2, lsr #31\";
 
     output_asm_insn (\"cmp\\t%2, %3\", operands);
+
+    if (GET_CODE (operands[5]) == PLUS && TARGET_COND_ARITH)
+      return \"cinc\\t%0, %1, %d4\";
+
     if (GET_CODE (operands[5]) == AND)
       {
 	output_asm_insn (\"ite\\t%D4\", operands);
@@ -877,7 +881,7 @@
 		 [(match_operand:SI 1 "s_register_operand" "r")
 		  (match_operand:SI 2 "arm_rhs_operand" "rI")])))
    (clobber (reg:CC CC_REGNUM))]
-  "TARGET_THUMB2"
+  "TARGET_THUMB2 && !TARGET_COND_ARITH"
   "#"
   "&& reload_completed"
   [(const_int 0)]
@@ -938,6 +942,49 @@
    (set_attr "type" "multiple")]
 )
 
+(define_insn "*thumb2_csinv"
+  [(set (match_operand:SI 0 "arm_general_register_operand" "=r, r")
+        (if_then_else:SI
+         (match_operand 1 "arm_comparison_operation" "")
+         (not:SI (match_operand:SI 2 "arm_general_register_operand" "r, r"))
+         (match_operand:SI 3 "reg_or_zero_operand" "r, Pz")))]
+  "TARGET_COND_ARITH"
+  "@
+   csinv\\t%0, %3, %2, %D1
+   csinv\\t%0, zr, %2, %D1"
+  [(set_attr "type" "csel")
+   (set_attr "predicable" "no")]
+)
+
+(define_insn "*thumb2_csinc"
+  [(set (match_operand:SI 0 "arm_general_register_operand" "=r, r")
+        (if_then_else:SI
+         (match_operand 1 "arm_comparison_operation" "")
+         (plus:SI (match_operand:SI 2 "arm_general_register_operand" "r, r")
+                  (const_int 1))
+         (match_operand:SI 3 "reg_or_zero_operand" "r, Pz")))]
+  "TARGET_COND_ARITH"
+  "@
+   csinc\\t%0, %3, %2, %D1
+   csinc\\t%0, zr, %2, %D1"
+  [(set_attr "type" "csel")
+   (set_attr "predicable" "no")]
+)
+
+(define_insn "*thumb2_csneg"
+  [(set (match_operand:SI 0 "arm_general_register_operand" "=r, r")
+        (if_then_else:SI
+         (match_operand 1 "arm_comparison_operation" "")
+         (neg:SI (match_operand:SI 2 "arm_general_register_operand" "r, r"))
+         (match_operand:SI 3 "reg_or_zero_operand" "r, Pz")))]
+  "TARGET_COND_ARITH"
+  "@
+   csneg\\t%0, %3, %2, %D1
+   csneg\\t%0, zr, %2, %D1"
+  [(set_attr "type" "csel")
+   (set_attr "predicable" "no")]
+)
+
 (define_insn "*thumb2_movcond"
   [(set (match_operand:SI 0 "s_register_operand" "=Ts,Ts,Ts")
 	(if_then_else:SI
@@ -947,7 +994,7 @@
 	 (match_operand:SI 1 "arm_rhs_operand" "0,TsI,?TsI")
 	 (match_operand:SI 2 "arm_rhs_operand" "TsI,0,TsI")))
    (clobber (reg:CC CC_REGNUM))]
-  "TARGET_THUMB2"
+  "TARGET_THUMB2 && !TARGET_COND_ARITH"
   "*
   if (GET_CODE (operands[5]) == LT
       && (operands[4] == const0_rtx))
@@ -1214,7 +1261,9 @@
    (set_attr "shift" "1")
    (set_attr "length" "2")
    (set (attr "type") (if_then_else (match_operand 2 "const_int_operand" "")
-		      (const_string "alu_shift_imm")
+                        (if_then_else (match_operand 3 "alu_shift_operator_lsl_1_to_4")
+                          (const_string "alu_shift_imm_lsl_1to4")
+                          (const_string "alu_shift_imm_other"))
 		      (const_string "alu_shift_reg")))]
 )
 
@@ -1483,7 +1532,7 @@
   "orn%?\\t%0, %1, %2%S4"
   [(set_attr "predicable" "yes")
    (set_attr "shift" "2")
-   (set_attr "type" "alu_shift_imm")]
+   (set_attr "autodetect_type" "alu_shift_operator4")]
 )
 
 (define_peephole2

@@ -1,5 +1,5 @@
 /* Subroutines used for MIPS code generation.
-   Copyright (C) 1989-2020 Free Software Foundation, Inc.
+   Copyright (C) 1989-2021 Free Software Foundation, Inc.
    Contributed by A. Lichnewsky, lich@inria.inria.fr.
    Changes by Michael Meissner, meissner@osf.org.
    64-bit r4000 support by Ian Lance Taylor, ian@cygnus.com, and
@@ -9315,10 +9315,10 @@ mips_select_rtx_section (machine_mode mode, rtx x,
    default_function_rodata_section.  */
 
 static section *
-mips_function_rodata_section (tree decl)
+mips_function_rodata_section (tree decl, bool)
 {
   if (!TARGET_ABICALLS || TARGET_ABSOLUTE_ABICALLS || TARGET_GPWORD)
-    return default_function_rodata_section (decl);
+    return default_function_rodata_section (decl, false);
 
   if (decl && DECL_SECTION_NAME (decl))
     {

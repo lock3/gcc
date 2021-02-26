@@ -1,5 +1,5 @@
 /* Dead and redundant store elimination
-   Copyright (C) 2004-2020 Free Software Foundation, Inc.
+   Copyright (C) 2004-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -896,6 +896,17 @@ dse_classify_store (ao_ref *ref, gimple *stmt,
 	    {
 	      if (by_clobber_p && !gimple_clobber_p (def))
 		*by_clobber_p = false;
+	      defs.unordered_remove (i);
+	    }
+	  /* If the path ends here we do not need to process it further.
+	     This for example happens with calls to noreturn functions.  */
+	  else if (gimple_code (def) != GIMPLE_PHI
+		   && has_zero_uses (gimple_vdef (def)))
+	    {
+	      /* But if the store is to global memory it is definitely
+		 not dead.  */
+	      if (ref_may_alias_global_p (ref))
+		return DSE_STORE_LIVE;
 	      defs.unordered_remove (i);
 	    }
 	  /* In addition to kills we can remove defs whose only use

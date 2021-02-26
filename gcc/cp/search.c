@@ -1,6 +1,6 @@
 /* Breadth-first and depth-first routines for
    searching multiple-inheritance lattice for GNU C++.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -977,17 +977,6 @@ lookup_field_r (tree binfo, void *data)
     return dfs_skip_bases;
 
   nval = get_class_binding (type, lfi->name, lfi->want_type);
-
-  /* If we're looking up a type (as with an elaborated type specifier)
-     we ignore all non-types we find.  */
-  if (lfi->want_type && nval && !DECL_DECLARES_TYPE_P (nval))
-    {
-      nval = NULL_TREE;
-      if (CLASSTYPE_NESTED_UTDS (type))
-	if (binding_entry e = binding_table_find (CLASSTYPE_NESTED_UTDS (type),
-						  lfi->name))
-	  nval = TYPE_MAIN_DECL (e->type);
-    }
 
   /* If there is no declaration with the indicated name in this type,
      then there's nothing to do.  */
@@ -2055,8 +2044,13 @@ check_final_overrider (tree overrider, tree basefn)
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && !DECL_HAS_CONTRACTS_P (overrider))
     {
+      /* FIXME this results in an almost exact duplicate of the final pre/post
+	 fns, with just the name of the caller changing. It may be beneficial
+	 to collapse these ourselves.  */
       /* We're inheriting basefn's contracts; create a copy of them but
 	 replace references to their parms to our parms.  */
+      if(!DECL_PRE_FN (overrider))
+	build_contract_function_decls (overrider);
       tree last = NULL_TREE, contract_attrs = NULL_TREE;
       for (tree a = DECL_CONTRACTS (basefn);
 	  a != NULL_TREE;
@@ -2064,7 +2058,14 @@ check_final_overrider (tree overrider, tree basefn)
 	{
 	  tree c = copy_node (a);
 	  TREE_VALUE (c) = copy_node (TREE_VALUE (c));
-	  remap_contract (basefn, overrider, TREE_VALUE (c));
+	  tree src = DECL_PRE_FN (basefn);
+	  tree dst = DECL_PRE_FN (overrider);
+	  if (TREE_CODE (TREE_VALUE (c)) == POSTCONDITION_STMT)
+	    {
+	      src = DECL_POST_FN (basefn);
+	      dst = DECL_POST_FN (overrider);
+	    }
+	  remap_contract (src, dst, TREE_VALUE (c));
 	  CONTRACT_COMMENT (TREE_VALUE (c)) =
 	    copy_node (CONTRACT_COMMENT (TREE_VALUE (c)));
 

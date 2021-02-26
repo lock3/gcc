@@ -1,6 +1,6 @@
 /* Gcov.c: prepend line execution counts and branch probabilities to a
    source file.
-   Copyright (C) 1990-2020 Free Software Foundation, Inc.
+   Copyright (C) 1990-2021 Free Software Foundation, Inc.
    Contributed by James E. Wilson of Cygnus Support.
    Mangled by Bob Manson of Cygnus Support.
    Mangled further by Nathan Sidwell <nathan@codesourcery.com>
@@ -293,7 +293,7 @@ public:
   /* Index of source file where the function is defined.  */
   unsigned src;
 
-  /* Vector of line information.  */
+  /* Vector of line information (used only for group functions).  */
   vector<line_info> lines;
 
   /* Next function.  */
@@ -930,7 +930,7 @@ static void
 print_version (void)
 {
   fnotice (stdout, "gcov %s%s\n", pkgversion_string, version_string);
-  fprintf (stdout, "Copyright %s 2020 Free Software Foundation, Inc.\n",
+  fprintf (stdout, "Copyright %s 2021 Free Software Foundation, Inc.\n",
 	   _("(C)"));
   fnotice (stdout,
 	   _("This is free software; see the source for copying conditions.  There is NO\n\
@@ -1165,21 +1165,22 @@ output_json_intermediate_file (json::array *json_files, source_info *src)
   json::array *lineso = new json::array ();
   root->set ("lines", lineso);
 
-  function_info *last_non_group_fn = NULL;
+  vector<function_info *> last_non_group_fns;
 
   for (unsigned line_num = 1; line_num <= src->lines.size (); line_num++)
     {
       vector<function_info *> *fns = src->get_functions_at_location (line_num);
 
       if (fns != NULL)
-	/* Print first group functions that begin on the line.  */
+	/* Print info for all group functions that begin on the line.  */
 	for (vector<function_info *>::iterator it2 = fns->begin ();
 	     it2 != fns->end (); it2++)
 	  {
 	    if (!(*it2)->is_group)
-	      last_non_group_fn = *it2;
+	      last_non_group_fns.push_back (*it2);
 
 	    vector<line_info> &lines = (*it2)->lines;
+	    /* The LINES array is allocated only for group functions.  */
 	    for (unsigned i = 0; i < lines.size (); i++)
 	      {
 		line_info *line = &lines[i];
@@ -1190,9 +1191,17 @@ output_json_intermediate_file (json::array *json_files, source_info *src)
 
       /* Follow with lines associated with the source file.  */
       if (line_num < src->lines.size ())
-	output_intermediate_json_line (lineso, &src->lines[line_num], line_num,
-				       (last_non_group_fn != NULL
-					? last_non_group_fn->m_name : NULL));
+	{
+	  unsigned size = last_non_group_fns.size ();
+	  function_info *last_fn = size > 0 ? last_non_group_fns[size - 1] : NULL;
+	  const char *fname = last_fn ? last_fn->m_name : NULL;
+	  output_intermediate_json_line (lineso, &src->lines[line_num], line_num,
+					 fname);
+
+	  /* Pop ending function from stack.  */
+	  if (last_fn != NULL && last_fn->end_line == line_num)
+	    last_non_group_fns.pop_back ();
+	}
     }
 }
 
@@ -1940,6 +1949,7 @@ read_count_file (void)
   while ((tag = gcov_read_unsigned ()))
     {
       unsigned length = gcov_read_unsigned ();
+      int read_length = (int)length;
       unsigned long base = gcov_position ();
 
       if (tag == GCOV_TAG_OBJECT_SUMMARY)
@@ -1972,7 +1982,6 @@ read_count_file (void)
 	}
       else if (tag == GCOV_TAG_FOR_COUNTER (GCOV_COUNTER_ARCS) && fn)
 	{
-	  int read_length = (int)length;
 	  length = abs (read_length);
 	  if (length != GCOV_TAG_COUNTER_LENGTH (fn->counts.size ()))
 	    goto mismatch;
@@ -1980,10 +1989,10 @@ read_count_file (void)
 	  if (read_length > 0)
 	    for (ix = 0; ix != fn->counts.size (); ix++)
 	      fn->counts[ix] += gcov_read_counter ();
-	  else
-	    length = 0;
 	}
-      gcov_sync (base, length);
+      if (read_length < 0)
+	read_length = 0;
+      gcov_sync (base, read_length);
       if ((error = gcov_is_error ()))
 	{
 	  fnotice (stderr,

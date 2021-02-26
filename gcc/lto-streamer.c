@@ -1,7 +1,7 @@
 /* Miscellaneous utilities for GIMPLE streaming.  Things that are used
    in both input and output are here.
 
-   Copyright (C) 2009-2020 Free Software Foundation, Inc.
+   Copyright (C) 2009-2021 Free Software Foundation, Inc.
    Contributed by Doug Kwan <dougkwan@google.com>
 
 This file is part of GCC.
@@ -272,4 +272,5 @@ lto_streamer_hooks_init (void)
   streamer_hooks.read_tree = lto_input_tree;
   streamer_hooks.input_location = lto_input_location;
   streamer_hooks.output_location = lto_output_location;
+  streamer_hooks.output_location_and_block = lto_output_location_and_block;
 }

@@ -1,5 +1,5 @@
 /* Pretty formatting of GIMPLE statements and expressions.
-   Copyright (C) 2001-2020 Free Software Foundation, Inc.
+   Copyright (C) 2001-2021 Free Software Foundation, Inc.
    Contributed by Aldy Hernandez <aldyh@redhat.com> and
    Diego Novillo <dnovillo@google.com>
 
@@ -753,6 +753,7 @@ dump_gimple_call_args (pretty_printer *buffer, const gcall *gs,
 	  limit = ARRAY_SIZE (reduction_args);
 	  break;
 
+	case IFN_HWASAN_MARK:
 	case IFN_ASAN_MARK:
 #define DEF(X) #X
 	  static const char *const asan_mark_args[] = {IFN_ASAN_MARK_FLAGS};
@@ -1498,9 +1499,6 @@ dump_gimple_omp_for (pretty_printer *buffer, const gomp_for *gs, int spc,
 	case GF_OMP_FOR_KIND_SIMD:
 	  pp_string (buffer, "#pragma omp simd");
 	  break;
-	case GF_OMP_FOR_KIND_GRID_LOOP:
-	  pp_string (buffer, "#pragma omp for grid_loop");
-	  break;
 	default:
 	  gcc_unreachable ();
 	}
@@ -1703,6 +1701,15 @@ dump_gimple_omp_target (pretty_printer *buffer, const gomp_target *gs,
     case GF_OMP_TARGET_KIND_OACC_HOST_DATA:
       kind = " oacc_host_data";
       break;
+    case GF_OMP_TARGET_KIND_OACC_PARALLEL_KERNELS_PARALLELIZED:
+      kind = " oacc_parallel_kernels_parallelized";
+      break;
+    case GF_OMP_TARGET_KIND_OACC_PARALLEL_KERNELS_GANG_SINGLE:
+      kind = " oacc_parallel_kernels_gang_single";
+      break;
+    case GF_OMP_TARGET_KIND_OACC_DATA_KERNELS:
+      kind = " oacc_data_kernels";
+      break;
     default:
       gcc_unreachable ();
     }
@@ -1835,9 +1842,6 @@ dump_gimple_omp_block (pretty_printer *buffer, const gimple *gs, int spc,
 	  break;
 	case GIMPLE_OMP_SECTION:
 	  pp_string (buffer, "#pragma omp section");
-	  break;
-	case GIMPLE_OMP_GRID_BODY:
-	  pp_string (buffer, "#pragma omp gridified body");
 	  break;
 	default:
 	  gcc_unreachable ();
@@ -2703,7 +2707,6 @@ pp_gimple_stmt_1 (pretty_printer *buffer, const gimple *gs, int spc,
 
     case GIMPLE_OMP_MASTER:
     case GIMPLE_OMP_SECTION:
-    case GIMPLE_OMP_GRID_BODY:
       dump_gimple_omp_block (buffer, gs, spc, flags);
       break;
 

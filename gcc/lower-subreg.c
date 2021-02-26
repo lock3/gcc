@@ -1,5 +1,5 @@
 /* Decompose multiword subregs.
-   Copyright (C) 2007-2020 Free Software Foundation, Inc.
+   Copyright (C) 2007-2021 Free Software Foundation, Inc.
    Contributed by Richard Henderson <rth@redhat.com>
 		  Ian Lance Taylor <iant@google.com>
 
@@ -1526,7 +1526,7 @@ decompose_multiword_subregs (bool decompose_copies)
   subreg_context = BITMAP_ALLOC (NULL);
 
   reg_copy_graph.create (max);
-  reg_copy_graph.safe_grow_cleared (max);
+  reg_copy_graph.safe_grow_cleared (max, true);
   memset (reg_copy_graph.address (), 0, sizeof (bitmap) * max);
 
   speed_p = optimize_function_for_speed_p (cfun);
