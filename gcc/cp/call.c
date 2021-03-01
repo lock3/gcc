@@ -236,8 +236,15 @@ check_dtor_name (tree basetype, tree name)
 	   || TREE_CODE (basetype) == ENUMERAL_TYPE)
 	  && name == constructor_name (basetype))
 	return true;
-      else
-	name = get_type_value (name);
+
+      /* Otherwise lookup the name, it could be an unrelated typedef
+	 of the correct type.  */
+      name = lookup_name (name, LOOK_want::TYPE);
+      if (!name)
+	return false;
+      name = TREE_TYPE (name);
+      if (name == error_mark_node)
+	return false;
     }
   else
     {
@@ -252,8 +259,6 @@ check_dtor_name (tree basetype, tree name)
       return false;
     }
 
-  if (!name || name == error_mark_node)
-    return false;
   return same_type_p (TYPE_MAIN_VARIANT (basetype), TYPE_MAIN_VARIANT (name));
 }
 
@@ -520,8 +525,8 @@ struct z_candidate {
   /* The flags active in add_candidate.  */
   int flags;
 
-  bool rewritten () { return (flags & LOOKUP_REWRITTEN); }
-  bool reversed () { return (flags & LOOKUP_REVERSED); }
+  bool rewritten () const { return (flags & LOOKUP_REWRITTEN); }
+  bool reversed () const { return (flags & LOOKUP_REVERSED); }
 };
 
 /* Returns true iff T is a null pointer constant in the sense of
@@ -895,28 +900,38 @@ strip_standard_conversion (conversion *conv)
   return conv;
 }
 
-/* Subroutine of build_aggr_conv: check whether CTOR, a braced-init-list,
-   is a valid aggregate initializer for array type ATYPE.  */
+/* Subroutine of build_aggr_conv: check whether FROM is a valid aggregate
+   initializer for array type ATYPE.  */
 
 static bool
-can_convert_array (tree atype, tree ctor, int flags, tsubst_flags_t complain)
+can_convert_array (tree atype, tree from, int flags, tsubst_flags_t complain)
 {
-  unsigned i;
   tree elttype = TREE_TYPE (atype);
-  for (i = 0; i < CONSTRUCTOR_NELTS (ctor); ++i)
+  unsigned i;
+
+  if (TREE_CODE (from) == CONSTRUCTOR)
     {
-      tree val = CONSTRUCTOR_ELT (ctor, i)->value;
-      bool ok;
-      if (TREE_CODE (elttype) == ARRAY_TYPE
-	  && TREE_CODE (val) == CONSTRUCTOR)
-	ok = can_convert_array (elttype, val, flags, complain);
-      else
-	ok = can_convert_arg (elttype, TREE_TYPE (val), val, flags,
-			      complain);
-      if (!ok)
-	return false;
+      for (i = 0; i < CONSTRUCTOR_NELTS (from); ++i)
+	{
+	  tree val = CONSTRUCTOR_ELT (from, i)->value;
+	  bool ok;
+	  if (TREE_CODE (elttype) == ARRAY_TYPE)
+	    ok = can_convert_array (elttype, val, flags, complain);
+	  else
+	    ok = can_convert_arg (elttype, TREE_TYPE (val), val, flags,
+				  complain);
+	  if (!ok)
+	    return false;
+	}
+      return true;
     }
-  return true;
+
+  if (char_type_p (TYPE_MAIN_VARIANT (elttype))
+      && TREE_CODE (tree_strip_any_location_wrapper (from)) == STRING_CST)
+    return array_string_literal_compatible_p (atype, from);
+
+  /* No other valid way to aggregate initialize an array.  */
+  return false;
 }
 
 /* Helper for build_aggr_conv.  Return true if FIELD is in PSET, or if
@@ -973,8 +988,7 @@ build_aggr_conv (tree type, tree ctor, int flags, tsubst_flags_t complain)
 	      tree ftype = TREE_TYPE (idx);
 	      bool ok;
 
-	      if (TREE_CODE (ftype) == ARRAY_TYPE
-		  && TREE_CODE (val) == CONSTRUCTOR)
+	      if (TREE_CODE (ftype) == ARRAY_TYPE)
 		ok = can_convert_array (ftype, val, flags, complain);
 	      else
 		ok = can_convert_arg (ftype, TREE_TYPE (val), val, flags,
@@ -1021,8 +1035,7 @@ build_aggr_conv (tree type, tree ctor, int flags, tsubst_flags_t complain)
 	  val = empty_ctor;
 	}
 
-      if (TREE_CODE (ftype) == ARRAY_TYPE
-	  && TREE_CODE (val) == CONSTRUCTOR)
+      if (TREE_CODE (ftype) == ARRAY_TYPE)
 	ok = can_convert_array (ftype, val, flags, complain);
       else
 	ok = can_convert_arg (ftype, TREE_TYPE (val), val, flags,
@@ -5551,8 +5564,6 @@ build_conditional_expr_1 (const op_location_t &loc,
       && same_type_p (arg2_type, arg3_type))
     {
       result_type = arg2_type;
-      arg2 = mark_lvalue_use (arg2);
-      arg3 = mark_lvalue_use (arg3);
       goto valid_operands;
     }
 
@@ -7142,27 +7153,45 @@ build_op_delete_call (enum tree_code code, tree addr, tree size,
 /* Issue diagnostics about a disallowed access of DECL, using DIAG_DECL
    in the diagnostics.
 
-   If ISSUE_ERROR is true, then issue an error about the
-   access, followed by a note showing the declaration.
-   Otherwise, just show the note.  */
+   If ISSUE_ERROR is true, then issue an error about the access, followed
+   by a note showing the declaration.  Otherwise, just show the note.
+
+   DIAG_DECL and DIAG_LOCATION will almost always be the same.
+   DIAG_LOCATION is just another DECL.  NO_ACCESS_REASON is an optional
+   parameter used to specify why DECL wasn't accessible (e.g. ak_private
+   would be because DECL was private).  If not using NO_ACCESS_REASON,
+   then it must be ak_none, and the access failure reason will be
+   figured out by looking at the protection of DECL.  */
 
 void
-complain_about_access (tree decl, tree diag_decl, bool issue_error)
+complain_about_access (tree decl, tree diag_decl, tree diag_location,
+		       bool issue_error, access_kind no_access_reason)
 {
-  if (TREE_PRIVATE (decl))
+  /* If we have not already figured out why DECL is inaccessible...  */
+  if (no_access_reason == ak_none)
+    {
+      /* Examine the access of DECL to find out why.  */
+      if (TREE_PRIVATE (decl))
+	no_access_reason = ak_private;
+      else if (TREE_PROTECTED (decl))
+	no_access_reason = ak_protected;
+    }
+
+  /* Now generate an error message depending on calculated access.  */
+  if (no_access_reason == ak_private)
     {
       if (issue_error)
 	error ("%q#D is private within this context", diag_decl);
-      inform (DECL_SOURCE_LOCATION (diag_decl),
-	      "declared private here");
+      inform (DECL_SOURCE_LOCATION (diag_location), "declared private here");
     }
-  else if (TREE_PROTECTED (decl))
+  else if (no_access_reason == ak_protected)
     {
       if (issue_error)
 	error ("%q#D is protected within this context", diag_decl);
-      inform (DECL_SOURCE_LOCATION (diag_decl),
-	      "declared protected here");
+      inform (DECL_SOURCE_LOCATION (diag_location), "declared protected here");
     }
+  /* Couldn't figure out why DECL is inaccesible, so just say it's
+     inaccessible.  */
   else
     {
       if (issue_error)
@@ -8245,11 +8274,7 @@ type_passed_as (tree type)
 {
   /* Pass classes with copy ctors by invisible reference.  */
   if (TREE_ADDRESSABLE (type))
-    {
-      type = build_reference_type (type);
-      /* There are no other pointers to this temporary.  */
-      type = cp_build_qualified_type (type, TYPE_QUAL_RESTRICT);
-    }
+    type = build_reference_type (type);
   else if (targetm.calls.promote_prototypes (NULL_TREE)
 	   && INTEGRAL_TYPE_P (type)
 	   && COMPLETE_TYPE_P (type)
@@ -8425,20 +8450,74 @@ call_copy_ctor (tree a, tsubst_flags_t complain)
   return r;
 }
 
-/* Return true iff T refers to a base or potentially-overlapping field, which
-   cannot be used for return by invisible reference.  We avoid doing C++17
-   mandatory copy elision when this is true.
+/* Return the base constructor corresponding to COMPLETE_CTOR or NULL_TREE.  */
 
-   This returns true even if the type of T has no tail padding that other data
-   could be allocated into, because that depends on the particular ABI.
-   unsafe_copy_elision_p, below, does consider whether there is padding.  */
+static tree
+base_ctor_for (tree complete_ctor)
+{
+  tree clone;
+  FOR_EACH_CLONE (clone, DECL_CLONED_FUNCTION (complete_ctor))
+    if (DECL_BASE_CONSTRUCTOR_P (clone))
+      return clone;
+  return NULL_TREE;
+}
 
-bool
+/* Try to make EXP suitable to be used as the initializer for a base subobject,
+   and return whether we were successful.  EXP must have already been cleared
+   by unsafe_copy_elision_p{,_opt}.  */
+
+static bool
+make_base_init_ok (tree exp)
+{
+  if (TREE_CODE (exp) == TARGET_EXPR)
+    exp = TARGET_EXPR_INITIAL (exp);
+  while (TREE_CODE (exp) == COMPOUND_EXPR)
+    exp = TREE_OPERAND (exp, 1);
+  if (TREE_CODE (exp) == COND_EXPR)
+    {
+      bool ret = make_base_init_ok (TREE_OPERAND (exp, 2));
+      if (tree op1 = TREE_OPERAND (exp, 1))
+	{
+	  bool r1 = make_base_init_ok (op1);
+	  /* If unsafe_copy_elision_p was false, the arms should match.  */
+	  gcc_assert (r1 == ret);
+	}
+      return ret;
+    }
+  if (TREE_CODE (exp) != AGGR_INIT_EXPR)
+    /* A trivial copy is OK.  */
+    return true;
+  if (!AGGR_INIT_VIA_CTOR_P (exp))
+    /* unsafe_copy_elision_p_opt must have said this is OK.  */
+    return true;
+  tree fn = cp_get_callee_fndecl_nofold (exp);
+  if (DECL_BASE_CONSTRUCTOR_P (fn))
+    return true;
+  gcc_assert (DECL_COMPLETE_CONSTRUCTOR_P (fn));
+  fn = base_ctor_for (fn);
+  if (!fn || DECL_HAS_VTT_PARM_P (fn))
+    /* The base constructor has more parameters, so we can't just change the
+       call target.  It would be possible to splice in the appropriate
+       arguments, but probably not worth the complexity.  */
+    return false;
+  AGGR_INIT_EXPR_FN (exp) = build_address (fn);
+  return true;
+}
+
+/* Return 2 if T refers to a base, 1 if a potentially-overlapping field,
+   neither of which can be used for return by invisible reference.  We avoid
+   doing C++17 mandatory copy elision for either of these cases.
+
+   This returns non-zero even if the type of T has no tail padding that other
+   data could be allocated into, because that depends on the particular ABI.
+   unsafe_copy_elision_p_opt does consider whether there is padding.  */
+
+int
 unsafe_return_slot_p (tree t)
 {
   /* Check empty bases separately, they don't have fields.  */
   if (is_empty_base_ref (t))
-    return true;
+    return 2;
 
   STRIP_NOPS (t);
   if (TREE_CODE (t) == ADDR_EXPR)
@@ -8450,27 +8529,20 @@ unsafe_return_slot_p (tree t)
   if (!CLASS_TYPE_P (TREE_TYPE (t)))
     /* The middle-end will do the right thing for scalar types.  */
     return false;
-  return (DECL_FIELD_IS_BASE (t)
-	  || lookup_attribute ("no_unique_address", DECL_ATTRIBUTES (t)));
+  if (DECL_FIELD_IS_BASE (t))
+    return 2;
+  if (lookup_attribute ("no_unique_address", DECL_ATTRIBUTES (t)))
+    return 1;
+  return 0;
 }
 
-/* We can't elide a copy from a function returning by value to a
-   potentially-overlapping subobject, as the callee might clobber tail padding.
-   Return true iff this could be that case.  */
+/* True IFF EXP is a prvalue that represents return by invisible reference.  */
 
 static bool
-unsafe_copy_elision_p (tree target, tree exp)
+init_by_return_slot_p (tree exp)
 {
   /* Copy elision only happens with a TARGET_EXPR.  */
   if (TREE_CODE (exp) != TARGET_EXPR)
-    return false;
-  tree type = TYPE_MAIN_VARIANT (TREE_TYPE (exp));
-  /* It's safe to elide the copy for a class with no tail padding.  */
-  if (!is_empty_class (type)
-      && tree_int_cst_equal (TYPE_SIZE (type), CLASSTYPE_SIZE (type)))
-    return false;
-  /* It's safe to elide the copy if we aren't initializing a base object.  */
-  if (!unsafe_return_slot_p (target))
     return false;
   tree init = TARGET_EXPR_INITIAL (exp);
   /* build_compound_expr pushes COMPOUND_EXPR inside TARGET_EXPR.  */
@@ -8479,14 +8551,56 @@ unsafe_copy_elision_p (tree target, tree exp)
   if (TREE_CODE (init) == COND_EXPR)
     {
       /* We'll end up copying from each of the arms of the COND_EXPR directly
-	 into the target, so look at them. */
+	 into the target, so look at them.  */
       if (tree op = TREE_OPERAND (init, 1))
-	if (unsafe_copy_elision_p (target, op))
+	if (init_by_return_slot_p (op))
 	  return true;
-      return unsafe_copy_elision_p (target, TREE_OPERAND (init, 2));
+      return init_by_return_slot_p (TREE_OPERAND (init, 2));
     }
   return (TREE_CODE (init) == AGGR_INIT_EXPR
 	  && !AGGR_INIT_VIA_CTOR_P (init));
+}
+
+/* We can't elide a copy from a function returning by value to a
+   potentially-overlapping subobject, as the callee might clobber tail padding.
+   Return true iff this could be that case.
+
+   Places that use this function (or _opt) to decide to elide a copy should
+   probably use make_safe_copy_elision instead.  */
+
+static bool
+unsafe_copy_elision_p (tree target, tree exp)
+{
+  return unsafe_return_slot_p (target) && init_by_return_slot_p (exp);
+}
+
+/* As above, but for optimization allow more cases that are actually safe.  */
+
+static bool
+unsafe_copy_elision_p_opt (tree target, tree exp)
+{
+  tree type = TYPE_MAIN_VARIANT (TREE_TYPE (exp));
+  /* It's safe to elide the copy for a class with no tail padding.  */
+  if (!is_empty_class (type)
+      && tree_int_cst_equal (TYPE_SIZE (type), CLASSTYPE_SIZE (type)))
+    return false;
+  return unsafe_copy_elision_p (target, exp);
+}
+
+/* Try to make EXP suitable to be used as the initializer for TARGET,
+   and return whether we were successful.  */
+
+bool
+make_safe_copy_elision (tree target, tree exp)
+{
+  int uns = unsafe_return_slot_p (target);
+  if (!uns)
+    return true;
+  if (init_by_return_slot_p (exp))
+    return false;
+  if (uns == 1)
+    return true;
+  return make_base_init_ok (exp);
 }
 
 /* True IFF the result of the conversion C is a prvalue.  */
@@ -9134,7 +9248,7 @@ build_over_call (struct z_candidate *cand, int flags, tsubst_flags_t complain)
 		    /* See unsafe_copy_elision_p.  */
 		    || unsafe_return_slot_p (fa));
 
-      bool unsafe = unsafe_copy_elision_p (fa, arg);
+      bool unsafe = unsafe_copy_elision_p_opt (fa, arg);
       bool eliding_temp = (TREE_CODE (arg) == TARGET_EXPR && !unsafe);
 
       /* [class.copy]: the copy constructor is implicitly defined even if the
@@ -9151,6 +9265,10 @@ build_over_call (struct z_candidate *cand, int flags, tsubst_flags_t complain)
 	}
       else
 	cp_warn_deprecated_use (fn, complain);
+
+      if (eliding_temp && DECL_BASE_CONSTRUCTOR_P (fn)
+	  && !make_base_init_ok (arg))
+	unsafe = true;
 
       /* If we're creating a temp and we already have one, don't create a
 	 new one.  If we're not creating a temp but we get one, use
@@ -9367,7 +9485,7 @@ first_non_static_field (tree type, Predicate pred)
 
 struct NonPublicField
 {
-  bool operator() (const_tree t)
+  bool operator() (const_tree t) const
   {
     return DECL_P (t) && (TREE_PRIVATE (t) || TREE_PROTECTED (t));
   }
@@ -9384,7 +9502,7 @@ first_non_public_field (tree type)
 
 struct NonTrivialField
 {
-  bool operator() (const_tree t)
+  bool operator() (const_tree t) const
   {
     return !trivial_type_p (DECL_P (t) ? TREE_TYPE (t) : t);
   }

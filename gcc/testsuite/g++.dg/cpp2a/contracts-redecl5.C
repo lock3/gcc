@@ -32,13 +32,13 @@ struct G1
 };
 
 int G1::f(int a) [[ pre: a > 0 ]]; // { dg-warning "adds contracts" }
-// { dg-warning "non-defining declaration" "" { target *-*-* } .-1 }
+// { dg-warning "outside of class is not definition" "" { target *-*-* } .-1 }
 
 int G1::f(int a);
-// { dg-warning "non-defining declaration" "" { target *-*-* } .-1 }
+// { dg-warning "outside of class is not definition" "" { target *-*-* } .-1 }
 
 int G1::f(int a) [[ pre: a > 0 ]];
-// { dg-warning "non-defining declaration" "" { target *-*-* } .-1 }
+// { dg-warning "outside of class is not definition" "" { target *-*-* } .-1 }
 
 int G1::f(int a)
 {
@@ -51,7 +51,7 @@ struct G2
   int f(int a);
 };
 
-int G2::f(int a); // { dg-warning "non-defining declaration" }
+int G2::f(int a); // { dg-warning "outside of class is not definition" }
 
 
 int f0(int a) [[ pre: a > 0 ]];

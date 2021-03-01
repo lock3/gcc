@@ -566,11 +566,7 @@ decl_attributes (tree *node, tree attributes, int flags,
 	{
 	  if (!(flags & (int) ATTR_FLAG_BUILT_IN))
 	    {
-	      if (cxx23_contract_attribute_p (attr))
-		{
-		  ; /* Do not warn about contract "attributes".  */
-		}
-	      else if (ns == NULL_TREE || !cxx11_attr_p)
+	      if (ns == NULL_TREE || !cxx11_attr_p)
 		warning (OPT_Wattributes, "%qE attribute directive ignored",
 			 name);
 	      else
@@ -838,26 +834,6 @@ cxx11_attribute_p (const_tree attr)
     return false;
 
   return (TREE_CODE (TREE_PURPOSE (attr)) == TREE_LIST);
-}
-
-/* Return TRUE iff ATTR has been parsed by the fornt-end as a c++2a contract
-   attribute. */
-
-bool
-cxx23_contract_attribute_p (const_tree attr)
-{
-  if (attr == NULL_TREE
-      || TREE_CODE (attr) != TREE_LIST)
-    return false;
-
-  if (!TREE_PURPOSE (attr) || TREE_CODE (TREE_PURPOSE (attr)) != TREE_LIST)
-    return false;
-  if (!TREE_VALUE (attr))
-    return false;
-
-  return (TREE_CODE (TREE_VALUE (attr)) == PRECONDITION_STMT
-      || TREE_CODE (TREE_VALUE (attr)) == POSTCONDITION_STMT
-      || TREE_CODE (TREE_VALUE (attr)) == ASSERTION_STMT);
 }
 
 /* Return the name of the attribute ATTR.  This accessor works on GNU
@@ -2262,6 +2238,38 @@ attr_access::vla_bounds (unsigned *nunspec) const
   return list_length (size);
 }
 
+/* Reset front end-specific attribute access data from ATTRS.
+   Called from the free_lang_data pass.  */
+
+/* static */ void
+attr_access::free_lang_data (tree attrs)
+{
+  for (tree acs = attrs; (acs = lookup_attribute ("access", acs));
+       acs = TREE_CHAIN (acs))
+    {
+      tree vblist = TREE_VALUE (acs);
+      vblist = TREE_CHAIN (vblist);
+      if (!vblist)
+	continue;
+
+      vblist = TREE_VALUE (vblist);
+      if (!vblist)
+	continue;
+
+      for (vblist = TREE_VALUE (vblist); vblist; vblist = TREE_CHAIN (vblist))
+	{
+	  tree *pvbnd = &TREE_VALUE (vblist);
+	  if (!*pvbnd || DECL_P (*pvbnd))
+	    continue;
+
+	  /* VLA bounds that are expressions as opposed to DECLs are
+	     only used in the front end.  Reset them to keep front end
+	     trees leaking into the middle end (see pr97172) and to
+	     free up memory.  */
+	  *pvbnd = NULL_TREE;
+	}
+    }
+}
 
 /* Defined in attr_access.  */
 constexpr char attr_access::mode_chars[];

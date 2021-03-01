@@ -41,8 +41,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "mkdeps.h"
 #include "dumpfile.h"
 #include "file-prefix-map.h"    /* add_*_prefix_map()  */
-#include "cxx-contracts.h"
-#include "cxx-config.h"
 
 #ifndef DOLLARS_IN_IDENTIFIERS
 # define DOLLARS_IN_IDENTIFIERS true
@@ -115,6 +113,7 @@ static void set_std_cxx11 (int);
 static void set_std_cxx14 (int);
 static void set_std_cxx17 (int);
 static void set_std_cxx20 (int);
+static void set_std_cxx23 (int);
 static void set_std_c89 (int, int);
 static void set_std_c99 (int);
 static void set_std_c11 (int);
@@ -336,10 +335,6 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 	  inform (input_location, "obsolete option %<-I-%> used, "
 		  "please use %<-iquote%> instead");
 	}
-      break;
-
-    case OPT_K:
-      define_knob (arg);
       break;
 
     case OPT_M:
@@ -655,6 +650,12 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 	set_std_cxx20 (code == OPT_std_c__20 /* ISO */);
       break;
 
+    case OPT_std_c__23:
+    case OPT_std_gnu__23:
+      if (!preprocessing_asm_p)
+	set_std_cxx23 (code == OPT_std_c__23 /* ISO */);
+      break;
+
     case OPT_std_c90:
     case OPT_std_iso9899_199409:
       if (!preprocessing_asm_p)
@@ -716,26 +717,6 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 
     case OPT_v:
       verbose = true;
-      break;
-
-    case OPT_fcontract_build_level_:
-      handle_OPT_fcontract_build_level_ (arg);
-      break;
-
-    case OPT_fcontract_assumption_mode_:
-      handle_OPT_fcontract_assumption_mode_ (arg);
-      break;
-
-    case OPT_fcontract_continuation_mode_:
-      handle_OPT_fcontract_continuation_mode_ (arg);
-      break;
-
-    case OPT_fcontract_role_:
-      handle_OPT_fcontract_role_ (arg);
-      break;
-
-    case OPT_fcontract_semantic_:
-      handle_OPT_fcontract_semantic_ (arg);
       break;
     }
 
@@ -1045,7 +1026,7 @@ c_common_post_options (const char **pfilename)
 	warn_narrowing = 1;
 
       /* Unless -f{,no-}ext-numeric-literals has been used explicitly,
-	 for -std=c++{11,14,17,2a} default to -fno-ext-numeric-literals.  */
+	 for -std=c++{11,14,17,20,23} default to -fno-ext-numeric-literals.  */
       if (flag_iso && !global_options_set.x_flag_ext_numeric_literals)
 	cpp_opts->ext_numeric_literals = 0;
     }
@@ -1789,7 +1770,7 @@ set_std_cxx20 (int iso)
   flag_no_gnu_keywords = iso;
   flag_no_nonansi_builtin = iso;
   flag_iso = iso;
-  /* C++17 includes the C11 standard library.  */
+  /* C++20 includes the C11 standard library.  */
   flag_isoc94 = 1;
   flag_isoc99 = 1;
   flag_isoc11 = 1;
@@ -1797,6 +1778,24 @@ set_std_cxx20 (int iso)
   flag_coroutines = true;
   cxx_dialect = cxx20;
   lang_hooks.name = "GNU C++20";
+}
+
+/* Set the C++ 2023 standard (without GNU extensions if ISO).  */
+static void
+set_std_cxx23 (int iso)
+{
+  cpp_set_lang (parse_in, iso ? CLK_CXX23: CLK_GNUCXX23);
+  flag_no_gnu_keywords = iso;
+  flag_no_nonansi_builtin = iso;
+  flag_iso = iso;
+  /* C++23 includes the C11 standard library.  */
+  flag_isoc94 = 1;
+  flag_isoc99 = 1;
+  flag_isoc11 = 1;
+  /* C++23 includes coroutines.  */
+  flag_coroutines = true;
+  cxx_dialect = cxx23;
+  lang_hooks.name = "GNU C++23";
 }
 
 /* Args to -d specify what to dump.  Silently ignore

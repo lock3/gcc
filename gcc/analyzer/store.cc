@@ -1323,8 +1323,11 @@ binding_cluster::make_unknown_relative_to (const binding_cluster *other,
 	{
 	  const region *base_reg
 	    = region_sval->get_pointee ()->get_base_region ();
-	  binding_cluster *c = out_store->get_or_create_cluster (base_reg);
-	  c->mark_as_escaped ();
+	  if (!base_reg->symbolic_for_unknown_ptr_p ())
+	    {
+	      binding_cluster *c = out_store->get_or_create_cluster (base_reg);
+	      c->mark_as_escaped ();
+	    }
 	}
     }
 }
@@ -1372,6 +1375,21 @@ binding_cluster::redundant_p () const
 	  && !m_touched);
 }
 
+/* Add PV to OUT_PVS, casting it to TYPE if if is not already of that type.  */
+
+static void
+append_pathvar_with_type (path_var pv,
+			  tree type,
+			  auto_vec<path_var> *out_pvs)
+{
+  gcc_assert (pv.m_tree);
+
+  if (TREE_TYPE (pv.m_tree) != type)
+    pv.m_tree = build1 (NOP_EXPR, type, pv.m_tree);
+
+  out_pvs->safe_push (pv);
+}
+
 /* Find representative path_vars for SVAL within this binding of BASE_REG,
    appending the results to OUT_PVS.  */
 
@@ -1408,7 +1426,7 @@ binding_cluster::get_representative_path_vars (const region_model *model,
 		  if (path_var pv
 		      = model->get_representative_path_var (subregion,
 							    visited))
-		    out_pvs->safe_push (pv);
+		    append_pathvar_with_type (pv, sval->get_type (), out_pvs);
 		}
 	    }
 	  else
@@ -1417,7 +1435,7 @@ binding_cluster::get_representative_path_vars (const region_model *model,
 	      if (path_var pv
 		  = model->get_representative_path_var (skey->get_region (),
 							visited))
-		out_pvs->safe_push (pv);
+		append_pathvar_with_type (pv, sval->get_type (), out_pvs);
 	    }
 	}
     }
@@ -1737,7 +1755,7 @@ store::dump (bool simple) const
    {PARENT_REGION_DESC: {BASE_REGION_DESC: object for binding_map,
 			 ... for each cluster within parent region},
     ...for each parent region,
-    "called_unknown_function": true/false}.  */
+    "called_unknown_fn": true/false}.  */
 
 json::object *
 store::to_json () const
@@ -1817,9 +1835,20 @@ store::set_value (store_manager *mgr, const region *lhs_reg,
   const region *lhs_base_reg = lhs_reg->get_base_region ();
   binding_cluster *lhs_cluster;
   if (lhs_base_reg->symbolic_for_unknown_ptr_p ())
-    /* Reject attempting to bind values into a symbolic region
-       for an unknown ptr; merely invalidate values below.  */
-    lhs_cluster = NULL;
+    {
+      /* Reject attempting to bind values into a symbolic region
+	 for an unknown ptr; merely invalidate values below.  */
+      lhs_cluster = NULL;
+
+      /* The LHS of the write is *UNKNOWN.  If the RHS is a pointer,
+	 then treat the region being pointed to as having escaped.  */
+      if (const region_svalue *ptr_sval = rhs_sval->dyn_cast_region_svalue ())
+	{
+	  const region *ptr_dst = ptr_sval->get_pointee ();
+	  const region *ptr_base_reg = ptr_dst->get_base_region ();
+	  mark_as_escaped (ptr_base_reg);
+	}
+    }
   else
     {
       lhs_cluster = get_or_create_cluster (lhs_base_reg);

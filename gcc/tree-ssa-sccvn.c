@@ -298,6 +298,7 @@ static obstack vn_tables_insert_obstack;
 static vn_reference_t last_inserted_ref;
 static vn_phi_t last_inserted_phi;
 static vn_nary_op_t last_inserted_nary;
+static vn_ssa_aux_t last_pushed_avail;
 
 /* Valid hashtables storing information we have proven to be
    correct.  */
@@ -1108,7 +1109,7 @@ ao_ref_init_from_vn_reference (ao_ref *ref,
 	      poly_offset_int woffset
 		= wi::sext (wi::to_poly_offset (op->op0)
 			    - wi::to_poly_offset (op->op1),
-			    TYPE_PRECISION (TREE_TYPE (op->op0)));
+			    TYPE_PRECISION (sizetype));
 	      woffset *= wi::to_offset (op->op2) * vn_ref_op_align_unit (op);
 	      woffset <<= LOG2_BITS_PER_UNIT;
 	      offset += woffset;
@@ -4681,7 +4682,7 @@ visit_copy (tree lhs, tree rhs)
    is the same.  */
 
 static tree
-valueized_wider_op (tree wide_type, tree op)
+valueized_wider_op (tree wide_type, tree op, bool allow_truncate)
 {
   if (TREE_CODE (op) == SSA_NAME)
     op = vn_valueize (op);
@@ -4695,7 +4696,7 @@ valueized_wider_op (tree wide_type, tree op)
     return tem;
 
   /* Or the op is truncated from some existing value.  */
-  if (TREE_CODE (op) == SSA_NAME)
+  if (allow_truncate && TREE_CODE (op) == SSA_NAME)
     {
       gimple *def = SSA_NAME_DEF_STMT (op);
       if (is_gimple_assign (def)
@@ -4760,12 +4761,15 @@ visit_nary_op (tree lhs, gassign *stmt)
 		  || gimple_assign_rhs_code (def) == MULT_EXPR))
 	    {
 	      tree ops[3] = {};
+	      /* When requiring a sign-extension we cannot model a
+		 previous truncation with a single op so don't bother.  */
+	      bool allow_truncate = TYPE_UNSIGNED (TREE_TYPE (rhs1));
 	      /* Either we have the op widened available.  */
-	      ops[0] = valueized_wider_op (type,
-					   gimple_assign_rhs1 (def));
+	      ops[0] = valueized_wider_op (type, gimple_assign_rhs1 (def),
+					   allow_truncate);
 	      if (ops[0])
-		ops[1] = valueized_wider_op (type,
-					     gimple_assign_rhs2 (def));
+		ops[1] = valueized_wider_op (type, gimple_assign_rhs2 (def),
+					     allow_truncate);
 	      if (ops[0] && ops[1])
 		{
 		  ops[0] = vn_nary_op_lookup_pieces
@@ -6895,6 +6899,8 @@ rpo_elim::eliminate_push_avail (basic_block bb, tree leader)
   av->location = bb->index;
   av->leader = SSA_NAME_VERSION (leader);
   av->next = value->avail;
+  av->next_undo = last_pushed_avail;
+  last_pushed_avail = value;
   value->avail = av;
 }
 
@@ -7335,12 +7341,13 @@ struct unwind_state
   vn_reference_t ref_top;
   vn_phi_t phi_top;
   vn_nary_op_t nary_top;
+  vn_avail *avail_top;
 };
 
 /* Unwind the RPO VN state for iteration.  */
 
 static void
-do_unwind (unwind_state *to, int rpo_idx, rpo_elim &avail, int *bb_to_rpo)
+do_unwind (unwind_state *to, rpo_elim &avail)
 {
   gcc_assert (to->iterate);
   for (; last_inserted_nary != to->nary_top;
@@ -7375,20 +7382,14 @@ do_unwind (unwind_state *to, int rpo_idx, rpo_elim &avail, int *bb_to_rpo)
   obstack_free (&vn_tables_obstack, to->ob_top);
 
   /* Prune [rpo_idx, ] from avail.  */
-  /* ???  This is O(number-of-values-in-region) which is
-     O(region-size) rather than O(iteration-piece).  */
-  for (hash_table<vn_ssa_aux_hasher>::iterator i = vn_ssa_aux_hash->begin ();
-       i != vn_ssa_aux_hash->end (); ++i)
+  for (; last_pushed_avail && last_pushed_avail->avail != to->avail_top;)
     {
-      while ((*i)->avail)
-	{
-	  if (bb_to_rpo[(*i)->avail->location] < rpo_idx)
-	    break;
-	  vn_avail *av = (*i)->avail;
-	  (*i)->avail = (*i)->avail->next;
-	  av->next = avail.m_avail_freelist;
-	  avail.m_avail_freelist = av;
-	}
+      vn_ssa_aux_t val = last_pushed_avail;
+      vn_avail *av = val->avail;
+      val->avail = av->next;
+      last_pushed_avail = av->next_undo;
+      av->next = avail.m_avail_freelist;
+      avail.m_avail_freelist = av;
     }
 }
 
@@ -7502,6 +7503,7 @@ do_rpo_vn (function *fn, edge entry, bitmap exit_bbs,
   last_inserted_ref = NULL;
   last_inserted_phi = NULL;
   last_inserted_nary = NULL;
+  last_pushed_avail = NULL;
 
   vn_valueize = rpo_vn_valueize;
 
@@ -7595,6 +7597,8 @@ do_rpo_vn (function *fn, edge entry, bitmap exit_bbs,
 	    rpo_state[idx].ref_top = last_inserted_ref;
 	    rpo_state[idx].phi_top = last_inserted_phi;
 	    rpo_state[idx].nary_top = last_inserted_nary;
+	    rpo_state[idx].avail_top
+	      = last_pushed_avail ? last_pushed_avail->avail : NULL;
 	  }
 
 	if (!(bb->flags & BB_EXECUTABLE))
@@ -7672,7 +7676,7 @@ do_rpo_vn (function *fn, edge entry, bitmap exit_bbs,
 	    }
 	if (iterate_to != -1)
 	  {
-	    do_unwind (&rpo_state[iterate_to], iterate_to, avail, bb_to_rpo);
+	    do_unwind (&rpo_state[iterate_to], avail);
 	    idx = iterate_to;
 	    if (dump_file && (dump_flags & TDF_DETAILS))
 	      fprintf (dump_file, "Iterating to %d BB%d\n",

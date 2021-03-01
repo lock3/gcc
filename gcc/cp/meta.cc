@@ -38,7 +38,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "attribs.h"
 #include "gomp-constants.h"
 #include "print-tree.h"
-#include "c-family/cxx-config.h"
+#include "cxx-config.h"
 
 /* Returns the type 'const T'.  */
 static tree

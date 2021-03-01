@@ -1416,6 +1416,9 @@ cp_check_const_attributes (tree attributes)
   tree attr;
   for (attr = attributes; attr; attr = TREE_CHAIN (attr))
     {
+      if (cxx_contract_attribute_p (attr))
+	continue;
+
       tree arg;
       for (arg = TREE_VALUE (attr); arg && TREE_CODE (arg) == TREE_LIST;
 	   arg = TREE_CHAIN (arg))
@@ -1595,9 +1598,6 @@ cplus_decl_attributes (tree *decl, tree attributes, int flags)
       tree last_decl = find_last_decl (*decl);
       decl_attributes (decl, attributes, flags, last_decl);
     }
-
-  if (TREE_CODE (*decl) == TYPE_DECL)
-    SET_IDENTIFIER_TYPE_VALUE (DECL_NAME (*decl), TREE_TYPE (*decl));
 
   /* Propagate deprecation out to the template.  */
   if (TREE_DEPRECATED (*decl))
@@ -4444,9 +4444,6 @@ cp_tree_defined_p_r (tree *tp, int *, void *)
   if ((code == FUNCTION_DECL || code == VAR_DECL)
       && !decl_defined_p (*tp))
     return *tp;
-  /* We never want to accidentally instantiate templates.  */
-  if (code == TEMPLATE_DECL)
-    return *tp; /* FIXME? */
   return NULL_TREE;
 }
 

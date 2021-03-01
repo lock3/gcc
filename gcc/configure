@@ -29075,7 +29075,11 @@ fi
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; }
     then
-	gcc_cv_as_gdwarf_5_flag=yes
+	if test x$gcc_cv_readelf != x \
+      && $gcc_cv_readelf -wi conftest.o 2>&1 \
+	 | grep DW_TAG_compile_unit > /dev/null 2>&1; then
+     gcc_cv_as_gdwarf_5_flag=yes;
+   fi
     else
       echo "configure: failed program was" >&5
       cat conftest.s >&5
@@ -31174,7 +31178,12 @@ do
 	$ok || continue
 
 	all_lang_configurefrags="$all_lang_configurefrags \$(srcdir)/$gcc_subdir/config-lang.in"
-	all_lang_makefrags="$all_lang_makefrags \$(srcdir)/$gcc_subdir/Make-lang.in"
+	if test "x$language" = xc && test -n "$all_lang_makefrags"; then
+	    # Put c/Make-lang.in fragment first to match serialization languages order.
+	    all_lang_makefrags="\$(srcdir)/$gcc_subdir/Make-lang.in $all_lang_makefrags"
+	else
+	    all_lang_makefrags="$all_lang_makefrags \$(srcdir)/$gcc_subdir/Make-lang.in"
+	fi
 	if test -f $srcdir/$gcc_subdir/lang.opt; then
 	    lang_opt_files="$lang_opt_files $srcdir/$gcc_subdir/lang.opt"
 	    all_opt_files="$all_opt_files $srcdir/$gcc_subdir/lang.opt"

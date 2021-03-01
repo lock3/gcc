@@ -46,6 +46,7 @@ static tree verify_stmt_tree_r (tree *, int *, void *);
 
 static tree handle_init_priority_attribute (tree *, tree, tree, int, bool *);
 static tree handle_abi_tag_attribute (tree *, tree, tree, int, bool *);
+static tree handle_contract_attribute (tree *, tree, tree, int, bool *);
 
 /* If REF is an lvalue, returns the kind of lvalue that REF is.
    Otherwise, returns clk_none.  */
@@ -787,7 +788,15 @@ build_vec_init_expr (tree type, tree init, tsubst_flags_t complain)
 {
   tree slot;
   bool value_init = false;
-  tree elt_init = build_vec_init_elt (type, init, complain);
+  tree elt_init;
+  if (init && TREE_CODE (init) == CONSTRUCTOR)
+    {
+      gcc_assert (!BRACE_ENCLOSED_INITIALIZER_P (init));
+      /* We built any needed constructor calls in digest_init.  */
+      elt_init = init;
+    }
+  else
+    elt_init = build_vec_init_elt (type, init, complain);
 
   if (init == void_type_node)
     {
@@ -1332,10 +1341,12 @@ cp_build_qualified_type_real (tree type,
 
       if (!t)
 	{
-	  gcc_checking_assert (TYPE_DEPENDENT_P_VALID (type)
-			       || !dependent_type_p (type));
+	  /* If we already know the dependentness, tell the array type
+	     constructor.  This is important for module streaming, as we cannot
+	     dynamically determine that on read in.  */
 	  t = build_cplus_array_type (element_type, TYPE_DOMAIN (type),
-				      TYPE_DEPENDENT_P (type));
+				      TYPE_DEPENDENT_P_VALID (type)
+				      ? int (TYPE_DEPENDENT_P (type)) : -1);
 
 	  /* Keep the typedef name.  */
 	  if (TYPE_NAME (t) != TYPE_NAME (type))
@@ -2728,8 +2739,7 @@ fixup_deferred_exception_variants (tree type, tree raises)
   tree original = TYPE_RAISES_EXCEPTIONS (type);
   tree cr = flag_noexcept_type ? canonical_eh_spec (raises) : NULL_TREE;
 
-  gcc_checking_assert (TREE_CODE (TREE_PURPOSE (original))
-		       == DEFERRED_PARSE);
+  gcc_checking_assert (UNPARSED_NOEXCEPT_SPEC_P (original));
 
   /* Though sucky, this walk will process the canonical variants
      first.  */
@@ -3837,12 +3847,7 @@ cp_tree_equal (tree t1, tree t2)
 	 template.  */
 
       if (comparing_specializations
-	  && DECL_CONTEXT (t1) != DECL_CONTEXT (t2)
-	  /* Module duplicate checking can have t1 = new, t2 =
-	     existing, and they should be considered matching at this
-	     point.  */
-	  && (DECL_CONTEXT (t1) != map_context_from
-	      && DECL_CONTEXT (t2) != map_context_to))
+	  && DECL_CONTEXT (t1) != DECL_CONTEXT (t2))
 	/* When comparing hash table entries, only an exact match is
 	   good enough; we don't want to replace 'this' with the
 	   version from another function.  But be more flexible
@@ -4818,6 +4823,9 @@ const struct attribute_spec std_attribute_table[] =
     handle_likeliness_attribute, attr_cold_hot_exclusions },
   { "noreturn", 0, 0, true, false, false, false,
     handle_noreturn_attribute, attr_noreturn_exclusions },
+  { "pre", 0, -1, false, false, false, false, handle_contract_attribute, NULL },
+  { "post", 0, -1, false, false, false, false,
+    handle_contract_attribute, NULL },
   { NULL, 0, 0, false, false, false, false, NULL, NULL }
 };
 
@@ -5066,6 +5074,17 @@ handle_abi_tag_attribute (tree* node, tree name, tree args,
   return NULL_TREE;
 }
 
+/* Handle a pre or post contract attribute.  */
+
+tree
+handle_contract_attribute (tree *ARG_UNUSED (node), tree ARG_UNUSED (name),
+			   tree ARG_UNUSED (args), int ARG_UNUSED (flags),
+			   bool *no_add_attrs)
+{
+  *no_add_attrs = true;
+  return NULL_TREE;
+}
+
 /* Return a new PTRMEM_CST of the indicated TYPE.  The MEMBER is the
    thing pointed to by the constant.  */
 
@@ -5173,12 +5192,15 @@ cp_walk_subtrees (tree *tp, int *walk_subtrees_p, walk_tree_fn func,
   result = NULL_TREE;
   switch (code)
     {
+    case TEMPLATE_TYPE_PARM:
+      if (template_placeholder_p (*tp))
+	WALK_SUBTREE (CLASS_PLACEHOLDER_TEMPLATE (*tp));
+      /* Fall through.  */
     case DEFERRED_PARSE:
     case TEMPLATE_TEMPLATE_PARM:
     case BOUND_TEMPLATE_TEMPLATE_PARM:
     case UNBOUND_CLASS_TEMPLATE:
     case TEMPLATE_PARM_INDEX:
-    case TEMPLATE_TYPE_PARM:
     case TYPEOF_TYPE:
     case UNDERLYING_TYPE:
       /* None of these have subtrees other than those already walked

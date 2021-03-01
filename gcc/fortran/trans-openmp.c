@@ -2997,13 +2997,18 @@ gfc_trans_omp_clauses (stmtblock_t *block, gfc_omp_clauses *clauses,
 		  if (lastcomp->u.c.component->ts.type == BT_DERIVED
 		      || lastcomp->u.c.component->ts.type == BT_CLASS)
 		    {
-		      if (sym_attr.pointer || (openacc && sym_attr.allocatable))
+		      bool pointer
+			= (lastcomp->u.c.component->ts.type == BT_CLASS
+			   ? sym_attr.class_pointer : sym_attr.pointer);
+		      if (pointer || (openacc && sym_attr.allocatable))
 			{
 			  tree data, size;
 
 			  if (lastcomp->u.c.component->ts.type == BT_CLASS)
 			    {
 			      data = gfc_class_data_get (inner);
+			      gcc_assert (POINTER_TYPE_P (TREE_TYPE (data)));
+			      data = build_fold_indirect_ref (data);
 			      size = gfc_class_vtab_size_get (inner);
 			    }
 			  else  /* BT_DERIVED.  */
@@ -3012,8 +3017,7 @@ gfc_trans_omp_clauses (stmtblock_t *block, gfc_omp_clauses *clauses,
 			      size = TYPE_SIZE_UNIT (TREE_TYPE (inner));
 			    }
 
-			  OMP_CLAUSE_DECL (node)
-			    = build_fold_indirect_ref (data);
+			  OMP_CLAUSE_DECL (node) = data;
 			  OMP_CLAUSE_SIZE (node) = size;
 			  node2 = build_omp_clause (input_location,
 						    OMP_CLAUSE_MAP);
@@ -3021,7 +3025,7 @@ gfc_trans_omp_clauses (stmtblock_t *block, gfc_omp_clauses *clauses,
 						   openacc
 						   ? GOMP_MAP_ATTACH_DETACH
 						   : GOMP_MAP_ALWAYS_POINTER);
-			  OMP_CLAUSE_DECL (node2) = data;
+			  OMP_CLAUSE_DECL (node2) = build_fold_addr_expr (data);
 			  OMP_CLAUSE_SIZE (node2) = size_int (0);
 			}
 		      else
@@ -3670,6 +3674,22 @@ gfc_trans_omp_clauses (stmtblock_t *block, gfc_omp_clauses *clauses,
 
       c = build_omp_clause (gfc_get_location (&where), OMP_CLAUSE_PRIORITY);
       OMP_CLAUSE_PRIORITY_EXPR (c) = priority;
+      omp_clauses = gfc_trans_add_clause (c, omp_clauses);
+    }
+
+  if (clauses->detach)
+    {
+      tree detach;
+
+      gfc_init_se (&se, NULL);
+      gfc_conv_expr (&se, clauses->detach);
+      gfc_add_block_to_block (block, &se.pre);
+      detach = se.expr;
+      gfc_add_block_to_block (block, &se.post);
+
+      c = build_omp_clause (gfc_get_location (&where), OMP_CLAUSE_DETACH);
+      TREE_ADDRESSABLE (detach) = 1;
+      OMP_CLAUSE_DECL (c) = detach;
       omp_clauses = gfc_trans_add_clause (c, omp_clauses);
     }
 

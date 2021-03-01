@@ -4811,44 +4811,12 @@ process_command (unsigned int decoded_options_count,
       if (decoded_options[j].opt_index == OPT_SPECIAL_input_file)
 	{
 	  const char *arg = decoded_options[j].arg;
-          const char *p = strrchr (arg, '@');
-          char *fname;
-	  long offset;
-	  int consumed;
+
 #ifdef HAVE_TARGET_OBJECT_SUFFIX
 	  arg = convert_filename (arg, 0, access (arg, F_OK));
 #endif
-	  /* For LTO static archive support we handle input file
-	     specifications that are composed of a filename and
-	     an offset like FNAME@OFFSET.  */
-	  if (p
-	      && p != arg
-	      && sscanf (p, "@%li%n", &offset, &consumed) >= 1
-	      && strlen (p) == (unsigned int)consumed)
-	    {
-              fname = (char *)xmalloc (p - arg + 1);
-              memcpy (fname, arg, p - arg);
-              fname[p - arg] = '\0';
-	      /* Only accept non-stdin and existing FNAME parts, otherwise
-		 try with the full name.  */
-	      if (strcmp (fname, "-") == 0 || access (fname, F_OK) < 0)
-		{
-		  free (fname);
-		  fname = xstrdup (arg);
-		}
-	    }
-	  else
-	    fname = xstrdup (arg);
+	  add_infile (arg, spec_lang);
 
-          if (strcmp (fname, "-") != 0 && access (fname, F_OK) < 0)
-	    {
-	      bool resp = fname[0] == '@' && access (fname + 1, F_OK) < 0;
-	      error ("%s: %m", fname + resp);
-	    }
-          else
-	    add_infile (arg, spec_lang);
-
-          free (fname);
 	  continue;
 	}
 
@@ -9052,8 +9020,15 @@ driver::maybe_run_linker (const char *argv0) const
     for (i = 0; (int) i < n_infiles; i++)
       if (explicit_link_files[i]
 	  && !(infiles[i].language && infiles[i].language[0] == '*'))
-	warning (0, "%s: linker input file unused because linking not done",
-		 outfiles[i]);
+	{
+	  warning (0, "%s: linker input file unused because linking not done",
+		   outfiles[i]);
+	  if (access (outfiles[i], F_OK) < 0)
+	    /* This is can be an indication the user specifed an errorneous
+	       separated option value, (or used the wrong prefix for an
+	       option).  */
+	    error ("%s: linker input file not found: %m", outfiles[i]);
+	}
 }
 
 /* The end of "main".  */
@@ -9941,12 +9916,14 @@ print_multilib_info (void)
 	  last_path_len = p - this_path;
 	}
 
-      /* If this directory requires any default arguments, we can skip
-	 it.  We will already have printed a directory identical to
-	 this one which does not require that default argument.  */
+      /* If all required arguments are default arguments, and no default
+	 arguments appear in the ! argument list, then we can skip it.
+	 We will already have printed a directory identical to this one
+	 which does not require that default argument.  */
       if (! skip)
 	{
 	  const char *q;
+	  bool default_arg_ok = false;
 
 	  q = p + 1;
 	  while (*q != ';')
@@ -9978,16 +9955,29 @@ print_multilib_info (void)
 		     list.  */
 		  if (not_arg)
 		    {
-		      skip = 0;
+		      default_arg_ok = false;
 		      break;
 		    }
-		  else
-		    skip = 1;
+
+		  default_arg_ok = true;
+		}
+	      else if (!not_arg)
+		{
+		  /* Stop checking if any required argument is not provided by
+		     default arguments.  */
+		  default_arg_ok = false;
+		  break;
 		}
 
 	      if (*q == ' ')
 		++q;
 	    }
+
+	  /* Make sure all default argument is OK for this multi-lib set.  */
+	  if (default_arg_ok)
+	    skip = 1;
+	  else
+	    skip = 0;
 	}
 
       if (! skip)

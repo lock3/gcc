@@ -347,7 +347,7 @@ enum processor_type ix86_tune;
 enum processor_type ix86_arch;
 
 /* True if processor has SSE prefetch instruction.  */
-unsigned char x86_prefetch_sse;
+unsigned char ix86_prefetch_sse;
 
 /* Preferred alignment for stack boundary in bits.  */
 unsigned int ix86_preferred_stack_boundary;
@@ -22657,15 +22657,15 @@ ix86_simd_clone_usable (struct cgraph_node *node)
 	return -1;
       if (!TARGET_AVX)
 	return 0;
-      return TARGET_AVX2 ? 2 : 1;
+      return TARGET_AVX512F ? 3 : TARGET_AVX2 ? 2 : 1;
     case 'c':
       if (!TARGET_AVX)
 	return -1;
-      return TARGET_AVX2 ? 1 : 0;
+      return TARGET_AVX512F ? 2 : TARGET_AVX2 ? 1 : 0;
     case 'd':
       if (!TARGET_AVX2)
 	return -1;
-      return 0;
+      return TARGET_AVX512F ? 1 : 0;
     case 'e':
       if (!TARGET_AVX512F)
 	return -1;

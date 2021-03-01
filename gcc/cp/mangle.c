@@ -832,6 +832,16 @@ write_encoding (const tree decl)
       write_bare_function_type (fn_type,
 				mangle_return_type_p (decl),
 				d);
+
+      /* If this is the pre/post function for a guarded function, append
+	 pre/post in the vendor specific portion of the mangling.
+
+	 TODO: this likely needs standardizing.
+	 TODO: do we need special handling in other tools like the demangler? */
+      if (DECL_IS_PRE_FN_P (decl))
+	write_string (".pre");
+      else if (DECL_IS_POST_FN_P (decl))
+	write_string (".post");
     }
 }
 
@@ -2868,9 +2878,10 @@ write_member_name (tree member)
 {
   if (identifier_p (member))
     {
-      if (abi_version_at_least (11) && IDENTIFIER_ANY_OP_P (member))
+      if (IDENTIFIER_ANY_OP_P (member))
 	{
-	  write_string ("on");
+	  if (abi_version_at_least (11))
+	    write_string ("on");
 	  if (abi_warn_or_compat_version_crosses (11))
 	    G.need_abi_warning = 1;
 	}
@@ -3349,7 +3360,13 @@ write_expression (tree expr)
   else if (dependent_name (expr))
     {
       tree name = dependent_name (expr);
-      gcc_assert (!IDENTIFIER_ANY_OP_P (name));
+      if (IDENTIFIER_ANY_OP_P (name))
+	{
+	  if (abi_version_at_least (15))
+	    write_string ("on");
+	  if (abi_warn_or_compat_version_crosses (15))
+	    G.need_abi_warning = 1;
+	}
       write_unqualified_id (name);
     }
   else

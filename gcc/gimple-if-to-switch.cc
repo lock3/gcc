@@ -91,11 +91,8 @@ condition_info::record_phi_mapping (edge e, mapping_vec *vec)
        gsi_next (&gsi))
     {
       gphi *phi = gsi.phi ();
-      if (!virtual_operand_p (gimple_phi_result (phi)))
-	{
-	  tree arg = PHI_ARG_DEF_FROM_EDGE (phi, e);
-	  vec->safe_push (std::make_pair (phi, arg));
-	}
+      tree arg = PHI_ARG_DEF_FROM_EDGE (phi, e);
+      vec->safe_push (std::make_pair (phi, arg));
     }
 }
 
@@ -230,6 +227,7 @@ if_chain::is_beneficial ()
 			(left->get_high ()), wi::one (TYPE_PRECISION (type))))
 	    {
 	      left->set_high (right->get_high ());
+	      delete right;
 	      continue;
 	    }
 	}
@@ -244,20 +242,20 @@ if_chain::is_beneficial ()
     = jump_table_cluster::find_jump_tables (filtered_clusters);
   bool r = output.length () < filtered_clusters.length ();
   if (r)
-    dump_clusters (&output, "JT can be built");
-  output.release ();
-  if (r)
-    return true;
+    {
+      dump_clusters (&output, "JT can be built");
+      release_clusters (output);
+      return true;
+    }
+  else
+    output.release ();
 
   output = bit_test_cluster::find_bit_tests (filtered_clusters);
   r = output.length () < filtered_clusters.length ();
   if (r)
     dump_clusters (&output, "BT can be built");
 
-  for (unsigned i = 0; i < output.length (); i++)
-    delete output[i];
-
-  output.release ();
+  release_clusters (output);
   return r;
 }
 
@@ -450,9 +448,8 @@ find_conditions (basic_block bb,
       info->record_phi_mapping (info->m_false_edge,
 				&info->m_false_edge_phi_mapping);
       conditions_in_bbs->put (bb, info);
+      return;
     }
-
-  return;
 
 exit:
   delete info;
@@ -470,7 +467,7 @@ const pass_data pass_data_if_to_switch =
   0, /* properties_provided */
   0, /* properties_destroyed */
   0, /* todo_flags_start */
-  TODO_cleanup_cfg | TODO_update_ssa /* todo_flags_finish */
+  TODO_update_ssa /* todo_flags_finish */
 };
 
 class pass_if_to_switch : public gimple_opt_pass
@@ -575,7 +572,7 @@ pass_if_to_switch::execute (function *fun)
   if (!all_candidates.is_empty ())
     {
       free_dominance_info (CDI_DOMINATORS);
-      mark_virtual_operands_for_renaming (fun);
+      return TODO_cleanup_cfg;
     }
 
   return 0;

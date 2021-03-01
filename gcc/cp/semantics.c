@@ -45,7 +45,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gomp-constants.h"
 #include "predict.h"
 #include "memmodel.h"
-#include "c-family/cxx-contracts.h"
+#include "cxx-contracts.h"
 
 /* There routines provide a modular interface to perform many parsing
    operations.  They may therefore be used during actual parsing, or
@@ -317,7 +317,36 @@ enforce_access (tree basetype_path, tree decl, tree diag_decl,
       if (flag_new_inheriting_ctors)
 	diag_decl = strip_inheriting_ctors (diag_decl);
       if (complain & tf_error)
-	complain_about_access (decl, diag_decl, true);
+	{
+	  /* We will usually want to point to the same place as
+	     diag_decl but not always.  */
+	  tree diag_location = diag_decl;
+	  access_kind parent_access = ak_none;
+
+	  /* See if any of BASETYPE_PATH's parents had private access
+	     to DECL.  If they did, that will tell us why we don't.  */
+	  tree parent_binfo = get_parent_with_private_access (decl,
+							      basetype_path);
+
+	  /* If a parent had private access, then the diagnostic
+	     location DECL should be that of the parent class, since it
+	     failed to give suitable access by using a private
+	     inheritance.  But if DECL was actually defined in the parent,
+	     it wasn't privately inherited, and so we don't need to do
+	     this, and complain_about_access will figure out what to
+	     do.  */
+	  if (parent_binfo != NULL_TREE
+	      && (context_for_name_lookup (decl)
+		  != BINFO_TYPE (parent_binfo)))
+	    {
+	      diag_location = TYPE_NAME (BINFO_TYPE (parent_binfo));
+	      parent_access = ak_private;
+	    }
+
+	  /* Finally, generate an error message.  */
+	  complain_about_access (decl, diag_decl, diag_location, true,
+				 parent_access);
+	}
       if (afi)
 	afi->record_access_failure (basetype_path, decl, diag_decl);
       return false;
@@ -620,10 +649,7 @@ build_arg_list (tree fn)
   vec<tree, va_gc> *args = make_tree_vector ();
   for (tree t = DECL_ARGUMENTS (fn); t != NULL_TREE; t = TREE_CHAIN (t))
     {
-      if (TREE_CODE (TREE_TYPE (t)) == POINTER_TYPE
-	  && DECL_NAME (t) != NULL_TREE
-	  && IDENTIFIER_POINTER (DECL_NAME (t)) != NULL
-	  && id_equal (DECL_NAME (t), "this"))
+      if (is_this_parameter (t))
 	continue; // skip already inserted `this` args
 
       vec_safe_push (args, forward_parm (t));
@@ -631,7 +657,7 @@ build_arg_list (tree fn)
   return args;
 }
 
-/* Remove all c++23 style contract attributes from the DECL_ATTRIBUTEs of the
+/* Remove all c++2a style contract attributes from the DECL_ATTRIBUTEs of the
    FUNCTION_DECL FNDECL.  */
 
 void
@@ -644,7 +670,7 @@ remove_contract_attributes (tree fndecl)
     {
       tree l = *p;
 
-      if (cxx23_contract_attribute_p (l))
+      if (cxx_contract_attribute_p (l))
 	*p = TREE_CHAIN (l);
       else
 	p = &TREE_CHAIN (l);
@@ -766,136 +792,6 @@ copy_fn_decl (tree idecl)
   return decl;
 }
 
-/* Build and return a new string representing the unchecked function name
-   corresponding to the name in IDENT. */
-
-// FIXME: are we sure we shouldn't just mangle or use some existing machinery?
-static const char *
-get_contracts_internal_decl_name (const char *ident)
-{
-  static char iident[256] = "__unchecked_";
-  strcpy (iident, "__unchecked_");
-
-  if (strncmp (ident, "operator", 8) != 0)
-    {
-      strcat (iident, "mf_");
-      strcat (iident, ident);
-      return iident;
-    }
-
-  // FIXME conversion ops?
-  // FIXME: just hex each char?
-
-  char opname[16] = {};
-  strcpy (opname, ident + 8); // skip "operator"
-
-  strcat (iident, "op_");
-
-  if (strcmp (opname, "==") == 0)
-    {
-      strcat (iident, "eq");
-      return iident;
-    }
-  else if (strcmp (opname, "!=") == 0)
-    {
-      strcat (iident, "noteq");
-      return iident;
-    }
-  else if (strcmp (opname, ">=") == 0)
-    {
-      strcat (iident, "ge");
-      return iident;
-    }
-  else if (strcmp (opname, "<=") == 0)
-    {
-      strcat (iident, "le");
-      return iident;
-    }
-
-  if (opname[strlen (opname) - 1] == '=')
-    {
-      opname[strlen (opname) - 1] = '\0';
-      strcat (iident, "assign_");
-    }
-
-  if (strcmp (opname, ">") == 0)
-    strcat (iident, "gt");
-  else if (strcmp (opname, "<") == 0)
-    strcat (iident, "lt");
-  else if (strcmp (opname, "!") == 0)
-    strcat (iident, "not");
-  else if (strcmp (opname, "&&") == 0)
-    strcat (iident, "land");
-  else if (strcmp (opname, "||") == 0)
-    strcat (iident, "lor");
-  // FIXME: post and pre inc/dec?
-  else if (strcmp (opname, "++") == 0)
-    strcat (iident, "inc");
-  else if (strcmp (opname, "--") == 0)
-    strcat (iident, "dec");
-  else if (strcmp (opname, "[]") == 0)
-    strcat (iident, "subs");
-  else if (strcmp (opname, "()") == 0)
-    strcat (iident, "call");
-  // FIXME addr of?
-  // FIXME deref?
-  else if (strcmp (opname, "->") == 0)
-    strcat (iident, "mr");
-  else if (strcmp (opname, ",") == 0)
-    strcat (iident, "comma");
-  else if (strcmp (opname, "->*") == 0)
-    strcat (iident, "mdr");
-  else if (strcmp (opname, "new") == 0)
-    strcat (iident, "new");
-  else if (strcmp (opname, "new[]") == 0)
-    strcat (iident, "newa");
-  else if (strcmp (opname, "delete") == 0)
-    strcat (iident, "delete");
-  else if (strcmp (opname, "delete[]") == 0)
-    strcat (iident, "deletea");
-  else if (strcmp (opname, "+") == 0)
-    strcat (iident, "add");
-  else if (strcmp (opname, "-") == 0)
-    strcat (iident, "sub");
-  else if (strcmp (opname, "*") == 0)
-    strcat (iident, "mul");
-  else if (strcmp (opname, "/") == 0)
-    strcat (iident, "div");
-  else if (strcmp (opname, "%") == 0)
-    strcat (iident, "mod");
-  else if (strcmp (opname, "^") == 0)
-    strcat (iident, "xor");
-  else if (strcmp (opname, "|") == 0)
-    strcat (iident, "or");
-  else if (strcmp (opname, "&") == 0)
-    strcat (iident, "and");
-  else if (strcmp (opname, "~") == 0)
-    strcat (iident, "comp");
-  else if (strcmp (opname, "<<") == 0)
-    strcat (iident, "lshift");
-  else if (strcmp (opname, ">>") == 0)
-    strcat (iident, "rshift");
-  else
-    gcc_assert (false); // FIXME
-
-  return iident;
-}
-
-/* Return a copy of UNQUALIFIED_NAME containing the name of the unchecked
-   function correspending the name passed. */
-
-static tree
-get_contracts_internal_ident (tree unqualified_name)
-{
-  /* At the point we run this we should be in finish_function and only have an
-     IDENTIFIER_NODE left.  */
-  gcc_assert (TREE_CODE (unqualified_name) == IDENTIFIER_NODE);
-  const char *iident =
-    get_contracts_internal_decl_name (IDENTIFIER_POINTER (unqualified_name));
-  gcc_assert (iident != NULL);
-  return get_identifier (iident);
-}
-
 /* Convert a contract CONFIG into a contract_mode.  */
 
 static contract_mode
@@ -1011,21 +907,15 @@ build_contract_functor_declaration (tree fndecl, bool pre)
   if (DECL_NONSTATIC_MEMBER_FUNCTION_P (fndecl))
     TREE_TYPE (fn) = build_method_type (class_type, TREE_TYPE (fn));
 
-  DECL_NAME (fn) = get_contracts_internal_ident (DECL_NAME (fn));
-  {
-    char buf[256] = {};
-    strcpy(buf, pre ? "__pre" : "__post");
-    strcat(buf, IDENTIFIER_POINTER (DECL_NAME (fn)) + 1);
-    DECL_NAME (fn) = get_identifier (buf);
-  }
+  DECL_NAME (fn) = copy_node (DECL_NAME (fn));
   DECL_INITIAL (fn) = error_mark_node;
-  remove_contract_attributes (fn);
+  set_contracts_original_fn (fn, fndecl);
 
   IDENTIFIER_VIRTUAL_P (DECL_NAME (fn)) = false;
   DECL_VIRTUAL_P (fn) = false;
 
   /* Update various inline related declaration properties.  */
-  DECL_DECLARED_INLINE_P (fn) = true;
+  //DECL_DECLARED_INLINE_P (fn) = true;
   DECL_DISREGARD_INLINE_LIMITS (fn) = true;
   TREE_NO_WARNING (fn) = 1;
 
@@ -1149,7 +1039,7 @@ build_contract_handler_fn (tree contract,
 bool
 contract_active_p (tree contract)
 {
-  return get_contract_semantic (TREE_VALUE (contract)) != CCS_IGNORE;
+  return get_contract_semantic (CONTRACT_STATEMENT (contract)) != CCS_IGNORE;
 }
 
 /* Return true if any contract in the CONTRACT list is checked or assumed
@@ -1170,7 +1060,7 @@ bool
 contract_any_deferred_p (tree contract_attr)
 {
   for (; contract_attr; contract_attr = CONTRACT_CHAIN (contract_attr))
-    if (CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (contract_attr)))
+    if (CONTRACT_CONDITION_DEFERRED_P (CONTRACT_STATEMENT (contract_attr)))
       return true;
   return false;
 }
@@ -1239,7 +1129,7 @@ static tree
 emit_contract_statement (tree attr)
 {
   gcc_assert (TREE_CODE (attr) == TREE_LIST);
-  tree contract = TREE_VALUE (attr);
+  tree contract = CONTRACT_STATEMENT (attr);
 
   /* Only add valid contracts.  */
   if (get_contract_semantic (contract) != CCS_INVALID
@@ -1259,7 +1149,7 @@ emit_contract_conditions (tree attrs, tree_code code)
   gcc_assert (code == PRECONDITION_STMT || code == POSTCONDITION_STMT);
   while (attrs)
     {
-      tree contract = TREE_VALUE (attrs);
+      tree contract = CONTRACT_STATEMENT (attrs);
       if (TREE_CODE (contract) == code)
 	attrs = emit_contract_statement (attrs);
       else
@@ -1729,6 +1619,11 @@ finish_do_stmt (tree cond, tree do_stmt, bool ivdep, unsigned short unroll)
 {
   cond = maybe_convert_cond (cond);
   end_maybe_infinite_loop (cond);
+  /* Unlike other iteration statements, the condition may not contain
+     a declaration, so we don't call finish_cond which checks for
+     unexpanded parameter packs.  */
+  if (check_for_bare_parameter_packs (cond))
+    cond = error_mark_node;
   if (ivdep && cond != error_mark_node)
     cond = build3 (ANNOTATE_EXPR, TREE_TYPE (cond), cond,
 		   build_int_cst (integer_type_node, annot_expr_ivdep_kind),
@@ -1790,6 +1685,7 @@ finish_return_stmt (tree expr)
      ensure the post function exists and replace the returned expression with
      said call.  */
   bool needs_post = !processing_template_decl
+      && DECL_ORIGINAL_FN (current_function_decl) == NULL_TREE
       && !DECL_CONSTRUCTOR_P (current_function_decl)
       && !DECL_DESTRUCTOR_P (current_function_decl)
       && contract_any_active_p (DECL_CONTRACTS (current_function_decl));
@@ -3028,8 +2924,7 @@ finish_qualified_id_expr (tree qualifying_class,
     {
       /* See if any of the functions are non-static members.  */
       /* If so, the expression may be relative to 'this'.  */
-      if ((type_dependent_expression_p (expr)
-	   || !shared_member_p (expr))
+      if (!shared_member_p (expr)
 	  && current_class_ptr
 	  && DERIVED_FROM_P (qualifying_class,
 			     current_nonlambda_class_type ()))
@@ -7224,6 +7119,8 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
      has been seen, -2 if mixed inscan/normal reduction diagnosed.  */
   int reduction_seen = 0;
   bool allocate_seen = false;
+  bool detach_seen = false;
+  bool mergeable_seen = false;
 
   bitmap_obstack_initialize (NULL);
   bitmap_initialize (&generic_head, &bitmap_default_obstack);
@@ -8241,6 +8138,42 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 		}
 	    }
 	  break;
+	case OMP_CLAUSE_DETACH:
+	  t = OMP_CLAUSE_DECL (c);
+	  if (detach_seen)
+	    {
+	      error_at (OMP_CLAUSE_LOCATION (c),
+			"too many %qs clauses on a task construct",
+			"detach");
+	      remove = true;
+	      break;
+	    }
+	  else if (error_operand_p (t))
+	    {
+	      remove = true;
+	      break;
+	    }
+	  else
+	    {
+	      tree type = TYPE_MAIN_VARIANT (TREE_TYPE (t));
+	      if (!type_dependent_expression_p (t)
+		  && (!INTEGRAL_TYPE_P (type)
+		      || TREE_CODE (type) != ENUMERAL_TYPE
+		      || TYPE_NAME (type) == NULL_TREE
+		      || (DECL_NAME (TYPE_NAME (type))
+			  != get_identifier ("omp_event_handle_t"))))
+		{
+		  error_at (OMP_CLAUSE_LOCATION (c),
+			    "%<detach%> clause event handle "
+			    "has type %qT rather than "
+			    "%<omp_event_handle_t%>",
+			    type);
+		  remove = true;
+		}
+	      detach_seen = true;
+	      cxx_mark_addressable (t);
+	    }
+	  break;
 
 	case OMP_CLAUSE_MAP:
 	case OMP_CLAUSE_TO:
@@ -8772,7 +8705,6 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 	case OMP_CLAUSE_DEFAULT:
 	case OMP_CLAUSE_UNTIED:
 	case OMP_CLAUSE_COLLAPSE:
-	case OMP_CLAUSE_MERGEABLE:
 	case OMP_CLAUSE_PARALLEL:
 	case OMP_CLAUSE_FOR:
 	case OMP_CLAUSE_SECTIONS:
@@ -8789,6 +8721,10 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 	case OMP_CLAUSE_SEQ:
 	case OMP_CLAUSE_IF_PRESENT:
 	case OMP_CLAUSE_FINALIZE:
+	  break;
+
+	case OMP_CLAUSE_MERGEABLE:
+	  mergeable_seen = true;
 	  break;
 
 	case OMP_CLAUSE_TILE:
@@ -9028,6 +8964,17 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 	    }
 	  pc = &OMP_CLAUSE_CHAIN (c);
 	  continue;
+	case OMP_CLAUSE_DETACH:
+	  if (mergeable_seen)
+	    {
+	      error_at (OMP_CLAUSE_LOCATION (c),
+			"%<detach%> clause must not be used together with "
+			"%<mergeable%> clause");
+	      *pc = OMP_CLAUSE_CHAIN (c);
+	      continue;
+	    }
+	  pc = &OMP_CLAUSE_CHAIN (c);
+	  continue;
 	case OMP_CLAUSE_NOWAIT:
 	  if (copyprivate_seen)
 	    {
@@ -9186,6 +9133,19 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 			"clauses", omp_clause_printable_decl (t));
 	      remove = true;
 	    }
+	}
+
+      if (detach_seen
+	  && (OMP_CLAUSE_CODE (c) == OMP_CLAUSE_SHARED
+	      || OMP_CLAUSE_CODE (c) == OMP_CLAUSE_PRIVATE
+	      || OMP_CLAUSE_CODE (c) == OMP_CLAUSE_FIRSTPRIVATE
+	      || OMP_CLAUSE_CODE (c) == OMP_CLAUSE_LASTPRIVATE)
+	  && OMP_CLAUSE_DECL (c) == t)
+	{
+	  error_at (OMP_CLAUSE_LOCATION (c),
+		    "the event handle of a %<detach%> clause "
+		    "should not be in a data-sharing clause");
+	  remove = true;
 	}
 
       /* We're interested in the base element, not arrays.  */
@@ -10838,6 +10798,9 @@ finish_decltype_type (tree expr, bool id_expression_or_member_access_p,
       return error_mark_node;
     }
 
+  /* decltype is an unevaluated context.  */
+  cp_unevaluated u;
+
   /* Depending on the resolution of DR 1172, we may later need to distinguish
      instantiation-dependent but not type-dependent expressions so that, say,
      A<decltype(sizeof(T))>::U doesn't require 'typename'.  */
@@ -10853,9 +10816,7 @@ finish_decltype_type (tree expr, bool id_expression_or_member_access_p,
     }
   else if (processing_template_decl)
     {
-      ++cp_unevaluated_operand;
       expr = instantiate_non_dependent_expr_sfinae (expr, complain);
-      --cp_unevaluated_operand;
       if (expr == error_mark_node)
 	return error_mark_node;
     }

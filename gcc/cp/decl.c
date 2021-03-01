@@ -102,6 +102,7 @@ static void store_parm_decls (tree);
 static void initialize_local_var (tree, tree);
 static void expand_static_init (tree, tree);
 static location_t smallest_type_location (const cp_decl_specifier_seq*);
+static void finish_function_contracts (tree fndecl);
 
 /* The following symbols are subsumed in the cp_global_trees array, and
    listed here individually for documentation purposes.
@@ -941,8 +942,8 @@ static bool
 diagnose_mismatched_contracts (tree old_attr, tree new_attr,
 			       contract_matching_context ctx)
 {
-  tree old_contract = TREE_VALUE (old_attr);
-  tree new_contract = TREE_VALUE (new_attr);
+  tree old_contract = CONTRACT_STATEMENT (old_attr);
+  tree new_contract = CONTRACT_STATEMENT (new_attr);
 
   /* Different kinds of contracts do not match.  */
   if (TREE_CODE (old_contract) != TREE_CODE (new_contract))
@@ -1118,8 +1119,8 @@ merge_contracts (tree decl, const cp_declarator *fn)
 
   bool any_uses_return = false;
   for (tree ca = fn->contracts; ca; ca = TREE_CHAIN (ca))
-    if (TREE_CODE (TREE_VALUE (ca)) == POSTCONDITION_STMT
-	&& POSTCONDITION_IDENTIFIER (TREE_VALUE (ca)))
+    if (TREE_CODE (CONTRACT_STATEMENT (ca)) == POSTCONDITION_STMT
+	&& POSTCONDITION_IDENTIFIER (CONTRACT_STATEMENT (ca)))
       any_uses_return = true;
   if (any_uses_return && undeduced_auto_decl (decl) && !decl_defined_p (decl)
       && !DECL_TEMPLATE_INFO (decl))
@@ -1238,7 +1239,7 @@ diagnose_misapplied_contracts (tree attributes)
   if (!contract_attr)
     return false;
 
-  error_at (EXPR_LOCATION (TREE_VALUE (contract_attr)),
+  error_at (EXPR_LOCATION (CONTRACT_STATEMENT (contract_attr)),
 	    "contracts must appertain to a function type");
   return true;
 }
@@ -1519,7 +1520,8 @@ check_redeclaration_exception_specification (tree new_decl,
      all declarations, including the definition and an explicit
      specialization, of that function shall have an
      exception-specification with the same set of type-ids.  */
-  if (! DECL_IS_UNDECLARED_BUILTIN (old_decl)
+  if (!DECL_IS_UNDECLARED_BUILTIN (old_decl)
+      && !DECL_IS_UNDECLARED_BUILTIN (new_decl)
       && !comp_except_specs (new_exceptions, old_exceptions, ce_normal))
     {
       const char *const msg
@@ -4868,9 +4870,6 @@ cxx_init_decl_processing (void)
   abi_node = current_namespace;
   pop_namespace ();
 
-  global_type_node = make_node (LANG_TYPE);
-  record_unknown_type (global_type_node, "global type");
-
   any_targ_node = make_node (LANG_TYPE);
   record_unknown_type (any_targ_node, "any type");
 
@@ -5053,6 +5052,30 @@ cxx_init_decl_processing (void)
   /* Show we use EH for cleanups.  */
   if (flag_exceptions)
     using_eh_for_cleanups ();
+}
+
+/* Enter an abi node in global-module context.  returns a cookie to
+   give to pop_abi_namespace.  */
+
+unsigned
+push_abi_namespace (tree node)
+{
+  push_nested_namespace (node);
+  push_visibility ("default", 2);
+  unsigned flags = module_kind;
+  module_kind = 0;
+  return flags;
+}
+
+/* Pop an abi namespace, FLAGS is the cookie push_abi_namespace gave
+   you.  */
+
+void
+pop_abi_namespace (unsigned flags, tree node)
+{
+  module_kind = flags;
+  pop_visibility (2);
+  pop_nested_namespace (node);
 }
 
 /* Create the VAR_DECL for __FUNCTION__ etc. ID is the name to give
@@ -5873,7 +5896,8 @@ start_decl (const cp_declarator *declarator,
 	  && !alias
 	  && flag_contract_strict_declarations)
 	warning_at (declarator->id_loc, OPT_fcontract_strict_declarations_,
-		    "non-defining declaration of %q#D outside of class", decl);
+		    "declaration of %q#D outside of class is not definition",
+		    decl);
     }
 
   /* Create a DECL_LANG_SPECIFIC so that DECL_DECOMPOSITION_P works.  */
@@ -7140,6 +7164,19 @@ check_array_initializer (tree decl, tree type, tree init)
 {
   tree element_type = TREE_TYPE (type);
 
+  /* Structured binding when initialized with an array type needs
+     to have complete type.  */
+  if (decl
+      && DECL_DECOMPOSITION_P (decl)
+      && !DECL_DECOMP_BASE (decl)
+      && !COMPLETE_TYPE_P (type))
+    {
+      error_at (DECL_SOURCE_LOCATION (decl),
+		"structured binding has incomplete type %qT", type);
+      TREE_TYPE (decl) = error_mark_node;
+      return true;
+    }
+
   /* The array type itself need not be complete, because the
      initializer may tell us how many elements are in the array.
      But, the elements of the array must be complete.  */
@@ -8212,6 +8249,12 @@ cp_finish_decl (tree decl, tree init, bool init_const_expr_p,
 	  retrofit_lang_decl (decl);
 	  SET_DECL_DEPENDENT_INIT_P (decl, true);
 	}
+
+      if (VAR_P (decl) && DECL_REGISTER (decl) && asmspec)
+	{
+	  set_user_assembler_name (decl, asmspec);
+	  DECL_HARD_REGISTER (decl) = 1;
+	}
       return;
     }
 
@@ -9040,21 +9083,19 @@ cp_finish_decomp (tree decl, tree first, unsigned int count)
 static tree
 declare_global_var (tree name, tree type)
 {
-  tree decl;
-
-  push_to_top_level ();
-  decl = build_decl (input_location, VAR_DECL, name, type);
+  auto cookie = push_abi_namespace (global_namespace);
+  tree decl = build_decl (input_location, VAR_DECL, name, type);
   TREE_PUBLIC (decl) = 1;
   DECL_EXTERNAL (decl) = 1;
   DECL_ARTIFICIAL (decl) = 1;
-  DECL_CONTEXT (decl) = FROB_CONTEXT (global_namespace);
+  DECL_CONTEXT (decl) = FROB_CONTEXT (current_namespace);
   /* If the user has explicitly declared this variable (perhaps
      because the code we are compiling is part of a low-level runtime
      library), then it is possible that our declaration will be merged
      with theirs by pushdecl.  */
   decl = pushdecl (decl);
   cp_finish_decl (decl, NULL_TREE, false, NULL_TREE, 0);
-  pop_from_top_level ();
+  pop_abi_namespace (cookie, global_namespace);
 
   return decl;
 }
@@ -9099,6 +9140,7 @@ get_atexit_node (void)
   tree fn_ptr_type;
   const char *name;
   bool use_aeabi_atexit;
+  tree ctx = global_namespace;
 
   if (atexit_node)
     return atexit_node;
@@ -9133,10 +9175,23 @@ get_atexit_node (void)
       fn_type = build_function_type_list (integer_type_node,
 					  argtype0, argtype1, argtype2,
 					  NULL_TREE);
+      /* ... which needs noexcept.  */
+      fn_type = build_exception_variant (fn_type, noexcept_true_spec);
       if (use_aeabi_atexit)
-	name = "__aeabi_atexit";
+	{
+	  name = "__aeabi_atexit";
+	  push_to_top_level ();
+	  int n = push_namespace (get_identifier ("__aeabiv1"), false);
+	  ctx = current_namespace;
+	  while (n--)
+	    pop_namespace ();
+	  pop_from_top_level ();
+	}
       else
-	name = "__cxa_atexit";
+	{
+	  name = "__cxa_atexit";
+	  ctx = abi_node;
+	}
     }
   else
     {
@@ -9150,12 +9205,23 @@ get_atexit_node (void)
       /* Build the final atexit type.  */
       fn_type = build_function_type_list (integer_type_node,
 					  fn_ptr_type, NULL_TREE);
+      /* ... which needs noexcept.  */
+      fn_type = build_exception_variant (fn_type, noexcept_true_spec);
       name = "atexit";
     }
 
   /* Now, build the function declaration.  */
   push_lang_context (lang_name_c);
+  auto cookie = push_abi_namespace (ctx);
   atexit_fndecl = build_library_fn_ptr (name, fn_type, ECF_LEAF | ECF_NOTHROW);
+  DECL_CONTEXT (atexit_fndecl) = FROB_CONTEXT (current_namespace);
+  /* Install as hidden builtin so we're (a) more relaxed about
+    exception spec matching and (b) will not give a confusing location
+    in diagnostic and (c) won't magically appear in user-visible name
+    lookups.  */
+  DECL_SOURCE_LOCATION (atexit_fndecl) = BUILTINS_LOCATION;
+  atexit_fndecl = pushdecl (atexit_fndecl, /*hiding=*/true);
+  pop_abi_namespace (cookie, ctx);
   mark_used (atexit_fndecl);
   pop_lang_context ();
   atexit_node = decay_conversion (atexit_fndecl, tf_warning_or_error);
@@ -9214,10 +9280,6 @@ static tree
 start_cleanup_fn (void)
 {
   char name[32];
-  tree fntype;
-  tree fndecl;
-  bool use_cxa_atexit = flag_use_cxa_atexit
-			&& !targetm.cxx.use_atexit_for_cxa_atexit ();
 
   push_to_top_level ();
 
@@ -9227,8 +9289,9 @@ start_cleanup_fn (void)
   /* Build the name of the function.  */
   sprintf (name, "__tcf_%d", start_cleanup_cnt++);
   /* Build the function declaration.  */
-  fntype = TREE_TYPE (get_atexit_fn_ptr_type ());
-  fndecl = build_lang_decl (FUNCTION_DECL, get_identifier (name), fntype);
+  tree fntype = TREE_TYPE (get_atexit_fn_ptr_type ());
+  tree fndecl = build_lang_decl (FUNCTION_DECL, get_identifier (name), fntype);
+  DECL_CONTEXT (fndecl) = FROB_CONTEXT (current_namespace);
   /* It's a function with internal linkage, generated by the
      compiler.  */
   TREE_PUBLIC (fndecl) = 0;
@@ -9239,16 +9302,16 @@ start_cleanup_fn (void)
      emissions this way.  */
   DECL_DECLARED_INLINE_P (fndecl) = 1;
   DECL_INTERFACE_KNOWN (fndecl) = 1;
-  /* Build the parameter.  */
-  if (use_cxa_atexit)
+  if (flag_use_cxa_atexit && !targetm.cxx.use_atexit_for_cxa_atexit ())
     {
+      /* Build the parameter.  */
       tree parmdecl = cp_build_parm_decl (fndecl, NULL_TREE, ptr_type_node);
       TREE_USED (parmdecl) = 1;
       DECL_READ_P (parmdecl) = 1;
       DECL_ARGUMENTS (fndecl) = parmdecl;
     }
 
-  pushdecl (fndecl);
+  fndecl = pushdecl (fndecl, /*hidden=*/true);
   start_preparsed_function (fndecl, NULL_TREE, SF_PRE_PARSED);
 
   pop_lang_context ();
@@ -17072,6 +17135,7 @@ start_preparsed_function (tree decl1, tree attrs, int flags)
   push_operator_bindings ();
 
   bool starting_guarded_p = !processing_template_decl
+      && DECL_ORIGINAL_FN (decl1) == NULL_TREE
       && contract_any_active_p (DECL_CONTRACTS (decl1))
       && !DECL_CONSTRUCTOR_P (decl1)
       && !DECL_DESTRUCTOR_P (decl1);
@@ -17082,7 +17146,7 @@ start_preparsed_function (tree decl1, tree attrs, int flags)
 
   /* If we're starting a guarded function with valid contracts, we need to
      insert a call to the pre function.  */
-  if (!processing_template_decl && DECL_PRE_FN (decl1)
+  if (starting_guarded_p && DECL_PRE_FN (decl1)
       && DECL_PRE_FN (decl1) != error_mark_node)
     {
       vec<tree, va_gc> *args = build_arg_list (decl1);
@@ -17596,6 +17660,7 @@ finish_function (bool inline_p)
 
   //gcc_checking_assert (!pending_guarded_decls.get (fndecl));
   bool finishing_guarded_p = !processing_template_decl
+    && DECL_ORIGINAL_FN (fndecl) == NULL_TREE
     && contract_any_active_p (DECL_CONTRACTS (fndecl))
     && !DECL_CONSTRUCTOR_P (fndecl)
     && !DECL_DESTRUCTOR_P (fndecl);
@@ -17877,31 +17942,27 @@ finish_function (bool inline_p)
   invoke_plugin_callbacks (PLUGIN_FINISH_PARSE_FUNCTION, fndecl);
 
   if (finishing_guarded_p)
-    finish_function_contracts (fndecl, 0);
+    finish_function_contracts (fndecl);
 
   return fndecl;
 }
 
-void
-finish_function_contracts (tree fndecl, bool is_inline)
+/* Finish up a the pre & post function declarations for a guarded FNDECL,
+   and compile those functions all the way to assembler language output.  */
+
+static void
+finish_function_contracts (tree fndecl)
 {
-  //gcc_checking_assert (!pending_guarded_decls.get (fndecl));
-  bool finishing_guarded_p = true//!processing_template_decl
-    && contract_any_active_p (DECL_CONTRACTS (fndecl))
-    && !DECL_CONSTRUCTOR_P (fndecl)
-    && !DECL_DESTRUCTOR_P (fndecl);
-  if (!finishing_guarded_p)
-    return;
   for (tree ca = DECL_CONTRACTS (fndecl); ca; ca = CONTRACT_CHAIN (ca))
-    if (!CONTRACT_CONDITION (TREE_VALUE (ca))
-	|| CONTRACT_CONDITION_DEFERRED_P (TREE_VALUE (ca))
-	|| CONTRACT_CONDITION (TREE_VALUE (ca)) == error_mark_node)
-      return;
+    {
+      tree contract = CONTRACT_STATEMENT (ca);
+      if (!CONTRACT_CONDITION (contract)
+	  || CONTRACT_CONDITION_DEFERRED_P (contract)
+	  || CONTRACT_CONDITION (contract) == error_mark_node)
+	return;
+    }
 
   int flags = SF_DEFAULT | SF_PRE_PARSED;
-  if (is_inline)
-    flags = SF_PRE_PARSED | SF_INCLASS_INLINE;
-
   tree finished_pre = NULL_TREE, finished_post = NULL_TREE;
 
   if (DECL_PRE_FN (fndecl) && DECL_INITIAL (fndecl) != error_mark_node
@@ -17911,7 +17972,7 @@ finish_function_contracts (tree fndecl, bool is_inline)
       start_preparsed_function (DECL_PRE_FN (fndecl),
 				DECL_ATTRIBUTES (DECL_PRE_FN (fndecl)),
 				flags);
-      emit_preconditions (DECL_CONTRACTS (fndecl));
+      emit_preconditions (DECL_CONTRACTS (DECL_PRE_FN (fndecl)));
       finished_pre = finish_function (false);
       expand_or_defer_fn (finished_pre);
     }
@@ -17922,7 +17983,7 @@ finish_function_contracts (tree fndecl, bool is_inline)
       start_preparsed_function (DECL_POST_FN (fndecl),
 				DECL_ATTRIBUTES (DECL_POST_FN (fndecl)),
 				flags);
-      emit_postconditions (DECL_CONTRACTS (fndecl));
+      emit_postconditions (DECL_CONTRACTS (DECL_POST_FN (fndecl)));
 
       tree res = DECL_UNCHECKED_RESULT (fndecl);
       if (res)

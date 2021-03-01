@@ -1,3 +1,25 @@
+2021-01-25  Martin Liska  <mliska@suse.cz>
+
+	PR gcov-profile/98739
+	* Makefile.in: Enable -fprofile-reproducible=parallel-runs
+	for profiledbootstrap.
+
+2021-01-22  Jonathan Wright  <jonathan.wright@arm.com>
+
+	* MAINTAINERS (Write After Approval): Add myself.
+
+2021-01-22  Maciej W. Rozycki  <macro@orcam.me.uk>
+
+	* MAINTAINERS (Write After Approval): Update my e-mail address.
+
+2021-01-12  Segher Boessenkool  <segher@kernel.crashing.org>
+
+	* MAINTAINERS: Fix spacing.
+
+2021-01-12  Qian Jianhua  <qianjh@cn.fujitsu.com>
+
+	* MAINTAINERS (Write After Approval): Add myself
+
 2021-01-06  Nick Alcock  <nick.alcock@oracle.com>
 
 	* Makefile.def: Sync with binutils-gdb:

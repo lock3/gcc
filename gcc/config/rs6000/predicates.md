@@ -297,6 +297,11 @@
   (and (match_code "const_int")
        (match_test "IN_RANGE (INTVAL (op), 0, 1)")))
 
+;; Match op = -1, op = 0, or op = 1.
+(define_predicate "const_m1_to_1_operand"
+  (and (match_code "const_int")
+       (match_test "IN_RANGE (INTVAL (op), -1, 1)")))
+
 ;; Match op = 0..3.
 (define_predicate "const_0_to_3_operand"
   (and (match_code "const_int")
@@ -847,6 +852,15 @@
 		    || GET_CODE (XEXP (op, 0)) == PRE_DEC
 		    || GET_CODE (XEXP (op, 0)) == PRE_MODIFY))"))
 
+;; Anything that matches memory_operand but does not update the address.
+(define_predicate "non_update_memory_operand"
+  (match_code "mem")
+{
+  if (update_address_mem (op, mode))
+    return 0;
+  return memory_operand (op, mode);
+})
+
 ;; Return 1 if the operand is a MEM with an indexed-form address.
 (define_special_predicate "indexed_address_mem"
   (match_test "(MEM_P (op)
@@ -1142,7 +1156,9 @@
 ;; Return 1 if this operand is valid for a MMA assemble accumulator insn.
 (define_special_predicate "mma_assemble_input_operand"
   (match_test "(mode == V16QImode
-		&& (vsx_register_operand (op, mode) || MEM_P (op)))"))
+		&& (vsx_register_operand (op, mode)
+		    || (MEM_P (op)
+			&& quad_address_p (XEXP (op, 0), mode, false))))"))
 
 ;; Return 1 if this operand is valid for an MMA disassemble insn.
 (define_predicate "mma_disassemble_output_operand"

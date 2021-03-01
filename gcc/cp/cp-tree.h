@@ -24,7 +24,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm.h"
 #include "hard-reg-set.h"
 #include "function.h"
-#include "c-family/cxx-contracts.h"
+#include "cxx-contracts.h"
 
 /* In order for the format checking to accept the C++ front end
    diagnostic framework extensions, you must include this file before
@@ -130,7 +130,6 @@ enum cp_tree_index
     CPTI_VTBL_TYPE,
     CPTI_VTBL_PTR_TYPE,
     CPTI_GLOBAL,
-    CPTI_GLOBAL_TYPE,
     CPTI_ABORT_FNDECL,
     CPTI_AGGR_TAG,
     CPTI_CONV_OP_MARKER,
@@ -194,7 +193,9 @@ enum cp_tree_index
 
     CPTI_MODULE_HWM,
     /* Nodes after here change during compilation, or should not be in
-       the module's global tree table.  */
+       the module's global tree table.  Such nodes must be locatable
+       via name lookup or type-construction, as those are the only
+       cross-TU matching capabilities remaining.  */
 
     /* We must find these via the global namespace.  */
     CPTI_STD,
@@ -252,7 +253,6 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
 #define std_node			cp_global_trees[CPTI_STD]
 #define abi_node			cp_global_trees[CPTI_ABI]
 #define global_namespace		cp_global_trees[CPTI_GLOBAL]
-#define global_type_node		cp_global_trees[CPTI_GLOBAL_TYPE]
 #define const_type_info_type_node	cp_global_trees[CPTI_CONST_TYPE_INFO_TYPE]
 #define type_info_ptr_type		cp_global_trees[CPTI_TYPE_INFO_PTR_TYPE]
 #define conv_op_marker			cp_global_trees[CPTI_CONV_OP_MARKER]
@@ -1157,24 +1157,16 @@ enum GTY(()) abstract_class_use {
 
 /* Macros for access to language-specific slots in an identifier.  */
 
-/* The IDENTIFIER_BINDING is the innermost cxx_binding for the
-    identifier.  Its PREVIOUS is the next outermost binding.  Each
-    VALUE field is a DECL for the associated declaration.  Thus,
-    name lookup consists simply of pulling off the node at the front
-    of the list (modulo oddities for looking up the names of types,
-    and such.)  You can use SCOPE field to determine the scope
-    that bound the name.  */
+/* Identifiers map directly to block or class-scope bindings.
+   Namespace-scope bindings are held in hash tables on the respective
+   namespaces.  The identifier bindings are the innermost active
+   binding, from whence you can get the decl and/or implicit-typedef
+   of an elaborated type.   When not bound to a local entity the
+   values are NULL.  */
 #define IDENTIFIER_BINDING(NODE) \
   (LANG_IDENTIFIER_CAST (NODE)->bindings)
-
-/* TREE_TYPE only indicates on local and class scope the current
-   type. For namespace scope, the presence of a type in any namespace
-   is indicated with global_type_node, and the real type behind must
-   be found through lookup.  */
-#define IDENTIFIER_TYPE_VALUE(NODE) identifier_type_value (NODE)
 #define REAL_IDENTIFIER_TYPE_VALUE(NODE) TREE_TYPE (NODE)
 #define SET_IDENTIFIER_TYPE_VALUE(NODE,TYPE) (TREE_TYPE (NODE) = (TYPE))
-#define IDENTIFIER_HAS_TYPE_VALUE(NODE) (IDENTIFIER_TYPE_VALUE (NODE) ? 1 : 0)
 
 /* Kinds of identifiers.  Values are carefully chosen.  */
 enum cp_identifier_kind {
@@ -3648,7 +3640,7 @@ struct GTY(()) lang_decl {
 inline tree
 find_contract (tree attrs)
 {
-  while (attrs && !cxx23_contract_attribute_p (attrs))
+  while (attrs && !cxx_contract_attribute_p (attrs))
     attrs = TREE_CHAIN (attrs);
   return attrs;
 }
@@ -3668,7 +3660,7 @@ find_contract (tree attrs)
 
 /* The wrapper of the original source location of a list of contracts.  */
 #define CONTRACT_SOURCE_LOCATION_WRAPPER(NODE) \
-  (TREE_PURPOSE (TREE_PURPOSE (NODE)))
+  (TREE_PURPOSE (TREE_VALUE (NODE)))
 
 /* The original source location of a list of contracts.  */
 #define CONTRACT_SOURCE_LOCATION(NODE) \
@@ -3677,6 +3669,10 @@ find_contract (tree attrs)
 /* The original decl a list of contracts was declared on.  */
 #define CONTRACT_ORIGINAL_DECL(NODE) \
   (tree_strip_any_location_wrapper (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
+
+/* The actual code _STMT for a contract attribute.  */
+#define CONTRACT_STATEMENT(NODE) \
+  (TREE_VALUE (TREE_VALUE (NODE)))
 
 /* For a FUNCTION_DECL of a guarded function, this holds the var decl
    capturing the result of the call to the unchecked function.  */
@@ -3697,6 +3693,14 @@ find_contract (tree attrs)
    original guarded function.  */
 #define DECL_ORIGINAL_FN(NODE) \
   (get_contracts_original_fn (NODE))
+
+/* True iff the FUNCTION_DECL is the pre function for a guarded function.  */
+#define DECL_IS_PRE_FN_P(NODE) \
+  (DECL_ORIGINAL_FN (NODE) && DECL_PRE_FN (DECL_ORIGINAL_FN (NODE)) == NODE)
+
+/* True iff the FUNCTION_DECL is the post function for a guarded function.  */
+#define DECL_IS_POST_FN_P(NODE) \
+  (DECL_ORIGINAL_FN (NODE) && DECL_POST_FN (DECL_ORIGINAL_FN (NODE)) == NODE)
 
 /* True the FUNCTION_DECL NODE was initially declared without contracts.  */
 #define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
@@ -3927,8 +3931,8 @@ find_contract (tree attrs)
 
       template <typename T> struct S {};
       template <typename T> struct S<T*> {};
-      
-   the CLASSTPYE_TI_TEMPLATE for S<int*> will be S, not the S<T*>.
+
+   the CLASSTYPE_TI_TEMPLATE for S<int*> will be S, not the S<T*>.
 
    For a member class template, CLASSTYPE_TI_TEMPLATE always refers to the
    partial instantiation rather than the primary template.  CLASSTYPE_TI_ARGS
@@ -5601,10 +5605,13 @@ extern GTY(()) tree integer_two_node;
    function, two inside the body of a function in a local class, etc.)  */
 extern int function_depth;
 
-/* Nonzero if we are inside eq_specializations, which affects
-   comparison of PARM_DECLs in cp_tree_equal and alias specializations
-   in structrual_comptypes.  */
+/* Nonzero if we are inside spec_hasher::equal, which affects
+   comparison of PARM_DECLs in cp_tree_equal.  */
 extern int comparing_specializations;
+
+/* Nonzero if we want different dependent aliases to compare as unequal.
+   FIXME we should always do this except during deduction/ordering.  */
+extern int comparing_dependent_aliases;
 
 /* When comparing specializations permit context _FROM to match _TO.  */
 extern tree map_context_from;
@@ -6595,7 +6602,8 @@ class access_failure_info
   tree m_diag_decl;
 };
 
-extern void complain_about_access		(tree, tree, bool);
+extern void complain_about_access		(tree, tree, tree, bool,
+						 access_kind);
 extern void push_defarg_context			(tree);
 extern void pop_defarg_context			(void);
 extern tree convert_default_arg			(tree, tree, tree, int,
@@ -6632,7 +6640,8 @@ extern bool is_std_init_list			(tree);
 extern bool is_list_ctor			(tree);
 extern void validate_conversion_obstack		(void);
 extern void mark_versions_used			(tree);
-extern bool unsafe_return_slot_p		(tree);
+extern int unsafe_return_slot_p			(tree);
+extern bool make_safe_copy_elision		(tree, tree);
 extern bool cp_warn_deprecated_use		(tree, tsubst_flags_t = tf_warning_or_error);
 extern void cp_warn_deprecated_use_scopes	(tree);
 extern tree get_function_version_dispatcher	(tree);
@@ -6674,6 +6683,7 @@ extern int same_signature_p			(const_tree, const_tree);
 extern tree lookup_vfn_in_binfo			(tree, tree);
 extern void maybe_add_class_template_decl_list	(tree, tree, int);
 extern void unreverse_member_declarations	(tree);
+extern bool is_empty_field			(tree);
 extern void invalidate_class_lookup_cache	(void);
 extern void maybe_note_name_used_in_class	(tree, tree);
 extern void note_name_declared_in_class		(tree, tree);
@@ -6780,6 +6790,9 @@ extern tree make_typename_type			(tree, tree, enum tag_types, tsubst_flags_t);
 extern tree build_typename_type			(tree, tree, tree, tag_types);
 extern tree make_unbound_class_template		(tree, tree, tree, tsubst_flags_t);
 extern tree make_unbound_class_template_raw	(tree, tree, tree);
+extern unsigned push_abi_namespace		(tree node = abi_node);
+extern void pop_abi_namespace			(unsigned flags,
+						 tree node = abi_node);
 extern tree build_library_fn_ptr		(const char *, tree, int);
 extern tree build_cp_library_fn_ptr		(const char *, tree, int);
 extern tree push_library_fn			(tree, tree, tree, int);
@@ -6829,7 +6842,6 @@ extern tree begin_function_body			(void);
 extern void finish_function_body		(tree);
 extern tree outer_curly_brace_block		(tree);
 extern tree finish_function			(bool);
-extern void finish_function_contracts		(tree, bool = false);
 extern tree grokmethod				(cp_decl_specifier_seq *, const cp_declarator *, tree);
 extern void maybe_register_incomplete_var	(tree);
 extern void maybe_commonize_var			(tree);
@@ -7024,7 +7036,6 @@ extern void emit_mem_initializers		(tree);
 extern tree build_aggr_init			(tree, tree, int,
                                                  tsubst_flags_t);
 extern int is_class_type			(tree, int);
-extern tree get_type_value			(tree);
 extern tree build_zero_init			(tree, tree, bool);
 extern tree build_value_init			(tree, tsubst_flags_t);
 extern tree build_value_init_noctor		(tree, tsubst_flags_t);
@@ -7449,6 +7460,7 @@ extern unsigned get_pseudo_tinfo_index		(tree);
 extern tree get_pseudo_tinfo_type		(unsigned);
 
 /* in search.c */
+extern tree get_parent_with_private_access 	(tree decl, tree binfo);
 extern bool accessible_base_p			(tree, tree, bool);
 extern tree lookup_base                         (tree, tree, base_access,
 						 base_kind *, tsubst_flags_t);
@@ -7487,7 +7499,7 @@ extern tree adjust_result_of_qualified_name_lookup
 						(tree, tree, tree);
 extern tree copied_binfo			(tree, tree);
 extern tree original_binfo			(tree, tree);
-extern int shared_member_p			(tree);
+extern bool shared_member_p			(tree);
 extern bool any_dependent_bases_p (tree = current_nonlambda_class_type ());
 extern bool maybe_check_overriding_exception_spec (tree, tree);
 
@@ -7532,15 +7544,7 @@ inline void
 set_decl_contracts (tree decl, tree contract_attrs)
 {
   remove_contract_attributes (decl);
-  if (!DECL_ATTRIBUTES (decl))
-    {
-      DECL_ATTRIBUTES (decl) = contract_attrs;
-      return;
-    }
-  tree last_attr = DECL_ATTRIBUTES (decl);
-  while (TREE_CHAIN (last_attr))
-    last_attr = TREE_CHAIN (last_attr);
-  TREE_CHAIN (last_attr) = contract_attrs;
+  DECL_ATTRIBUTES (decl) = chainon (DECL_ATTRIBUTES (decl), contract_attrs);
 }
 
 /* in decl.c */
@@ -8159,6 +8163,7 @@ extern tree split_nonconstant_init		(tree, tree);
 extern bool check_narrowing			(tree, tree, tsubst_flags_t,
 						 bool = false);
 extern bool ordinary_char_type_p		(tree);
+extern bool array_string_literal_compatible_p	(tree, tree);
 extern tree digest_init				(tree, tree, tsubst_flags_t);
 extern tree digest_init_flags			(tree, tree, int, tsubst_flags_t);
 extern tree digest_nsdmi_init		        (tree, tree, tsubst_flags_t);

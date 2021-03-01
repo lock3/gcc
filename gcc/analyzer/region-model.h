@@ -463,6 +463,7 @@ class region_model
   bool impl_call_strlen (const call_details &cd);
   bool impl_call_operator_new (const call_details &cd);
   bool impl_call_operator_delete (const call_details &cd);
+  void impl_deallocation_call (const call_details &cd);
 
   void handle_unrecognized_call (const gcall *call,
 				 region_model_context *ctxt);
@@ -579,6 +580,13 @@ class region_model
  private:
   const region *get_lvalue_1 (path_var pv, region_model_context *ctxt);
   const svalue *get_rvalue_1 (path_var pv, region_model_context *ctxt);
+
+  path_var
+  get_representative_path_var_1 (const svalue *sval,
+				 svalue_set *visited) const;
+  path_var
+  get_representative_path_var_1 (const region *reg,
+				 svalue_set *visited) const;
 
   void add_any_constraints_from_ssa_def_stmt (tree lhs,
 					      enum tree_code op,

@@ -34,7 +34,6 @@ extern void init_attributes (void);
 extern tree decl_attributes (tree *, tree, int, tree = NULL_TREE);
 
 extern bool cxx11_attribute_p (const_tree);
-extern bool cxx23_contract_attribute_p (const_tree);
 extern tree get_attribute_name (const_tree);
 extern tree get_attribute_namespace (const_tree);
 extern void apply_tm_attr (tree, tree);
@@ -275,6 +274,9 @@ struct attr_access
   /* Return the access mode corresponding to the character code.  */
   static access_mode from_mode_char (char);
 
+  /* Reset front end-specific attribute access data from attributes.  */
+  static void free_lang_data (tree);
+
   /* The character codes corresponding to all the access modes.  */
   static constexpr char mode_chars[5] = { '-', 'r', 'w', 'x', '^' };
 
@@ -310,5 +312,7 @@ typedef hash_map<rdwr_access_hash, attr_access> rdwr_map;
 extern void init_attr_rdwr_indices (rdwr_map *, tree);
 extern attr_access *get_parm_access (rdwr_map &, tree,
 				     tree = current_function_decl);
+
+extern unsigned fndecl_dealloc_argno (tree fndecl);
 
 #endif // GCC_ATTRIBS_H

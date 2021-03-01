@@ -1795,7 +1795,13 @@ gimplify_decl_expr (tree *stmt_p, gimple_seq *seq_p)
 	  && !DECL_HAS_VALUE_EXPR_P (decl)
 	  && DECL_ALIGN (decl) <= MAX_SUPPORTED_STACK_ALIGNMENT
 	  && dbg_cnt (asan_use_after_scope)
-	  && !gimplify_omp_ctxp)
+	  && !gimplify_omp_ctxp
+	  /* GNAT introduces temporaries to hold return values of calls in
+	     initializers of variables defined in other units, so the
+	     declaration of the variable is discarded completely.  We do not
+	     want to issue poison calls for such dropped variables.  */
+	  && (DECL_SEEN_IN_BIND_EXPR_P (decl)
+	      || (DECL_ARTIFICIAL (decl) && DECL_NAME (decl) == NULL_TREE)))
 	{
 	  asan_poisoned_variables->add (decl);
 	  asan_poison_variable (decl, false, seq_p);
@@ -7220,6 +7226,15 @@ omp_default_clause (struct gimplify_omp_ctx *ctx, tree decl,
   enum omp_clause_default_kind kind;
 
   kind = lang_hooks.decls.omp_predetermined_sharing (decl);
+  if (ctx->region_type & ORT_TASK)
+    {
+      tree detach_clause = omp_find_clause (ctx->clauses, OMP_CLAUSE_DETACH);
+
+      /* The event-handle specified by a detach clause should always be firstprivate,
+	 regardless of the current default.  */
+      if (detach_clause && OMP_CLAUSE_DECL (detach_clause) == decl)
+	kind = OMP_CLAUSE_DEFAULT_FIRSTPRIVATE;
+    }
   if (kind != OMP_CLAUSE_DEFAULT_UNSPECIFIED)
     default_kind = kind;
   else if (VAR_P (decl) && TREE_STATIC (decl) && DECL_IN_CONSTANT_POOL (decl))
@@ -8766,13 +8781,17 @@ gimplify_scan_omp_clauses (tree *list_p, gimple_seq *pre_p,
 	  if (TREE_CODE (decl) == MEM_REF)
 	    {
 	      tree type = TREE_TYPE (decl);
+	      bool saved_into_ssa = gimplify_ctxp->into_ssa;
+	      gimplify_ctxp->into_ssa = false;
 	      if (gimplify_expr (&TYPE_MAX_VALUE (TYPE_DOMAIN (type)), pre_p,
 				 NULL, is_gimple_val, fb_rvalue, false)
 		  == GS_ERROR)
 		{
+		  gimplify_ctxp->into_ssa = saved_into_ssa;
 		  remove = true;
 		  break;
 		}
+	      gimplify_ctxp->into_ssa = saved_into_ssa;
 	      tree v = TYPE_MAX_VALUE (TYPE_DOMAIN (type));
 	      if (DECL_P (v))
 		{
@@ -8782,13 +8801,16 @@ gimplify_scan_omp_clauses (tree *list_p, gimple_seq *pre_p,
 	      decl = TREE_OPERAND (decl, 0);
 	      if (TREE_CODE (decl) == POINTER_PLUS_EXPR)
 		{
+		  gimplify_ctxp->into_ssa = false;
 		  if (gimplify_expr (&TREE_OPERAND (decl, 1), pre_p,
 				     NULL, is_gimple_val, fb_rvalue, false)
 		      == GS_ERROR)
 		    {
+		      gimplify_ctxp->into_ssa = saved_into_ssa;
 		      remove = true;
 		      break;
 		    }
+		  gimplify_ctxp->into_ssa = saved_into_ssa;
 		  v = TREE_OPERAND (decl, 1);
 		  if (DECL_P (v))
 		    {
@@ -9753,6 +9775,10 @@ gimplify_scan_omp_clauses (tree *list_p, gimple_seq *pre_p,
 	      remove = true;
 	    }
 	  break;
+
+	case OMP_CLAUSE_DETACH:
+	  flags = GOVD_FIRSTPRIVATE | GOVD_SEEN;
+	  goto do_add;
 
 	case OMP_CLAUSE_IF:
 	  if (OMP_CLAUSE_IF_MODIFIER (c) != ERROR_MARK
@@ -10900,6 +10926,7 @@ gimplify_adjust_omp_clauses (gimple_seq *pre_p, gimple_seq body, tree *list_p,
 	case OMP_CLAUSE_DEFAULTMAP:
 	case OMP_CLAUSE_ORDER:
 	case OMP_CLAUSE_BIND:
+	case OMP_CLAUSE_DETACH:
 	case OMP_CLAUSE_USE_DEVICE_PTR:
 	case OMP_CLAUSE_USE_DEVICE_ADDR:
 	case OMP_CLAUSE_IS_DEVICE_PTR:

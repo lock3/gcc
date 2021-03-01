@@ -4414,8 +4414,8 @@ access_ref::inform_access (access_mode mode) const
 	 MAXREF on which the result is based.  */
       const offset_int orng[] =
 	{
-	 offrng[0] - maxref.offrng[0],
-	 wi::smax (offrng[1] - maxref.offrng[1], offrng[0]),
+	  offrng[0] - maxref.offrng[0],
+	  wi::smax (offrng[1] - maxref.offrng[1], offrng[0]),
 	};
 
       /* Add the final PHI's offset to that of each of the arguments
@@ -4493,12 +4493,15 @@ access_ref::inform_access (access_mode mode) const
 	      /* Strip the SSA_NAME suffix from the variable name and
 		 recreate an identifier with the VLA's original name.  */
 	      ref = gimple_call_lhs (stmt);
-	      ref = SSA_NAME_IDENTIFIER (ref);
-	      const char *id = IDENTIFIER_POINTER (ref);
-	      size_t len = strcspn (id, ".$");
-	      if (!len)
-		len = strlen (id);
-	      ref = get_identifier_with_length (id, len);
+	      if (SSA_NAME_IDENTIFIER (ref))
+		{
+		  ref = SSA_NAME_IDENTIFIER (ref);
+		  const char *id = IDENTIFIER_POINTER (ref);
+		  size_t len = strcspn (id, ".$");
+		  if (!len)
+		    len = strlen (id);
+		  ref = get_identifier_with_length (id, len);
+		}
 	    }
 	  else
 	    {
@@ -4557,13 +4560,13 @@ access_ref::inform_access (access_mode mode) const
       return;
     }
 
-  if (DECL_P (ref))
+  if (allocfn == NULL_TREE)
     {
       if (*offstr)
-	inform (loc, "at offset %s into source object %qD of size %s",
+	inform (loc, "at offset %s into source object %qE of size %s",
 		offstr, ref, sizestr);
       else
-	inform (loc, "source object %qD of size %s", ref,  sizestr);
+	inform (loc, "source object %qE of size %s", ref, sizestr);
 
       return;
     }
@@ -13014,6 +13017,16 @@ call_dealloc_argno (tree exp)
   if (!fndecl)
     return UINT_MAX;
 
+  return fndecl_dealloc_argno (fndecl);
+}
+
+/* Return the zero-based number corresponding to the argument being
+   deallocated if FNDECL is a deallocation function or UINT_MAX
+   if it isn't.  */
+
+unsigned
+fndecl_dealloc_argno (tree fndecl)
+{
   /* A call to operator delete isn't recognized as one to a built-in.  */
   if (DECL_IS_OPERATOR_DELETE_P (fndecl))
     return 0;

@@ -382,7 +382,8 @@ add_decl_to_level (cp_binding_level *b, tree decl)
 
   /* Make sure we don't create a circular list.  xref_tag can end
      up pushing the same artificial decl more than once.  We
-     should have already detected that in update_binding.  */
+     should have already detected that in update_binding.  (This isn't a
+     complete verification of non-circularity.)  */
   gcc_assert (b->names != decl);
 
   /* We build up the list in reverse order, and reverse it later if
@@ -3496,41 +3497,6 @@ implicitly_export_namespace (tree ns)
     }
 }
 
-/* DECL has just been bound at LEVEL.  finish up the bookkeeping.  */
-
-static void
-newbinding_bookkeeping (tree name, tree decl, cp_binding_level *level)
-{
-  if (TREE_CODE (decl) == TYPE_DECL)
-    {
-      tree type = TREE_TYPE (decl);
-
-      if (type != error_mark_node)
-	{
-	  if (TYPE_NAME (type) != decl)
-	    set_underlying_type (decl);
-
-	  set_identifier_type_value_with_scope (name, decl, level);
-
-	  if (level->kind != sk_namespace
-	      && !instantiating_current_function_p ())
-	    /* This is a locally defined typedef in a function that
-	       is not a template instantation, record it to implement
-	       -Wunused-local-typedefs.  */
-	    record_locally_defined_typedef (decl);
-	}
-    }
-  else
-    {
-      if (VAR_P (decl) && !DECL_LOCAL_DECL_P (decl))
-	maybe_register_incomplete_var (decl);
-
-      if (VAR_OR_FUNCTION_DECL_P (decl)
-	  && DECL_EXTERN_C_P (decl))
-	check_extern_c_conflict (decl);
-    }
-}
-
 /* DECL is a global or module-purview entity.  If it has non-internal
    linkage, and we have a module vector, record it in the appropriate
    slot.  We have already checked for duplicates.  */
@@ -3620,14 +3586,7 @@ check_module_override (tree decl, tree mvec, bool hiding,
 	  if (iter.using_p ())
 	    ;
 	  else if (tree match = duplicate_decls (decl, *iter, hiding))
-	    {
-	      if (TREE_CODE (match) == TYPE_DECL)
-		/* The IDENTIFIER will have the type referring to the
-		   now-smashed TYPE_DECL, because ...?  Reset it.  */
-		SET_IDENTIFIER_TYPE_VALUE (name, TREE_TYPE (match));
-
-	      return match;
-	    }
+	    return match;
       }
 
   if (TREE_PUBLIC (scope) && TREE_PUBLIC (decl) && !not_module_p ()
@@ -3649,11 +3608,7 @@ check_module_override (tree decl, tree mvec, bool hiding,
 	  tree match = *iter;
 	  
 	  if (duplicate_decls (decl, match, hiding))
-	    {
-	      if (TREE_CODE (match) == TYPE_DECL)
-		SET_IDENTIFIER_TYPE_VALUE (name, TREE_TYPE (match));
-	      return match;
-	    }
+	    return match;
 	}
     }
 
@@ -3736,9 +3691,14 @@ do_pushdecl (tree decl, bool hiding)
 	    if (match == error_mark_node)
 	      ;
 	    else if (TREE_CODE (match) == TYPE_DECL)
-	      /* The IDENTIFIER will have the type referring to the
-		 now-smashed TYPE_DECL, because ...?  Reset it.  */
-	      SET_IDENTIFIER_TYPE_VALUE (name, TREE_TYPE (match));
+	      {
+		auto *l = level;
+		while (l->kind == sk_template_parms)
+		  l = l->level_chain;
+		gcc_checking_assert (REAL_IDENTIFIER_TYPE_VALUE (name)
+				     == (l->kind == sk_namespace
+					 ? NULL_TREE : TREE_TYPE (match)));
+	      }
 	    else if (iter.hidden_p () && !hiding)
 	      {
 		/* Unhiding a previously hidden decl.  */
@@ -3845,12 +3805,38 @@ do_pushdecl (tree decl, bool hiding)
 	decl = old;
       else
 	{
-	  newbinding_bookkeeping (name, decl, level);
+	  if (TREE_CODE (decl) == TYPE_DECL)
+	    {
+	      tree type = TREE_TYPE (decl);
 
-	  if (VAR_OR_FUNCTION_DECL_P (decl)
-	      && DECL_LOCAL_DECL_P (decl)
-	      && TREE_CODE (CP_DECL_CONTEXT (decl)) == NAMESPACE_DECL)
-	    push_local_extern_decl_alias (decl);
+	      if (type != error_mark_node)
+		{
+		  if (TYPE_NAME (type) != decl)
+		    set_underlying_type (decl);
+
+		  set_identifier_type_value_with_scope (name, decl, level);
+
+		  if (level->kind != sk_namespace
+		      && !instantiating_current_function_p ())
+		    /* This is a locally defined typedef in a function that
+		       is not a template instantation, record it to implement
+		       -Wunused-local-typedefs.  */
+		    record_locally_defined_typedef (decl);
+		}
+	    }
+	  else if (VAR_OR_FUNCTION_DECL_P (decl))
+	    {
+	      if (DECL_EXTERN_C_P (decl))
+		check_extern_c_conflict (decl);
+
+	      if (!DECL_LOCAL_DECL_P (decl)
+		  && VAR_P (decl))
+		maybe_register_incomplete_var (decl);
+
+	      if (DECL_LOCAL_DECL_P (decl)
+		  && NAMESPACE_SCOPE_P (decl))
+		push_local_extern_decl_alias (decl);
+	    }
 
 	  if (level->kind == sk_namespace
 	      && TREE_PUBLIC (level->this_entity))
@@ -3926,11 +3912,16 @@ lookup_class_binding (tree klass, tree name)
       vec<tree, va_gc> *member_vec = CLASSTYPE_MEMBER_VEC (klass);
 
       found = member_vec_binary_search (member_vec, name);
-      if (IDENTIFIER_CONV_OP_P (name))
+      if (!found)
+	;
+      else if (STAT_HACK_P (found))
+	/* Rearrange the stat hack so that we don't need to expose that
+	   internal detail.  */
+	found = ovl_make (STAT_TYPE (found), STAT_DECL (found));
+      else if (IDENTIFIER_CONV_OP_P (name))
 	{
 	  gcc_checking_assert (name == conv_op_identifier);
-	  if (found)
-	    found = OVL_CHAIN (found);
+	  found = OVL_CHAIN (found);
 	}
     }
   else
@@ -4183,11 +4174,25 @@ load_pending_specializations (tree ns, tree name)
 }
 
 void
-add_module_decl (tree ns, tree name, tree decl)
+add_module_namespace_decl (tree ns, tree decl)
 {
   gcc_assert (!DECL_CHAIN (decl));
+  gcc_checking_assert (!(VAR_OR_FUNCTION_DECL_P (decl)
+			 && DECL_LOCAL_DECL_P (decl)));
+  if (CHECKING_P)
+    /* Expensive already-there? check.  */
+    for (auto probe = NAMESPACE_LEVEL (ns)->names; probe;
+	 probe = DECL_CHAIN (probe))
+      gcc_assert (decl != probe);
+
   add_decl_to_level (NAMESPACE_LEVEL (ns), decl);
-  newbinding_bookkeeping (name, decl, NAMESPACE_LEVEL (ns));
+
+  if (VAR_P (decl))
+    maybe_register_incomplete_var (decl);
+
+  if (VAR_OR_FUNCTION_DECL_P (decl)
+      && DECL_EXTERN_C_P (decl))
+    check_extern_c_conflict (decl);
 }
 
 /* Enter DECL into the symbol table, if that's appropriate.  Returns
@@ -4743,37 +4748,6 @@ print_binding_stack (void)
   print_binding_level (NAMESPACE_LEVEL (global_namespace));
 }
 
-/* Return the type associated with ID.  */
-
-static tree
-identifier_type_value_1 (tree id)
-{
-  /* There is no type with that name, anywhere.  */
-  if (REAL_IDENTIFIER_TYPE_VALUE (id) == NULL_TREE)
-    return NULL_TREE;
-  /* This is not the type marker, but the real thing.  */
-  if (REAL_IDENTIFIER_TYPE_VALUE (id) != global_type_node)
-    return REAL_IDENTIFIER_TYPE_VALUE (id);
-  /* Have to search for it. It must be on the global level, now.
-     Ask lookup_name not to return non-types.  */
-  id = lookup_name (id, LOOK_where::BLOCK_NAMESPACE, LOOK_want::TYPE);
-  if (id)
-    return TREE_TYPE (id);
-  return NULL_TREE;
-}
-
-/* Wrapper for identifier_type_value_1.  */
-
-tree
-identifier_type_value (tree id)
-{
-  tree ret;
-  timevar_start (TV_NAME_LOOKUP);
-  ret = identifier_type_value_1 (id);
-  timevar_stop (TV_NAME_LOOKUP);
-  return ret;
-}
-
 /* Push a definition of struct, union or enum tag named ID.  into
    binding_level B.  DECL is a TYPE_DECL for the type.  DECL has
    already been pushed into its binding level.  This is bookkeeping to
@@ -4782,26 +4756,21 @@ identifier_type_value (tree id)
 static void
 set_identifier_type_value_with_scope (tree id, tree decl, cp_binding_level *b)
 {
-  tree type;
+  while (b->kind == sk_template_parms)
+    b = b->level_chain;
 
-  if (b->kind != sk_namespace)
-    {
-      /* Shadow the marker, not the real thing, so that the marker
-	 gets restored later.  */
-      tree old_type_value = REAL_IDENTIFIER_TYPE_VALUE (id);
-      b->type_shadowed = tree_cons (id, old_type_value, b->type_shadowed);
-      type = decl ? TREE_TYPE (decl) : NULL_TREE;
-      TREE_TYPE (b->type_shadowed) = type;
-    }
+  if (b->kind == sk_namespace)
+    /* At namespace scope we should not see an identifier type value.  */
+    gcc_checking_assert (!REAL_IDENTIFIER_TYPE_VALUE (id));
   else
     {
-      gcc_assert (decl);
-
-      /* Store marker instead of real type.  */
-      type = global_type_node;
+      /* Push the current type value, so we can restore it later  */
+      tree old = REAL_IDENTIFIER_TYPE_VALUE (id);
+      b->type_shadowed = tree_cons (id, old, b->type_shadowed);
+      tree type = decl ? TREE_TYPE (decl) : NULL_TREE;
+      TREE_TYPE (b->type_shadowed) = type;
+      SET_IDENTIFIER_TYPE_VALUE (id, type);
     }
-
-  SET_IDENTIFIER_TYPE_VALUE (id, type);
 }
 
 /* As set_identifier_type_value_with_scope, but using
@@ -5695,6 +5664,14 @@ lookup_using_decl (tree scope, name_lookup &lookup)
 	scope = ctx;
     }
 
+  /* You cannot using-decl a destructor.  */
+  if (TREE_CODE (lookup.name) == BIT_NOT_EXPR)
+    {
+      error ("%<%T%s%D%> names destructor", scope,
+	     &"::"[scope == global_namespace ? 2 : 0], lookup.name);
+      return NULL_TREE;
+    }
+
   if (TREE_CODE (scope) == NAMESPACE_DECL)
     {
       /* Naming a namespace member.  */
@@ -5724,22 +5701,24 @@ lookup_using_decl (tree scope, name_lookup &lookup)
       /* Naming a class member.  This is awkward in C++20, because we
 	 might be naming an enumerator of an unrelated class.  */
 
-      /* You cannot using-decl a destructor.  */
-      if (TREE_CODE (lookup.name) == BIT_NOT_EXPR)
+      tree npscope = scope;
+      if (PACK_EXPANSION_P (scope))
+	npscope = PACK_EXPANSION_PATTERN (scope);
+
+      if (!MAYBE_CLASS_TYPE_P (npscope))
 	{
-	  error ("%<%T::%D%> names destructor", scope, lookup.name);
+	  error ("%qT is not a class, namespace, or enumeration", npscope);
 	  return NULL_TREE;
 	}
 
       /* Using T::T declares inheriting ctors, even if T is a typedef.  */
-      if (MAYBE_CLASS_TYPE_P (scope)
-	  && (lookup.name == TYPE_IDENTIFIER (scope)
-	      || constructor_name_p (lookup.name, scope)))
+      if (lookup.name == TYPE_IDENTIFIER (npscope)
+	  || constructor_name_p (lookup.name, npscope))
 	{
 	  if (!TYPE_P (current))
 	    {
 	      error ("non-member using-declaration names constructor of %qT",
-		     scope);
+		     npscope);
 	      return NULL_TREE;
 	    }
 	  maybe_warn_cpp0x (CPP0X_INHERITING_CTORS);
@@ -5747,88 +5726,79 @@ lookup_using_decl (tree scope, name_lookup &lookup)
 	  CLASSTYPE_NON_AGGREGATE (current) = true;
     	}
 
-      if (!MAYBE_CLASS_TYPE_P (scope))
-	;
+      if (!TYPE_P (current) && cxx_dialect < cxx20)
+	{
+	  error ("using-declaration for member at non-class scope");
+	  return NULL_TREE;
+	}
+
+      bool depscope = dependent_scope_p (scope);
+
+      if (depscope)
+	/* Leave binfo null.  */;
       else if (TYPE_P (current))
 	{
-	  dependent_p = dependent_scope_p (scope);
-	  if (!dependent_p)
-	    {
-	      binfo = lookup_base (current, scope, ba_any, &b_kind, tf_none);
-	      gcc_checking_assert (b_kind >= bk_not_base);
+	  binfo = lookup_base (current, scope, ba_any, &b_kind, tf_none);
+	  gcc_checking_assert (b_kind >= bk_not_base);
 
-	      if (lookup.name == ctor_identifier)
+	  if (b_kind == bk_not_base && any_dependent_bases_p ())
+	    /* Treat as-if dependent.  */
+	    depscope = true;
+	  else if (lookup.name == ctor_identifier
+		   && (b_kind < bk_proper_base || !binfo_direct_p (binfo)))
+	    {
+	      if (any_dependent_bases_p ())
+		depscope = true;
+	      else
 		{
-		  /* Even if there are dependent bases, SCOPE will not
-		     be direct base, no matter.  */
-		  if (b_kind < bk_proper_base || !binfo_direct_p (binfo))
-		    {
-		      error ("%qT is not a direct base of %qT", scope, current);
-		      return NULL_TREE;
-		    }
+		  error ("%qT is not a direct base of %qT", scope, current);
+		  return NULL_TREE;
 		}
-	      else if (b_kind < bk_proper_base)
-		binfo = TYPE_BINFO (scope);
-	      else if (IDENTIFIER_CONV_OP_P (lookup.name)
-		       && dependent_type_p (TREE_TYPE (lookup.name)))
-		dependent_p = true;
 	    }
+
+	  if (b_kind < bk_proper_base)
+	    binfo = TYPE_BINFO (scope);
 	}
       else
 	binfo = TYPE_BINFO (scope);
 
+      dependent_p = (depscope
+		     || (IDENTIFIER_CONV_OP_P (lookup.name)
+			 && dependent_type_p (TREE_TYPE (lookup.name))));
+
       if (!dependent_p)
+	lookup.value = lookup_member (binfo, lookup.name, /*protect=*/2,
+				      /*want_type=*/false, tf_none);
+
+      if (!depscope && b_kind < bk_proper_base)
 	{
-	  if (binfo)
-	    lookup.value = lookup_member (binfo, lookup.name, /*protect=*/2,
-					  /*want_type=*/false, tf_none);
-
-	  tree saved_value = lookup.value;
-	  if (lookup.value
-	      && b_kind < bk_proper_base)
+	  if (cxx_dialect >= cxx20 && lookup.value
+	      && TREE_CODE (lookup.value) == CONST_DECL)
 	    {
-	      if (cxx_dialect >= cxx20
-		  && TREE_CODE (lookup.value) == CONST_DECL)
-		{
-		  /* Using an unrelated enum; check access here rather
-		     than separately for class and non-class using.  */
-		  perform_or_defer_access_check
-		    (binfo, lookup.value, lookup.value, tf_warning_or_error);
-		  /* And then if this is a copy from handle_using_decl, look
-		     through to the original enumerator.  */
-		  if (CONST_DECL_USING_P (lookup.value))
-		    lookup.value = DECL_ABSTRACT_ORIGIN (lookup.value);
-		}
-	      else
-		lookup.value = NULL_TREE;
+	      /* Using an unrelated enum; check access here rather
+		 than separately for class and non-class using.  */
+	      perform_or_defer_access_check
+		(binfo, lookup.value, lookup.value, tf_warning_or_error);
+	      /* And then if this is a copy from handle_using_decl, look
+		 through to the original enumerator.  */
+	      if (CONST_DECL_USING_P (lookup.value))
+		lookup.value = DECL_ABSTRACT_ORIGIN (lookup.value);
 	    }
-
-	  if (!lookup.value)
+	  else if (!TYPE_P (current))
 	    {
-	      if (!TYPE_P (current))
-		{
-		  error ("using-declaration for member at non-class scope");
-		  return NULL_TREE;
-		}
-
-	      if (b_kind < bk_proper_base)
-		{
-		  if (b_kind == bk_not_base && any_dependent_bases_p ())
-		    /* Treat as-if dependent.  */
-		    dependent_p = true;
-		  else
-		    {
-		      auto_diagnostic_group g;
-		      error_not_base_type (scope, current);
-		      if (saved_value && DECL_IMPLICIT_TYPEDEF_P (saved_value)
-			  && (TREE_CODE (TREE_TYPE (saved_value))
-			      == ENUMERAL_TYPE))
-			inform (input_location,
-				"did you mean %<using enum %T::%D%>?",
-				scope, lookup.name);
-		      return NULL_TREE;
-		    }
-		}
+	      error ("using-declaration for member at non-class scope");
+	      return NULL_TREE;
+	    }
+	  else
+	    {
+	      auto_diagnostic_group g;
+	      error_not_base_type (scope, current);
+	      if (lookup.value && DECL_IMPLICIT_TYPEDEF_P (lookup.value)
+		  && TREE_CODE (TREE_TYPE (lookup.value)) == ENUMERAL_TYPE)
+		inform (input_location,
+			"did you mean %<using enum %T::%D%>?",
+			scope, lookup.name);
+	      return NULL_TREE;
 	    }
 	}
     }
@@ -6232,51 +6202,72 @@ do_namespace_alias (tree alias, tree name_space)
     (*debug_hooks->early_global_decl) (alias);
 }
 
-/* Like pushdecl, only it places X in the current namespace,
+/* Like pushdecl, only it places DECL in the current namespace,
    if appropriate.  */
 
 tree
-pushdecl_namespace_level (tree x, bool hiding)
+pushdecl_namespace_level (tree decl, bool hiding)
 {
-  cp_binding_level *b = current_binding_level;
-  tree t;
-
   bool subtime = timevar_cond_start (TV_NAME_LOOKUP);
-  t = do_pushdecl_with_scope (x, NAMESPACE_LEVEL (current_namespace), hiding);
-
-  /* Now, the type_shadowed stack may screw us.  Munge it so it does
-     what we want.  */
-  if (TREE_CODE (t) == TYPE_DECL)
-    {
-      tree name = DECL_NAME (t);
-      tree newval;
-      tree *ptr = (tree *)0;
-      for (; !global_scope_p (b); b = b->level_chain)
-	{
-	  tree shadowed = b->type_shadowed;
-	  for (; shadowed; shadowed = TREE_CHAIN (shadowed))
-	    if (TREE_PURPOSE (shadowed) == name)
-	      {
-		ptr = &TREE_VALUE (shadowed);
-		/* Can't break out of the loop here because sometimes
-		   a binding level will have duplicate bindings for
-		   PT names.  It's gross, but I haven't time to fix it.  */
-	      }
-	}
-      newval = TREE_TYPE (t);
-      if (ptr == (tree *)0)
-	{
-	  /* @@ This shouldn't be needed.  My test case "zstring.cc" trips
-	     up here if this is changed to an assertion.  --KR  */
-	  SET_IDENTIFIER_TYPE_VALUE (name, t);
-	}
-      else
-	{
-	  *ptr = newval;
-	}
-    }
+  tree res = do_pushdecl_with_scope (decl, NAMESPACE_LEVEL (current_namespace),
+				     hiding);
   timevar_cond_stop (TV_NAME_LOOKUP, subtime);
-  return t;
+  return res;
+}
+
+/* Wrapper around push_local_binding to push the bindings for
+   a non-member USING_DECL with NAME and VALUE.  LOOKUP, if non-null,
+   is the result of name lookup during template parsing.  */
+
+static void
+push_using_decl_bindings (name_lookup *lookup, tree name, tree value)
+{
+  tree type = NULL_TREE;
+
+  cxx_binding *binding = find_local_binding (current_binding_level, name);
+  if (binding)
+    {
+      value = binding->value;
+      type = binding->type;
+    }
+
+  /* DR 36 questions why using-decls at function scope may not be
+     duplicates.  Disallow it, as C++11 claimed and PR 20420
+     implemented.  */
+  if (lookup)
+    do_nonmember_using_decl (*lookup, true, true, &value, &type);
+
+  if (!value)
+    ;
+  else if (binding && value == binding->value)
+    /* Redeclaration of this USING_DECL.  */;
+  else if (binding && binding->value && TREE_CODE (value) == OVERLOAD)
+    {
+      /* We already have this binding, so replace it.  */
+      update_local_overload (IDENTIFIER_BINDING (name), value);
+      IDENTIFIER_BINDING (name)->value = value;
+    }
+  else
+    /* Install the new binding.  */
+    push_local_binding (name, value, /*using=*/true);
+
+  if (!type)
+    ;
+  else if (binding && type == binding->type)
+    ;
+  else
+    {
+      push_local_binding (name, type, /*using=*/true);
+      set_identifier_type_value (name, type);
+    }
+}
+
+/* Overload for push_using_decl_bindings that doesn't take a name_lookup.  */
+
+void
+push_using_decl_bindings (tree name, tree value)
+{
+  push_using_decl_bindings (nullptr, name, value);
 }
 
 /* Process a using declaration in non-class scope.  */
@@ -6395,43 +6386,9 @@ finish_nonmember_using_decl (tree scope, tree name)
   else
     {
       add_decl_expr (using_decl);
-
-      cxx_binding *binding = find_local_binding (current_binding_level, name);
-      tree value = NULL;
-      tree type = NULL;
-      if (binding)
-	{
-	  value = binding->value;
-	  type = binding->type;
-	}
-
-      /* DR 36 questions why using-decls at function scope may not be
-	 duplicates.  Disallow it, as C++11 claimed and PR 20420
-	 implemented.  */
-      do_nonmember_using_decl (lookup, true, true, &value, &type);
-
-      if (!value)
-	;
-      else if (binding && value == binding->value)
-	;
-      else if (binding && binding->value && TREE_CODE (value) == OVERLOAD)
-	{
-	  update_local_overload (IDENTIFIER_BINDING (name), value);
-	  IDENTIFIER_BINDING (name)->value = value;
-	}
-      else
-	/* Install the new binding.  */
-	push_local_binding (name, value, true);
-
-      if (!type)
-	;
-      else if (binding && type == binding->type)
-	;
-      else
-	{
-	  push_local_binding (name, type, true);
-	  set_identifier_type_value (name, type);
-	}
+      if (DECL_DEPENDENT_P (using_decl))
+	lookup.value = using_decl;
+      push_using_decl_bindings (&lookup, name, NULL_TREE);
     }
 }
 
@@ -8230,6 +8187,8 @@ do_pushtag (tree name, tree type, TAG_how how)
 {
   tree decl;
 
+  gcc_assert (identifier_p (name));
+
   cp_binding_level *b = current_binding_level;
   while (true)
     {
@@ -8255,10 +8214,8 @@ do_pushtag (tree name, tree type, TAG_how how)
 	break;
     }
 
-  gcc_assert (identifier_p (name));
-
   /* Do C++ gratuitous typedefing.  */
-  if (identifier_type_value_1 (name) != type)
+  if (REAL_IDENTIFIER_TYPE_VALUE (name) != type)
     {
       tree tdef;
       tree context = TYPE_CONTEXT (type);
@@ -9192,11 +9149,15 @@ op_unqualified_lookup (tree fnname)
     /* Remember we found nothing!  */
     return error_mark_node;
 
-  tree d = is_overloaded_fn (fns) ? get_first_fn (fns) : fns;
+  tree d = fns;
+  if (TREE_CODE (d) == TREE_LIST)
+    d = TREE_VALUE (d);
+  if (is_overloaded_fn (d))
+    d = get_first_fn (d);
   if (DECL_CLASS_SCOPE_P (d))
     /* We don't need to remember class-scope functions or declarations,
        normal unqualified lookup will find them again.  */
-    fns = NULL_TREE;
+    return NULL_TREE;
 
   return fns;
 }
@@ -9275,7 +9236,11 @@ push_operator_bindings ()
       if (tree val = TREE_VALUE (binds))
 	{
 	  tree name = TREE_PURPOSE (binds);
-	  push_local_binding (name, val, /*using*/true);
+	  if (TREE_CODE (val) == TREE_LIST)
+	    for (tree v = val; v; v = TREE_CHAIN (v))
+	      push_local_binding (name, TREE_VALUE (v), /*using*/true);
+	  else
+	    push_local_binding (name, val, /*using*/true);
 	}
 }
 

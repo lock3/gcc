@@ -123,6 +123,41 @@ dfs_lookup_base (tree binfo, void *data_)
   return NULL_TREE;
 }
 
+/* This deals with bug PR17314.
+
+   DECL is a declaration and BINFO represents a class that has attempted (but
+   failed) to access DECL.
+
+   Examine the parent binfos of BINFO and determine whether any of them had
+   private access to DECL.  If they did, return the parent binfo.  This helps
+   in figuring out the correct error message to show (if the parents had
+   access, it's their fault for not giving sufficient access to BINFO).
+
+   If no parents had access, return NULL_TREE.  */
+
+tree
+get_parent_with_private_access (tree decl, tree binfo)
+{
+  /* Only BINFOs should come through here.  */
+  gcc_assert (TREE_CODE (binfo) == TREE_BINFO);
+
+  tree base_binfo = NULL_TREE;
+
+  /* Iterate through immediate parent classes.  */
+  for (int i = 0; BINFO_BASE_ITERATE (binfo, i, base_binfo); i++)
+    {
+      /* This parent had private access.  Therefore that's why BINFO can't
+	  access DECL.  */
+      if (access_in_type (BINFO_TYPE (base_binfo), decl) == ak_private)
+	return base_binfo;
+    }
+
+  /* None of the parents had access.  Note: it's impossible for one of the
+     parents to have had public or protected access to DECL, since then
+     BINFO would have been able to access DECL too.  */
+  return NULL_TREE;
+}
+
 /* Returns true if type BASE is accessible in T.  (BASE is known to be
    a (possibly non-proper) base class of T.)  If CONSIDER_LOCAL_P is
    true, consider any special access of the current scope, or access
@@ -699,6 +734,14 @@ friend_accessible_p (tree scope, tree decl, tree type, tree otype)
       if (DECL_CLASS_SCOPE_P (scope)
 	  && friend_accessible_p (DECL_CONTEXT (scope), decl, type, otype))
 	return 1;
+      /* Perhaps SCOPE is a friend function defined inside a class from which
+	 DECL is accessible.  Checking this is necessary only when the class
+	 is dependent, for otherwise add_friend will already have added the
+	 class to SCOPE's DECL_BEFRIENDING_CLASSES.  */
+      if (tree fctx = DECL_FRIEND_CONTEXT (scope))
+	if (dependent_type_p (fctx)
+	    && protected_accessible_p (decl, fctx, type, otype))
+	  return 1;
     }
 
   /* Maybe scope's template is a friend.  */
@@ -903,7 +946,7 @@ struct lookup_field_info {
   const char *errstr;
 };
 
-/* Nonzero for a class member means that it is shared between all objects
+/* True for a class member means that it is shared between all objects
    of that class.
 
    [class.member.lookup]:If the resulting set of declarations are not all
@@ -913,25 +956,27 @@ struct lookup_field_info {
 
    This function checks that T contains no non-static members.  */
 
-int
+bool
 shared_member_p (tree t)
 {
-  if (VAR_P (t) || TREE_CODE (t) == TYPE_DECL \
+  if (VAR_P (t) || TREE_CODE (t) == TYPE_DECL
       || TREE_CODE (t) == CONST_DECL)
-    return 1;
+    return true;
   if (is_overloaded_fn (t))
     {
       for (ovl_iterator iter (get_fns (t)); iter; ++iter)
 	{
 	  tree decl = strip_using_decl (*iter);
-	  /* We don't expect or support dependent decls.  */
-	  gcc_assert (TREE_CODE (decl) != USING_DECL);
+	  if (TREE_CODE (decl) == USING_DECL)
+	    /* Conservatively assume a dependent using-declaration
+	       might resolve to a non-static member.  */
+	    return false;
 	  if (DECL_NONSTATIC_MEMBER_FUNCTION_P (decl))
-	    return 0;
+	    return false;
 	}
-      return 1;
+      return true;
     }
-  return 0;
+  return false;
 }
 
 /* Routine to see if the sub-object denoted by the binfo PARENT can be
@@ -1873,6 +1918,47 @@ maybe_check_overriding_exception_spec (tree overrider, tree basefn)
   return true;
 }
 
+/* Replace the any contract attributes on OVERRIDER with a copy where any
+   references to BASEFN's PARM_DECLs have been rewritten to the corresponding
+   PARM_DECL in OVERRIDER.  */
+
+static void
+remap_overrider_contracts (tree overrider, tree basefn)
+{
+  tree last = NULL_TREE, contract_attrs = NULL_TREE;
+  for (tree a = DECL_CONTRACTS (basefn);
+      a != NULL_TREE;
+      a = CONTRACT_CHAIN (a))
+    {
+      tree c = copy_node (a);
+      // FIXME can we just contract_statement (c) = copy...
+      TREE_VALUE (c) = build_tree_list (TREE_PURPOSE (TREE_VALUE (c)),
+					copy_node (CONTRACT_STATEMENT (c)));
+      tree src = basefn;
+      tree dst = overrider;
+      if (DECL_PRE_FN (basefn))
+	{
+	  src = DECL_PRE_FN (basefn);
+	  dst = DECL_PRE_FN (overrider);
+	}
+      if (DECL_POST_FN (basefn)
+	  && TREE_CODE (TREE_VALUE (c)) == POSTCONDITION_STMT)
+	{
+	  src = DECL_POST_FN (basefn);
+	  dst = DECL_POST_FN (overrider);
+	}
+      remap_contract (src, dst, CONTRACT_STATEMENT (c));
+      CONTRACT_COMMENT (CONTRACT_STATEMENT (c)) =
+	copy_node (CONTRACT_COMMENT (CONTRACT_STATEMENT (c)));
+
+      chainon (last, c);
+      last = c;
+      if (!contract_attrs)
+	contract_attrs = c;
+    }
+  set_decl_contracts (overrider, contract_attrs);
+}
+
 /* Check that virtual overrider OVERRIDER is acceptable for base function
    BASEFN. Issue diagnostic, and return zero, if unacceptable.  */
 
@@ -2051,30 +2137,9 @@ check_final_overrider (tree overrider, tree basefn)
 	 replace references to their parms to our parms.  */
       if(!DECL_PRE_FN (overrider))
 	build_contract_function_decls (overrider);
-      tree last = NULL_TREE, contract_attrs = NULL_TREE;
-      for (tree a = DECL_CONTRACTS (basefn);
-	  a != NULL_TREE;
-	  a = CONTRACT_CHAIN (a))
-	{
-	  tree c = copy_node (a);
-	  TREE_VALUE (c) = copy_node (TREE_VALUE (c));
-	  tree src = DECL_PRE_FN (basefn);
-	  tree dst = DECL_PRE_FN (overrider);
-	  if (TREE_CODE (TREE_VALUE (c)) == POSTCONDITION_STMT)
-	    {
-	      src = DECL_POST_FN (basefn);
-	      dst = DECL_POST_FN (overrider);
-	    }
-	  remap_contract (src, dst, TREE_VALUE (c));
-	  CONTRACT_COMMENT (TREE_VALUE (c)) =
-	    copy_node (CONTRACT_COMMENT (TREE_VALUE (c)));
-
-	  chainon (last, c);
-	  last = c;
-	  if (!contract_attrs)
-	    contract_attrs = c;
-	}
-      set_decl_contracts (overrider, contract_attrs);
+      remap_overrider_contracts (overrider, basefn);
+      remap_overrider_contracts (DECL_PRE_FN (overrider), DECL_PRE_FN (basefn));
+      remap_overrider_contracts (DECL_POST_FN (overrider), DECL_POST_FN (basefn));
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {
