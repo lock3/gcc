@@ -25,4 +25,6 @@ along with GCC; see the file COPYING3.  If not see
 void define_knob (const char* arg);
 const char* lookup_knob (const char* arg);
 
+void dump_knobs ();
+
 #endif /* ! GCC_CP_CONFIG_H */

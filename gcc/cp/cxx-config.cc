@@ -79,3 +79,13 @@ lookup_knob (const char* key)
     return nullptr;
   return *value;
 }
+
+/* Print all currently defined knobs to stdout.  */
+
+void
+dump_knobs ()
+{
+  for (auto it = build_env.begin(); it != build_env.end(); ++it)
+    inform (UNKNOWN_LOCATION, "knob \"%s\": \"%s\"", (*it).first, (*it).second);
+}
+

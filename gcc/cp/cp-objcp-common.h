@@ -36,6 +36,7 @@ extern tree cp_pushdecl (tree);
 extern void cp_register_dumps (gcc::dump_manager *);
 extern bool cp_handle_option (size_t, const char *, HOST_WIDE_INT, int,
 			      location_t, const struct cl_option_handlers *);
+extern bool cp_post_options (const char **);
 extern tree cxx_make_type_hook			(tree_code);
 extern tree cxx_simulate_enum_decl (location_t, const char *,
 				    vec<string_int_pair>);
@@ -69,7 +70,7 @@ extern tree cxx_simulate_enum_decl (location_t, const char *,
 #undef LANG_HOOKS_HANDLE_FILENAME
 #define LANG_HOOKS_HANDLE_FILENAME c_common_handle_filename
 #undef LANG_HOOKS_POST_OPTIONS
-#define LANG_HOOKS_POST_OPTIONS c_common_post_options
+#define LANG_HOOKS_POST_OPTIONS cp_post_options
 #undef LANG_HOOKS_GET_ALIAS_SET
 #define LANG_HOOKS_GET_ALIAS_SET cxx_get_alias_set
 #undef LANG_HOOKS_PARSE_FILE

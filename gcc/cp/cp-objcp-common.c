@@ -615,4 +615,18 @@ cp_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
   return c_common_handle_option (scode, arg, value, kind, loc, handlers);
 }
 
+/* Perform C++-specficic post options work here after forwarding to
+   c_common_post_options.  */
+
+bool
+cp_post_options (const char **pfilename)
+{
+  bool preprocess_only = c_common_post_options (pfilename);
+
+  if (flag_dump_build_environment)
+    dump_knobs ();
+
+  return preprocess_only;
+}
+
 #include "gt-cp-cp-objcp-common.h"
