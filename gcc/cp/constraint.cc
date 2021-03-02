@@ -129,7 +129,7 @@ struct subst_info
 struct sat_info : subst_info
 {
   sat_info (tsubst_flags_t cmp, tree in, bool diag_unsat = false)
-    : subst_info (cmp, in), diagnose_unsatisfaction (diag_unsat)
+    : subst_info (cmp, in), diagnose_unsatisfaction (diag_unsat), cached_result(NULL_TREE)
   {
     if (diagnose_unsatisfaction_p ())
       gcc_checking_assert (noisy ());
@@ -144,6 +144,9 @@ struct sat_info : subst_info
   }
 
   bool diagnose_unsatisfaction;
+
+  /* Read from module info */
+  tree cached_result;
 };
 
 static tree constraint_satisfaction_value (tree, tree, sat_info);
@@ -766,7 +769,49 @@ normalize_concept_check (tree check, tree args, norm_info info)
 
 /* Used by normalize_atom to cache ATOMIC_CONSTRs.  */
 
-static GTY((deletable)) hash_table<atom_hasher> *atom_cache;
+static GTY(()) hash_table<atom_hasher> *atom_cache;
+
+/* Called during module import to save serialized atomic constraints.  */
+
+void 
+save_atomic_constraint (tree atom)
+{
+  gcc_assert (atom && TREE_CODE (atom) == ATOMIC_CONSTR);
+  if (!atom_cache)
+    atom_cache = hash_table<atom_hasher>::create_ggc (31);
+  tree *slot = atom_cache->find_slot (atom, INSERT);
+  if (!*slot)
+    *slot = atom;
+  else 
+    /* The constraint may have been satisfied beforehand.
+       Because lazy loading in modules. */
+    ;
+}
+
+/* Append the new atom into the a tree list associated with a concept decl. */
+
+static void 
+append_atom(tree decl, tree atom)
+{
+  if (!modules_p() || !flag_serialize_constraints)
+    return;
+
+  // Nested requirements clauses within a concept definition.
+  if (!decl) 
+    return;
+
+  if (TREE_CODE (decl) == OVERLOAD)
+    decl = OVL_FIRST (decl);
+
+  if (TREE_CODE (decl) == TEMPLATE_DECL)
+    decl = DECL_TEMPLATE_RESULT (decl);
+
+  if (TREE_CODE (decl) != CONCEPT_DECL)
+    return;
+
+  CONCEPT_ATOMIC_CONSTRAINTS (decl)
+      = tree_cons (NULL_TREE, atom, CONCEPT_ATOMIC_CONSTRAINTS (decl));
+}
 
 /* The normal form of an atom depends on the expression. The normal
    form of a function call to a function concept is a check constraint
@@ -816,7 +861,9 @@ normalize_atom (tree t, tree args, norm_info info)
 							info.initial_parms);
 	  TREE_TYPE (map) = target_parms;
 	}
-
+      
+      // verbatim("normalizing %qE", atom);
+      append_atom (info.in_decl, atom);
       *slot = atom;
     }
   return atom;
@@ -846,7 +893,7 @@ normalize_expression (tree t, tree args, norm_info info)
 
 /* Cache of the normalized form of constraints.  Marked as deletable because it
    can all be recalculated.  */
-static GTY((deletable)) hash_map<tree,tree> *normalized_map;
+static GTY(()) hash_map<tree,tree> *normalized_map;
 
 static tree
 get_normalized_constraints (tree t, norm_info info)
@@ -2427,7 +2474,7 @@ static bool satisfying_constraint;
    Since references to entries in this vector are stored only in the
    GC-deletable sat_cache, it's safe to make this deletable as well.  */
 
-static GTY((deletable)) vec<tree, va_gc> *failed_type_completions;
+static GTY(()) vec<tree, va_gc> *failed_type_completions;
 
 /* Called whenever a type completion (or return type deduction) failure occurs
    that definitely affects the meaning of the program, by e.g. inducing
@@ -2463,41 +2510,6 @@ some_type_complete_p (int begin, int end)
 }
 
 /* Hash functions and data types for satisfaction cache entries.  */
-
-struct GTY((for_user)) sat_entry
-{
-  /* The relevant ATOMIC_CONSTR.  */
-  tree atom;
-
-  /* The relevant template arguments.  */
-  tree args;
-
-  /* The result of satisfaction of ATOM+ARGS.
-     This is either boolean_true_node, boolean_false_node or error_mark_node,
-     where error_mark_node indicates ill-formed satisfaction.
-     It's set to NULL_TREE while computing satisfaction of ATOM+ARGS for
-     the first time.  */
-  tree result;
-
-  /* The value of input_location when satisfaction of ATOM+ARGS was first
-     performed.  */
-  location_t location;
-
-  /* The range of elements appended to the failed_type_completions vector
-     during computation of this satisfaction result, encoded as a begin/end
-     pair of offsets.  */
-  int ftc_begin, ftc_end;
-
-  /* True if we want to diagnose the above instability when it's detected.
-     We don't always want to do so, in order to avoid emitting duplicate
-     diagnostics in some cases.  */
-  bool diagnose_instability;
-
-  /* True if we're in the middle of computing this satisfaction result.
-     Used during both quiet and noisy satisfaction to detect self-recursive
-     satisfaction.  */
-  bool evaluating;
-};
 
 struct sat_hasher : ggc_ptr_hash<sat_entry>
 {
@@ -2569,10 +2581,10 @@ struct sat_hasher : ggc_ptr_hash<sat_entry>
 };
 
 /* Cache the result of satisfy_atom.  */
-static GTY((deletable)) hash_table<sat_hasher> *sat_cache;
+static GTY(()) hash_table<sat_hasher> *sat_cache;
 
-/* Cache the result of satisfy_declaration_constraints.  */
-static GTY((deletable)) hash_map<tree, tree> *decl_satisfied_cache;
+/* Cache the result of constraint_satisfaction_value.  */
+static GTY(()) hash_map<tree, tree> *decl_satisfied_cache;
 
 /* A tool used by satisfy_atom to help manage satisfaction caching and to
    diagnose "unstable" satisfaction values.  We insert into the cache only
@@ -2625,7 +2637,7 @@ satisfaction_cache
   elt.args = args;
   sat_entry **slot = sat_cache->find_slot (&elt, INSERT);
   if (*slot)
-    entry = *slot;
+      entry = *slot;
   else if (info.quiet ())
     {
       entry = ggc_alloc<sat_entry> ();
@@ -2642,6 +2654,9 @@ satisfaction_cache
 	   into its mapping previously failed.  */
 	entry->diagnose_instability = true;
       entry->evaluating = false;
+      entry->cached_atom = NULL_TREE;
+      entry->result = info.cached_result;
+
       *slot = entry;
     }
   else
@@ -2736,6 +2751,41 @@ satisfaction_cache::save (tree result)
     }
 
   return result;
+}
+
+/* Calls CB for each entry in the atomic constraint cache associated with 
+   ATOM */
+
+void 
+walk_constraint_satisfactions (bool (*cb) (sat_entry *, void *), void *ctx)
+{
+  if (!sat_cache) return;
+
+  hash_table<sat_hasher>::iterator end = sat_cache->end ();
+  for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end;
+       ++i)
+    {
+      sat_entry *entry = *i;
+      gcc_assert (entry->atom != NULL_TREE);
+      if (!cb (entry, ctx))
+	  return;
+    }
+}
+
+/* Insert an atomic constraint into the table.  Only called from when a concept decl is  
+   imported from a module. */
+
+void
+save_constraint_satisfaction (tree atom, tree args, tree result)
+{
+  sat_info info (tf_none, NULL_TREE);
+  info.cached_result = result;
+  satisfaction_cache cache (atom, args, info);
+
+  // Assuming that no degenerate situation were written into 
+  // the CMI...
+  if (!cache.get ())
+    cache.save (result);
 }
 
 /* Substitute ARGS into constraint-expression T during instantiation of
@@ -2961,6 +3011,7 @@ satisfy_atom (tree t, tree args, sat_info info)
       return cache.save (boolean_false_node);
     }
 
+  tree u = t;
   /* Now build a new atom using the instantiated mapping.  We use
      this atom as a second key to the satisfaction cache, and we
      also pass it to diagnose_atomic_constraint so that diagnostics
@@ -2975,6 +3026,19 @@ satisfy_atom (tree t, tree args, sat_info info)
       cache.entry->location = inst_cache.entry->location;
       return cache.save (r);
     }
+
+  if (info.quiet() && modules_p() && flag_serialize_constraints)
+  {
+    if (cache.entry) 
+      cache.entry->cached_atom = u;
+    if (inst_cache.entry) 
+      inst_cache.entry->cached_atom = u;
+
+    if (info.cached_result) 
+      return cache.save (inst_cache.save (info.cached_result));
+  }
+
+  verbatim("satisfying %qE", t);
 
   /* Rebuild the argument vector from the parameter mapping.  */
   args = get_mapped_args (map);
