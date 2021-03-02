@@ -4648,6 +4648,32 @@ find_enum_member (tree ctx, tree name)
   return NULL_TREE;
 }
 
+/* Help for writing atomic constraints */
+
+struct constraint_satisfaction_context 
+{
+  tree atom;
+  trees_out *out;
+};
+
+extern void debug_parameter_mapping (tree map);
+extern void debug_argument_list (tree args);
+
+static bool
+write_constraint_satisfactions (sat_entry *entry, void *param)
+{
+  constraint_satisfaction_context *ctx = (constraint_satisfaction_context *)param;
+
+  if (entry->cached_atom == ctx->atom)
+    {
+      ctx->out->tree_node(entry->atom);
+      ctx->out->tree_node(entry->args);
+      ctx->out->tree_node(entry->result);
+    }
+
+  return true;
+}
+
 /********************************************************************/
 /* Instrumentation gathered writing bytes.  */
 
@@ -7048,6 +7074,24 @@ trees_in::lang_vals (tree t)
 void
 trees_out::tree_node_vals (tree t)
 {
+//   tabber tabs;	
+//   if (t)
+//   {
+//     switch (TREE_CODE(t))
+//     {
+//     case CONCEPT_DECL:
+//       verbatim("%s%qC %qD", tabs(), TREE_CODE(t), t);
+//       break;
+//     case ATOMIC_CONSTR:
+//       verbatim("%s%qC (%p) %qE", tabs(), TREE_CODE(t), (void *)ATOMIC_CONSTR_EXPR(t), t);
+//       break;
+//      default:
+//        verbatim("%s%qC %qE", tabs(), TREE_CODE(t), t);
+//        break;
+//     }
+//   }
+//   else verbatim("%s<null>", tabs());
+
   core_vals (t);
   lang_vals (t);
 }
@@ -8887,6 +8931,21 @@ trees_out::tree_value (tree t)
 
   tree_node_vals (t);
 
+  if (TREE_CODE(t) == ATOMIC_CONSTR)
+    {
+      /* Write the any satisfaction results associated with this 
+         atomic constraint. */
+      if (flag_serialize_constraints)
+        {
+	  constraint_satisfaction_context ctx;
+	  ctx.atom = t;
+	  ctx.out = this;
+	  walk_constraint_satisfactions (write_constraint_satisfactions,
+                                       &ctx);
+        }
+      tree_node (NULL_TREE);
+    }
+
   if (streaming_p ())
     dump (dumper::TREE) && dump ("Written tree:%d %C:%N", tag, TREE_CODE (t), t);
 }
@@ -8931,6 +8990,21 @@ trees_in::tree_value ()
       set_overrun ();
       /* Bail.  */
       return NULL_TREE;
+    }
+
+  if (TREE_CODE(t) == ATOMIC_CONSTR)
+    {
+      // Save the atom.
+      save_atomic_constraint (t);
+
+      // And any satisfaction results.
+      tree atom;
+      while ((atom = tree_node()) != NULL_TREE)
+        {
+	  tree args = tree_node();
+          tree result = tree_node ();
+          save_constraint_satisfaction (atom, args, result);
+        }
     }
 
   dump (dumper::TREE) && dump ("Read tree:%d %C:%N", tag, TREE_CODE (t), t);
