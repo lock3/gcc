@@ -3028,7 +3028,7 @@ satisfy_atom (tree t, tree args, sat_info info)
       return cache.save (inst_cache.save (info.cached_result));
   }
 
-  verbatim("satisfying %qE", t);
+  //verbatim("satisfying %qE", t);
 
   /* Rebuild the argument vector from the parameter mapping.  */
   args = get_mapped_args (map);
@@ -3730,6 +3730,10 @@ diagnose_trait_expr (tree expr, tree args)
     case CPTK_IS_UNION:
       inform (loc, "  %qT is not a union", t1);
       break;
+    case CPTK_IS_CONSTRUCTIBLE:
+      inform(loc, "  %qT is not constructible from %qT", t1, t2);
+      break;
+      
     default:
       gcc_unreachable ();
     }
