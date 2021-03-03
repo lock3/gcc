@@ -1,0 +1,9 @@
+{
+  "files.associations": {
+    "*.def": "cpp",
+    "*.inc": "cpp",
+    "rope": "cpp",
+    "string_view": "cpp",
+    "regex": "cpp"
+  }
+}
