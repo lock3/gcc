@@ -101,17 +101,34 @@ check_metafunction (metafunction_kind k, tree args)
     case mfk_getenv:
       {
 	gcc_assert (TREE_VEC_LENGTH (args) == 1);
-	if (!has_c_string_type (TREE_VEC_ELT (args, 0)))
+	if (NULLPTR_TYPE_P (TREE_TYPE (TREE_VEC_ELT (args, 0))))
 	  {
-	    error ("operand must have type %qT", cstr);
+	    error ("operand must be non-null");
 	    return error_mark_node;
 	  }
-	return build_c_string_type ();
+
+	/* Ensure the argument is convertible to const char *.  */
+	tree arg = TREE_VEC_ELT (args, 0);
+	tree from_type = TREE_TYPE (arg);
+	conversion *c = good_conversion (cstr, from_type, arg, LOOKUP_IMPLICIT,
+					 tf_warning_or_error);
+	if (!c)
+	  {
+	    // FIXME parser always gives UNKNOWN_LOCATION ?
+	    complain_about_bad_argument (EXPR_LOCATION (arg), from_type, cstr,
+					 NULL_TREE, 0);
+	    return error_mark_node;
+	  }
+
+	tree conv = perform_implicit_conversion (cstr, arg,
+						 tf_warning_or_error);
+	TREE_VEC_ELT (args, 0) = conv;
+	return cstr;
       }
-    
+
     case mfk_maybe_getenv:
       {
-        gcc_assert (TREE_VEC_LENGTH (args) == 3);
+	gcc_assert (TREE_VEC_LENGTH (args) == 3);
 	if (!has_c_string_type (TREE_VEC_ELT (args, 0)))
 	  {
 	    error ("first operand must have type %qT", cstr);
@@ -153,10 +170,27 @@ finish_metafunction_expression (location_t loc, metafunction_kind k, tree args)
   else
     {
       tree type = check_metafunction (k, args);
+      if (type == error_mark_node)
+	return error_mark_node;
       expr = build2 (METAFUNCTION_EXPR, type, kind, args);
     }
 
   protected_set_expr_location (expr, loc);
+  if (any_dependent_p (args))
+    return expr;
+
+  /* Metafunction expressions are immediate invocations.  */
+  bool immediate_invocation_p
+    = cp_unevaluated_operand == 0
+      && (current_function_decl == NULL_TREE
+	  || !DECL_IMMEDIATE_FUNCTION_P (current_function_decl))
+      && (current_binding_level->kind != sk_function_parms
+	  || !current_binding_level->immediate_fn_ctx_p);
+  if (!immediate_invocation_p)
+    return expr;
+
+  tree obj_arg = NULL_TREE;
+  expr = cxx_constant_value (expr, obj_arg);
 
   return expr;
 }
@@ -185,7 +219,7 @@ tsubst_metafunction_expression (tree t, tree args,
   for (int i = 0; i < TREE_VEC_LENGTH (olds); ++i)
     TREE_VEC_ELT (news, i) =
       tsubst_metafunction_operand (TREE_VEC_ELT (olds, i), args,
-      				   complain, in_decl);
+				   complain, in_decl);
 
   /* Rebuild the node.  */
   location_t loc = EXPR_LOCATION (t);

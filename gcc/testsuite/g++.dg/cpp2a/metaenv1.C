@@ -9,10 +9,9 @@ consteval const char *meta_getenv(const char *key)
 
 int main(int, char**)
 {
-  // FIXME why can't we pass a const char* directly to __meta_getenv?
-  //constexpr const char* foo = __meta_getenv("foo");
-  //static constinit const char* foo = __meta_getenv("foo");
-  //printf("foo: %s", __meta_getenv("foo"));
+  constexpr const char* foo1 = __meta_getenv("foo");
+  static constinit const char* foo2 = __meta_getenv("foo");
+  printf("foo0: %s\n", __meta_getenv("foo"));
 
   printf("foo: %s\n", meta_getenv("foo"));
   printf("bar: %s\n", meta_getenv("bar"));
@@ -21,6 +20,7 @@ int main(int, char**)
   return 0;
 }
 
+// { dg-output "foo0: bar(\n|\r\n|\r)*" }
 // { dg-output "foo: bar(\n|\r\n|\r)*" }
 // { dg-output "bar: baz(\n|\r\n|\r)*" }
 // { dg-output "test: (\n|\r\n|\r)*" }

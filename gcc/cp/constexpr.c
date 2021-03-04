@@ -2343,7 +2343,29 @@ cxx_eval_metafunction (const constexpr_ctx *ctx, tree t,
     {
     case mfk_getenv:
       {
-	const char* key = get_constant_string (TREE_VEC_ELT (vals, 0));
+	tree arg = STRIP_NOPS (TREE_VEC_ELT (vals, 0));
+
+	if (integer_zerop (arg))
+	  {
+	    if (!ctx->quiet)
+	      error ("operand must be non-null");
+	    *non_constant_p = true;
+	    return t;
+	  }
+
+	if (TREE_CODE (arg) != ADDR_EXPR
+	    || TREE_CODE (TREE_OPERAND (arg, 0)) != STRING_CST)
+	  {
+	    if (!ctx->quiet)
+	      error ("operand must be constant and have type %qT",
+		     build_pointer_type (build_type_variant (char_type_node,
+							     true,
+							     false)));
+	    *non_constant_p = true;
+	    return t;
+	  }
+
+	const char* key = get_constant_string (arg);
 	const char* val = lookup_knob (key);
 	if (val)
 	  return build_string_literal (strlen (val) + 1, val);
