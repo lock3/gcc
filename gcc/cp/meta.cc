@@ -40,21 +40,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "print-tree.h"
 #include "cxx-config.h"
 
-/* Returns the type 'const T'.  */
-static tree
-build_const_type (tree t)
-{
-  return build_type_variant (t, true, false);
-}
-
-/* Returns the type 'const char*'.  */
-
-static tree
-build_c_string_type ()
-{
-  return build_pointer_type (build_const_type (char_type_node));
-}
-
 /* Returns true if any operands are type-dependent or dependent types.  */
 
 static bool
@@ -71,18 +56,23 @@ any_dependent_p (const_tree args)
   return false;
 }
 
-/* Returns true if the expression T has type 'const char*'.  */
-
-static bool
-has_type (tree e, tree t)
+/* Return a valid conversion of ARG to TYPE if it exists, or error_mark_node
+   and issue a diagnostic if there is no valid conversion path.  */
+static tree
+perform_conversion (tree type, tree arg)
 {
-  return same_type_p (TREE_TYPE (e), t);
-}
+  tree from_type = TREE_TYPE (arg);
+  conversion *c = good_conversion (type, from_type, arg, LOOKUP_IMPLICIT,
+				   tf_warning_or_error);
+  if (!c)
+    {
+      complain_about_bad_argument (EXPR_LOCATION (arg), from_type, type,
+				   NULL_TREE, 0);
+      return error_mark_node;
+    }
 
-static bool
-has_c_string_type (tree e)
-{
-  return has_type (e, build_c_string_type ());
+  tree conv = perform_implicit_conversion (type, arg, tf_warning_or_error);
+  return conv;
 }
 
 /* Check that metafunction operands correspond to their specification and
@@ -95,7 +85,6 @@ has_c_string_type (tree e)
 static tree
 check_metafunction (metafunction_kind k, tree args)
 {
-  tree cstr = build_c_string_type ();
   switch (k)
     {
     case mfk_getenv:
@@ -108,43 +97,43 @@ check_metafunction (metafunction_kind k, tree args)
 	  }
 
 	/* Ensure the argument is convertible to const char *.  */
-	tree arg = TREE_VEC_ELT (args, 0);
-	tree from_type = TREE_TYPE (arg);
-	conversion *c = good_conversion (cstr, from_type, arg, LOOKUP_IMPLICIT,
-					 tf_warning_or_error);
-	if (!c)
-	  {
-	    // FIXME parser always gives UNKNOWN_LOCATION ?
-	    complain_about_bad_argument (EXPR_LOCATION (arg), from_type, cstr,
-					 NULL_TREE, 0);
-	    return error_mark_node;
-	  }
-
-	tree conv = perform_implicit_conversion (cstr, arg,
-						 tf_warning_or_error);
+	tree conv = perform_conversion (const_string_type_node, 
+					TREE_VEC_ELT (args, 0));
+	if (conv == error_mark_node)
+	  return error_mark_node;
 	TREE_VEC_ELT (args, 0) = conv;
-	return cstr;
+	return const_string_type_node;
       }
 
     case mfk_maybe_getenv:
       {
 	gcc_assert (TREE_VEC_LENGTH (args) == 3);
-	if (!has_c_string_type (TREE_VEC_ELT (args, 0)))
+
+	if (NULLPTR_TYPE_P (TREE_TYPE (TREE_VEC_ELT (args, 0))))
 	  {
-	    error ("first operand must have type %qT", cstr);
+	    error ("first operand must be non-null");
 	    return error_mark_node;
 	  }
+	/* Ensure the argument is convertible to const char *.  */
+	tree conv1 = perform_conversion (const_string_type_node,
+					 TREE_VEC_ELT (args, 0));
+	if (conv1 == error_mark_node)
+	  return error_mark_node;
+	TREE_VEC_ELT (args, 0) = conv1;
+
 	tree t = TREE_VEC_ELT (args, 1);
-	if (!INTEGRAL_OR_ENUMERATION_TYPE_P (t))
+	if (!INTEGRAL_OR_ENUMERATION_TYPE_P (t)
+	    && !same_type_p (t, const_string_type_node))
 	  {
 	    error ("second operand must be an integral or enumeration type");
 	    return error_mark_node;
 	  }
-	if (!has_type (TREE_VEC_ELT (args, 2), t))
-	  {
-	    error ("second operand must have type %qT", t);
-	    return error_mark_node;
-	  }
+
+	/* Ensure the default argument is convertible to the type T.  */
+	tree conv2 = perform_conversion (t, TREE_VEC_ELT (args, 2));
+	if (conv2 == error_mark_node)
+	  return error_mark_node;
+	TREE_VEC_ELT (args, 2) = conv2;
 	return t;
       }
 

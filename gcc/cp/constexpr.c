@@ -2234,11 +2234,9 @@ get_constant_string (tree t)
 {
   STRIP_NOPS (t);
   if (TREE_CODE (t) == ADDR_EXPR)
-    {
-      t = TREE_OPERAND (t, 0);
-      if (TREE_CODE (t) == STRING_CST)
-	return TREE_STRING_POINTER (t);
-    }
+    t = TREE_OPERAND (t, 0);
+  if (TREE_CODE (t) == STRING_CST)
+    return TREE_STRING_POINTER (t);
 
   /* Surely there are other ways of accessing a string literal.  */
   gcc_unreachable ();
@@ -2275,9 +2273,9 @@ parse_integral_knob (const char *val, tree type)
     num = strtoll (val, &end, 0);
   if (end != val + strlen (val))
     {
-      const char* msg = TYPE_UNSIGNED (type) ?
-        "an unsigned integral" :
-        "a signed integral";
+      const char *msg = TYPE_UNSIGNED (type) ?
+	"an unsigned integral" :
+	"a signed integral";
       error ("%qs is not %s value", val, msg);
       return error_mark_node;
     }
@@ -2302,7 +2300,7 @@ parse_enumeral_knob (const char *arg, tree type)
 /* Parse ARG as a value of TYPE.  */
 
 static tree
-cxx_parse_knob (const char* arg, tree type)
+cxx_parse_knob (const char *arg, tree type)
 {
   if (same_type_p (type, boolean_type_node))
     return parse_boolean_knob (arg);
@@ -2310,10 +2308,41 @@ cxx_parse_knob (const char* arg, tree type)
     return parse_integral_knob (arg, type);
   if (TREE_CODE (type) == ENUMERAL_TYPE)
     return parse_enumeral_knob (arg, type);
+  if (same_type_p (type, const_string_type_node))
+    return build_string_literal (strlen (arg) + 1, arg);
   error ("cannot interpret %qs as a value of %qT", arg, type);
   return error_mark_node;
 }
 
+/* Verify that an expression t is a statically known non-null const char *.  */
+static const char *
+verify_constant_c_string (const constexpr_ctx *ctx, tree t,
+			  bool *non_constant_p)
+{
+  if (integer_zerop (t))
+    {
+      if (!ctx->quiet)
+	error ("operand must be non-null");
+      *non_constant_p = true;
+      return NULL;
+    }
+
+  if (TREE_CODE (t) == ADDR_EXPR
+      && TREE_CODE (TREE_OPERAND (t, 0)) == STRING_CST)
+    return get_constant_string (t);
+
+  if (TREE_CODE (t) == STRING_CST)
+    return get_constant_string (t);
+
+  if (!ctx->quiet)
+    error ("operand must be constant and have type %qT",
+	   build_pointer_type (build_type_variant (char_type_node, true,
+						   false)));
+  *non_constant_p = true;
+  return NULL;
+}
+
+#include "print-tree.h"
 /* Subroutine of cxx_eval_constant_expression.
    Evaluate the metafunction expression T.  */
 static tree
@@ -2344,29 +2373,10 @@ cxx_eval_metafunction (const constexpr_ctx *ctx, tree t,
     case mfk_getenv:
       {
 	tree arg = STRIP_NOPS (TREE_VEC_ELT (vals, 0));
-
-	if (integer_zerop (arg))
-	  {
-	    if (!ctx->quiet)
-	      error ("operand must be non-null");
-	    *non_constant_p = true;
-	    return t;
-	  }
-
-	if (TREE_CODE (arg) != ADDR_EXPR
-	    || TREE_CODE (TREE_OPERAND (arg, 0)) != STRING_CST)
-	  {
-	    if (!ctx->quiet)
-	      error ("operand must be constant and have type %qT",
-		     build_pointer_type (build_type_variant (char_type_node,
-							     true,
-							     false)));
-	    *non_constant_p = true;
-	    return t;
-	  }
-
-	const char* key = get_constant_string (arg);
-	const char* val = lookup_knob (key);
+	const char *key = verify_constant_c_string (ctx, arg, non_constant_p);
+	if (!key)
+	  return t;
+	const char *val = lookup_knob (key);
 	if (val)
 	  return build_string_literal (strlen (val) + 1, val);
 	return nullptr_node;
@@ -2374,16 +2384,27 @@ cxx_eval_metafunction (const constexpr_ctx *ctx, tree t,
       break;
 
     case mfk_maybe_getenv:
-	const char* key = get_constant_string (TREE_VEC_ELT (vals, 0));
-	const char* val = lookup_knob (key);
+      {
+	tree arg = STRIP_NOPS (TREE_VEC_ELT (vals, 0));
+	const char *key = verify_constant_c_string (ctx, arg, non_constant_p);
+	if (!key)
+	  return t;
+	const char *val = lookup_knob (key);
+	tree type = TREE_VEC_ELT (vals, 1);
 	if (val)
 	  {
 	    /* Parse the knob and re-evaluate the result in context.  */
-	    tree r = cxx_parse_knob (val, TREE_VEC_ELT (vals, 1));
+	    tree r = cxx_parse_knob (val, type);
+	    if (r == error_mark_node)
+	      {
+		*non_constant_p = true;
+		return t;
+	      }
 	    return cxx_eval_constant_expression (ctx, r, lval,
 						 non_constant_p, overflow_p);
 	  }
-	return TREE_VEC_ELT (vals, 2);
+      }
+      return TREE_VEC_ELT (vals, 2);
     }
   gcc_unreachable ();
 }
