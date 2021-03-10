@@ -1089,6 +1089,7 @@ experimental_headers = \
 	${experimental_srcdir}/map \
 	${experimental_srcdir}/memory \
 	${experimental_srcdir}/memory_resource \
+	${experimental_srcdir}/meta \
 	${experimental_srcdir}/net \
 	${experimental_srcdir}/netfwd \
 	${experimental_srcdir}/numeric \
