@@ -60,12 +60,35 @@ define_knob (const char* arg)
   if (existed)
     {
       if (*entry)
-        error ("configuration knob %qs previously defined as %qs", key, entry);
+	error ("configuration knob %qs previously defined as %qs", key, entry);
       else
-        error ("configuration knob %qs previously defined", key);
+	error ("configuration knob %qs previously defined", key);
     }
   else
     entry = value;
+}
+
+/* Define a knob if it doesn't already exist.  */
+
+static void
+define_knob_if_not_exists (const char *key, const char *value)
+{
+  bool existed;
+  const char*& entry = build_env.get_or_insert (key, &existed);
+  if (existed)
+    return;
+  entry = value;
+}
+
+/* Define any default knobs if they don't already have a value given.  */
+
+void
+define_default_knobs ()
+{
+  define_knob_if_not_exists ("assert", "enforce");
+  define_knob_if_not_exists ("pre", "enforce");
+  define_knob_if_not_exists ("post", "enforce");
+  define_knob_if_not_exists ("assume", "ignore");
 }
 
 /* Returns the C-string assocated with KEY or null if KEY is not in the

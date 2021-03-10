@@ -623,6 +623,7 @@ cp_post_options (const char **pfilename)
 {
   bool preprocess_only = c_common_post_options (pfilename);
 
+  define_default_knobs ();
   if (flag_dump_build_environment)
     dump_knobs ();
 

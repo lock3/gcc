@@ -23,6 +23,8 @@ along with GCC; see the file COPYING3.  If not see
 #define GCC_CP_CONFIG_H
 
 void define_knob (const char* arg);
+void define_default_knobs ();
+
 const char* lookup_knob (const char* arg);
 
 void dump_knobs ();
