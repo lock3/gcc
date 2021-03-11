@@ -1,19 +1,20 @@
 // generic pre contract parsing checks
-//   check omitted, 'default', 'audit', and 'axiom' contract levels parse
-//   ensure that an invalid contrcat level 'off' errors
+//   check omitted, 'default', 'audit', and 'symbolic' contracts parse
+//   ensure that an invalid contract label 'off' errors
 //   ensure that a predicate referencing an undefined variable errors
 //   ensure that a missing colon after contract level errors
 // { dg-do compile }
 // { dg-options "-std=c++2a -fcontracts" }
+#include <experimental/contracts>
 
 void f1(int x) [[ pre: x >= 0 ]] { }
 void f2(int x) [[ pre default: x >= 0 ]] { }
 void f3(int x) [[ pre audit: x >= 0 ]] { }
-void f4(int x) [[ pre axiom: x >= 0 ]] { }
+void f4(int x) [[ pre symbolic: x >= 0 ]] { }
 
-void finvalid(int x) [[ pre invalid: x >= 0 ]] { } // { dg-error "expected contract level" }
+void finvalid(int x) [[ pre invalid: x >= 0 ]] { } // { dg-error ".invalid. was not declared" }
 void fundeclared() [[ pre: x >= 0 ]] { } // { dg-error ".x. was not declared in this scope" }
-void fmissingcolon(int x) [[ pre default x == 0]] { } // { dg-error "expected .:. before .x." }
+void fmissingcolon(int x) [[ pre default x == 0]] { } // { dg-error "expected contract-id" }
 
 void (*fp1)(int x) [[ pre: x > 0 ]]; // { dg-error "contracts must appertain" }
 void (*fp2 [[ pre: x > 0 ]])(int x); // { dg-error "contracts must appertain" }

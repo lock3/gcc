@@ -5081,6 +5081,8 @@ handle_contract_attribute (tree *ARG_UNUSED (node), tree ARG_UNUSED (name),
 			   tree ARG_UNUSED (args), int ARG_UNUSED (flags),
 			   bool *no_add_attrs)
 {
+  if (!flag_contracts)
+    return error_mark_node;
   *no_add_attrs = true;
   return NULL_TREE;
 }

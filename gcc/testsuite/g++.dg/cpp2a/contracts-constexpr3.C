@@ -2,6 +2,7 @@
 // ensure that failing asserts generate an error in a constexpr function
 // { dg-do compile }
 // { dg-options "-std=c++2a -fcontracts" }
+#include "contracts-literal-semantic.h"
 
 constexpr int wfun(int a) {
   [[assert: a > 0]];
@@ -40,12 +41,12 @@ constexpr int explicitfn(int a) {
 int main(int, char **) {
   constexpr int a = wfun(10);
   constexpr int b = ffun(-10); // { dg-message "in .constexpr. expansion" }
-  // { dg-error "contract predicate" "" { target *-*-* } 12 }
+  // { dg-error "contract predicate" "" { target *-*-* } 13 }
   constexpr int c = wtfun(10);
   constexpr int d = ftfun(-10);  // { dg-message "in .constexpr. expansion" }
-  // { dg-error "contract predicate" "" { target *-*-* } 30 }
+  // { dg-error "contract predicate" "" { target *-*-* } 31 }
   constexpr int e = explicitfn(-10); // { dg-message "in .constexpr. expansion" }
-  // { dg-error "contract predicate" "" { target *-*-* } 36 }
+  // { dg-error "contract predicate" "" { target *-*-* } 37 }
   return 0;
 }
 

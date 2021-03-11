@@ -1,9 +1,9 @@
-// general checks to ensure that contract violations are generated during
-// runtime when appropriate
-// each check also validates the expected file name, line number, function,
-// predicate, and contract level are included in the violation_info object
+// Ensure that contract violations are generated during runtime when
+// appropriate, validating that the expected line number and function are
+// included in the diagnostic.
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-build-level=audit -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -fbuild-level=audit -Kassert=observe" }
+#include <experimental/contracts>
 
 namespace tns
 {
@@ -52,7 +52,7 @@ int main()
 // implementation conforms to this so we've included it as a check
 #line 100
   [[assert: x < 3]];
-  [[assert axiom: x < 4]];
+  [[assert symbolic: x < 4]];
 
   tns::fun();
   tns::fun2();

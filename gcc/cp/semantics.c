@@ -46,6 +46,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "predict.h"
 #include "memmodel.h"
 #include "cxx-contracts.h"
+#include "cxx-config.h"
 
 /* There routines provide a modular interface to perform many parsing
    operations.  They may therefore be used during actual parsing, or
@@ -792,66 +793,6 @@ copy_fn_decl (tree idecl)
   return decl;
 }
 
-/* Convert a contract CONFIG into a contract_mode.  */
-
-static contract_mode
-contract_config_to_mode (tree config)
-{
-  if (config == NULL_TREE)
-    return contract_mode (CONTRACT_DEFAULT, get_default_contract_role ());
-
-  /* TREE_LIST has TREE_VALUE is a level and TREE_PURPOSE is role.  */
-  if (TREE_CODE (config) == TREE_LIST)
-    {
-      contract_role *role = NULL;
-      if (TREE_PURPOSE (config))
-	role = get_contract_role (IDENTIFIER_POINTER (TREE_PURPOSE (config)));
-      if (!role)
-	role = get_default_contract_role ();
-
-      contract_level level =
-	map_contract_level (IDENTIFIER_POINTER (TREE_VALUE (config)));
-      return contract_mode (level, role);
-    }
-
-  /* Literal semantic.  */
-  gcc_assert (TREE_CODE (config) == IDENTIFIER_NODE);
-  contract_semantic semantic =
-    map_contract_semantic (IDENTIFIER_POINTER (config));
-  return contract_mode (semantic);
-}
-
-/* Convert a contract's config into a concrete semantic using the current
-   contract semantic mapping.  */
-
-static contract_semantic
-compute_contract_concrete_semantic (tree contract)
-{
-  contract_mode mode = contract_config_to_mode (CONTRACT_MODE (contract));
-  /* Compute the concrete semantic for the contract.  */
-  if (!flag_contract_mode)
-    /* If contracts are off, treat all contracts as ignore.  */
-    return CCS_IGNORE;
-  else if (mode.kind == contract_mode::cm_invalid)
-    return CCS_INVALID;
-  else if (mode.kind == contract_mode::cm_explicit)
-    return mode.get_semantic ();
-  else
-    {
-      gcc_assert (mode.get_role ());
-      gcc_assert (mode.get_level () != CONTRACT_INVALID);
-      contract_level level = mode.get_level ();
-      contract_role *role = mode.get_role ();
-      if (level == CONTRACT_DEFAULT)
-	return role->default_semantic;
-      else if (level == CONTRACT_AUDIT)
-	return role->audit_semantic;
-      else if (level == CONTRACT_AXIOM)
-	return role->axiom_semantic;
-    }
-  gcc_assert (false);
-}
-
 /* Build a declaration for the PRE_FN or POST_FN of a guarded FNDECL.  */
 
 static tree
@@ -991,44 +932,107 @@ get_contract_role_name (tree contract)
   return "default";
 }
 
-static void
-build_contract_handler_fn (tree contract,
-			   contract_continuation cmode)
+static tree
+build_contract_handler_labels_arg (tree contract, int &label_count)
 {
-  const char *level = get_contract_level_name (contract);
-  const char *role = get_contract_role_name (contract);
+  // convert_like_internal
+  tree new_ctor = build_constructor (init_list_type_node, NULL);
+
+  label_count = 0;
+  /* Convert all the elements.  */
+  for (tree label = CONTRACT_LABELS (contract);
+      label;
+      label = TREE_CHAIN (label))
+    {
+      label_count++;
+
+      tree id = TREE_VALUE (label);
+      const char *name = IDENTIFIER_POINTER (id);
+      tree label_literal = build_string_literal (strlen (name) + 1, name);
+
+      CONSTRUCTOR_APPEND_ELT (CONSTRUCTOR_ELTS (new_ctor),
+			      NULL_TREE, label_literal);
+    }
+
+  /* Build up the array.  */
+  tree elttype = const_string_type_node;
+  elttype = cp_build_qualified_type
+    (elttype, cp_type_quals (elttype) | TYPE_QUAL_CONST);
+  tree array = build_array_of_n_type (elttype, label_count);
+  array = finish_compound_literal (array, new_ctor, tf_warning_or_error);
+  /* Take the address explicitly rather than via decay_conversion
+     to avoid the error about taking the address of a temporary.  */
+  array = cp_build_addr_expr (array, tf_warning_or_error);
+  return array;
+}
+
+static int
+map_contract_kind_to_attribute (tree_code kind)
+{
+  if (kind == ASSERTION_STMT)
+    return 0;
+  if (kind == PRECONDITION_STMT)
+    return 1;
+  if (kind == POSTCONDITION_STMT)
+    return 2;
+  if (kind == ASSUMPTION_STMT)
+    return 3;
+  gcc_assert (false);
+}
+
+static int
+map_contract_semantic (contract_semantic sem)
+{
+  switch (sem)
+  {
+    case CCS_INVALID: return 0;
+    case CCS_IGNORE: return 0;
+    case CCS_ASSUME: return 1;
+    case CCS_NEVER: return 2;
+    case CCS_MAYBE: return 3;
+  }
+  gcc_assert (false);
+}
+
+static void
+build_contract_handler_fn (tree contract)
+{
   tree comment = CONTRACT_COMMENT (contract);
 
   expanded_location loc = expand_location (EXPR_LOCATION (contract));
 
-  /* FIXME: It looks  like we have two bits of information for
-     continuing.  Is this right?  */
-  tree continue_mode = build_int_cst (boolean_type_node, cmode != NEVER_CONTINUE);
   tree line_number = build_int_cst (integer_type_node, loc.line);
   tree file_name = build_string_literal (strlen (loc.file) + 1, loc.file);
   const char *function_name_str =
     TREE_CODE (contract) == ASSERTION_STMT
+      || TREE_CODE (contract) == ASSUMPTION_STMT
       || DECL_CONSTRUCTOR_P (current_function_decl)
       || DECL_DESTRUCTOR_P (current_function_decl)
     ? current_function_name ()
     : fndecl_name (DECL_ORIGINAL_FN (current_function_decl));
   tree function_name = build_string_literal (strlen (function_name_str) + 1,
 					     function_name_str);
-  tree level_str = build_string_literal (strlen (level) + 1, level);
-  tree role_str = build_string_literal (strlen (role) + 1, role);
 
-  /* FIXME: Do we want a string for this?.  */
-  tree continuation = build_int_cst (integer_type_node, cmode);
+  int contracts_attribute
+    = map_contract_kind_to_attribute (TREE_CODE (contract));
+  tree attr = build_int_cst (integer_type_node, contracts_attribute);
+  int contracts_semantic
+    = map_contract_semantic (get_contract_semantic (contract));
+  tree sem = build_int_cst (integer_type_node, contracts_semantic);
+
+  int count = 0;
+  tree labels = build_contract_handler_labels_arg (contract, count);
+  tree label_count = build_int_cst (integer_type_node, count);
 
   tree violation_fn;
-  if (cmode == MAYBE_CONTINUE)
+  if (get_contract_semantic (contract) != CCS_NEVER)
     violation_fn = on_contract_violation_fn;
   else
     violation_fn = on_contract_violation_never_fn;
-  tree call = build_call_expr (violation_fn, 8, continue_mode, line_number,
-			       file_name, function_name, comment,
-			       level_str, role_str,
-			       continuation);
+  violation_fn = on_contract_violation_fn;
+  tree call = build_call_expr (violation_fn, 8, line_number, file_name,
+			       function_name, comment, attr, sem,
+			       labels, label_count);
 
   finish_expr_stmt (call);
 }
@@ -1103,18 +1107,7 @@ build_contract_check (tree contract)
       finish_expr_stmt (call);
     }
   else
-    {
-      /* Get the continuation mode.  */
-      contract_continuation cmode;
-      switch (semantic)
-	{
-	  case CCS_NEVER: cmode = NEVER_CONTINUE; break;
-	  case CCS_MAYBE: cmode = MAYBE_CONTINUE; break;
-	  default: gcc_unreachable ();
-	}
-
-      build_contract_handler_fn (contract, cmode);
-    }
+    build_contract_handler_fn (contract);
 
   finish_then_clause (if_stmt);
   tree scope = IF_SCOPE (if_stmt);
@@ -1187,12 +1180,14 @@ emit_postconditions (tree contracts)
 tree
 start_contract (location_t loc,
 		tree attr,
-		tree config,
+		tree labels,
 		tree id)
 {
   tree_code code;
   if (is_attribute_p ("assert", attr))
     code = ASSERTION_STMT;
+  else if (is_attribute_p ("assume", attr))
+    code = ASSUMPTION_STMT;
   else if (is_attribute_p ("pre", attr))
     code = PRECONDITION_STMT;
   else if (is_attribute_p ("post", attr))
@@ -1203,11 +1198,14 @@ start_contract (location_t loc,
   /* Build the contract. The condition is added later.  */
   tree contract;
   if (code != POSTCONDITION_STMT)
-    contract = build3_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE);
+    contract = build3_loc (loc, code, void_type_node, labels, NULL_TREE,
+			   NULL_TREE);
   else
-    contract = build4_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE, id);
+    contract = build4_loc (loc, code, void_type_node, labels, NULL_TREE,
+			   NULL_TREE, id);
 
-  set_contract_semantic (contract, compute_contract_concrete_semantic (contract));
+  contract_semantic sem = compute_contract_concrete_semantic (code, labels);
+  set_contract_semantic (contract, sem);
   return contract;
 }
 

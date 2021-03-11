@@ -1,5 +1,7 @@
 // ensure the feature test macros are defined pre c++20 while we still support
 // -fcontracts independent of std version
+// Note that to actually use _any_ label whatsover c++20 consteval support is
+// required.
 // { dg-do compile { target c++11 } }
 // { dg-additional-options "-fcontracts" }
 
@@ -12,22 +14,10 @@ int main()
   int x;
 
   [[assert: x >= 0]];
-  [[assert default: x < 0]];
-  [[assert audit: x == 0]];
-  [[assert axiom: x == 1]];
 
   [[assert: x > 0 ? true : false]];
   [[assert: x < 0 ? true : false]];
 
-  [[assert ignore: x >= 0]];
-  [[assert assume: x >= 0]];
-  [[assert check_never_continue: x >= 0]];
-  [[assert check_maybe_continue: x >= 0]];
-
-  [[assert %default: x >= 0]];
-  [[assert default %default: x < 0]];
-  [[assert audit %default: x == 0]];
-  [[assert axiom %default: x == 1]];
   return 0;
 }
 

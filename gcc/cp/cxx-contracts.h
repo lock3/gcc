@@ -22,6 +22,7 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_CP_CONTRACT_H
 #define GCC_CP_CONTRACT_H
 
+#include "tree.h"
 #include "hash-map.h"
 
 /* Contract levels approximate the complexity of the expression.  */
@@ -180,5 +181,10 @@ extern void define_contract_label (tree name, tree type);
 /* Return an iterator into the contract_labels hash_map.  */
 extern hash_map<tree, tree>::iterator contract_labels_begin ();
 extern hash_map<tree, tree>::iterator contract_labels_end ();
+
+/* Determine the final concrete semantic given an contract attribute kind and
+   sequence of labels.  */
+
+extern contract_semantic compute_contract_concrete_semantic (tree_code, tree);
 
 #endif /* ! GCC_CP_CONTRACT_H */

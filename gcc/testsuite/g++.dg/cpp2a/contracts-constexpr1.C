@@ -1,18 +1,19 @@
 // ensure that passing pre/post do not affect constexpr functions
 // ensure that failing pre/post generate an error at runtime in constexpr funcs
 // { dg-do run }
-// { dg-options "-std=c++20 -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++20 -fcontracts -Kpre=observe -Kpost=observe" }
+#include "contracts-literal-semantic.h"
 
 constexpr int wfun(int a)
   [[ pre: a > 0 ]]
-  [[ post r: r > 0 ]]
+  [[ post [r]: r > 0 ]]
 {
   return a;
 }
 
 constexpr int ffun(int a)
   [[ pre: a > 0 ]]
-  [[ post r: r > 0 ]]
+  [[ post [r]: r > 0 ]]
 {
   return a;
 }
@@ -20,7 +21,7 @@ constexpr int ffun(int a)
 template<typename T>
 constexpr int tfun(T a)
   [[ pre: a > 0 ]]
-  [[ post r: r > 0 ]]
+  [[ post [r]: r > 0 ]]
 {
   return a;
 }
@@ -28,7 +29,7 @@ constexpr int tfun(T a)
 template<typename T>
 constexpr int wtfun(T a)
   [[ pre: a > 0 ]]
-  [[ post r: r > 0 ]]
+  [[ post [r]: r > 0 ]]
 {
   return a;
 }
@@ -36,7 +37,7 @@ constexpr int wtfun(T a)
 template<typename T>
 constexpr int ftfun(T a)
   [[ pre: a > 0 ]]
-  [[ post r: r > 0 ]]
+  [[ post [r]: r > 0 ]]
 {
   return a;
 }
@@ -44,8 +45,8 @@ constexpr int ftfun(T a)
 constexpr int explicitfn(int a)
   [[ pre ignore: a > 0 ]]
   [[ pre check_maybe_continue: a > 0 ]]
-  [[ post ignore r: r > 0 ]]
-  [[ post check_maybe_continue r: r > 0 ]]
+  [[ post ignore [r]: r > 0 ]]
+  [[ post check_maybe_continue [r]: r > 0 ]]
 {
   return a;
 }
@@ -63,12 +64,12 @@ int main(int, char **) {
   return 0;
 }
 
-// { dg-output "default std::handle_contract_violation called: .*.C 14 ffun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 15 ffun .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 38 ftfun<int> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 16 ffun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 39 ftfun<int> .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 46 explicitfn .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 48 explicitfn .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 38 ftfun<double> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 40 ftfun<int> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 47 explicitfn .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 49 explicitfn .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 39 ftfun<double> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 40 ftfun<double> .*(\n|\r\n|\r)*" }
 

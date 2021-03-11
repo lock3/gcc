@@ -1,6 +1,6 @@
 // test that ignored contracts do instatiate templates
 // { dg-do compile }
-// { dg-options "-std=c++2a -fcontracts" }
+// { dg-options "-std=c++2a -fcontracts -Kassert=ignore" }
 
 template<typename T>
 int f(T t)
@@ -10,7 +10,7 @@ int f(T t)
 
 int dummy()
 {
-  [[ assert ignore: f(1.0) > 0 ]];
+  [[ assert: f(1.0) > 0 ]];
   return -1;
 }
 

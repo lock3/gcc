@@ -1,9 +1,10 @@
 // ensure that constants for contract levels are inserted into the binary when
 // used and omitted when the runtime check is not generated
 // { dg-do compile }
-// { dg-options "-std=c++2a -fcontracts -fcontract-build-level=default" }
+// { dg-options "-std=c++20" }
 // { dg-final { scan-assembler-not "audit" } }
 // { dg-final { scan-assembler "default" } }
+#include <experimental/contracts>
 
 int main()
 {

@@ -1,5 +1,5 @@
 // { dg-module-do run }
-// { dg-additional-options "-fmodules-ts -fcontracts" }
+// { dg-additional-options "-std=c++20 -fmodules-ts" }
 module;
 #include <cstdio>
 export module baz;

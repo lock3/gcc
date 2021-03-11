@@ -1,6 +1,6 @@
 // ensure contracts on friend declarations are a complete class context
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kpre=observe" }
 
 struct X {
   friend void fn0(X x) [[ pre: x.a > 0 ]] { }

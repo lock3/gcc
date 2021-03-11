@@ -133,16 +133,16 @@ S6::S6(T a)
 }
 
 int p0(int n)
-  [[ post r: r > 0 && r == n ]]
-  [[ post r: r > 1 && r == n ]]
-  [[ post r: r > 2 && r == n ]]
-  [[ post r: r > 3 && r == n ]];
+  [[ post [r]: r > 0 && r == n ]]
+  [[ post [r]: r > 1 && r == n ]]
+  [[ post [r]: r > 2 && r == n ]]
+  [[ post [r]: r > 3 && r == n ]];
 
 int p0(int z)
-  [[ post r: r > 0 && r == z ]]
-  [[ post r1: r1 > 1 && r1 == z ]]
-  [[ post r2: r2 > 2 && r2 == z ]]
-  [[ post r3: r3 > 3 && r3 == z ]]
+  [[ post [r]: r > 0 && r == z ]]
+  [[ post [r1]: r1 > 1 && r1 == z ]]
+  [[ post [r2]: r2 > 2 && r2 == z ]]
+  [[ post [r3]: r3 > 3 && r3 == z ]]
 {
   return z;
 }

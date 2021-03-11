@@ -28,6 +28,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "cxx-contracts.h"
 #include "tree.h"
 #include "tree-inline.h"
+#include "cxx-config.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
@@ -182,6 +183,11 @@ map_contract_semantic (const char *ident)
     return CCS_IGNORE;
   else if (strcmp (ident, "assume") == 0)
     return CCS_ASSUME;
+  else if (strcmp (ident, "enforce") == 0)
+    return CCS_NEVER;
+  else if (strcmp (ident, "observe") == 0)
+    return CCS_MAYBE;
+  /* FIXME these need nuked right? */
   else if (strcmp (ident, "check_never_continue") == 0)
     return CCS_NEVER;
   else if (strcmp (ident, "check_maybe_continue") == 0)
@@ -396,7 +402,8 @@ cxx_contract_attribute_p (const_tree attr)
 
   return (TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == PRECONDITION_STMT
       || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == POSTCONDITION_STMT
-      || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == ASSERTION_STMT);
+      || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == ASSERTION_STMT
+      || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == ASSUMPTION_STMT);
 }
 
 /* Replace any references in CONTRACT's CONDITION to SRC's parameters with
@@ -516,5 +523,236 @@ define_contract_label (tree args, tree type)
     }
 
   contract_labels.put (name, type);
+}
+
+/* Determine the default semantic for a given contract attribute KIND.  */
+
+static contract_semantic
+contract_attribute_kind_default_semantic (tree_code kind)
+{
+  if (kind == PRECONDITION_STMT)
+    return map_contract_semantic (lookup_knob ("pre"));
+  if (kind == POSTCONDITION_STMT)
+    return map_contract_semantic (lookup_knob ("post"));
+  if (kind == ASSERTION_STMT)
+    return map_contract_semantic (lookup_knob ("assert"));
+  if (kind == ASSUMPTION_STMT)
+    return map_contract_semantic (lookup_knob ("assume"));
+  gcc_assert (false);
+}
+
+/* Lookup and return the contracts namespace if it is included, NULL_TREE
+   otherwise.  */
+
+static tree
+lookup_contracts_namespace ()
+{
+  tree std_namespace = lookup_qualified_name (global_namespace, "std",
+					      LOOK_want::NAMESPACE, false);
+  if (!std_namespace)
+    return NULL_TREE;
+  tree experimental_namespace
+    = lookup_qualified_name (std_namespace, "experimental",
+			     LOOK_want::NAMESPACE, false);
+  if (!experimental_namespace)
+    return NULL_TREE;
+  return lookup_qualified_name (experimental_namespace, "contracts",
+				LOOK_want::NAMESPACE, false);
+}
+
+/* Setup the global type_node trees for the std::experimental::contracts label
+   support.  */
+
+static void
+setup_contracts_type_nodes ()
+{
+  if (contracts_attribute_type_node && contracts_semantic_type_node)
+    return;
+
+  tree contracts_namespace = lookup_contracts_namespace ();
+  if (!contracts_namespace)
+    return;
+
+  contracts_attribute_type_node
+    = lookup_qualified_name (contracts_namespace, "attribute", LOOK_want::TYPE,
+			     false);
+  if (DECL_P (contracts_attribute_type_node))
+    contracts_attribute_type_node = TREE_TYPE (contracts_attribute_type_node);
+  else
+    contracts_attribute_type_node = NULL_TREE;
+
+  contracts_semantic_type_node
+    = lookup_qualified_name (contracts_namespace, "semantic", LOOK_want::TYPE,
+			     false);
+  if (DECL_P (contracts_semantic_type_node))
+    contracts_semantic_type_node = TREE_TYPE (contracts_semantic_type_node);
+  else
+    contracts_semantic_type_node = NULL_TREE;
+}
+
+/* Return the corresponding std::experimental::contracts::attribute enum value
+   for a given KIND of contract attribute.  */
+
+static tree
+map_contract_to_attribute (tree_code kind)
+{
+  if (!contracts_attribute_type_node)
+    return NULL_TREE;
+  const char *name = NULL;
+  switch (kind)
+    {
+      case ASSERTION_STMT: name = "assertion"; break;
+      case PRECONDITION_STMT: name = "precondition"; break;
+      case POSTCONDITION_STMT: name = "postcondition"; break;
+      case ASSUMPTION_STMT: name = "assumption"; break;
+      default: break;
+    }
+  gcc_assert (name);
+  return lookup_qualified_name (contracts_attribute_type_node, name,
+				LOOK_want::NORMAL, false);
+}
+
+/* Return the corresponding std::experimental::contracts::semantic enum value
+   for a given contract semantic SEM.  */
+
+static tree
+map_contract_semantic (contract_semantic sem)
+{
+  if (!contracts_semantic_type_node)
+    return NULL_TREE;
+  const char *name = NULL;
+  switch (sem)
+    {
+      case CCS_IGNORE: name = "ignore"; break;
+      case CCS_ASSUME: name = "assume"; break;
+      case CCS_NEVER: name = "enforce"; break;
+      case CCS_MAYBE: name = "observe"; break;
+      default: break;
+    }
+  if (!name)
+    return NULL_TREE;
+  return lookup_qualified_name (contracts_semantic_type_node, name,
+				LOOK_want::NORMAL, false);
+}
+
+/* Return true if a list of types already contains a given type.  */
+
+static tree
+type_list_find (tree list, tree type)
+{
+  if (!list || !type)
+    return NULL_TREE;
+  for (tree e = list; e; e = TREE_CHAIN (e))
+    if (TREE_VALUE (e) == type)
+      return e;
+  return NULL_TREE;
+}
+
+/* Determine a contract's concrete semantic based on the default semantic for
+   the attribute kind, and the labels specified, if any.  */
+
+contract_semantic
+compute_contract_concrete_semantic (tree_code kind, tree labels)
+{
+  if (!flag_contracts)
+    return CCS_IGNORE;
+  contract_semantic sem = contract_attribute_kind_default_semantic (kind);
+  if (!labels)
+    return sem;
+
+  /* TODO: ensure any calls are outside the normal ptd workflow */
+  temp_override<int> tmp_ptd(processing_template_decl, 0);
+
+  setup_contracts_type_nodes ();
+  tree attrarg = map_contract_to_attribute (kind);
+  tree semarg = map_contract_semantic (sem);
+
+  /* List of value_type members of previous labels. Currently stored as a tree
+     list where the purpose is the contract_label type and the value is the
+     value_type. Both the number of contract labels on a single contract
+     attribute and the number of distinct value_types are expected to be low,
+     but if that changes something besides a linear search may bee needed.  */
+  tree value_types = NULL_TREE;
+
+  for (tree label = labels;
+      label;
+      label = TREE_CHAIN (label))
+    {
+      if (label == error_mark_node)
+	return CCS_INVALID; /* Diagnosed before.  */
+
+      tree id = TREE_VALUE (label);
+      tree contract_label = lookup_contract_label (id);
+      // TODO better diagnostic locations
+      if (!contract_label)
+	{
+	  error ("contract label %qE was not declared", id);
+	  return CCS_INVALID;
+	}
+      if (!COMPLETE_OR_OPEN_TYPE_P (contract_label))
+	{
+	  error ("contract label %qD is incomplete", contract_label);
+	  return CCS_INVALID;
+	}
+
+      tree value_type = lookup_qualified_name (contract_label, "value_type",
+					       LOOK_want::TYPE, false);
+      if (value_type && TREE_CODE (value_type) == TYPE_DECL)
+	{
+	  value_type = TYPE_CANONICAL (TREE_TYPE (value_type));
+	  tree old = type_list_find (value_types, value_type);
+	  if (old)
+	    error ("contract label %qD cannot combine with %qD because they "
+		   "share a value_type", contract_label, TREE_PURPOSE (old));
+	  else
+	    value_types = chainon (value_types, build_tree_list (contract_label,
+								 value_type));
+	}
+
+      tree adjust_semantic = lookup_member (contract_label,
+					    get_identifier ("adjust_semantic"),
+					    /*protect=*/1,
+					    /*want_type=*/false,
+					    tf_warning_or_error,
+					    /*afi=*/NULL);
+      /* Not existing at all is not an error.  */
+      if (adjust_semantic == NULL_TREE)
+	continue;
+      if (!attrarg || !semarg)
+	{
+	  error ("contract label support requires "
+		 "%<#include <experimental/contracts>%>");
+	  return CCS_INVALID;
+	}
+
+      vec<tree, va_gc> *args = make_tree_vector ();
+      vec_safe_push (args, attrarg);
+      vec_safe_push (args, semarg);
+
+      tree call = finish_call_expr (adjust_semantic, &args,
+				    /*disallow_virtual=*/true,
+				    /*koenig_p=*/false,
+				    /*complain=*/tf_warning_or_error);
+      gcc_assert (call != error_mark_node);
+
+      tree obj_arg = NULL_TREE;
+      semarg = cxx_constant_value (call, obj_arg);
+    }
+
+  if (semarg == error_mark_node)
+    return CCS_INVALID;
+
+  /* No labels, so we still have the original CONST_DECL we looked up.  */
+  if (TREE_CODE (semarg) == CONST_DECL)
+    semarg = DECL_INITIAL (semarg);
+
+  wi::tree_to_wide_ref val = wi::to_wide (semarg);
+  if (val == 0) return CCS_IGNORE;
+  if (val == 1) return CCS_ASSUME;
+  if (val == 2) return CCS_NEVER;
+  if (val == 3) return CCS_MAYBE;
+
+  /* TODO call all the other machinery from milestone 3 */
+  return CCS_INVALID;
 }
 

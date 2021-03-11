@@ -3,8 +3,8 @@
 
 int f1(int n)
   [[pre: n >= 0]]
-  [[post r: r >= 0]]
-  [[post r: !(r < 0)]]
+  [[post [r]: r >= 0]]
+  [[post [r]: !(r < 0)]]
 {
   return n;
 }
@@ -16,7 +16,7 @@ int f2(int n)
 }
 
 int f3(int n)
-  [[post r: r >= n]]
+  [[post [r]: r >= n]]
 {
   return n + 1;
 }
@@ -32,7 +32,7 @@ void f5()
 { }
 
 void f6()
-  [[post r: true]] // { dg-error "function does not return a value" }
+  [[post [r]: true]] // { dg-error "function does not return a value" }
 { }
 
 int f7(int n)

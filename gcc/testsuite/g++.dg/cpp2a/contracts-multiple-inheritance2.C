@@ -1,5 +1,5 @@
 // { dg-do compile }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a" }
 
 struct BaseA {
   virtual int fun(int n) [[ pre: n > 0 ]] { return -n; }

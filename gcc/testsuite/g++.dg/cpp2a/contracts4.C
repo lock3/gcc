@@ -2,6 +2,7 @@
 // error during runtime when the contract build level is default
 // { dg-do run }
 // { dg-options "-std=c++2a -fcontracts" }
+#include <experimental/contracts>
 
 int main()
 {

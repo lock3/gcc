@@ -2,6 +2,7 @@
 // assumptions; see contracts-assume2 for the assumed case
 // { dg-do run }
 // { dg-options "-std=c++2a -fcontracts" }
+#include <experimental/contracts>
 #include <cstdio>
 
 int fun(int x) {

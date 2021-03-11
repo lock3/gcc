@@ -1,7 +1,7 @@
 // ensure no errors are thrown for various combinations of class templates
 // with guarded members
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kpre=observe" }
 
 template<typename T>
 struct S

@@ -7106,6 +7106,7 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
       break;
 
     case ASSERTION_STMT:
+    case ASSUMPTION_STMT:
     case PRECONDITION_STMT:
     case POSTCONDITION_STMT:
       {
@@ -9041,6 +9042,7 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
       }
 
     case ASSERTION_STMT:
+    case ASSUMPTION_STMT:
     case PRECONDITION_STMT:
     case POSTCONDITION_STMT:
       if (!RECUR (CONTRACT_CONDITION (t), rval))

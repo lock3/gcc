@@ -1,6 +1,7 @@
 // test that assumed contracts do instatiate templates
 // { dg-do compile }
 // { dg-options "-std=c++2a -fcontracts" }
+#include <experimental/contracts>
 
 template<typename T>
 int f(T t)
@@ -10,7 +11,8 @@ int f(T t)
 
 int dummy()
 {
-  [[ assert assume: f(1.0) > 0 ]];
+  [[ assert symbolic: f(1.0) > 0 ]];
+  [[ assume: f(1.1) > 0 ]];
   return -1;
 }
 

@@ -1,5 +1,5 @@
 // { dg-module-do run }
-// { dg-additional-options "-fmodules-ts -fcontracts -fcontract-role=default:maybe,maybe,ignore" }
+// { dg-additional-options "-std=c++20 -fmodules-ts -Kpre=observe" }
 import foo;
 
 int main(int, char**)

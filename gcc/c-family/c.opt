@@ -1563,7 +1563,7 @@ C++ ObjC++ Joined RejectNegative Host_Wide_Int Var(constexpr_ops_limit) Init(335
 -fconstexpr-ops-limit=<number>	Specify maximum number of constexpr operations during a single constexpr evaluation.
 
 fcontracts
-C++ ObjC++ Var(flag_contracts) Init(0)
+C++ ObjC++ Var(flag_contracts) Init(2)
 Enable certain features present drafts of C++ Contracts.
 
 Enum
@@ -1578,6 +1578,19 @@ Enum(on_off) String(on) Value(1)
 fcontract-assumption-mode=
 C++ Joined
 -fcontract-assumption-mode=[on|off]	Enable or disable treating axiom level contracts as assumptions (default on).
+
+Enum
+Name(default_audit) Type(int) UnknownError(argument %qs must be either <default%> or %<audit%>)
+
+EnumValue
+Enum(default_audit) String(default) Value(0)
+
+EnumValue
+Enum(default_audit) String(audit) Value(1)
+
+fbuild-level=
+C++ Joined RejectNegative Enum(default_audit) Init(0) Var(flag_build_level)
+-fcontract-build-level=[default|audit]	Specify max contract level to generate runtime checks for.
 
 fcontract-build-level=
 C++ Joined RejectNegative

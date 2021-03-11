@@ -1,7 +1,8 @@
 // ensure that passing asserts do not affect constexpr functions
 // ensure that failing asserts generate an error at runtime in constexpr funcs
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kassert=observe" }
+#include "contracts-literal-semantic.h"
 
 constexpr int wfun(int a) {
   [[assert: a > 0]];
@@ -50,8 +51,8 @@ int main(int, char **) {
   return 0;
 }
 
-// { dg-output "default std::handle_contract_violation called: .*.C 12 ffun .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 30 ftfun<int> .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 36 explicitfn .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 30 ftfun<double> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 13 ffun .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 31 ftfun<int> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 37 explicitfn .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 31 ftfun<double> .*(\n|\r\n|\r)*" }
 

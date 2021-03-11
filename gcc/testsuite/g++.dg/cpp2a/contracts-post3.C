@@ -4,7 +4,7 @@
 // { dg-output "default std::handle_contract_violation called" }
 
 int f1(int n)
-  [[post r: r > n]]
+  [[post [r]: r > n]]
 {
   return n;
 }

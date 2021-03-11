@@ -6,7 +6,7 @@ template<typename T>
 [[nodiscard]]
 T fun(T n)
   [[ pre: n > 0 ]]
-  [[ post r: r > 0 ]] // { dg-warning ".z. attribute.*ignored" }
+  [[ post [r]: r > 0 ]] // { dg-warning ".z. attribute.*ignored" }
 {
   return n;
 }

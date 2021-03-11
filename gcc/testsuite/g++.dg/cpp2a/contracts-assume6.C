@@ -1,6 +1,17 @@
 // ensure that non-defined entities in assume contracts do not error
 // { dg-do compile }
-// { dg-options "-std=c++2a -fcontracts" }
+// { dg-options "-std=c++2a -fcontracts -Kassume=assume" }
+#include <experimental/contracts>
+
+using std::experimental::contracts::attribute;
+using std::experimental::contracts::semantic;
+struct [[contract_label(assume)]] assume_label
+{
+  static consteval semantic adjust_semantic(attribute, semantic s)
+  {
+    return semantic::assume;
+  }
+};
 
 template<typename T>
 T id2(T n);

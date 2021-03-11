@@ -1,5 +1,5 @@
 // { dg-module-do run }
-// { dg-additional-options "-fmodules-ts -fcontracts -fcontract-continuation-mode=on" }
+// { dg-additional-options "-std=c++20 -fmodules-ts -Kpre=observe" }
 module;
 #include <cstdio>
 export module bar;

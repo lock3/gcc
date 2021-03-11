@@ -20,16 +20,16 @@ struct F1
 struct F2
 {
   F2()
-    [[ post ret: false ]] // { dg-error "constructor does not return a value" }
+    [[ post [ret]: false ]] // { dg-error "constructor does not return a value" }
   {
   }
   ~F2()
-    [[ post r: false ]] // { dg-error "destructor does not return a value" }
+    [[ post [r]: false ]] // { dg-error "destructor does not return a value" }
   {
   }
 
   void f()
-    [[ post r: false ]] // { dg-error "member function does not return a value" }
+    [[ post [r]: false ]] // { dg-error "member function does not return a value" }
   {
   }
 };

@@ -1,7 +1,6 @@
-// Test that template contracts are not reintpreted when the reinterpret
-// contracts flag is not set, regardless of the current TU's contract
-// configuration.
-// { dg-additional-options "-std=c++20 -fmodules-ts -Kpre=observe -fbuild-level=audit" }
+// Basic test to ensure that contract_labels are correctly reregistered on
+// module import
+// { dg-additional-options "-std=c++20 -fmodules-ts -Kpre=observe" }
 module;
 #include <cstdio>
 #include <experimental/contracts>
@@ -20,7 +19,17 @@ export void handle_contract_violation(const violation &violation)
 using std::experimental::contracts::attribute;
 using std::experimental::contracts::semantic;
 
-struct [[contract_label(custom)]] custom_label
+namespace foo {
+  export struct [[contract_label(foo_custom)]] custom_label
+  {
+    static consteval semantic adjust_semantic(attribute, semantic s)
+    {
+      return s;
+    }
+  };
+}
+
+export struct [[contract_label(custom)]] custom_label
 {
   static consteval semantic adjust_semantic(attribute, semantic s)
   {
@@ -28,14 +37,10 @@ struct [[contract_label(custom)]] custom_label
   }
 };
 
-export template<typename T>
-T fn_t(T t)
-  [[ pre: t > 0 ]]
-  [[ pre audit custom: t > 0 ]]
+export int foo_fn(int n)
+  [[ pre foo_custom custom: n > 0 ]]
 {
-  printf("%s(%d)\n", __FUNCTION__, t);
-  return t;
+  printf("%s(%d)\n", __FUNCTION__, n);
+  return n;
 }
-
-export int fn_int(int n);
 

@@ -1181,6 +1181,7 @@ cp_genericize_r (tree *stmt_p, int *walk_subtrees, void *data)
       break;
 
     case ASSERTION_STMT:
+    case ASSUMPTION_STMT:
     case PRECONDITION_STMT:
     case POSTCONDITION_STMT:
       {

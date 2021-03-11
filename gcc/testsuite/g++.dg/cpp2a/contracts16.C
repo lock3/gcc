@@ -2,15 +2,17 @@
 // are not catchable up the call stack even when continue mode is off
 // { dg-do run }
 // { dg-options "-std=c++2a -fcontracts" }
+#include <experimental/contracts>
 #include <iostream>
-#include <contract>
 
-void handle_contract_violation(const std::contract_violation &violation) {
+using std::experimental::contracts::violation;
+
+void handle_contract_violation(const violation &violation) {
   std::cerr << "custom std::handle_contract_violation called:"
     << " " << violation.line_number()
     << " " << violation.file_name()
     << std::endl;
-  throw -violation.line_number();
+  throw (int)violation.line_number();
 }
 
 int fun() {
@@ -29,6 +31,6 @@ int main(int, char**) {
   return 0;
 }
 
-// { dg-output "custom std::handle_contract_violation called: 18 .*/contracts16.C(\n|\r\n|\r)*" }
-// { dg-output "synth caught indirect: -18(\n|\r\n|\r)*" }
+// { dg-output "custom std::handle_contract_violation called: 20 .*/contracts16.C(\n|\r\n|\r)*" }
+// { dg-output "synth caught indirect: 20(\n|\r\n|\r)*" }
 

@@ -1,7 +1,7 @@
 // test that free functions can be redeclared with contracts without affecting
 // normal default parm handling
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kpre=observe" }
 #include <cstdio>
 
 int f(int a, int, int c = 10);

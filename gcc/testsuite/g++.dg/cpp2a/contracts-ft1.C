@@ -1,4 +1,4 @@
-// { dg-do compile }
+// { dg-do compile { target c++17_down } }
 
 #ifdef __cpp_contracts
 static_assert (false);

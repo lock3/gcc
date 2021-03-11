@@ -1,7 +1,7 @@
 // ensure that that preconditions can access public, protected, and private
 // members of the current and base classes
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kpre=observe" }
 
 struct Base
 {

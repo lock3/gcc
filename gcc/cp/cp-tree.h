@@ -224,6 +224,8 @@ enum cp_tree_index
 
     CPTI_ON_CONTRACT_VIOLATION,
     CPTI_ON_CONTRACT_VIOLATION_NEVER,
+    CPTI_CONTRACTS_ATTRIBUTE_TYPE,
+    CPTI_CONTRACTS_SEMANTIC_TYPE,
 
     CPTI_SOURCE_LOCATION_IMPL,
 
@@ -366,6 +368,10 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
 #define on_contract_violation_fn        cp_global_trees[CPTI_ON_CONTRACT_VIOLATION]
 #define on_contract_violation_never_fn  cp_global_trees[CPTI_ON_CONTRACT_VIOLATION_NEVER]
 
+/* The std::experimental::contracts types required for labels support.  */
+#define contracts_attribute_type_node   cp_global_trees[CPTI_CONTRACTS_ATTRIBUTE_TYPE]
+#define contracts_semantic_type_node    cp_global_trees[CPTI_CONTRACTS_SEMANTIC_TYPE]
+
 /* The type of the function-pointer argument to "__cxa_atexit" (or
    "std::atexit", if "__cxa_atexit" is not being used).  */
 #define atexit_fn_ptr_type_node         cp_global_trees[CPTI_ATEXIT_FN_PTR_TYPE]
@@ -455,7 +461,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       ALIGNOF_EXPR_STD_P (in ALIGNOF_EXPR)
       OVL_DEDUP_P (in OVERLOAD)
       ATOMIC_CONSTR_MAP_INSTANTIATED_P (in ATOMIC_CONSTR)
-      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
+      contract_semantic (in ASSERTION_, ASSUMPTION_, PRECONDITION_, POSTCONDITION_STMT)
    1: IDENTIFIER_KIND_BIT_1 (in IDENTIFIER_NODE)
       TI_PENDING_TEMPLATE_FLAG.
       TEMPLATE_PARMS_FOR_INLINE.
@@ -489,7 +495,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       SWITCH_STMT_NO_BREAK_P (in SWITCH_STMT)
       LAMBDA_EXPR_CAPTURE_OPTIMIZED (in LAMBDA_EXPR)
       IMPLICIT_CONV_EXPR_BRACED_INIT (in IMPLICIT_CONV_EXPR)
-      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
+      contract_semantic (in ASSERTION_, ASSUMPTION_, PRECONDITION_, POSTCONDITION_STMT)
    3: IMPLICIT_RVALUE_P (in NON_LVALUE_EXPR or STATIC_CAST_EXPR)
       ICS_BAD_FLAG (in _CONV)
       FN_TRY_BLOCK_P (in TRY_BLOCK)
@@ -500,7 +506,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       OVL_NESTED_P (in OVERLOAD)
       LAMBDA_EXPR_INSTANTIATED (in LAMBDA_EXPR)
       DECL_MODULE_EXPORT_P (in _DECL)
-      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
+      contract_semantic (in ASSERTION_, ASSUMPTION_, PRECONDITION_, POSTCONDITION_STMT)
    4: IDENTIFIER_MARKED (IDENTIFIER_NODEs)
       TREE_HAS_CONSTRUCTOR (in INDIRECT_REF, SAVE_EXPR, CONSTRUCTOR,
 	  CALL_EXPR, or FIELD_DECL).
@@ -1324,6 +1330,7 @@ struct GTY (()) tree_static_assert {
 /* True if NODE is any kind of contract.  */
 #define CONTRACT_P(NODE)			\
   (TREE_CODE (NODE) == ASSERTION_STMT		\
+   || TREE_CODE (NODE) == ASSUMPTION_STMT	\
    || TREE_CODE (NODE) == PRECONDITION_STMT	\
    || TREE_CODE (NODE) == POSTCONDITION_STMT)
 
@@ -1333,7 +1340,8 @@ struct GTY (()) tree_static_assert {
    || TREE_CODE (NODE) == POSTCONDITION_STMT)
 
 #define CONTRACT_CHECK(NODE) \
-  (TREE_CHECK3 (NODE, ASSERTION_STMT, PRECONDITION_STMT, POSTCONDITION_STMT))
+  (TREE_CHECK4 (NODE, ASSERTION_STMT, ASSUMPTION_STMT, \
+		PRECONDITION_STMT, POSTCONDITION_STMT))
 
 /* Returns the computed semantic of the node.  */
 
@@ -1371,14 +1379,8 @@ set_contract_semantic (tree t, contract_semantic semantic)
    literal semantic or a TREE_LIST containing the level and role.  */
 #define CONTRACT_MODE(NODE) \
   (TREE_OPERAND (CONTRACT_CHECK (NODE), 0))
-
-/* The identifier denoting the build level of the contract. */
-#define CONTRACT_LEVEL(NODE)		\
-  (TREE_VALUE (CONTRACT_MODE (NODE)))
-
-/* The identifier denoting the role of the contract */
-#define CONTRACT_ROLE(NODE)		\
-  (TREE_PURPOSE (CONTRACT_MODE (NODE)))
+#define CONTRACT_LABELS(NODE) \
+  (TREE_OPERAND (CONTRACT_CHECK (NODE), 0))
 
 /* The parsed condition of the contract.  */
 #define CONTRACT_CONDITION(NODE) \

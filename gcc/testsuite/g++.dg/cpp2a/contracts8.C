@@ -4,6 +4,7 @@
 //   ensure that an attribute list cannot chain into an assert contract
 // { dg-do compile }
 // { dg-options "-std=c++2a -fcontracts" }
+#include <experimental/contracts>
 
 constexpr bool fun(int x) {
   return x < 0;

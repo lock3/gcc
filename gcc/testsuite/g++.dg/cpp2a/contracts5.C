@@ -1,9 +1,10 @@
 // ensure an audit level assert with a failing predicate generates an error
 // during runtime when the contract build level is audit
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-build-level=audit" }
+// { dg-options "-std=c++2a -fcontracts -fbuild-level=audit" }
 // { dg-shouldfail "assert violation" }
 // { dg-output "default std::handle_contract_violation called" }
+#include <experimental/contracts>
 
 int main()
 {

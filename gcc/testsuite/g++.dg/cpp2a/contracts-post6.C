@@ -13,8 +13,8 @@ struct S
 
   T f1(T n)
     [[pre: n >= 0]]
-    [[post r: r >= 0]]
-    [[post r: !(r < 0)]]
+    [[post [r]: r >= 0]]
+    [[post [r]: !(r < 0)]]
   {
     return n;
   }

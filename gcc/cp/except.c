@@ -61,13 +61,13 @@ init_exception_processing (void)
   pop_nested_namespace (std_node);
 
   tmp = build_function_type_list (integer_type_node,
-				  boolean_type_node,
 				  integer_type_node,
 				  const_string_type_node,
 				  const_string_type_node,
 				  const_string_type_node,
-				  const_string_type_node,
-				  const_string_type_node,
+				  integer_type_node,
+				  integer_type_node,
+				  build_pointer_type (const_string_type_node),
 				  integer_type_node,
 				  NULL_TREE);
   on_contract_violation_fn =

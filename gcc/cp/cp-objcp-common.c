@@ -86,6 +86,7 @@ cp_tree_size (enum tree_code code)
     case USERDEF_LITERAL:	return sizeof (tree_userdef_literal);
     case TEMPLATE_DECL:		return sizeof (tree_template_decl);
     case ASSERTION_STMT:	return sizeof (tree_exp);
+    case ASSUMPTION_STMT:	return sizeof (tree_exp);
     case PRECONDITION_STMT:	return sizeof (tree_exp);
     case POSTCONDITION_STMT:	return sizeof (tree_exp);
     default:
@@ -557,6 +558,7 @@ cp_common_init_ts (void)
   MARK_TS_EXP (CO_RETURN_EXPR);
 
   MARK_TS_EXP (ASSERTION_STMT);
+  MARK_TS_EXP (ASSUMPTION_STMT);
   MARK_TS_EXP (PRECONDITION_STMT);
   MARK_TS_EXP (POSTCONDITION_STMT);
 
@@ -622,6 +624,13 @@ bool
 cp_post_options (const char **pfilename)
 {
   bool preprocess_only = c_common_post_options (pfilename);
+
+  if (flag_contracts == 2)
+    flag_contracts = (cxx_dialect >= cxx20);
+
+  define_knob (flag_build_level
+		 ? "build_level=audit_level"
+		 : "build_level=default_level");
 
   define_default_knobs ();
   if (flag_dump_build_environment)

@@ -9,11 +9,11 @@
 // we ensure this by matching on the output and expecting a 0 return code from
 // main -- unlike contracts-ignore2 which expects a failing return code
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-role=default:never,assume,ignore -O1" }
+// { dg-options "-std=c++2a -fcontracts -Kassume=assume -O1" }
 #include <cstdio>
 
 int fun(int x) {
-  [[assert audit: x > 0]];
+  [[assume: x > 0]];
   if(x <= 0)
   {
     printf("%d: test x<=0 opt out\n", x);

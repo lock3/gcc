@@ -3,8 +3,9 @@
 // successfully when the contract build level is default but continuation on
 // contract failure is switched on
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kassert=observe" }
 // { dg-output "default std::handle_contract_violation called" }
+#include <experimental/contracts>
 
 int main()
 {

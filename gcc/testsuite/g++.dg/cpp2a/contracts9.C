@@ -3,7 +3,7 @@
 // ensure that assert contract checks are generated inside called templates
 // ensure that template functions can be used as assert predicates
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kassert=observe" }
 
 template<typename T>
 int fun1(int a, T b)

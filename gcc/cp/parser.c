@@ -1454,15 +1454,32 @@ cp_ensure_no_oacc_routine (cp_parser *parser)
     }
 }
 
-/* True if ATTR is an assertion.  */
+/* True if ATTR is an assertion or assumption.  */
 
 bool
-cp_contract_assertion_p (const_tree attr)
+cp_contract_statement_like_p (const_tree attr)
 {
   /* This is only an assertion if it is a valid cxx contract attribute and the
      statement is an ASSERTION_STMT.  */
   return cxx_contract_attribute_p (attr)
-    && TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSERTION_STMT;
+    && (TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSERTION_STMT
+	|| TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSUMPTION_STMT);
+}
+
+/* True if ATTR is a pre or post contract. Diagnose assert/assume.  */
+
+bool
+cp_function_contract_p (const_tree attr)
+{
+  if (!cxx_contract_attribute_p (attr))
+    return false;
+  if ((TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSERTION_STMT)
+      || (TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSUMPTION_STMT))
+    error_at (EXPR_LOCATION (CONTRACT_STATEMENT (attr)),
+	      "%qs contracts are not allowed on function contract lists",
+	      TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSERTION_STMT
+		? "assert" : "assume");
+  return true;
 }
 
 /* Remove contracts from the list of standard attributes, building
@@ -1724,7 +1741,7 @@ make_call_declarator (cp_declarator *target,
   declarator->std_attributes = std_attrs;
   cp_separate_contracts (declarator->std_attributes,
 			 declarator->contracts,
-			 cxx_contract_attribute_p);
+			 cp_function_contract_p);
 
   return declarator;
 }
@@ -11643,6 +11660,7 @@ static bool
 contract_attribute_p (const_tree id)
 {
   return is_attribute_p ("assert", id)
+    || is_attribute_p ("assume", id)
     || is_attribute_p ("pre", id)
     || is_attribute_p ("post", id);
 }
@@ -11725,7 +11743,7 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 
   /* Extract contracts from the attributes.  */
   tree contract_attrs = NULL_TREE;
-  cp_separate_contracts (std_attrs, contract_attrs, cp_contract_assertion_p);
+  cp_separate_contracts (std_attrs, contract_attrs, cp_contract_statement_like_p);
 
   /* Peek at the next token.  */
   token = cp_lexer_peek_token (parser->lexer);
@@ -11741,7 +11759,7 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 
   /* FIXME: move fallthrough up here so it applies to decls/etc?  */
   /* Check that assertions are null statements.  */
-  if (cp_contract_assertion_p (contract_attrs))
+  if (cp_contract_statement_like_p (contract_attrs))
     if (token->type != CPP_SEMICOLON)
       error_at (token->location, "assertions must be followed by %<;%>");
 
@@ -11927,8 +11945,8 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	  std_attrs = NULL_TREE;
 	}
 
-      /* Handle [[assert: ...]];  */
-      if (cp_contract_assertion_p (contract_attrs))
+      /* Handle [[assert: ...]]; and [[assume: ...]]];  */
+      if (cp_contract_statement_like_p (contract_attrs))
 	{
 	  /* Add the assertion as a statement in the current block.  */
 	  gcc_assert (!statement || statement == error_mark_node);
@@ -26465,7 +26483,7 @@ cp_parser_member_declaration (cp_parser* parser)
 		 declarator's contract list.  */
 	      cp_separate_contracts (attributes,
 				     declarator->contracts,
-				     cxx_contract_attribute_p);
+				     cp_function_contract_p);
 	      /* Remember which attributes are prefix attributes and
 		 which are not.  */
 	      first_attribute = attributes;
@@ -28364,155 +28382,41 @@ cp_parser_contract_label_attribute_spec (cp_parser *parser, tree attr)
 			  build_tree_list (loc, contract_id));
 }
 
-/* Optionally parse a C++20 contract role. A NULL return means that no
-   contract role was specified.
+/* Parse an optional sequence of contract-labels.
 
-    contract-role:
-      % default
-      % identifier
+     contract-label-seq:
+       contract-label
+       contract-label-seq contract-label
 
-   If the identifier does not name a known contract role, it will
-   be assumed to be default. Returns the identifier for the role
-   token.  */
+     contract-label:
+       contract-id  */
 
 static tree
-cp_parser_contract_role (cp_parser *parser)
-{
-  gcc_assert (cp_lexer_next_token_is (parser->lexer, CPP_MOD));
-  cp_lexer_consume_token (parser->lexer);
-
-  cp_token *token = cp_lexer_peek_token (parser->lexer);
-  tree role_id = NULL_TREE;
-  if (token->type == CPP_NAME)
-    role_id = token->u.value;
-  else if (token->type == CPP_KEYWORD && token->keyword == RID_DEFAULT)
-    role_id = get_identifier ("default");
-  else
-    {
-      error_at (token->location, "expected contract-role");
-      return error_mark_node;
-    }
-  cp_lexer_consume_token (parser->lexer);
-
-  /* FIXME: Warn about invalid/unknown roles?  */
-  return role_id;
-}
-
-/* Parse an optional contract mode.
-
-     contract-mode:
-     	contract-semantic
-     	[contract-level] [contract-role]
-
-     contract-semantic:
-       check_never_continue
-       check_maybe_continue
-       check_always_continue
-
-     contract-level:
-       default
-       audit
-       axiom
-
-     contract-role:
-       default
-       identifier
-
-   This grammar is taken from P1332R0. During parsing, this sets options
-   on the MODE object to determine the configuration of the contract.
-
-   Returns a tree containing the identifiers used in the configuration.
-   This is either an IDENTIFIER with the literal semantic or a TREE_LIST
-   whose TREE_VALUE is the contract-level and whose TREE_PURPOSE is the
-   contract-role, if any. NULL_TREE is returned if no information is
-   given (i.e., all defaults selected).  */
-
-static tree
-cp_parser_contract_mode_opt (cp_parser *parser,
-			     bool postcondition_p)
+cp_parser_contract_label_seq_opt (cp_parser *parser)
 {
   /* The mode is empty; the level and role are default.  */
-  if (cp_lexer_next_token_is (parser->lexer, CPP_COLON))
-    return NULL_TREE;
-
-  /* There is only a role; the level is default.  */
-  if (cp_lexer_next_token_is (parser->lexer, CPP_MOD))
+  tree contract_labels = NULL_TREE;
+  while (!cp_lexer_next_token_is (parser->lexer, CPP_COLON)
+      && !cp_lexer_next_token_is (parser->lexer, CPP_OPEN_SQUARE))
     {
-      tree role_id = cp_parser_contract_role (parser);
-      return build_tree_list (role_id, get_identifier ("default"));
+      tree contract_id = cp_parser_contract_id (parser);
+      if (contract_id == error_mark_node)
+	return error_mark_node;
+      contract_id = build_tree_list (NULL_TREE, contract_id);
+      // TODO build and then reverse?
+      contract_labels = chainon (contract_labels, contract_id);
     }
 
-  /* Otherwise, match semantic or level.  */
-  cp_token *token = cp_lexer_peek_token (parser->lexer);
-  contract_level level = CONTRACT_INVALID;
-  contract_semantic semantic = CCS_INVALID;
-  tree config_id;
-  if (token->type == CPP_NAME)
-    {
-      config_id = token->u.value;
-
-      /* Either a named level, a concrete semantic, or an identifier
-	 for a postcondition.  */
-      const char *ident = IDENTIFIER_POINTER (token->u.value);
-      level = map_contract_level (ident);
-      semantic = map_contract_semantic (ident);
-
-      /* The identifier is the return value for a postcondition.  */
-      if (level == CONTRACT_INVALID && semantic == CCS_INVALID
-	  && postcondition_p)
-	return NULL_TREE;
-    }
-  else if (token->type == CPP_KEYWORD && token->keyword == RID_DEFAULT)
-    {
-      config_id = get_identifier ("default");
-      level = CONTRACT_DEFAULT;
-    }
-  else
-    {
-      /* We got some other token other than a ':'.  */
-      error_at (token->location, "expected contract semantic or level");
-      return NULL_TREE;
-    }
-
-  /* Consume the literal semantic or level token.  */
-  cp_lexer_consume_token (parser->lexer);
-
-  if (semantic == CCS_INVALID && level == CONTRACT_INVALID)
-    {
-      error_at (token->location,
-		"expected contract level: "
-		"%<default%>, %<audit%>, or %<axiom%>");
-      return NULL_TREE;
-    }
-
-  /* We matched an explicit semantic. */
-  if (semantic != CCS_INVALID)
-    {
-      if (cp_lexer_next_token_is (parser->lexer, CPP_MOD))
-	{
-	  error ("invalid use of contract role for explicit semantic");
-	  cp_lexer_consume_token (parser->lexer);
-	  cp_lexer_consume_token (parser->lexer);
-	}
-      return config_id;
-    }
-
-  /* We matched a level, there may be a role; otherwise this is default.  */
-  if (cp_lexer_next_token_is (parser->lexer, CPP_MOD))
-    {
-      tree role_id = cp_parser_contract_role (parser);
-      return build_tree_list (role_id, config_id);
-    }
-
-  return build_tree_list (NULL_TREE, config_id);
+  return contract_labels;
 }
 
-/* Parse a standard C++20 contract attribute specifier.
+/* Parse a C++20 contract attribute specifier.
 
   contract-attribute-specifier:
-    [ [ assert contract-level [opt] : conditional-expression ] ]
-    [ [ pre contract-level [opt] : conditional-expression ] ]
-    [ [ post contract-level [opt] identifier [opt] : conditional-expression ] ]  */
+    [ [ assert contract-label-seq [opt] : conditional-expression ] ]
+    [ [ assume contract-label-seq [opt] : conditional-expression ] ]
+    [ [ pre contract-label-seq [opt] : conditional-expression ] ]
+    [ [ post contract-label-seq [opt] [identifier] [opt] : conditional-expression ] ]  */
 
 static tree
 cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
@@ -28521,16 +28425,35 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
   cp_token *token = cp_lexer_consume_token (parser->lexer);
   location_t loc = token->location;
 
+  /* Parse the optional sequence of labels.  */
+  tree labels = cp_parser_contract_label_seq_opt (parser);
+  if (labels == error_mark_node)
+    {
+      /* If there were issues parsing the contract labels, skip the rest of
+	 the contract attribute as we're likely beyond recovery.  */
+      cp_parser_skip_to_closing_parenthesis_1 (parser,
+					       /*recovering=*/false,
+					       CPP_CLOSE_SQUARE,
+					       /*consume_paren=*/false);
+      /* Return NULL_TREE since we've reported the error and don't want
+	 spurious attribute ignored warnings about error_mark_node.  */
+      return NULL_TREE;
+    }
+
   bool postcondition_p = is_attribute_p ("post", attr);
 
-  /* Parse the optional mode.  */
-  tree config = cp_parser_contract_mode_opt (parser, postcondition_p);
-
-  /* For postconditions, parse the optional identifier.  */
+  /* For postconditions, parse the optional binding.  */
   tree identifier = NULL_TREE;
   location_t identifier_loc = cp_lexer_peek_token (parser->lexer)->location;
-  if (postcondition_p && cp_lexer_next_token_is (parser->lexer, CPP_NAME))
-    identifier = cp_parser_identifier (parser);
+
+  if (cp_lexer_next_token_is (parser->lexer, CPP_OPEN_SQUARE))
+    {
+      if (!postcondition_p)
+	error ("return binding only available on post contract attributes");
+      cp_parser_require (parser, CPP_OPEN_SQUARE, RT_OPEN_SQUARE);
+      identifier = cp_parser_identifier (parser);
+      cp_parser_require (parser, CPP_CLOSE_SQUARE, RT_CLOSE_SQUARE);
+    }
 
   /* Rebuild with a wrapper to capture the location for diagnostics.  */
   if (identifier)
@@ -28542,8 +28465,8 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
 
   cp_parser_require (parser, CPP_COLON, RT_COLON);
 
-  tree contract = start_contract (loc, attr, config, identifier);
-  if (TREE_CODE (contract) != ASSERTION_STMT)
+  tree contract = start_contract (loc, attr, labels, identifier);
+  if (CONTRACT_CONDITION_P (contract))
     {
       tree contract_condition = cp_parser_cache_contract_condition (parser);
       CONTRACT_CONDITION (contract) = contract_condition;
@@ -28552,13 +28475,11 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
     cp_parser_contract_condition (parser, contract);
 
   if (!flag_contracts)
-    {
-      error_at (loc, "contracts are only available with %<-fcontracts%>");
-      return error_mark_node;
-    }
+    /* Do no further semantic processing.  */
+    return NULL_TREE;
 
   return build_tree_list (build_tree_list (NULL_TREE, attr),
-                          build_tree_list (NULL_TREE, contract));
+			  build_tree_list (NULL_TREE, contract));
 }
 
 /* Parse a standard C++-11 attribute specifier.

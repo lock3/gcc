@@ -11,19 +11,19 @@ struct S
   { }
 
   int f1()
-    [[post r: n == r]]
+    [[post [r]: n == r]]
   {
     return n;
   }
 
   int f2()
-    [[post r: r == x]] // { dg-error "not declared" }
+    [[post [r]: r == x]] // { dg-error "not declared" }
   {
     return n;
   }
 
   void f3()
-    [[post r: n]] // { dg-error "member function does not return a value" }
+    [[post [r]: n]] // { dg-error "member function does not return a value" }
   {
   }
 

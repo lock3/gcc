@@ -935,6 +935,18 @@ determine_local_discriminator (tree decl)
   timevar_cond_stop (TV_NAME_LOOKUP, subtime);
 }
 
+/* Compare two contract_labels on a contract attribute for equality.  */
+
+static bool
+contract_label_equal (tree lhs, tree rhs)
+{
+  if (lhs == rhs)
+    return true;
+  if ((lhs == NULL_TREE) ^ (rhs == NULL_TREE))
+    return false;
+  return TREE_VALUE (lhs) == TREE_VALUE (rhs);
+}
+
 /* Compare the contract conditions of OLD_ATTR and NEW_ATTR. Returns false
    if the conditions are equivalent, and true otherwise.  */
 
@@ -955,6 +967,22 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
       inform (EXPR_LOCATION (old_contract), "previous contract here");
       return true;
     }
+
+  tree old_label = CONTRACT_LABELS (old_contract);
+  tree new_label = CONTRACT_LABELS (new_contract);
+  for (; old_label || new_label;
+      old_label = TREE_CHAIN (old_label), new_label = TREE_CHAIN (new_label))
+    if (!contract_label_equal (old_label, new_label))
+      {
+	auto_diagnostic_group d;
+	// TODO reword, point at specific labels
+	error_at (EXPR_LOCATION (CONTRACT_CONDITION (new_contract)),
+		  "mismatched contract labels in %s",
+		  ctx == cmc_declaration ? "declaration" : "override");
+	inform (EXPR_LOCATION (CONTRACT_CONDITION (old_contract)),
+		"previous predicate here");
+	return true;
+      }
 
   /* Two deferred contracts tentatively match.  */
   if (CONTRACT_CONDITION_DEFERRED_P  (old_contract)

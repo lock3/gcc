@@ -1,4 +1,5 @@
 // Adapted from g++.old-deja/g++.law/arm8.C
+// { dg-do compile { target c++17_down } }
 
 struct K {
   void f(int);

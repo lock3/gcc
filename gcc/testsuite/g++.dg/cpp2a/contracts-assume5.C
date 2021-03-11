@@ -3,7 +3,7 @@
 // test that assumed constexpr contracts that reference undefined entities in
 // an unevaluated context cause constexpr eval failure
 // { dg-do compile }
-// { dg-options "-std=c++2a -fcontracts" }
+// { dg-options "-std=c++2a -Kassume=assume" }
 
 constexpr int f(int t)
 {
@@ -12,7 +12,7 @@ constexpr int f(int t)
 
 constexpr int dummy()
 {
-  [[ assert assume: f(1) > 0 ]];
+  [[ assume: f(1) > 0 ]];
   return -1;
 }
 
@@ -20,7 +20,7 @@ constexpr int undef(int t);
 
 constexpr int dummy2()
 {
-  [[ assert assume: sizeof(decltype(f(1))) < 0 ]];
+  [[ assume: sizeof(decltype(f(1))) < 0 ]];
   return -1;
 }
 

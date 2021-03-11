@@ -1,10 +1,10 @@
 // basic test to ensure contracts work pre-c++2a
 // { dg-do run { target c++11 } }
-// { dg-additional-options "-fcontracts -fcontract-continuation-mode=on" }
+// { dg-additional-options "-fcontracts -Kpre=observe -Kpost=observe -Kassert=observe" }
 
 int f(int n)
   [[ pre: n > 0 ]]
-  [[ post r: r < 0 ]]
+  [[ post [r]: r < 0 ]]
 {
   [[ assert: n > 0 ]];
   return -n;

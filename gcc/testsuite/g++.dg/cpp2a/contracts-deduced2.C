@@ -1,15 +1,15 @@
 // check that contracts work around deduced return types
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kpre=observe -Kpost=observe" }
 
-auto g0(int a) [[ pre: a < 0 ]] [[ post r: r > 0 ]]
+auto g0(int a) [[ pre: a < 0 ]] [[ post [r]: r > 0 ]]
 {
   return -a * 1.2;
 }
 
-int g1(int m) [[ post r: r == m ]];
+int g1(int m) [[ post [r]: r == m ]];
 
-int g1(int n) [[ post s: s == n ]]
+int g1(int n) [[ post [s]: s == n ]]
 {
   return -n;
 }
@@ -43,28 +43,28 @@ auto g5(int m) [[ pre: m ]]
 }
 
 template<typename T>
-auto g6(T t) [[ post r: r == t ]];
+auto g6(T t) [[ post [r]: r == t ]];
 
 template<typename S>
-auto g6(S s) [[ post q: q == s ]]
+auto g6(S s) [[ post [q]: q == s ]]
 {
   return -s;
 }
 
 template<typename T>
-T g7(T t) [[ post r: r == t ]];
+T g7(T t) [[ post [r]: r == t ]];
 
 template<typename S>
-S g7(S s) [[ post q: q == s ]]
+S g7(S s) [[ post [q]: q == s ]]
 {
   return -s;
 }
 
 template<typename T>
-auto g8(T t) [[ post r: r == t && sizeof(decltype(::g8(t))) > 2 ]];
+auto g8(T t) [[ post [r]: r == t && sizeof(decltype(::g8(t))) > 2 ]];
 
 template<typename S>
-auto g8(S s) [[ post q: q == s && sizeof(decltype(::g8(s))) > 2 ]]
+auto g8(S s) [[ post [q]: q == s && sizeof(decltype(::g8(s))) > 2 ]]
 {
   return -s;
 }

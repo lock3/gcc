@@ -1,13 +1,13 @@
 // test that assumed constexpr contracts that reference undefined entities do
 // not cause constexpr eval failure
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts" }
+// { dg-options "-std=c++2a -fcontracts -Kassume=assume" }
 
 constexpr int f(int t); // { dg-warning "used but never defined" }
 
 constexpr int dummy()
 {
-  [[ assert assume: f(1) > 0 ]];
+  [[ assume: f(1) > 0 ]];
   return -1;
 }
 

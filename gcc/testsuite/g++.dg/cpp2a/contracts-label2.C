@@ -23,5 +23,12 @@ struct l1_label // { dg-error "stateless" }
 struct [[contract_label(l2)]] l2_label // { dg-bogus "stateless" }
 {
   static int x;
+  static int adjust_semantic(int a, int b)
+  {
+    return a * b;
+  }
 };
+
+int fn1()
+  [[ pre l2 : false ]]; // { dg-error "<experimental/contracts>" }
 

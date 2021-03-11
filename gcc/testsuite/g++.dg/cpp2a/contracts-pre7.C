@@ -1,7 +1,7 @@
 // ensure no errors are thrown when we have to insert a decl for the internal
 // unchecked function after leaving a (possibly nested) namespace
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kpre=observe" }
 
 namespace ns0
 {

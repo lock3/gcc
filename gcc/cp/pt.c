@@ -18194,7 +18194,9 @@ tsubst_contract (tree t, tree args, tsubst_flags_t complain, tree in_decl)
   if (cond != error_mark_node)
     SET_EXPR_LOCATION (cond, EXPR_LOCATION (CONTRACT_CONDITION (t)));
   --cp_contract_operand;
-  finish_contract (r, cond, copy_node (CONTRACT_COMMENT (t)));
+  tree comment = CONTRACT_COMMENT (t)
+      ? copy_node (CONTRACT_COMMENT (t)) : NULL_TREE;
+  finish_contract (r, cond, comment);
   pop_deferring_access_checks ();
   return r;
 }

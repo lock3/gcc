@@ -1,6 +1,6 @@
 // tests to ensure pre contracts work on member functions
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
+// { dg-options "-std=c++2a -fcontracts -Kpre=observe" }
 #include <cstdio>
 
 namespace member

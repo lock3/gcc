@@ -1,7 +1,7 @@
 // ensure a default level assert with a failing predicate does not generate an
-// error during runtime when the contracts mode is off
+// error during runtime when the contracts are off
 // { dg-do run }
-// { dg-options "-std=c++2a -fcontracts -fcontract-mode=off" }
+// { dg-options "-std=c++2a -fno-contracts" }
 // { dg-output "returning from main" }
 #include <cstdio>
 
