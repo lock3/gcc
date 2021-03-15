@@ -1,0 +1,121 @@
+// Contracts support header for -*- C++ -*-
+
+// Copyright (C) 2021-2021 Free Software Foundation, Inc.
+//
+// This file is part of GCC.
+//
+// GCC is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 3, or (at your option)
+// any later version.
+//
+// GCC is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// Under Section 7 of GPL version 3, you are granted additional
+// permissions described in the GCC Runtime Library Exception, version
+// 3.1, as published by the Free Software Foundation.
+
+// You should have received a copy of the GNU General Public License and
+// a copy of the GCC Runtime Library Exception along with this program;
+// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+// <http://www.gnu.org/licenses/>.
+
+/** @file contract
+ *  This is a Standard C++ Library header.
+ */
+
+#ifndef _GLIBCXX_CONTRACTS
+#define _GLIBCXX_CONTRACTS 1
+
+#pragma GCC system_header
+
+#if __cplusplus > 201703L
+
+#include <bits/c++config.h>
+#include <experimental/meta>
+#include <string_view>
+#include <span>
+
+namespace std _GLIBCXX_VISIBILITY(default)
+{
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+namespace experimental
+{
+namespace contracts
+{
+  enum class attribute {
+    assertion,
+    precondition,
+    postcondition,
+    assumption
+  };
+
+  enum class semantic {
+    ignore,
+    assume,
+    enforce,
+    observe
+  };
+  constexpr bool is_unchecked(semantic s) {
+    return s <= semantic::assume;
+  }
+  constexpr bool is_checked(semantic s) {
+    return s >= semantic::enforce;
+  }
+  consteval semantic default_semantic(attribute a) {
+    switch (a) {
+      case attribute::assertion:
+	return meta::getenv<semantic>("assert", semantic::enforce);
+      case attribute::precondition:
+	return meta::getenv<semantic>("pre", semantic::enforce);
+      case attribute::postcondition:
+	return meta::getenv<semantic>("post", semantic::enforce);
+      case attribute::assumption:
+	return meta::getenv<semantic>("assume", semantic::ignore);
+    }
+  }
+
+  class violation {
+    public:
+      uint_least32_t line_number() const noexcept;
+      string_view file_name() const noexcept;
+      string_view function_name() const noexcept;
+      string_view comment() const noexcept;
+      attribute contract_attribute() const noexcept;
+      semantic contract_semantic() const noexcept;
+      span<string_view> labels() const noexcept;
+
+    private:
+      uint_least32_t line_number_;
+      string_view file_name_;
+      string_view function_name_;
+      string_view comment_;
+      attribute attribute_;
+      semantic semantic_;
+      span<string_view> labels_;
+
+    public:
+      violation (int line_number, string_view file_name,
+		 string_view function_name, string_view comment,
+		 attribute contract_attribute, semantic contract_semantic,
+		 span<string_view> labels);
+  };
+
+  // ::handle_contract_violation is a weak symbol that may be overrideden by a
+  // user defined contract violation handler, its signature is presented here
+  // for reference:
+  //void ::handle_contract_violation (
+  //  const std::experimental::contracts::violation &);
+
+} // namespace contracts
+} // namespace experimental
+
+_GLIBCXX_END_NAMESPACE_VERSION
+} // namespace std
+
+#endif // C++17
+#endif // _GLIBCXX_CONTRACT

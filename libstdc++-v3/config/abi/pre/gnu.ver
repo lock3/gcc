@@ -2412,6 +2412,23 @@ GLIBCXX_3.4.29 {
     # std::to_chars(char*, char*, [float|double|long double], chars_format, int)
     _ZSt8to_charsPcS_[def]St12chars_formati;
 
+
+    # std::experimental::contracts
+    _ZNSt12experimental9contracts9violationC1EiSt17basic_string_viewIcSt11char_traitsIcEES5_S5_NS0_9attributeENS0_8semanticESt4spanIS5_Lm18446744073709551615EE;
+    _ZNSt12experimental9contracts9violationC2EiSt17basic_string_viewIcSt11char_traitsIcEES5_S5_NS0_9attributeENS0_8semanticESt4spanIS5_Lm18446744073709551615EE;
+
+    _ZNKSt12experimental9contracts9violation6labelsEv;
+    _ZNKSt12experimental9contracts9violation7commentEv;
+    _ZNKSt12experimental9contracts9violation9file_nameEv;
+    _ZNKSt12experimental9contracts9violation11line_numberEv;
+    _ZNKSt12experimental9contracts9violation13function_nameEv;
+    _ZNKSt12experimental9contracts9violation17contract_semanticEv;
+    _ZNKSt12experimental9contracts9violation18contract_attributeEv;
+
+    _Z25handle_contract_violationRKNSt12experimental9contracts9violationE;
+    _Z23__on_contract_violationiPKcS0_S0_iiPS0_i;
+    _ZZ23__on_contract_violationiPKcS0_S0_iiPS0_iENKUlS0_E_clES0_;
+
 } GLIBCXX_3.4.28;
 
 # Symbols in the support library (libsupc++) have their own tag.

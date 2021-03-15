@@ -123,7 +123,7 @@ CONFIG_CLEAN_VPATH_FILES =
 LTLIBRARIES = $(noinst_LTLIBRARIES)
 libc__20convenience_la_LIBADD =
 am__objects_1 =
-@ENABLE_EXTERN_TEMPLATE_TRUE@am__objects_2 = sstream-inst.lo
+@ENABLE_EXTERN_TEMPLATE_TRUE@am__objects_2 = contracts.lo sstream-inst.lo
 am_libc__20convenience_la_OBJECTS = $(am__objects_1) $(am__objects_2)
 libc__20convenience_la_OBJECTS = $(am_libc__20convenience_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
@@ -421,6 +421,7 @@ headers =
 
 # XTEMPLATE_FLAGS = -fno-implicit-templates
 @ENABLE_EXTERN_TEMPLATE_TRUE@inst_sources = \
+@ENABLE_EXTERN_TEMPLATE_TRUE@	contracts.cc \
 @ENABLE_EXTERN_TEMPLATE_TRUE@	sstream-inst.cc
 
 sources = 

@@ -30,6 +30,7 @@ headers =
 if ENABLE_EXTERN_TEMPLATE
 # XTEMPLATE_FLAGS = -fno-implicit-templates
 inst_sources = \
+	contracts.cc \
 	sstream-inst.cc
 else
 # XTEMPLATE_FLAGS =
