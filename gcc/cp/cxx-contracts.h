@@ -22,6 +22,8 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_CP_CONTRACT_H
 #define GCC_CP_CONTRACT_H
 
+#include "hash-map.h"
+
 /* Contract levels approximate the complexity of the expression.  */
 
 enum contract_level
@@ -34,6 +36,7 @@ enum contract_level
 
 /* The concrete semantics determine the behavior of a contract.  */
 
+/* TODO these should be renamed to match experimental/contracts.  */
 enum contract_semantic
 {
   CCS_INVALID,
@@ -165,5 +168,17 @@ extern void handle_OPT_fcontract_semantic_ (const char *);
 /* Replace any references in CONTRACT's CONDITION to SRC's parameters with
    references to DST's parameters.  */
 extern void remap_contract (tree src, tree dst, tree contract);
+
+/* Return the TYPE associated with a contract_label NAME, or NULL_TREE if no
+   such associated type exists.  */
+extern tree lookup_contract_label (tree name);
+
+/* Associate TYPE with the contract_label NAME, erroring if NAME is already
+   associated with a different type.  */
+extern void define_contract_label (tree name, tree type);
+
+/* Return an iterator into the contract_labels hash_map.  */
+extern hash_map<tree, tree>::iterator contract_labels_begin ();
+extern hash_map<tree, tree>::iterator contract_labels_end ();
 
 #endif /* ! GCC_CP_CONTRACT_H */

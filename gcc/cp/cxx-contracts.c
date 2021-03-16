@@ -22,6 +22,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "system.h"
 #include "coretypes.h"
 #include "cp-tree.h"
+#include "stringpool.h"
 #include "diagnostic.h"
 #include "options.h"
 #include "cxx-contracts.h"
@@ -184,6 +185,10 @@ map_contract_semantic (const char *ident)
   else if (strcmp (ident, "check_never_continue") == 0)
     return CCS_NEVER;
   else if (strcmp (ident, "check_maybe_continue") == 0)
+    return CCS_MAYBE;
+  else if (strcmp (ident, "enforce") == 0)
+    return CCS_NEVER;
+  else if (strcmp (ident, "observe") == 0)
     return CCS_MAYBE;
   return CCS_INVALID;
 }
@@ -450,5 +455,66 @@ remap_contract (tree src, tree dst, tree contract)
     return;
 
   walk_tree (&CONTRACT_CONDITION (contract), copy_tree_body_r, &id, NULL);
+}
+
+static GTY(()) hash_map<tree, tree> contract_labels;
+
+hash_map<tree, tree>::iterator
+contract_labels_begin ()
+{
+  return contract_labels.begin ();
+}
+
+hash_map<tree, tree>::iterator
+contract_labels_end ()
+{
+  return contract_labels.end ();
+}
+
+static tree
+resolve_contract_label_type (tree scope, tree qual)
+{
+  tree val = TREE_VALUE (qual);
+  if (TREE_CHAIN (qual))
+    {
+      tree ns = lookup_qualified_name (scope, val, LOOK_want::NAMESPACE, false);
+      return resolve_contract_label_type (ns, TREE_CHAIN (qual));
+    }
+  tree decl = lookup_qualified_name (scope, val, LOOK_want::TYPE, false);
+  return decl;
+}
+
+tree
+lookup_contract_label (tree name)
+{
+  tree *contract_label = contract_labels.get (name);
+  if (!contract_label)
+    return NULL_TREE;
+  if (TREE_CODE (*contract_label) == TREE_LIST)
+    {
+      /* Lazily loaded contract_lable from module.  */
+      tree decl = resolve_contract_label_type (global_namespace, *contract_label);
+      if (decl == error_mark_node)
+	*contract_label = error_mark_node;
+      else
+	*contract_label = TREE_TYPE (decl);
+    }
+  return *contract_label;
+}
+
+void
+define_contract_label (tree args, tree type)
+{
+  tree name = TREE_VALUE (args);
+
+  tree *contract_label = contract_labels.get (name);
+  if (contract_label && *contract_label != type)
+    {
+      error_at (EXPR_LOCATION (TREE_PURPOSE (args)),
+		"redeclaration of contract label %qE", name);
+      return;
+    }
+
+  contract_labels.put (name, type);
 }
 

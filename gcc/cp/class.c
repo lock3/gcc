@@ -7577,6 +7577,10 @@ finish_struct_1 (tree t)
 	  TYPE_TRANSPARENT_AGGR (t) = 0;
 	}
     }
+
+  if (lookup_attribute ("contract_label", TYPE_ATTRIBUTES (t))
+      && !CLASSTYPE_EMPTY_P (t))
+    error ("contract_label types must be stateless");
 }
 
 /* When T was built up, the member declarations were added in reverse

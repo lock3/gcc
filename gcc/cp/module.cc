@@ -3730,6 +3730,9 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   bool read_macros ();
   void install_macros ();
 
+  unsigned write_contract_labels (elf_out *to, unsigned *crc_ptr);
+  bool read_contract_labels (unsigned count);
+
  public:
   void import_macros ();
 
@@ -14528,6 +14531,7 @@ enum module_state_counts
   MSC_bindings,
   MSC_macros,
   MSC_inits,
+  MSC_contract_labels,
   MSC_HWM
 };
 
@@ -17305,6 +17309,7 @@ module_state::write_counts (elf_out *to, unsigned counts[MSC_HWM],
       dump ("Namespaces %u", counts[MSC_namespaces]);
       dump ("Macros %u", counts[MSC_macros]);
       dump ("Initializers %u", counts[MSC_inits]);
+      dump ("Contract Labels %u", counts[MSC_contract_labels]);
     }
 
   cfg.end (to, to->name (MOD_SNAME_PFX ".cnt"), crc_ptr);
@@ -17331,6 +17336,7 @@ module_state::read_counts (unsigned counts[MSC_HWM])
       dump ("Namespaces %u", counts[MSC_namespaces]);
       dump ("Macros %u", counts[MSC_macros]);
       dump ("Initializers %u", counts[MSC_inits]);
+      dump ("Contract Labels %u", counts[MSC_contract_labels]);
     }
 
   return cfg.end (from ());
@@ -17859,6 +17865,9 @@ module_state::write (elf_out *to, cpp_reader *reader)
       counts[MSC_inits] = write_inits (to, table, &crc);
     }
 
+  /* Write contract_label mapping.  */
+  counts[MSC_contract_labels] = write_contract_labels (to, &crc);
+
   unsigned clusters = counts[MSC_sec_hwm] - counts[MSC_sec_lwm];
   dump () && dump ("Wrote %u clusters, average %u bytes/cluster",
 		   clusters, (bytes + clusters / 2) / (clusters + !clusters));
@@ -18128,6 +18137,11 @@ module_state::read_language (bool outermost)
   // instances of these objects in other TUs will be initialized as
   // part of that TU's global initializers.)
   if (ok && counts[MSC_inits] && !read_inits (counts[MSC_inits]))
+    ok = false;
+
+  /* Read contract_labels mapping.  */
+  if (counts[MSC_contract_labels]
+      && !read_contract_labels (counts[MSC_contract_labels]))
     ok = false;
 
   function_depth--;
@@ -20153,6 +20167,141 @@ module_preprocess_options (cpp_reader *reader)
       opt->module_directives = true;
       opt->main_search = cpp_main_search (flag_header_unit);
     }
+}
+
+/* Build a tree chain where the TREE_VALUE is either a namespace name, or if
+   TREE_CHAIN is NULL_TREE, then a class name.  */
+
+static tree
+build_qual (tree t)
+{
+  if (t == NULL_TREE || t == global_namespace
+      || TREE_CODE (t) == TRANSLATION_UNIT_DECL)
+    return NULL_TREE;
+  tree ctx = build_qual (DECL_CONTEXT (t));
+  tree qual = build_tree_list (NULL_TREE, DECL_NAME (t));
+  return chainon (ctx, qual);
+}
+
+/* Compare two sequences of build_qual returns.  */
+
+static bool
+qual_equal (tree q1, tree q2)
+{
+  if (!q1 && !q2)
+    return true;
+  if (!q1 || !q2)
+    return false;
+  if (TREE_VALUE (q1) != TREE_VALUE (q2))
+    return false;
+  return qual_equal (TREE_CHAIN (q1), TREE_CHAIN (q2));
+}
+
+/* Write out the number of depth of DECL, the names of any namespaces
+   containing DECL, followed by the name of DECL itself.  */
+
+static void
+write_qualified_name (bytes_out &sec, tree decl, unsigned depth = 0)
+{
+  if (decl == NULL_TREE || decl == global_namespace
+      || TREE_CODE (decl) == TRANSLATION_UNIT_DECL)
+    sec.u (depth);
+  else
+    {
+      write_qualified_name (sec, DECL_CONTEXT (decl), depth + 1);
+      sec.str (IDENTIFIER_POINTER (DECL_NAME (decl)));
+    }
+}
+
+/* Read a (possibly empty) sequence of namespace names followed by a class
+   name in the format of build_qual.  */
+
+static tree
+read_qualified_name (bytes_in &sec)
+{
+  unsigned count = sec.u ();
+  tree res = NULL_TREE, last = NULL_TREE;
+  for (unsigned i = 0; i < count; ++i)
+    {
+      const char *s = sec.str ();
+      tree next = build_tree_list (NULL_TREE, get_identifier (s));
+      if (last)
+	TREE_CHAIN (last) = next;
+      else
+	res = next;
+      last = next;
+    }
+  return res;
+}
+
+/* Write any live contract_label mappings.  */
+
+unsigned
+module_state::write_contract_labels (elf_out *to, unsigned *crc_ptr)
+{
+  dump() && dump("Writing contract_label mapping");
+  dump.indent();
+
+  bytes_out sec (to);
+  sec.begin();
+
+  unsigned count = 0;
+  for (hash_map<tree, tree>::iterator it (contract_labels_begin ());
+      it != contract_labels_end ();
+      ++it)
+    {
+      if (!CLASS_TYPE_P ((*it).second))
+	continue;
+      count++;
+      tree type = lookup_contract_label ((*it).first);
+
+      sec.str (IDENTIFIER_POINTER ((*it).first));
+      write_qualified_name (sec, TYPE_NAME (type));
+    }
+
+  sec.end (to, to->name (MOD_SNAME_PFX ".contract_labels"), crc_ptr);
+  dump.outdent();
+
+  return count;
+}
+
+/* Read any serialized contract_label mappings.  */
+
+bool
+module_state::read_contract_labels (unsigned count)
+{
+  bytes_in sec;
+  if (!sec.begin (loc, from (), MOD_SNAME_PFX ".contract_labels"))
+    return false;
+
+  dump() && dump("Reading contract_label mapping");
+  dump.indent();
+
+  bool ok = true;
+  for (unsigned i = 0; i < count; ++i)
+    {
+      const char *label_name = sec.str ();
+      tree name = get_identifier (label_name);
+      tree qual = read_qualified_name (sec);
+      /* TODO is it possible to actually resolve qual now? Seems the state of
+	 lookup when this method is actually run is "wonky" and never returns
+	 anything even if previously lookup would've succeeded.  */
+      tree existing = lookup_contract_label (name);
+      if (!existing)
+	define_contract_label (build_tree_list (NULL_TREE, name), qual);
+      else if (!qual_equal (build_qual (TYPE_NAME (existing)), qual))
+	{
+	  /* If there's an existing binding that maps to a different fully
+	     qualified name, then there's a conflict. If the existing binding
+	     is the same fully qualified name then they're likely from the
+	     same transitive location and not an issue.  */
+	  error ("conflicting declaration of contract label %qE", name);
+	  inform (location_of (existing), "previous declaration %q#D", existing);
+	}
+    }
+
+  dump.outdent();
+  return sec.end (from ()) && ok;
 }
 
 #include "gt-cp-module.h"

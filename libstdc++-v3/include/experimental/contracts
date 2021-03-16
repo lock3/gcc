@@ -114,6 +114,48 @@ namespace contracts
 } // namespace contracts
 } // namespace experimental
 
+namespace experimental
+{
+namespace contracts
+{
+  enum class build_level_t {
+    default_level,
+    audit_level
+  };
+
+  consteval build_level_t build_level() {
+    return std::experimental::meta::getenv<build_level_t>(
+        "build_level", build_level_t::default_level);
+  }
+  consteval bool is_audit_build() {
+    return build_level() == build_level_t::audit_level;
+  }
+
+  struct [[contract_label(default)]] default_label {
+    using value_type = build_level_t;
+  };
+  struct [[contract_label(audit)]] audit_label {
+    using value_type = build_level_t;
+    static consteval semantic adjust_semantic(attribute a, semantic s) {
+      if (is_checked(s) && !is_audit_build())
+	return semantic::ignore;
+      return s;
+    }
+  };
+  struct [[contract_label(symbolic)]] symbolic_label {
+    using value_type = build_level_t;
+    static consteval bool allowable_semantic(semantic s) {
+      return is_unchecked(s);
+    }
+    static consteval semantic adjust_semantic(attribute a, semantic s) {
+      if (is_checked(s))
+	return semantic::ignore;
+      return s;
+    }
+  };
+} // namespace contracts
+} // namespace experimental
+
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 

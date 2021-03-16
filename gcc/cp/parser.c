@@ -28275,6 +28275,95 @@ cp_parser_std_attribute_list (cp_parser *parser, tree attr_ns)
   return attributes;
 }
 
+/* Parse a contract-id.
+
+     contract-id:
+       contract-namespace-specifier opt contract-name
+
+     contract-namespace-specifier:
+       identifier ::
+       contract-namespace-specifier identifier ::
+
+     contract-name:
+       identifier
+       keyword  */
+
+static tree
+cp_parser_contract_id (cp_parser *parser)
+{
+  /* Match an identifier or keyword.  */
+  cp_token *token = cp_lexer_peek_token (parser->lexer);
+  tree contract_id = NULL_TREE;
+  if (token->type == CPP_NAME)
+    contract_id = token->u.value;
+  else if (token->type == CPP_KEYWORD)
+    contract_id = token->u.value;
+  else
+    {
+      error_at (token->location, "expected contract-id");
+      return error_mark_node;
+    }
+
+  /* Consume the literal semantic or level token.  */
+  cp_lexer_consume_token (parser->lexer);
+
+  if (cp_lexer_next_token_is (parser->lexer, CPP_SCOPE))
+    {
+      cp_lexer_consume_token (parser->lexer);
+      tree nested = cp_parser_contract_id (parser);
+      if (nested == error_mark_node)
+	return error_mark_node;
+
+      /* TODO rewrite to non-recursive using obstack?
+	 See cp_parser_string_literal  */
+      /* Rebuild contract_id as the fully qualified name.  */
+      int qual_len = IDENTIFIER_LENGTH (contract_id) + 2
+	+ IDENTIFIER_LENGTH (nested);
+      tree qual = build_string (qual_len);
+      char *str = STRING_CST_CHECK (qual)->string.str;
+      strcat (str, IDENTIFIER_POINTER (contract_id));
+      strcat (str, "::");
+      strcat (str, IDENTIFIER_POINTER (nested));
+      contract_id = get_identifier (TREE_STRING_POINTER (qual));
+    }
+
+  return contract_id;
+}
+
+/* Parse a contract_label attribute.
+
+   [[contract_label(contract-id)]]  */
+
+static tree
+cp_parser_contract_label_attribute_spec (cp_parser *parser, tree attr)
+{
+  cp_token *token = cp_lexer_consume_token (parser->lexer);
+  location_t attr_loc = token->location;
+
+  cp_parser_require (parser, CPP_OPEN_PAREN, RT_OPEN_PAREN);
+
+  /* Parse the contract-id.  */
+  tree contract_id = cp_parser_contract_id (parser);
+  if (contract_id == error_mark_node)
+    {
+      cp_parser_skip_to_closing_parenthesis_1 (parser,
+					       /*recovering=*/false,
+					       CPP_CLOSE_SQUARE,
+					       /*consume_paren=*/false);
+      return NULL_TREE;
+    }
+
+  /* Rebuild with a wrapper to capture the location for diagnostics.  */
+  tree loc = build1_loc (attr_loc, VIEW_CONVERT_EXPR,
+			 TREE_TYPE (contract_id), contract_id);
+  EXPR_LOCATION_WRAPPER_P (loc) = 1;
+
+  cp_parser_require (parser, CPP_CLOSE_PAREN, RT_CLOSE_PAREN);
+
+  return build_tree_list (build_tree_list (NULL_TREE, attr),
+			  build_tree_list (loc, contract_id));
+}
+
 /* Optionally parse a C++20 contract role. A NULL return means that no
    contract role was specified.
 
@@ -28521,6 +28610,14 @@ cp_parser_std_attribute_spec (cp_parser *parser)
 	{
 	  attributes
 	    = cp_parser_contract_attribute_spec (parser, attr_name);
+	  goto finish_attrs;
+	}
+
+      /* Handle contract_label specially.  */
+      if (attr_name && is_attribute_p ("contract_label", attr_name))
+	{
+	  attributes
+	    = cp_parser_contract_label_attribute_spec (parser, attr_name);
 	  goto finish_attrs;
 	}
 

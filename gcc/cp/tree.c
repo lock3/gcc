@@ -47,6 +47,7 @@ static tree verify_stmt_tree_r (tree *, int *, void *);
 static tree handle_init_priority_attribute (tree *, tree, tree, int, bool *);
 static tree handle_abi_tag_attribute (tree *, tree, tree, int, bool *);
 static tree handle_contract_attribute (tree *, tree, tree, int, bool *);
+static tree handle_contract_label_attribute (tree *, tree, tree, int, bool *);
 
 /* If REF is an lvalue, returns the kind of lvalue that REF is.
    Otherwise, returns clk_none.  */
@@ -4823,6 +4824,8 @@ const struct attribute_spec std_attribute_table[] =
   { "pre", 0, -1, false, false, false, false, handle_contract_attribute, NULL },
   { "post", 0, -1, false, false, false, false,
     handle_contract_attribute, NULL },
+  { "contract_label", 1, 1, false, true, false, false,
+    handle_contract_label_attribute, NULL },
   { NULL, 0, 0, false, false, false, false, NULL, NULL }
 };
 
@@ -5079,6 +5082,28 @@ handle_contract_attribute (tree *ARG_UNUSED (node), tree ARG_UNUSED (name),
 			   bool *no_add_attrs)
 {
   *no_add_attrs = true;
+  return NULL_TREE;
+}
+
+/* Handle a contract_label attribute.  */
+
+tree
+handle_contract_label_attribute (tree *node, tree ARG_UNUSED (name),
+				 tree args, int ARG_UNUSED (flags),
+				 bool *no_add_attrs)
+{
+  tree ctx = DECL_CONTEXT (TYPE_NAME (*node));
+  if (ctx
+      && TREE_CODE (ctx) != NAMESPACE_DECL
+      && TREE_CODE (ctx) != TRANSLATION_UNIT_DECL)
+    {
+      error_at (EXPR_LOCATION (TREE_PURPOSE (args)),
+		"contract label %qE must be at namespace scope", name);
+      *no_add_attrs = true;
+    }
+  else
+    define_contract_label (args, *node);
+
   return NULL_TREE;
 }
 
