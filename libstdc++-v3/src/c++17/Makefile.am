@@ -50,7 +50,6 @@ inst_sources =
 endif
 
 sources = \
-	contract.cc \
 	floating_from_chars.cc \
 	floating_to_chars.cc \
 	fs_dir.cc \

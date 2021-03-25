@@ -910,28 +910,6 @@ finish_postcondition_statement (tree stmt)
   pop_stmt_list (TREE_PURPOSE (stmt));
 }
 
-static const char *
-get_contract_level_name (tree contract)
-{
-  if (CONTRACT_LITERAL_MODE_P (contract))
-    return "";
-  if (tree mode = CONTRACT_MODE (contract))
-    if (tree level = TREE_VALUE (mode))
-      return IDENTIFIER_POINTER (level);
-  return "default";
-}
-
-static const char *
-get_contract_role_name (tree contract)
-{
-  if (CONTRACT_LITERAL_MODE_P (contract))
-    return "";
-  if (tree mode = CONTRACT_MODE (contract))
-    if (tree role = TREE_PURPOSE (mode))
-      return IDENTIFIER_POINTER (role);
-  return "default";
-}
-
 static tree
 build_contract_handler_labels_arg (tree contract, int &label_count)
 {
