@@ -966,8 +966,8 @@ map_contract_semantic (contract_semantic sem)
     case CCS_INVALID: return 0;
     case CCS_IGNORE: return 0;
     case CCS_ASSUME: return 1;
-    case CCS_NEVER: return 2;
-    case CCS_MAYBE: return 3;
+    case CCS_ENFORCE: return 2;
+    case CCS_OBSERVE: return 3;
   }
   gcc_assert (false);
 }
@@ -1003,7 +1003,7 @@ build_contract_handler_fn (tree contract)
   tree label_count = build_int_cst (integer_type_node, count);
 
   tree violation_fn;
-  if (get_contract_semantic (contract) != CCS_NEVER)
+  if (get_contract_semantic (contract) != CCS_ENFORCE)
     violation_fn = on_contract_violation_fn;
   else
     violation_fn = on_contract_violation_never_fn;

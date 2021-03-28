@@ -38,9 +38,9 @@ map_contract_semantic (const char *ident)
   else if (strcmp (ident, "assume") == 0)
     return CCS_ASSUME;
   else if (strcmp (ident, "enforce") == 0)
-    return CCS_NEVER;
+    return CCS_ENFORCE;
   else if (strcmp (ident, "observe") == 0)
-    return CCS_MAYBE;
+    return CCS_OBSERVE;
   return CCS_INVALID;
 }
 
@@ -286,8 +286,8 @@ map_contract_semantic (contract_semantic sem)
     {
       case CCS_IGNORE: name = "ignore"; break;
       case CCS_ASSUME: name = "assume"; break;
-      case CCS_NEVER: name = "enforce"; break;
-      case CCS_MAYBE: name = "observe"; break;
+      case CCS_ENFORCE: name = "enforce"; break;
+      case CCS_OBSERVE: name = "observe"; break;
       default: break;
     }
   if (!name)
@@ -413,8 +413,8 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
   wi::tree_to_wide_ref val = wi::to_wide (semarg);
   if (val == 0) return CCS_IGNORE;
   if (val == 1) return CCS_ASSUME;
-  if (val == 2) return CCS_NEVER;
-  if (val == 3) return CCS_MAYBE;
+  if (val == 2) return CCS_ENFORCE;
+  if (val == 3) return CCS_OBSERVE;
 
   /* TODO call all the other machinery from milestone 3 */
   return CCS_INVALID;

@@ -27,14 +27,13 @@ along with GCC; see the file COPYING3.  If not see
 
 /* The concrete semantics determine the behavior of a contract.  */
 
-/* TODO these should be renamed to match experimental/contracts.  */
 enum contract_semantic
 {
   CCS_INVALID,
   CCS_IGNORE,
   CCS_ASSUME,
-  CCS_NEVER,
-  CCS_MAYBE
+  CCS_ENFORCE,
+  CCS_OBSERVE
 };
 
 /* True if the contract is unchecked.  */
@@ -50,7 +49,7 @@ unchecked_contract_p (contract_semantic cs)
 inline bool
 checked_contract_p (contract_semantic cs)
 {
-  return cs >= CCS_NEVER;
+  return cs >= CCS_ENFORCE;
 }
 
 /* Map a source level semantic or level name to its value, or invalid.  */
