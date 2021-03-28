@@ -944,7 +944,8 @@ contract_label_equal (tree lhs, tree rhs)
     return true;
   if ((lhs == NULL_TREE) ^ (rhs == NULL_TREE))
     return false;
-  return TREE_VALUE (lhs) == TREE_VALUE (rhs);
+  return tree_strip_any_location_wrapper (TREE_VALUE (lhs))
+    == tree_strip_any_location_wrapper (TREE_VALUE (rhs));
 }
 
 /* Compare the contract conditions of OLD_ATTR and NEW_ATTR. Returns false
@@ -970,19 +971,28 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
 
   tree old_label = CONTRACT_LABELS (old_contract);
   tree new_label = CONTRACT_LABELS (new_contract);
-  for (; old_label || new_label;
+  for (; old_label && new_label;
       old_label = TREE_CHAIN (old_label), new_label = TREE_CHAIN (new_label))
     if (!contract_label_equal (old_label, new_label))
       {
 	auto_diagnostic_group d;
-	// TODO reword, point at specific labels
-	error_at (EXPR_LOCATION (CONTRACT_CONDITION (new_contract)),
-		  "mismatched contract labels in %s",
+	error_at (EXPR_LOCATION (TREE_VALUE (new_label)),
+		  "mismatched contract label in %s",
 		  ctx == cmc_declaration ? "declaration" : "override");
-	inform (EXPR_LOCATION (CONTRACT_CONDITION (old_contract)),
-		"previous predicate here");
+	inform (EXPR_LOCATION (TREE_VALUE (old_label)),
+		"previous label here");
 	return true;
       }
+  if (old_label || new_label)
+    {
+      auto_diagnostic_group d;
+      error_at (EXPR_LOCATION (new_contract),
+		"%s has %s contract labels than previously declared",
+		ctx == cmc_declaration ? "declaration" : "override",
+		new_label ? "more" : "fewer");
+      inform (EXPR_LOCATION (old_contract), "original declaration here");
+      return true;
+    }
 
   /* Two deferred contracts tentatively match.  */
   if (CONTRACT_CONDITION_DEFERRED_P  (old_contract)

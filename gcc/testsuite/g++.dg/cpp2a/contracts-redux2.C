@@ -42,12 +42,22 @@ int fun2()
 int m1()
   [[ pre valid : false ]];
 int m1()
-  [[ pre : false ]]; // { dg-error "mismatch" }
+  [[ pre : false ]]; // { dg-error "fewer contract labels" }
 
 int m2()
   [[ pre : false ]];
 int m2()
+  [[ pre default : false ]]; // { dg-error "more contract labels" }
+
+int m3()
+  [[ pre valid : false ]];
+int m3()
   [[ pre default : false ]]; // { dg-error "mismatch" }
+
+int m4()
+  [[ pre valid default : false ]];
+int m4()
+  [[ pre valid default : false ]]; // { dg-bogus "mismatch" }
 
 int a1()
   [[ pre a + : false ]]; // { dg-error "contract-id" }

@@ -28399,9 +28399,17 @@ cp_parser_contract_label_seq_opt (cp_parser *parser)
   while (!cp_lexer_next_token_is (parser->lexer, CPP_COLON)
       && !cp_lexer_next_token_is (parser->lexer, CPP_OPEN_SQUARE))
     {
+      /* Capture location for diagnostics.  */
+      location_t loc = cp_lexer_peek_token (parser->lexer)->location;
+
       tree contract_id = cp_parser_contract_id (parser);
       if (contract_id == error_mark_node)
 	return error_mark_node;
+
+      contract_id = build1_loc (loc, VIEW_CONVERT_EXPR, TREE_TYPE (contract_id),
+				contract_id);
+      EXPR_LOCATION_WRAPPER_P (contract_id) = 1;
+
       contract_id = build_tree_list (NULL_TREE, contract_id);
       // TODO build and then reverse?
       contract_labels = chainon (contract_labels, contract_id);

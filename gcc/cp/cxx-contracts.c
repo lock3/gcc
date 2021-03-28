@@ -342,17 +342,19 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
       if (label == error_mark_node)
 	return CCS_INVALID; /* Diagnosed before.  */
 
-      tree id = TREE_VALUE (label);
+      tree loc = TREE_VALUE (label);
+      tree id = tree_strip_any_location_wrapper (loc);
       tree contract_label = lookup_contract_label (id);
-      // TODO better diagnostic locations
       if (!contract_label)
 	{
-	  error ("contract label %qE was not declared", id);
+	  error_at (EXPR_LOCATION (loc), "contract label %qE was not declared",
+		    id);
 	  return CCS_INVALID;
 	}
       if (!COMPLETE_OR_OPEN_TYPE_P (contract_label))
 	{
-	  error ("contract label %qD is incomplete", contract_label);
+	  error_at (EXPR_LOCATION (loc), "contract label %qD is incomplete",
+		    contract_label);
 	  return CCS_INVALID;
 	}
 
@@ -363,8 +365,9 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
 	  value_type = TYPE_CANONICAL (TREE_TYPE (value_type));
 	  tree old = type_list_find (value_types, value_type);
 	  if (old)
-	    error ("contract label %qD cannot combine with %qD because they "
-		   "share a value_type", contract_label, TREE_PURPOSE (old));
+	    error_at (EXPR_LOCATION (loc),
+		      "contract label %qD cannot combine with %qD because they "
+		      "share a value_type", contract_label, TREE_PURPOSE (old));
 	  else
 	    value_types = chainon (value_types, build_tree_list (contract_label,
 								 value_type));
@@ -381,8 +384,8 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
 	continue;
       if (!attrarg || !semarg)
 	{
-	  error ("contract label support requires "
-		 "%<#include <experimental/contracts>%>");
+	  error_at (EXPR_LOCATION (loc), "contract label support requires "
+		    "%<#include <experimental/contracts>%>");
 	  return CCS_INVALID;
 	}
 

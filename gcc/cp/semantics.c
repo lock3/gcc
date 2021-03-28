@@ -924,7 +924,7 @@ build_contract_handler_labels_arg (tree contract, int &label_count)
     {
       label_count++;
 
-      tree id = TREE_VALUE (label);
+      tree id = tree_strip_any_location_wrapper (TREE_VALUE (label));
       const char *name = IDENTIFIER_POINTER (id);
       tree label_literal = build_string_literal (strlen (name) + 1, name);
 
