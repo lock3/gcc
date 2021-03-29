@@ -424,6 +424,7 @@ Objective-C and Objective-C++ Dialects}.
 -fdump-analyzer-exploded-nodes @gol
 -fdump-analyzer-exploded-nodes-2 @gol
 -fdump-analyzer-exploded-nodes-3 @gol
+-fdump-analyzer-feasibility @gol
 -fdump-analyzer-json @gol
 -fdump-analyzer-state-purge @gol
 -fdump-analyzer-supergraph @gol
@@ -1170,6 +1171,7 @@ See RS/6000 and PowerPC Options.
 -mrelax  -mno-relax @gol
 -mriscv-attribute  -mmo-riscv-attribute @gol
 -malign-data=@var{type} @gol
+-mbig-endian  -mlittle-endian @gol
 +-mstack-protector-guard=@var{guard} -mstack-protector-guard-reg=@var{reg} @gol
 +-mstack-protector-guard-offset=@var{offset}}
 
@@ -9566,6 +9568,13 @@ Dump a textual representation of the ``exploded graph'' to
 one dump file per node, to @file{@var{file}.eg-@var{id}.txt}.
 This is typically a large number of dump files.
 
+@item -fdump-analyzer-feasibility
+@opindex dump-analyzer-feasibility
+Dump internal details about the analyzer's search for feasible paths.
+The details are written in a form suitable for viewing with GraphViz
+to filenames of the form @file{@var{file}.*.fg.dot} and
+@file{@var{file}.*.tg.dot}.
+
 @item -fdump-analyzer-json
 @opindex fdump-analyzer-json
 Dump a compressed JSON representation of analyzer internals to
@@ -14354,6 +14363,10 @@ recurse deeper.
 The maximum depth of a symbolic value, before approximating
 the value as unknown.
 
+@item analyzer-max-infeasible-edges
+The maximum number of infeasible edges to reject before declaring
+a diagnostic as infeasible.
+
 @item gimple-fe-computed-hot-bb-threshold
 The number of executions of a basic block which is considered hot.
 The parameter is used only in GIMPLE FE.
@@ -14403,6 +14416,14 @@ deemed equal.
 Use both Advanced SIMD and SVE.  Prefer SVE when the costs are deemed equal.
 @end table
 The default value is 0.
+
+@item aarch64-loop-vect-issue-rate-niters
+The tuning for some AArch64 CPUs tries to take both latencies and issue
+rates into account when deciding whether a loop should be vectorized
+using SVE, vectorized using Advanced SIMD, or not vectorized at all.
+If this parameter is set to @var{n}, GCC will not use this heuristic
+for loops that are known to execute in fewer than @var{n} Advanced
+SIMD iterations.
 
 @end table
 
@@ -26735,6 +26756,17 @@ Control how GCC aligns variables and constants of array, structure, or union
 types.  Supported values for @var{type} are @samp{xlen} which uses x register
 width as the alignment value, and @samp{natural} which uses natural alignment.
 @samp{xlen} is the default.
+
+@item -mbig-endian
+@opindex mbig-endian
+Generate big-endian code.  This is the default when GCC is configured for a
+@samp{riscv64be-*-*} or @samp{riscv32be-*-*} target.
+
+@item -mlittle-endian
+@opindex mlittle-endian
+Generate little-endian code.  This is the default when GCC is configured for a
+@samp{riscv64-*-*} or @samp{riscv32-*-*} but not a @samp{riscv64be-*-*} or
+@samp{riscv32be-*-*} target.
 
 @item -mstack-protector-guard=@var{guard}
 @itemx -mstack-protector-guard-reg=@var{reg}

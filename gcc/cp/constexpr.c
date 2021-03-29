@@ -2441,7 +2441,7 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
 {
   /* Handle concept checks separately.  */
   if (concept_check_p (t))
-    return evaluate_concept_check (t, tf_warning_or_error);
+    return evaluate_concept_check (t);
 
   location_t loc = cp_expr_loc_or_input_loc (t);
   tree fun = get_function_named_in_call (t);
@@ -5766,20 +5766,17 @@ cxx_eval_increment_expression (const constexpr_ctx *ctx, tree t,
   /* Storing the modified value.  */
   tree store = build2_loc (cp_expr_loc_or_loc (t, input_location),
 			   MODIFY_EXPR, type, op, mod);
-  cxx_eval_constant_expression (ctx, store,
-				true, non_constant_p, overflow_p);
+  mod = cxx_eval_constant_expression (ctx, store, lval,
+				      non_constant_p, overflow_p);
   ggc_free (store);
+  if (*non_constant_p)
+    return t;
 
   /* And the value of the expression.  */
   if (code == PREINCREMENT_EXPR || code == PREDECREMENT_EXPR)
-    {
-      /* Prefix ops are lvalues.  */
-      if (lval)
-	return op;
-      else
-	/* But we optimize when the caller wants an rvalue.  */
-	return mod;
-    }
+    /* Prefix ops are lvalues, but the caller might want an rvalue;
+       lval has already been taken into account in the store above.  */
+    return mod;
   else
     /* Postfix ops are rvalues.  */
     return val;
@@ -6843,7 +6840,8 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 
 	if (TREE_CODE (t) == CONVERT_EXPR
 	    && ARITHMETIC_TYPE_P (type)
-	    && INDIRECT_TYPE_P (TREE_TYPE (op)))
+	    && INDIRECT_TYPE_P (TREE_TYPE (op))
+	    && ctx->manifestly_const_eval)
 	  {
 	    if (!ctx->quiet)
 	      error_at (loc,
@@ -7089,7 +7087,7 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
          '!requires (T t) { ... }' which is not transformed into
          a constraint.  */
       if (!processing_template_decl)
-        return satisfy_constraint_expression (t);
+	return evaluate_requires_expr (t);
       else
         *non_constant_p = true;
       return t;
@@ -7150,7 +7148,7 @@ cxx_eval_constant_expression (const constexpr_ctx *ctx, tree t,
 
 	if (!processing_template_decl
 	    && !uid_sensitive_constexpr_evaluation_p ())
-	  r = evaluate_concept_check (t, tf_warning_or_error);
+	  r = evaluate_concept_check (t);
 	else
 	  *non_constant_p = true;
 

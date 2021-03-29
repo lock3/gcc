@@ -328,9 +328,10 @@ static unsigned int arm_hard_regno_nregs (unsigned int, machine_mode);
 static bool arm_hard_regno_mode_ok (unsigned int, machine_mode);
 static bool arm_modes_tieable_p (machine_mode, machine_mode);
 static HOST_WIDE_INT arm_constant_alignment (const_tree, HOST_WIDE_INT);
-static rtx_insn * thumb1_md_asm_adjust (vec<rtx> &, vec<rtx> &,
-					vec<const char *> &, vec<rtx> &,
-					HARD_REG_SET &);
+static rtx_insn *thumb1_md_asm_adjust (vec<rtx> &, vec<rtx> &,
+				       vec<machine_mode> &,
+				       vec<const char *> &, vec<rtx> &,
+				       HARD_REG_SET &);
 
 /* Table of machine attributes.  */
 static const struct attribute_spec arm_attribute_table[] =
@@ -9460,6 +9461,9 @@ arm_tls_referenced_p (rtx x)
 static bool
 arm_legitimate_constant_p_1 (machine_mode, rtx x)
 {
+  if (GET_CODE (x) == CONST_VECTOR && !neon_make_constant (x, false))
+    return false;
+
   return flag_pic || !label_mentioned_p (x);
 }
 
@@ -13024,12 +13028,14 @@ neon_pairwise_reduce (rtx op0, rtx op1, machine_mode mode,
     }
 }
 
-/* If VALS is a vector constant that can be loaded into a register
-   using VDUP, generate instructions to do so and return an RTX to
-   assign to the register.  Otherwise return NULL_RTX.  */
+/* Return a non-NULL RTX iff VALS is a vector constant that can be
+   loaded into a register using VDUP.
+
+   If this is the case, and GENERATE is set, we also generate
+   instructions to do this and return an RTX to assign to the register.  */
 
 static rtx
-neon_vdup_constant (rtx vals)
+neon_vdup_constant (rtx vals, bool generate)
 {
   machine_mode mode = GET_MODE (vals);
   machine_mode inner_mode = GET_MODE_INNER (mode);
@@ -13045,6 +13051,9 @@ neon_vdup_constant (rtx vals)
        vdup.i16).  */
     return NULL_RTX;
 
+  if (!generate)
+    return x;
+
   /* We can load this constant by using VDUP and a constant in a
      single ARM register.  This will be cheaper than a vector
      load.  */
@@ -13053,13 +13062,15 @@ neon_vdup_constant (rtx vals)
   return gen_vec_duplicate (mode, x);
 }
 
-/* Generate code to load VALS, which is a PARALLEL containing only
-   constants (for vec_init) or CONST_VECTOR, efficiently into a
-   register.  Returns an RTX to copy into the register, or NULL_RTX
-   for a PARALLEL that cannot be converted into a CONST_VECTOR.  */
+/* Return a non-NULL RTX iff VALS, which is a PARALLEL containing only
+   constants (for vec_init) or CONST_VECTOR, can be effeciently loaded
+   into a register.
+
+   If this is the case, and GENERATE is set, we also generate code to do
+   this and return an RTX to copy into the register.  */
 
 rtx
-neon_make_constant (rtx vals)
+neon_make_constant (rtx vals, bool generate)
 {
   machine_mode mode = GET_MODE (vals);
   rtx target;
@@ -13091,7 +13102,7 @@ neon_make_constant (rtx vals)
       && simd_immediate_valid_for_move (const_vec, mode, NULL, NULL))
     /* Load using VMOV.  On Cortex-A8 this takes one cycle.  */
     return const_vec;
-  else if ((target = neon_vdup_constant (vals)) != NULL_RTX)
+  else if ((target = neon_vdup_constant (vals, generate)) != NULL_RTX)
     /* Loaded using VDUP.  On Cortex-A8 the VDUP takes one NEON
        pipeline cycle; creating the constant takes one or two ARM
        pipeline cycles.  */
@@ -13101,7 +13112,7 @@ neon_make_constant (rtx vals)
        (for either double or quad vectors).  We cannot take advantage
        of single-cycle VLD1 because we need a PC-relative addressing
        mode.  */
-    return const_vec;
+    return arm_disable_literal_pool ? NULL_RTX : const_vec;
   else
     /* A PARALLEL containing something not valid inside CONST_VECTOR.
        We cannot construct an initializer.  */
@@ -33915,9 +33926,10 @@ arm_run_selftests (void)
    Unlike the arm version, we do NOT implement asm flag outputs.  */
 
 rtx_insn *
-thumb1_md_asm_adjust (vec<rtx> &outputs, vec<rtx> &/*inputs*/,
-		      vec<const char *> &constraints,
-		      vec<rtx> &/*clobbers*/, HARD_REG_SET &/*clobbered_regs*/)
+thumb1_md_asm_adjust (vec<rtx> &outputs, vec<rtx> & /*inputs*/,
+		      vec<machine_mode> & /*input_modes*/,
+		      vec<const char *> &constraints, vec<rtx> & /*clobbers*/,
+		      HARD_REG_SET & /*clobbered_regs*/)
 {
   for (unsigned i = 0, n = outputs.length (); i < n; ++i)
     if (strncmp (constraints[i], "=@cc", 4) == 0)

@@ -1055,7 +1055,7 @@ struct processor_costs power8_cost = {
   COSTS_N_INSNS (17),	/* ddiv */
   128,			/* cache line size */
   32,			/* l1 cache */
-  256,			/* l2 cache */
+  512,			/* l2 cache */
   12,			/* prefetch streams */
   COSTS_N_INSNS (3),	/* SF->DF convert */
 };
@@ -1078,6 +1078,26 @@ struct processor_costs power9_cost = {
   512,			/* l2 cache */
   8,			/* prefetch streams */
   COSTS_N_INSNS (3),	/* SF->DF convert */
+};
+
+/* Instruction costs on POWER10 processors.  */
+static const
+struct processor_costs power10_cost = {
+  COSTS_N_INSNS (2),	/* mulsi */
+  COSTS_N_INSNS (2),	/* mulsi_const */
+  COSTS_N_INSNS (2),	/* mulsi_const9 */
+  COSTS_N_INSNS (2),	/* muldi */
+  COSTS_N_INSNS (6),	/* divsi */
+  COSTS_N_INSNS (6),	/* divdi */
+  COSTS_N_INSNS (2),	/* fp */
+  COSTS_N_INSNS (2),	/* dmul */
+  COSTS_N_INSNS (11),	/* sdiv */
+  COSTS_N_INSNS (13),	/* ddiv */
+  128,			/* cache line size */
+  32,			/* l1 cache */
+  512,			/* l2 cache */
+  16,			/* prefetch streams */
+  COSTS_N_INSNS (2),	/* SF->DF convert */
 };
 
 /* Instruction costs on POWER A2 processors.  */
@@ -3412,9 +3432,10 @@ rs6000_builtin_mask_calculate (void)
    not such a great idea.  */
 
 static rtx_insn *
-rs6000_md_asm_adjust (vec<rtx> &/*outputs*/, vec<rtx> &/*inputs*/,
-		      vec<const char *> &/*constraints*/,
-		      vec<rtx> &clobbers, HARD_REG_SET &clobbered_regs)
+rs6000_md_asm_adjust (vec<rtx> & /*outputs*/, vec<rtx> & /*inputs*/,
+		      vec<machine_mode> & /*input_modes*/,
+		      vec<const char *> & /*constraints*/, vec<rtx> &clobbers,
+		      HARD_REG_SET &clobbered_regs)
 {
   clobbers.safe_push (gen_rtx_REG (SImode, CA_REGNO));
   SET_HARD_REG_BIT (clobbered_regs, CA_REGNO);
@@ -4773,8 +4794,11 @@ rs6000_option_override_internal (bool global_init_p)
 	break;
 
       case PROCESSOR_POWER9:
-      case PROCESSOR_POWER10:
 	rs6000_cost = &power9_cost;
+	break;
+
+      case PROCESSOR_POWER10:
+	rs6000_cost = &power10_cost;
 	break;
 
       case PROCESSOR_PPCA2:
@@ -7002,21 +7026,21 @@ rs6000_expand_vector_set_var_p9 (rtx target, rtx val, rtx idx)
 
   gcc_assert (VECTOR_MEM_VSX_P (mode) && !CONST_INT_P (idx));
 
-  gcc_assert (GET_MODE (idx) == E_SImode);
-
   machine_mode inner_mode = GET_MODE (val);
 
-  rtx tmp = gen_reg_rtx (GET_MODE (idx));
   int width = GET_MODE_SIZE (inner_mode);
 
   gcc_assert (width >= 1 && width <= 8);
 
   int shift = exact_log2 (width);
+
+  machine_mode idx_mode = GET_MODE (idx);
+  idx = convert_modes (DImode, idx_mode, idx, 1);
+
   /* Generate the IDX for permute shift, width is the vector element size.
      idx = idx * width.  */
-  emit_insn (gen_ashlsi3 (tmp, idx, GEN_INT (shift)));
-
-  tmp = convert_modes (DImode, SImode, tmp, 1);
+  rtx tmp = gen_reg_rtx (DImode);
+  emit_insn (gen_ashldi3 (tmp, idx, GEN_INT (shift)));
 
   /*  lvsr    v1,0,idx.  */
   rtx pcvr = gen_reg_rtx (V16QImode);
@@ -7049,28 +7073,26 @@ rs6000_expand_vector_set_var_p8 (rtx target, rtx val, rtx idx)
 
   gcc_assert (VECTOR_MEM_VSX_P (mode) && !CONST_INT_P (idx));
 
-  gcc_assert (GET_MODE (idx) == E_SImode);
-
   machine_mode inner_mode = GET_MODE (val);
   HOST_WIDE_INT mode_mask = GET_MODE_MASK (inner_mode);
 
-  rtx tmp = gen_reg_rtx (GET_MODE (idx));
   int width = GET_MODE_SIZE (inner_mode);
-
   gcc_assert (width >= 1 && width <= 4);
 
+  int shift = exact_log2 (width);
+
+  machine_mode idx_mode = GET_MODE (idx);
+  idx = convert_modes (DImode, idx_mode, idx, 1);
+
+  /*  idx = idx * width.  */
+  rtx tmp = gen_reg_rtx (DImode);
+  emit_insn (gen_ashldi3 (tmp, idx, GEN_INT (shift)));
+
+  /*  For LE:  idx = idx + 8.  */
   if (!BYTES_BIG_ENDIAN)
-    {
-      /*  idx = idx * width.  */
-      emit_insn (gen_mulsi3 (tmp, idx, GEN_INT (width)));
-      /*  idx = idx + 8.  */
-      emit_insn (gen_addsi3 (tmp, tmp, GEN_INT (8)));
-    }
+    emit_insn (gen_adddi3 (tmp, tmp, GEN_INT (8)));
   else
-    {
-      emit_insn (gen_mulsi3 (tmp, idx, GEN_INT (width)));
-      emit_insn (gen_subsi3 (tmp, GEN_INT (24 - width), tmp));
-    }
+    emit_insn (gen_subdi3 (tmp, GEN_INT (24 - width), tmp));
 
   /*  lxv vs33, mask.
       DImode: 0xffffffffffffffff0000000000000000
@@ -7120,7 +7142,6 @@ rs6000_expand_vector_set_var_p8 (rtx target, rtx val, rtx idx)
   emit_insn (gen_rtx_SET (val_v16qi, sub_val));
 
   /*  lvsl    13,0,idx.  */
-  tmp = convert_modes (DImode, SImode, tmp, 1);
   rtx pcv = gen_reg_rtx (V16QImode);
   emit_insn (gen_altivec_lvsl_reg (pcv, tmp));
 
@@ -7832,31 +7853,91 @@ rs6000_special_adjust_field_align_p (tree type, unsigned int computed)
   return false;
 }
 
-/* AIX increases natural record alignment to doubleword if the first
-   field is an FP double while the FP fields remain word aligned.  */
+/* AIX word-aligns FP doubles but doubleword-aligns 64-bit ints.  */
+
+unsigned int
+rs6000_special_adjust_field_align (tree type, unsigned int computed)
+{
+  if (computed <= 32)
+    return computed;
+
+  /* Strip initial arrays.  */
+  while (TREE_CODE (type) == ARRAY_TYPE)
+    type = TREE_TYPE (type);
+
+  /* If RECORD or UNION, recursively find the first field. */
+  while (AGGREGATE_TYPE_P (type))
+    {
+      tree field = TYPE_FIELDS (type);
+
+      /* Skip all non field decls */
+      while (field != NULL
+	     && (TREE_CODE (field) != FIELD_DECL
+		 || DECL_FIELD_ABI_IGNORED (field)))
+	field = DECL_CHAIN (field);
+
+      if (! field)
+	break;
+
+      /* A packed field does not contribute any extra alignment.  */
+      if (DECL_PACKED (field))
+	return computed;
+
+      type = TREE_TYPE (field);
+
+      /* Strip arrays.  */
+      while (TREE_CODE (type) == ARRAY_TYPE)
+	type = TREE_TYPE (type);
+    }
+
+  if (! AGGREGATE_TYPE_P (type) && type != error_mark_node
+      && (TYPE_MODE (type) == DFmode || TYPE_MODE (type) == DCmode))
+    computed = MIN (computed, 32);
+
+  return computed;
+}
+
+/* AIX increases natural record alignment to doubleword if the innermost first
+   field is an FP double while the FP fields remain word aligned.
+   Only called if TYPE initially is a RECORD or UNION.  */
 
 unsigned int
 rs6000_special_round_type_align (tree type, unsigned int computed,
 				 unsigned int specified)
 {
   unsigned int align = MAX (computed, specified);
-  tree field = TYPE_FIELDS (type);
 
-  /* Skip all non field decls */
-  while (field != NULL
-	 && (TREE_CODE (field) != FIELD_DECL
-	     || DECL_FIELD_ABI_IGNORED (field)))
-    field = DECL_CHAIN (field);
+  if (TYPE_PACKED (type) || align >= 64)
+    return align;
 
-  if (field != NULL && field != type)
+  /* If RECORD or UNION, recursively find the first field. */
+  do
     {
+      tree field = TYPE_FIELDS (type);
+
+      /* Skip all non field decls */
+      while (field != NULL
+	     && (TREE_CODE (field) != FIELD_DECL
+		 || DECL_FIELD_ABI_IGNORED (field)))
+	field = DECL_CHAIN (field);
+
+      if (! field)
+	break;
+
+      /* A packed field does not contribute any extra alignment.  */
+      if (DECL_PACKED (field))
+	return align;
+
       type = TREE_TYPE (field);
+
+      /* Strip arrays.  */
       while (TREE_CODE (type) == ARRAY_TYPE)
 	type = TREE_TYPE (type);
+    } while (AGGREGATE_TYPE_P (type));
 
-      if (type != error_mark_node && TYPE_MODE (type) == DFmode)
-	align = MAX (align, 64);
-    }
+  if (! AGGREGATE_TYPE_P (type) && type != error_mark_node
+      && (TYPE_MODE (type) == DFmode || TYPE_MODE (type) == DCmode))
+    align = MAX (align, 64);
 
   return align;
 }
@@ -8946,26 +9027,6 @@ rs6000_output_dwarf_dtprel (FILE *file, int size, rtx x)
   output_addr_const (file, x);
   if (TARGET_ELF)
     fputs ("@dtprel+0x8000", file);
-  else if (TARGET_XCOFF && SYMBOL_REF_P (x))
-    {
-      switch (SYMBOL_REF_TLS_MODEL (x))
-	{
-	case 0:
-	  break;
-	case TLS_MODEL_LOCAL_EXEC:
-	  fputs ("@le", file);
-	  break;
-	case TLS_MODEL_INITIAL_EXEC:
-	  fputs ("@ie", file);
-	  break;
-	case TLS_MODEL_GLOBAL_DYNAMIC:
-	case TLS_MODEL_LOCAL_DYNAMIC:
-	  fputs ("@m", file);
-	  break;
-	default:
-	  gcc_unreachable ();
-	}
-    }
 }
 
 /* Return true if X is a symbol that refers to real (rather than emulated)
@@ -10110,6 +10171,9 @@ rs6000_const_vec (machine_mode mode)
 void
 rs6000_emit_le_vsx_permute (rtx dest, rtx source, machine_mode mode)
 {
+  gcc_assert (!altivec_indexed_or_indirect_operand (dest, mode));
+  gcc_assert (!altivec_indexed_or_indirect_operand (source, mode));
+
   /* Scalar permutations are easier to express in integer modes rather than
      floating-point modes, so cast them here.  We use V1TImode instead
      of TImode to ensure that the values don't go through GPRs.  */
@@ -10551,7 +10615,7 @@ rs6000_emit_move (rtx dest, rtx source, machine_mode mode)
     case E_OOmode:
     case E_XOmode:
       if (CONST_INT_P (operands[1]) && INTVAL (operands[1]) != 0)
-	error ("%qs is an opaque type, and you can't set it to other values.",
+	error ("%qs is an opaque type, and you cannot set it to other values",
 	       (mode == OOmode) ? "__vector_pair" : "__vector_quad");
       break;
 
@@ -18438,8 +18502,9 @@ rs6000_issue_rate (void)
   case PROCESSOR_POWER8:
     return 7;
   case PROCESSOR_POWER9:
-  case PROCESSOR_POWER10:
     return 6;
+  case PROCESSOR_POWER10:
+    return 8;
   default:
     return 1;
   }
@@ -20023,7 +20088,7 @@ rs6000_handle_altivec_attribute (tree *node,
   else if (TREE_CODE (type) == COMPLEX_TYPE)
     error ("use of %<complex%> in AltiVec types is invalid");
   else if (DECIMAL_FLOAT_MODE_P (mode))
-    error ("use of decimal floating point types in AltiVec types is invalid");
+    error ("use of decimal floating-point types in AltiVec types is invalid");
   else if (!TARGET_VSX)
     {
       if (type == long_unsigned_type_node || type == long_integer_type_node)
@@ -21256,8 +21321,6 @@ rs6000_xcoff_file_start (void)
 			   main_input_filename, ".ro_");
   rs6000_gen_section_name (&xcoff_tls_data_section_name,
 			   main_input_filename, ".tls_");
-  rs6000_gen_section_name (&xcoff_tbss_section_name,
-			   main_input_filename, ".tbss_[UL]");
 
   fputs ("\t.file\t", asm_out_file);
   output_quoted_string (asm_out_file, main_input_filename);

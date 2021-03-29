@@ -1,3 +1,43 @@
+2021-03-25  Thomas Schwinge  <thomas@codesourcery.com>
+
+	* plugin/plugin-gcn.c (init_environment_variables): Don't prepend
+	the 'HSA_RUNTIME_LIB' path to 'libhsa-runtime64.so'.
+	* plugin/configfrag.ac (HSA_RUNTIME_LIB): Clean up.
+	* config.h.in: Regenerate.
+	* configure: Likewise.
+
+2021-03-25  Thomas Schwinge  <thomas@codesourcery.com>
+
+	PR target/99555
+	* testsuite/lib/on_device_arch.c: New file.
+	* testsuite/libgomp.c/pr99555-1.c: Likewise.
+	* testsuite/libgomp.c-c++-common/task-detach-6.c: Until resolved,
+	skip for nvptx offloading, with error status.
+	* testsuite/libgomp.fortran/task-detach-6.f90: Likewise.
+
+2021-03-25  Thomas Schwinge  <thomas@codesourcery.com>
+
+	* testsuite/libgomp.oacc-fortran/derivedtypes-arrays-1.f90:
+	OpenACC 'serial' construct diagnostic for nvptx offloading.
+
+2021-03-15  Tobias Burnus  <tobias@codesourcery.com>
+
+	PR c++/99509
+	* testsuite/libgomp.c-c++-common/declare_target-1.c: New test.
+
+2021-03-12  Tobias Burnus  <tobias@codesourcery.com>
+
+	PR fortran/98858
+	* testsuite/libgomp.fortran/use_device_ptr-3.f90: New test.
+
+2021-03-04  Jakub Jelinek  <jakub@redhat.com>
+
+	* configure.ac: Add AC_CHECK_SIZEOF([void *]).
+	* plugin/configfrag.ac: Check $ac_cv_sizeof_void_p value instead of
+	checking of -m32 or -mx32 options on the command line.
+	* config.h.in: Regenerated.
+	* configure: Regenerated.
+
 2021-02-27  Iain Sandoe  <iain@sandoe.co.uk>
 
 	* testsuite/libgomp.c-c++-common/pr96390.c: Require alias

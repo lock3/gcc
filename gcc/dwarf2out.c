@@ -385,13 +385,12 @@ dump_struct_debug (tree type, enum debug_info_usage usage,
 #endif
 
 /* Get the number of HOST_WIDE_INTs needed to represent the precision
-   of the number.  Some constants have a large uniform precision, so
-   we get the precision needed for the actual value of the number.  */
+   of the number.  */
 
 static unsigned int
 get_full_len (const wide_int &op)
 {
-  int prec = wi::min_precision (op, UNSIGNED);
+  int prec = wi::get_precision (op);
   return ((prec + HOST_BITS_PER_WIDE_INT - 1)
 	  / HOST_BITS_PER_WIDE_INT);
 }
@@ -1317,6 +1316,7 @@ typedef struct GTY(()) dw_loc_list_struct {
   const char *begin; /* Label and addr_entry for start of range */
   addr_table_entry *begin_entry;
   const char *end;  /* Label for end of range */
+  addr_table_entry *end_entry;
   char *ll_symbol; /* Label for beginning of location list.
 		      Only on head of list.  */
   char *vl_symbol; /* Label for beginning of view list.  Ditto.  */
@@ -3824,7 +3824,7 @@ static void add_data_member_location_attribute (dw_die_ref, tree,
 static bool add_const_value_attribute (dw_die_ref, rtx);
 static void insert_int (HOST_WIDE_INT, unsigned, unsigned char *);
 static void insert_wide_int (const wide_int &, unsigned char *, int);
-static void insert_float (const_rtx, unsigned char *);
+static unsigned insert_float (const_rtx, unsigned char *);
 static rtx rtl_for_decl_location (tree);
 static bool add_location_or_const_value_attribute (dw_die_ref, tree, bool);
 static bool tree_add_const_value_attribute (dw_die_ref, tree);
@@ -10101,6 +10101,7 @@ new_loc_list (dw_loc_descr_ref expr, const char *begin, var_loc_view vbegin,
   retlist->begin = begin;
   retlist->begin_entry = NULL;
   retlist->end = end;
+  retlist->end_entry = NULL;
   retlist->expr = expr;
   retlist->section = section;
   retlist->vbegin = vbegin;
@@ -10327,10 +10328,10 @@ output_loc_list (dw_loc_list_ref list_head)
 
       if (dwarf_version >= 5)
 	{
-	  if (dwarf_split_debug_info)
+	  if (dwarf_split_debug_info && HAVE_AS_LEB128)
 	    {
 	      dwarf2out_maybe_output_loclist_view_pair (curr);
-	      /* For -gsplit-dwarf, emit DW_LLE_starx_length, which has
+	      /* For -gsplit-dwarf, emit DW_LLE_startx_length, which has
 		 uleb128 index into .debug_addr and uleb128 length.  */
 	      dw2_asm_output_data (1, DW_LLE_startx_length,
 				   "DW_LLE_startx_length (%s)",
@@ -10338,12 +10339,25 @@ output_loc_list (dw_loc_list_ref list_head)
 	      dw2_asm_output_data_uleb128 (curr->begin_entry->index,
 					   "Location list range start index "
 					   "(%s)", curr->begin);
-	      /* FIXME: This will ICE ifndef HAVE_AS_LEB128.
-		 For that case we probably need to emit DW_LLE_startx_endx,
-		 but we'd need 2 .debug_addr entries rather than just one.  */
 	      dw2_asm_output_delta_uleb128 (curr->end, curr->begin,
 					    "Location list length (%s)",
 					    list_head->ll_symbol);
+	    }
+	  else if (dwarf_split_debug_info)
+	    {
+	      dwarf2out_maybe_output_loclist_view_pair (curr);
+	      /* For -gsplit-dwarf without usable .uleb128 support, emit
+		 DW_LLE_startx_endx, which has two uleb128 indexes into
+		 .debug_addr.  */
+	      dw2_asm_output_data (1, DW_LLE_startx_endx,
+				   "DW_LLE_startx_endx (%s)",
+				   list_head->ll_symbol);
+	      dw2_asm_output_data_uleb128 (curr->begin_entry->index,
+					   "Location list range start index "
+					   "(%s)", curr->begin);
+	      dw2_asm_output_data_uleb128 (curr->end_entry->index,
+					   "Location list range end index "
+					   "(%s)", curr->end);
 	    }
 	  else if (!have_multiple_function_sections && HAVE_AS_LEB128)
 	    {
@@ -16277,11 +16291,12 @@ mem_loc_descriptor (rtx rtl, machine_mode mode,
 	      scalar_float_mode float_mode = as_a <scalar_float_mode> (mode);
 	      unsigned int length = GET_MODE_SIZE (float_mode);
 	      unsigned char *array = ggc_vec_alloc<unsigned char> (length);
+	      unsigned int elt_size = insert_float (rtl, array);
 
-	      insert_float (rtl, array);
 	      mem_loc_result->dw_loc_oprnd2.val_class = dw_val_class_vec;
-	      mem_loc_result->dw_loc_oprnd2.v.val_vec.length = length / 4;
-	      mem_loc_result->dw_loc_oprnd2.v.val_vec.elt_size = 4;
+	      mem_loc_result->dw_loc_oprnd2.v.val_vec.length
+		= length / elt_size;
+	      mem_loc_result->dw_loc_oprnd2.v.val_vec.elt_size = elt_size;
 	      mem_loc_result->dw_loc_oprnd2.v.val_vec.array = array;
 	    }
 	}
@@ -16851,11 +16866,11 @@ loc_descriptor (rtx rtl, machine_mode mode,
 	    {
 	      unsigned int length = GET_MODE_SIZE (smode);
 	      unsigned char *array = ggc_vec_alloc<unsigned char> (length);
+	      unsigned int elt_size = insert_float (rtl, array);
 
-	      insert_float (rtl, array);
 	      loc_result->dw_loc_oprnd2.val_class = dw_val_class_vec;
-	      loc_result->dw_loc_oprnd2.v.val_vec.length = length / 4;
-	      loc_result->dw_loc_oprnd2.v.val_vec.elt_size = 4;
+	      loc_result->dw_loc_oprnd2.v.val_vec.length = length / elt_size;
+	      loc_result->dw_loc_oprnd2.v.val_vec.elt_size = elt_size;
 	      loc_result->dw_loc_oprnd2.v.val_vec.array = array;
 	    }
 	}
@@ -19674,7 +19689,7 @@ insert_wide_int (const wide_int &val, unsigned char *dest, int elt_size)
 
 /* Writes floating point values to dw_vec_const array.  */
 
-static void
+static unsigned
 insert_float (const_rtx rtl, unsigned char *array)
 {
   long val[4];
@@ -19684,11 +19699,19 @@ insert_float (const_rtx rtl, unsigned char *array)
   real_to_target (val, CONST_DOUBLE_REAL_VALUE (rtl), mode);
 
   /* real_to_target puts 32-bit pieces in each long.  Pack them.  */
+  if (GET_MODE_SIZE (mode) < 4)
+    {
+      gcc_assert (GET_MODE_SIZE (mode) == 2);
+      insert_int (val[0], 2, array);
+      return 2;
+    }
+
   for (i = 0; i < GET_MODE_SIZE (mode) / 4; i++)
     {
       insert_int (val[i], 4, array);
       array += 4;
     }
+  return 4;
 }
 
 /* Attach a DW_AT_const_value attribute for a variable or a parameter which
@@ -19717,8 +19740,9 @@ add_const_value_attribute (dw_die_ref die, rtx rtl)
       {
 	wide_int w1 = rtx_mode_t (rtl, MAX_MODE_INT);
 	unsigned int prec = MIN (wi::min_precision (w1, UNSIGNED),
-				 (unsigned int)CONST_WIDE_INT_NUNITS (rtl) * HOST_BITS_PER_WIDE_INT);
-	wide_int w = wi::zext (w1, prec);
+				 (unsigned int) CONST_WIDE_INT_NUNITS (rtl)
+				 * HOST_BITS_PER_WIDE_INT);
+	wide_int w = wide_int::from (w1, prec, UNSIGNED);
 	add_AT_wide (die, DW_AT_const_value, w);
       }
       return true;
@@ -19737,9 +19761,10 @@ add_const_value_attribute (dw_die_ref die, rtx rtl)
 	  scalar_float_mode mode = as_a <scalar_float_mode> (GET_MODE (rtl));
 	  unsigned int length = GET_MODE_SIZE (mode);
 	  unsigned char *array = ggc_vec_alloc<unsigned char> (length);
+	  unsigned int elt_size = insert_float (rtl, array);
 
-	  insert_float (rtl, array);
-	  add_AT_vec (die, DW_AT_const_value, length / 4, 4, array);
+	  add_AT_vec (die, DW_AT_const_value, length / elt_size, elt_size,
+		      array);
 	}
       return true;
 
@@ -28267,13 +28292,17 @@ output_macinfo_op (macinfo_entry *ref)
     case DW_MACINFO_define:
     case DW_MACINFO_undef:
       len = strlen (ref->info) + 1;
-      if (!dwarf_strict
+      if ((!dwarf_strict || dwarf_version >= 5)
 	  && len > (size_t) dwarf_offset_size
 	  && !DWARF2_INDIRECT_STRING_SUPPORT_MISSING_ON_TARGET
 	  && (debug_str_section->common.flags & SECTION_MERGE) != 0)
 	{
-	  ref->code = ref->code == DW_MACINFO_define
-		      ? DW_MACRO_define_strp : DW_MACRO_undef_strp;
+	  if (dwarf_split_debug_info && dwarf_version >= 5)
+	    ref->code = ref->code == DW_MACINFO_define
+			? DW_MACRO_define_strx : DW_MACRO_undef_strx;
+	  else
+	    ref->code = ref->code == DW_MACINFO_define
+			? DW_MACRO_define_strp : DW_MACRO_undef_strp;
 	  output_macinfo_op (ref);
 	  return;
 	}
@@ -28285,7 +28314,18 @@ output_macinfo_op (macinfo_entry *ref)
       dw2_asm_output_nstring (ref->info, -1, "The macro");
       break;
     case DW_MACRO_define_strp:
+      dw2_asm_output_data (1, ref->code, "Define macro strp");
+      goto do_DW_MACRO_define_strpx;
     case DW_MACRO_undef_strp:
+      dw2_asm_output_data (1, ref->code, "Undefine macro strp");
+      goto do_DW_MACRO_define_strpx;
+    case DW_MACRO_define_strx:
+      dw2_asm_output_data (1, ref->code, "Define macro strx");
+      goto do_DW_MACRO_define_strpx;
+    case DW_MACRO_undef_strx:
+      dw2_asm_output_data (1, ref->code, "Undefine macro strx");
+      /* FALLTHRU */
+    do_DW_MACRO_define_strpx:
       /* NB: dwarf2out_finish performs:
 	   1. save_macinfo_strings
 	   2. hash table traverse of index_string
@@ -28302,10 +28342,6 @@ output_macinfo_op (macinfo_entry *ref)
       gcc_assert (node
 		  && (node->form == DW_FORM_strp
 		      || node->form == dwarf_FORM (DW_FORM_strx)));
-      dw2_asm_output_data (1, ref->code,
-			   ref->code == DW_MACRO_define_strp
-			   ? "Define macro strp"
-			   : "Undefine macro strp");
       dw2_asm_output_data_uleb128 (ref->lineno, "At line number %lu",
 				   (unsigned long) ref->lineno);
       if (node->form == DW_FORM_strp)
@@ -28475,7 +28511,7 @@ save_macinfo_strings (void)
           case DW_MACINFO_define:
           case DW_MACINFO_undef:
             len = strlen (ref->info) + 1;
-            if (!dwarf_strict
+	    if ((!dwarf_strict || dwarf_version >= 5)
                 && len > (unsigned) dwarf_offset_size
                 && !DWARF2_INDIRECT_STRING_SUPPORT_MISSING_ON_TARGET
                 && (debug_str_section->common.flags & SECTION_MERGE) != 0)
@@ -28489,6 +28525,8 @@ save_macinfo_strings (void)
 	    /* Fall through. */
 	  case DW_MACRO_define_strp:
 	  case DW_MACRO_undef_strp:
+	  case DW_MACRO_define_strx:
+	  case DW_MACRO_undef_strx:
             set_indirect_string (find_AT_string (ref->info));
             break;
           default:
@@ -31288,12 +31326,14 @@ index_location_lists (dw_die_ref die)
 	       to the hash table.  In the rare case of DWARF[234] >= 64KB
 	       location expression, we'll just waste unused address table entry
 	       for it.  */
-            if (curr->begin_entry != NULL
-                || skip_loc_list_entry (curr))
+	    if (curr->begin_entry != NULL || skip_loc_list_entry (curr))
               continue;
 
             curr->begin_entry
 	      = add_addr_table_entry (xstrdup (curr->begin), ate_kind_label);
+	    if (dwarf_version >= 5 && !HAVE_AS_LEB128)
+	      curr->end_entry
+		= add_addr_table_entry (xstrdup (curr->end), ate_kind_label);
           }
       }
 

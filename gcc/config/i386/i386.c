@@ -1705,6 +1705,10 @@ init_cumulative_args (CUMULATIVE_ARGS *cum,  /* Argument info to initialize */
   struct cgraph_node *local_info_node = NULL;
   struct cgraph_node *target = NULL;
 
+  /* Set silent_p to false to raise an error for invalid calls when
+     expanding function body.  */
+  cfun->machine->silent_p = false;
+
   memset (cum, 0, sizeof (*cum));
 
   if (fndecl)
@@ -2534,6 +2538,10 @@ construct_container (machine_mode mode, machine_mode orig_mode,
      some less clueful developer tries to use floating-point anyway.  */
   if (needed_sseregs && !TARGET_SSE)
     {
+      /* Return early if we shouldn't raise an error for invalid
+	 calls.  */
+      if (cfun != NULL && cfun->machine->silent_p)
+	return NULL;
       if (in_return)
 	{
 	  if (!issued_sse_ret_error)
@@ -2558,6 +2566,10 @@ construct_container (machine_mode mode, machine_mode orig_mode,
 	  || regclass[i] == X86_64_X87UP_CLASS
 	  || regclass[i] == X86_64_COMPLEX_X87_CLASS)
 	{
+	  /* Return early if we shouldn't raise an error for invalid
+	     calls.  */
+	  if (cfun != NULL && cfun->machine->silent_p)
+	    return NULL;
 	  if (!issued_x87_ret_error)
 	    {
 	      error ("x87 register return with x87 disabled");
@@ -6660,7 +6672,8 @@ ix86_compute_frame_layout (void)
       frame->hard_frame_pointer_offset = frame->sse_reg_save_offset;
 
       /* If we can leave the frame pointer where it is, do so.  Also, return
-	 the establisher frame for __builtin_frame_address (0).  */
+	 the establisher frame for __builtin_frame_address (0) or else if the
+	 frame overflows the SEH maximum frame size.  */
       const HOST_WIDE_INT diff
 	= frame->stack_pointer_offset - frame->hard_frame_pointer_offset;
       if (diff <= 255)
@@ -6678,6 +6691,8 @@ ix86_compute_frame_layout (void)
 	     frame that is addressable with 8-bit offsets.  */
 	  frame->hard_frame_pointer_offset = frame->stack_pointer_offset - 128;
 	}
+      else
+	frame->hard_frame_pointer_offset = frame->hfp_save_offset;
     }
 }
 
@@ -10262,15 +10277,20 @@ darwin_local_data_pic (rtx disp)
 	  && XINT (disp, 1) == UNSPEC_MACHOPIC_OFFSET);
 }
 
-/* True if operand X should be loaded from GOT.  */
+/* True if the function symbol operand X should be loaded from GOT.
+
+   NB: In 32-bit mode, only non-PIC is allowed in inline assembly
+   statements, since a PIC register could not be available at the
+   call site.  */
 
 bool
 ix86_force_load_from_GOT_p (rtx x)
 {
-  return ((TARGET_64BIT || HAVE_AS_IX86_GOT32X)
+  return ((TARGET_64BIT || (!flag_pic && HAVE_AS_IX86_GOT32X))
 	  && !TARGET_PECOFF && !TARGET_MACHO
-	  && !flag_pic
+	  && (!flag_pic || this_is_asm_operands)
 	  && ix86_cmodel != CM_LARGE
+	  && ix86_cmodel != CM_LARGE_PIC
 	  && GET_CODE (x) == SYMBOL_REF
 	  && SYMBOL_REF_FUNCTION_P (x)
 	  && (!flag_plt
@@ -12698,7 +12718,8 @@ print_reg (rtx x, int code, FILE *file)
    y -- print "st(0)" instead of "st" as a register.
    d -- print duplicated register operand for AVX instruction.
    D -- print condition for SSE cmp instruction.
-   P -- if PIC, print an @PLT suffix.
+   P -- if PIC, print an @PLT suffix.  For -fno-plt, load function
+	address from GOT.
    p -- print raw symbol name.
    X -- don't print any sort of PIC '@' suffix for a symbol.
    & -- print some in-use local-dynamic symbol name.
@@ -13442,7 +13463,23 @@ ix86_print_operand (FILE *file, rtx x, int code)
 	  x = const0_rtx;
 	}
 
-      if (code != 'P' && code != 'p')
+      if (code == 'P')
+	{
+	  if (ix86_force_load_from_GOT_p (x))
+	    {
+	      /* For inline assembly statement, load function address
+		 from GOT with 'P' operand modifier to avoid PLT.  */
+	      x = gen_rtx_UNSPEC (Pmode, gen_rtvec (1, x),
+				  (TARGET_64BIT
+				   ? UNSPEC_GOTPCREL
+				   : UNSPEC_GOT));
+	      x = gen_rtx_CONST (Pmode, x);
+	      x = gen_const_mem (Pmode, x);
+	      ix86_print_operand (file, x, 'A');
+	      return;
+	    }
+	}
+      else if (code != 'p')
 	{
 	  if (CONST_INT_P (x))
 	    {
@@ -21370,9 +21407,10 @@ ix86_c_mode_for_suffix (char suffix)
    with the old cc0-based compiler.  */
 
 static rtx_insn *
-ix86_md_asm_adjust (vec<rtx> &outputs, vec<rtx> &/*inputs*/,
-		    vec<const char *> &constraints,
-		    vec<rtx> &clobbers, HARD_REG_SET &clobbered_regs)
+ix86_md_asm_adjust (vec<rtx> &outputs, vec<rtx> & /*inputs*/,
+		    vec<machine_mode> & /*input_modes*/,
+		    vec<const char *> &constraints, vec<rtx> &clobbers,
+		    HARD_REG_SET &clobbered_regs)
 {
   bool saw_asm_flag = false;
 
