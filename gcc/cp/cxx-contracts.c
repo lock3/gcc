@@ -341,6 +341,17 @@ lookup_labels (tree labels)
 	  return error_mark_node;
 	}
 
+      /* Ensure each label type is unique.  */
+      contract_label = TYPE_CANONICAL (contract_label);
+      tree old = type_list_find (label_types, contract_label);
+      if (old)
+	{
+	  error_at (EXPR_LOCATION (loc),
+		    "contract label %qD cannot appear twice",
+		    contract_label);
+	  return error_mark_node;
+	}
+
       label_types = chainon (label_types,
 			     build_tree_list (loc, contract_label));
     }
