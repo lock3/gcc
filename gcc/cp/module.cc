@@ -8953,14 +8953,14 @@ trees_out::tree_value (tree t)
 
   tree_node_vals (t);
 
-  if (flag_serialize_atom_cache && TREE_CODE(t) == ATOMIC_CONSTR)
+  if (flag_export_atoms && TREE_CODE(t) == ATOMIC_CONSTR)
     {
       state->atom_count++;
 
       /* Write the any satisfaction results associated with this 
          atomic constraint. */
       static int atom_recursion = 0;
-      if (flag_serialize_satisfaction_cache)
+      if (flag_export_satisfactions)
         {
 	  if (!atom_recursion)
 	    {
@@ -17422,8 +17422,8 @@ module_state::write_config (elf_out *to, module_state_config &config,
 
   /* Cache serialization flags. */
   {
-    cfg.u (flag_serialize_atom_cache);
-    cfg.u (flag_serialize_satisfaction_cache);
+    cfg.u (flag_export_atoms);
+    cfg.u (flag_export_satisfactions);
   }
 
   /* Now generate CRC, we'll have incorporated the inner CRC because

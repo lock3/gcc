@@ -791,7 +791,7 @@ save_atomic_constraint (tree atom)
 static void 
 append_atom(tree decl, tree atom)
 {
-  if (!(modules_p() && flag_serialize_atom_cache))
+  if (!(modules_p() && flag_export_atoms))
     return;
 
   // Nested requirements clauses within a concept definition.
@@ -3024,7 +3024,7 @@ satisfy_atom (tree t, tree args, sat_info info)
       return cache.save (r);
     }
 
-  if (info.quiet() && modules_p() && flag_serialize_satisfaction_cache)
+  if (info.quiet() && modules_p() && flag_export_satisfactions)
   {
     /* Link the uninstantiated atomic constraint to the instantiated atomic constraint. */
     if (cache.entry) 
