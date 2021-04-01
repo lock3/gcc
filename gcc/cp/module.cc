@@ -3434,6 +3434,13 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   unsigned extensions : SE_BITS;
   /* 14 bits used, 2 bits remain  */
 
+  /* which of the constraint caches were serialized into the CMI. */
+  unsigned cache_flags; 
+  bool has_atom_cache_p() const { return cache_flags & 1; }
+  bool has_constraint_cache_p() const { return cache_flags & 2; }
+
+  unsigned atom_count, sat_count;
+  
  public:
   module_state (tree name, module_state *, bool);
   ~module_state ();
@@ -3651,7 +3658,8 @@ module_state::module_state (tree name, module_state *parent, bool partition)
     entity_lwm (~0u >> 1), entity_num (0),
     ordinary_locs (0, 0), macro_locs (0, 0),
     loc (UNKNOWN_LOCATION),
-    crc (0), mod (MODULE_UNKNOWN), remap (0), subst (0)
+    crc (0), mod (MODULE_UNKNOWN), remap (0), subst (0),
+    cache_flags(0), atom_count(0), sat_count(0)
 {
   loadedness = ML_NONE;
 
@@ -4654,6 +4662,7 @@ struct constraint_satisfaction_context
 {
   tree atom;
   trees_out *out;
+  module_state *state;
 };
 
 extern void debug_parameter_mapping (tree map);
@@ -4666,9 +4675,20 @@ write_constraint_satisfactions (sat_entry *entry, void *param)
 
   if (entry->cached_atom == ctx->atom)
     {
-      ctx->out->tree_node(entry->atom);
+      // ctx->out->tree_node(entry->atom);
+      // Don't write the atom as is. Write it's constituent components 
+      // to prevent recursion.
+      tree ci = TREE_TYPE(entry->atom);
+      tree map = TREE_OPERAND(entry->atom, 0);
+      gcc_assert(ci);
+      ctx->out->tree_node(ci); // atomic expression
+      ctx->out->tree_node(map); // parameter map
+      if (ctx->out->streaming_p ())
+	ctx->out->u(ATOMIC_CONSTR_MAP_INSTANTIATED_P(entry->atom));
+
       ctx->out->tree_node(entry->args);
       ctx->out->tree_node(entry->result);
+      ctx->state->sat_count++;
     }
 
   return true;
@@ -8931,19 +8951,29 @@ trees_out::tree_value (tree t)
 
   tree_node_vals (t);
 
-  if (TREE_CODE(t) == ATOMIC_CONSTR)
+  if (flag_serialize_atom_cache && TREE_CODE(t) == ATOMIC_CONSTR)
     {
+      state->atom_count++;
+
       /* Write the any satisfaction results associated with this 
          atomic constraint. */
-      if (flag_serialize_constraints)
+      static int atom_recursion = 0;
+      if (flag_serialize_satisfaction_cache)
         {
-	  constraint_satisfaction_context ctx;
-	  ctx.atom = t;
-	  ctx.out = this;
-	  walk_constraint_satisfactions (write_constraint_satisfactions,
+	  if (!atom_recursion)
+	    {
+	      atom_recursion++;
+
+	      constraint_satisfaction_context ctx;
+	      ctx.atom = t;
+	      ctx.out = this;
+	      ctx.state = state;
+	      walk_constraint_satisfactions (write_constraint_satisfactions,
                                        &ctx);
+              tree_node (NULL_TREE);
+              atom_recursion--;
+	    }
         }
-      tree_node (NULL_TREE);
     }
 
   if (streaming_p ())
@@ -8992,18 +9022,23 @@ trees_in::tree_value ()
       return NULL_TREE;
     }
 
-  if (TREE_CODE(t) == ATOMIC_CONSTR)
+  if (state->has_atom_cache_p() && TREE_CODE(t) == ATOMIC_CONSTR)
     {
       // Save the atom.
       save_atomic_constraint (t);
-
-      // And any satisfaction results.
-      tree atom;
-      while ((atom = tree_node()) != NULL_TREE)
-        {
-	  tree args = tree_node();
-          tree result = tree_node ();
-          save_constraint_satisfaction (atom, args, result);
+      if (state->has_constraint_cache_p())
+	{
+          // And any satisfaction results.
+	  tree ci;
+	  while ((ci = tree_node()) != NULL_TREE)
+            {
+	      tree map = tree_node();
+	      tree atom = build1(ATOMIC_CONSTR, ci, map);
+	      ATOMIC_CONSTR_MAP_INSTANTIATED_P(atom) = u();
+	      tree args = tree_node();
+	      tree result = tree_node ();
+	      save_constraint_satisfaction (atom, args, result);
+	    }
         }
     }
 
@@ -14414,6 +14449,7 @@ enum module_state_counts
   MSC_bindings,
   MSC_macros,
   MSC_inits,
+  MSC_atoms,
   MSC_HWM
 };
 
@@ -14427,11 +14463,15 @@ struct module_state_config {
   unsigned macro_locs;
   unsigned ordinary_loc_align;
 
+  unsigned has_atoms;
+  unsigned has_satisfactions; 
+
 public:
   module_state_config ()
     :dialect_str (get_dialect ()),
      num_imports (0), num_partitions (0), num_entities (0),
-     ordinary_locs (0), macro_locs (0), ordinary_loc_align (0)
+     ordinary_locs (0), macro_locs (0), ordinary_loc_align (0),
+     has_atoms(0), has_satisfactions(0)
   {
   }
 
@@ -17360,6 +17400,12 @@ module_state::write_config (elf_out *to, module_state_config &config,
   cfg.u (config.macro_locs);
   cfg.u (config.ordinary_loc_align);  
 
+  /* Cache serialization flags. */
+  {
+    cfg.u (flag_serialize_atom_cache);
+    cfg.u (flag_serialize_satisfaction_cache);
+  }
+
   /* Now generate CRC, we'll have incorporated the inner CRC because
      of its serialization above.  */
   cfg.end (to, to->name (MOD_SNAME_PFX ".cfg"), &crc);
@@ -17544,6 +17590,9 @@ module_state::read_config (module_state_config &config)
   config.macro_locs = cfg.u ();
   config.ordinary_loc_align = cfg.u ();
 
+  config.has_atoms = cfg.u();
+  config.has_satisfactions = cfg.u();
+
  done:
   return cfg.end (from ());
 }
@@ -17581,6 +17630,8 @@ ool_cmp (const void *a_, const void *b_)
      MOD_SNAME_PFX.cnt      : counts
      MOD_SNAME_PFX.cfg      : config data
 */
+
+extern void debug_atom_cache();
 
 void
 module_state::write (elf_out *to, cpp_reader *reader)
@@ -17857,6 +17908,8 @@ module_state::write (elf_out *to, cpp_reader *reader)
 
   trees_out::instrument ();
   dump () && dump ("Wrote %u sections", to->get_section_limit ());
+
+  verbatim("Counts\n atom count %u\n satisfaction count %u", atom_count, sat_count);
 }
 
 /* Initial read of a CMI.  Checks config, loads up imports and line
@@ -17937,6 +17990,11 @@ module_state::read_initial (cpp_reader *reader)
   /* Macro maps after the imports.  */
   if (ok && have_locs && !read_macro_maps ())
     ok = false;
+
+  if (config.has_atoms) 
+    cache_flags |= 1;
+  if (config.has_satisfactions)
+    cache_flags |= 2;
 
   gcc_assert (slurp->current == ~0u);
   return ok;
