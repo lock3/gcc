@@ -771,12 +771,10 @@ save_atomic_constraint (tree atom)
   if (!atom_cache)
     atom_cache = hash_table<atom_hasher>::create_ggc (31);
   tree *slot = atom_cache->find_slot (atom, INSERT);
+  /* Note: the constraint may have been satisfied beforehand.
+     Because lazy loading in modules. */
   if (!*slot)
     *slot = atom;
-  else 
-    /* The constraint may have been satisfied beforehand.
-       Because lazy loading in modules. */
-    ;
 }
 
 /* Append the new atom into the a tree list associated with a concept decl. */
@@ -784,7 +782,7 @@ save_atomic_constraint (tree atom)
 static void 
 append_atom(tree decl, tree atom)
 {
-  if (!modules_p() || !flag_serialize_constraints)
+  if (!(modules_p() && flag_serialize_atom_cache))
     return;
 
   // Nested requirements clauses within a concept definition.
@@ -822,8 +820,8 @@ normalize_atom (tree t, tree args, norm_info info)
 
   /* Build a new info object for the atom.  */
   tree ci = build_tree_list (t, info.context);
-
   tree atom = build1 (ATOMIC_CONSTR, ci, map);
+
   if (!info.generate_diagnostics ())
     {
       /* Cache the ATOMIC_CONSTRs that we return, so that sat_hasher::equal
@@ -855,7 +853,6 @@ normalize_atom (tree t, tree args, norm_info info)
 	  TREE_TYPE (map) = target_parms;
 	}
       
-      // verbatim("normalizing %qE", atom);
       append_atom (info.in_decl, atom);
       *slot = atom;
     }
@@ -2978,18 +2975,18 @@ satisfy_atom (tree t, tree args, sat_info info)
       return cache.save (r);
     }
 
-  if (info.quiet() && modules_p() && flag_serialize_constraints)
+  if (info.quiet() && modules_p() && flag_serialize_satisfaction_cache)
   {
+    /* Link the uninstantiated atomic constraint to the instantiated atomic constraint. */
     if (cache.entry) 
       cache.entry->cached_atom = u;
     if (inst_cache.entry) 
       inst_cache.entry->cached_atom = u;
 
+    /* We're importing a module with satisfied constraints. */
     if (info.cached_result) 
       return cache.save (inst_cache.save (info.cached_result));
   }
-
-  //verbatim("satisfying %qE", t);
 
   /* Rebuild the argument vector from the parameter mapping.  */
   args = get_mapped_args (map);
