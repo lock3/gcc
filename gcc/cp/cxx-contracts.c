@@ -309,6 +309,85 @@ type_list_find (tree list, tree type)
   return NULL_TREE;
 }
 
+/* Lookup each contract LABELS, ensuring that each is fully defined and that
+   no underlying type is repeated in the TREE_LIST.
+
+   Returns a new TREE_LIST of (location, contract_label type) on success, or
+   error_mark_node.  */
+
+static tree
+lookup_labels (tree labels)
+{
+  tree label_types = NULL_TREE;
+  for (tree label = labels; label; label = TREE_CHAIN (label))
+    {
+      if (label == error_mark_node)
+	return error_mark_node; /* Diagnosed before.  */
+
+      tree loc = TREE_VALUE (label);
+      tree id = tree_strip_any_location_wrapper (loc);
+      tree contract_label = lookup_contract_label (id);
+      /* Ensure each label type exists and is complete.  */
+      if (!contract_label)
+	{
+	  error_at (EXPR_LOCATION (loc), "contract label %qE was not declared",
+		    id);
+	  return error_mark_node;
+	}
+      if (!COMPLETE_OR_OPEN_TYPE_P (contract_label))
+	{
+	  error_at (EXPR_LOCATION (loc), "contract label %qD is incomplete",
+		    contract_label);
+	  return error_mark_node;
+	}
+
+      label_types = chainon (label_types,
+			     build_tree_list (loc, contract_label));
+    }
+  return label_types;
+}
+
+/* Ensure that the list of contract_label_type::value_type types are unique.
+
+   Diagnose error and return false on duplicate.  */
+
+static bool
+validate_label_value_types (tree label_types)
+{
+  /* List of value_type members of previous labels. Currently stored as a tree
+     list where the purpose is the contract_label type and the value is the
+     value_type. Both the number of contract labels on a single contract
+     attribute and the number of distinct value_types are expected to be low,
+     but if that changes something besides a linear search may bee needed.  */
+  tree value_types = NULL_TREE;
+
+  bool valid_p = true;
+  for (tree label = label_types;
+      label;
+      label = TREE_CHAIN (label))
+    {
+      tree loc = TREE_PURPOSE (label);
+      tree contract_label = TREE_VALUE (label);
+      tree value_type = lookup_qualified_name (contract_label, "value_type",
+					       LOOK_want::TYPE, false);
+      if (!value_type || TREE_CODE (value_type) != TYPE_DECL)
+	continue;
+      value_type = TYPE_CANONICAL (TREE_TYPE (value_type));
+      tree old = type_list_find (value_types, value_type);
+      if (old)
+	{
+	  error_at (EXPR_LOCATION (loc),
+		    "contract label %qD cannot combine with %qD because they "
+		    "share a value_type", contract_label, TREE_PURPOSE (old));
+	  valid_p = false;
+	}
+      else
+	value_types = chainon (value_types, build_tree_list (contract_label,
+							     value_type));
+    }
+  return valid_p;
+}
+
 /* Determine a contract's concrete semantic based on the default semantic for
    the attribute kind, and the labels specified, if any.  */
 
@@ -328,51 +407,19 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
   tree attrarg = map_contract_to_attribute (kind);
   tree semarg = map_contract_semantic (sem);
 
-  /* List of value_type members of previous labels. Currently stored as a tree
-     list where the purpose is the contract_label type and the value is the
-     value_type. Both the number of contract labels on a single contract
-     attribute and the number of distinct value_types are expected to be low,
-     but if that changes something besides a linear search may bee needed.  */
-  tree value_types = NULL_TREE;
+  tree label_types = lookup_labels (labels);
+  if (label_types == error_mark_node)
+    return CCS_INVALID;
 
-  for (tree label = labels;
+  if (!validate_label_value_types (label_types))
+    return CCS_INVALID;
+
+  for (tree label = label_types;
       label;
       label = TREE_CHAIN (label))
     {
-      if (label == error_mark_node)
-	return CCS_INVALID; /* Diagnosed before.  */
-
-      tree loc = TREE_VALUE (label);
-      tree id = tree_strip_any_location_wrapper (loc);
-      tree contract_label = lookup_contract_label (id);
-      if (!contract_label)
-	{
-	  error_at (EXPR_LOCATION (loc), "contract label %qE was not declared",
-		    id);
-	  return CCS_INVALID;
-	}
-      if (!COMPLETE_OR_OPEN_TYPE_P (contract_label))
-	{
-	  error_at (EXPR_LOCATION (loc), "contract label %qD is incomplete",
-		    contract_label);
-	  return CCS_INVALID;
-	}
-
-      tree value_type = lookup_qualified_name (contract_label, "value_type",
-					       LOOK_want::TYPE, false);
-      if (value_type && TREE_CODE (value_type) == TYPE_DECL)
-	{
-	  value_type = TYPE_CANONICAL (TREE_TYPE (value_type));
-	  tree old = type_list_find (value_types, value_type);
-	  if (old)
-	    error_at (EXPR_LOCATION (loc),
-		      "contract label %qD cannot combine with %qD because they "
-		      "share a value_type", contract_label, TREE_PURPOSE (old));
-	  else
-	    value_types = chainon (value_types, build_tree_list (contract_label,
-								 value_type));
-	}
-
+      tree loc = TREE_PURPOSE (label);
+      tree contract_label = TREE_VALUE (label);
       tree adjust_semantic = lookup_member (contract_label,
 					    get_identifier ("adjust_semantic"),
 					    /*protect=*/1,
@@ -397,7 +444,8 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
 				    /*disallow_virtual=*/true,
 				    /*koenig_p=*/false,
 				    /*complain=*/tf_warning_or_error);
-      gcc_assert (call != error_mark_node);
+      if (call == error_mark_node)
+	return CCS_INVALID;
 
       tree obj_arg = NULL_TREE;
       semarg = cxx_constant_value (call, obj_arg);

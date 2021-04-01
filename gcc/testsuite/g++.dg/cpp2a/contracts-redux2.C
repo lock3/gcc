@@ -20,9 +20,23 @@ class [[contract_label(test)]] test_label
   }
 };
 
+struct [[contract_label(bad_test)]] bad_test_label
+{
+  static consteval semantic adjust_semantic(attribute a, semantic s)
+  {
+    return semantic::foo; // { dg-error "not a member" }
+  }
+};
+
 int fun(int n)
   [[ pre test : false ]] // { dg-error "private within this context" }
   [[ post [r] : false ]] // { dg-bogus "post" }
+{
+  return -n;
+}
+
+int fun2(int n)
+  [[ pre bad_test : false ]] // { dg-error ".constexpr." }
 {
   return -n;
 }
