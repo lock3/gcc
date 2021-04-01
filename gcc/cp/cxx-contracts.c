@@ -450,6 +450,56 @@ validate_labels_allowable_attribute (tree label_types, tree attrarg)
   return true;
 }
 
+/* For each label with an allowable_semantic member, ensure that the
+   computed semantic is allowed by the label.  */
+
+static bool
+validate_labels_allowable_semantic (tree label_types, tree semarg)
+{
+  for (tree label = label_types;
+      label;
+      label = TREE_CHAIN (label))
+    {
+      tree loc = TREE_PURPOSE (label);
+      tree contract_label = TREE_VALUE (label);
+      tree allowable_semantic
+	= lookup_member (contract_label, get_identifier ("allowable_semantic"),
+			 /*protect=*/1, /*want_type=*/false,
+			 tf_warning_or_error, /*afi=*/NULL);
+      /* Not existing at all is not an error.  */
+      if (allowable_semantic == NULL_TREE)
+	continue;
+      if (!semarg)
+	{
+	  error_at (EXPR_LOCATION (loc), "contract label support requires "
+		    "%<#include <experimental/contracts>%>");
+	  return false;
+	}
+
+      vec<tree, va_gc> *args = make_tree_vector ();
+      vec_safe_push (args, semarg);
+
+      tree call = finish_call_expr (allowable_semantic, &args,
+				    /*disallow_virtual=*/true,
+				    /*koenig_p=*/false,
+				    /*complain=*/tf_warning_or_error);
+      if (call == error_mark_node)
+	return false; /* Diagnosed by finish_call_expr.  */
+
+      tree obj_arg = NULL_TREE;
+      tree r = cxx_constant_value (call, obj_arg);
+
+      if (r == boolean_true_node)
+	continue;
+
+      error_at (EXPR_LOCATION (loc),
+		"%qD labels are do not allow on %qD semantics",
+		contract_label, semarg);
+      return false;
+    }
+  return true;
+}
+
 /* Determine a contract's concrete semantic based on the default semantic for
    the attribute kind, and the labels specified, if any.  */
 
@@ -517,6 +567,9 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
     }
 
   if (semarg == error_mark_node)
+    return CCS_INVALID;
+
+  if (!validate_labels_allowable_semantic (label_types, semarg))
     return CCS_INVALID;
 
   /* No labels, so we still have the original CONST_DECL we looked up.  */
