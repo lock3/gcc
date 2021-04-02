@@ -402,7 +402,6 @@ validate_label_value_types (tree label_types)
 /* For each label with an allowable_attribute member, ensure that the
    attribute the label is on is allowed.  */
 
-/* TODO when should this run vs adjust_semantic? Interleaved?  */
 static bool
 validate_labels_allowable_attribute (tree label_types, tree attrarg)
 {
@@ -557,7 +556,55 @@ validate_labels_combine_with (tree label_types)
   return valid_p;
 }
 
+/* For each label with an adjust_attribute member, either call it and use the
+   result as the new attribute kind or error if two labels try to adjust the
+   attribute kind.  */
 
+static tree
+adjust_attribute (tree label_types, tree attrarg)
+{
+  bool adjusted_p = false;
+  for (tree label = label_types;
+      label;
+      label = TREE_CHAIN (label))
+    {
+      tree loc = TREE_PURPOSE (label);
+      tree contract_label = TREE_VALUE (label);
+      tree adjust_attribute
+	= lookup_member (contract_label, get_identifier ("adjust_attribute"),
+			 /*protect=*/1, /*want_type=*/false,
+			 tf_warning_or_error, /*afi=*/NULL);
+      if (adjust_attribute == NULL_TREE)
+	continue;
+      if (!attrarg)
+	{
+	  error_at (EXPR_LOCATION (loc), "contract label support requires "
+		    "%<#include <experimental/contracts>%>");
+	  return error_mark_node;
+	}
+      if (adjusted_p)
+	{
+	  error_at (EXPR_LOCATION (loc),
+		    "only a single adjust_attribute label may be used");
+	  return error_mark_node;
+	}
+      adjusted_p = true;
+
+      vec<tree, va_gc> *args = make_tree_vector ();
+      vec_safe_push (args, attrarg);
+
+      tree call = finish_call_expr (adjust_attribute, &args,
+				    /*disallow_virtual=*/true,
+				    /*koenig_p=*/false,
+				    /*complain=*/tf_warning_or_error);
+      if (call == error_mark_node)
+	return error_mark_node;
+
+      tree obj_arg = NULL_TREE;
+      attrarg = cxx_constant_value (call, obj_arg);
+    }
+  return attrarg;
+}
 
 /* Determine a contract's concrete semantic based on the default semantic for
    the attribute kind, and the labels specified, if any.  */
@@ -586,6 +633,10 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
     return CCS_INVALID;
 
   if (!validate_labels_combine_with (label_types))
+    return CCS_INVALID;
+
+  attrarg = adjust_attribute (label_types, attrarg);
+  if (attrarg == error_mark_node)
     return CCS_INVALID;
 
   if (!validate_labels_allowable_attribute (label_types, attrarg))
@@ -647,7 +698,6 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
   if (val == 2) return CCS_ENFORCE;
   if (val == 3) return CCS_OBSERVE;
 
-  /* TODO call all the other machinery from milestone 3 */
   return CCS_INVALID;
 }
 
