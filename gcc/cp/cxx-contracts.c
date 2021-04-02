@@ -500,6 +500,65 @@ validate_labels_allowable_semantic (tree label_types, tree semarg)
   return true;
 }
 
+static bool
+validate_labels_combine_with (tree label_types)
+{
+  /* Build the template argument vector for use in lookup_template_function.  */
+  int count = 0;
+  for (tree label = label_types;
+      label;
+      label = TREE_CHAIN (label))
+    count++;
+
+  tree argvec = make_tree_vec (count);
+  count = 0;
+  for (tree label = label_types;
+      label;
+      label = TREE_CHAIN (label), count++)
+    TREE_VEC_ELT (argvec, count) = TREE_VALUE (label);
+
+  /* Evaluate each existing label_type::combines_with member.  */
+  bool valid_p = true;
+  for (tree label = label_types;
+      label;
+      label = TREE_CHAIN (label))
+    {
+      tree loc = TREE_PURPOSE (label);
+      tree contract_label = TREE_VALUE (label);
+      tree combines_with = lookup_member (contract_label,
+					  get_identifier ("combines_with"),
+					  /*protect=*/1,
+					  /*want_type=*/false,
+					  tf_warning_or_error,
+					  /*afi=*/NULL);
+      /* Not existing at all is not an error.  */
+      if (combines_with == NULL_TREE)
+	continue;
+
+      combines_with = lookup_template_function (combines_with, argvec);
+
+      vec<tree, va_gc> *args = make_tree_vector ();
+      tree call = finish_call_expr (combines_with, &args,
+				    /*disallow_virtual=*/true,
+				    /*koenig_p=*/false,
+				    /*complain=*/tf_warning_or_error);
+      if (call == error_mark_node)
+	return false;
+
+      tree obj_arg = NULL_TREE;
+      tree r = cxx_constant_value (call, obj_arg);
+
+      if (r == boolean_true_node)
+	continue;
+
+      error_at (EXPR_LOCATION (loc), "invalid combination of labels");
+      valid_p = false;
+    }
+  return valid_p;
+}
+
+
+
 /* Determine a contract's concrete semantic based on the default semantic for
    the attribute kind, and the labels specified, if any.  */
 
@@ -524,6 +583,9 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
     return CCS_INVALID;
 
   if (!validate_label_value_types (label_types))
+    return CCS_INVALID;
+
+  if (!validate_labels_combine_with (label_types))
     return CCS_INVALID;
 
   if (!validate_labels_allowable_attribute (label_types, attrarg))
@@ -570,6 +632,9 @@ compute_contract_concrete_semantic (tree_code kind, tree labels)
     return CCS_INVALID;
 
   if (!validate_labels_allowable_semantic (label_types, semarg))
+    return CCS_INVALID;
+
+  if (!semarg || semarg == error_mark_node)
     return CCS_INVALID;
 
   /* No labels, so we still have the original CONST_DECL we looked up.  */
