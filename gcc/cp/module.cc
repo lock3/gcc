@@ -3439,8 +3439,6 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   bool has_atom_cache_p() const { return cache_flags & 1; }
   bool has_constraint_cache_p() const { return cache_flags & 2; }
 
-  unsigned atom_count, sat_count;
-  
  public:
   module_state (tree name, module_state *, bool);
   ~module_state ();
@@ -3659,7 +3657,7 @@ module_state::module_state (tree name, module_state *parent, bool partition)
     ordinary_locs (0, 0), macro_locs (0, 0),
     loc (UNKNOWN_LOCATION),
     crc (0), mod (MODULE_UNKNOWN), remap (0), subst (0),
-    cache_flags(0), atom_count(0), sat_count(0)
+    cache_flags(0)
 {
   loadedness = ML_NONE;
 
@@ -4688,7 +4686,6 @@ write_constraint_satisfactions (sat_entry *entry, void *param)
 
       ctx->out->tree_node(entry->args);
       ctx->out->tree_node(entry->result);
-      ctx->state->sat_count++;
     }
 
   return true;
@@ -8935,8 +8932,6 @@ trees_out::tree_value (tree t)
 
   if (flag_export_atoms && TREE_CODE(t) == ATOMIC_CONSTR)
     {
-      state->atom_count++;
-
       /* Write the any satisfaction results associated with this 
          atomic constraint. */
       static int atom_recursion = 0;
@@ -17890,8 +17885,6 @@ module_state::write (elf_out *to, cpp_reader *reader)
 
   trees_out::instrument ();
   dump () && dump ("Wrote %u sections", to->get_section_limit ());
-
-  verbatim("Counts\n atom count %u\n satisfaction count %u", atom_count, sat_count);
 }
 
 /* Initial read of a CMI.  Checks config, loads up imports and line
