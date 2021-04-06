@@ -1,3 +1,351 @@
+2021-04-03  Iain Sandoe  <iain@sandoe.co.uk>
+
+	* config/darwin.c (machopic_legitimize_pic_address): Check
+	that the current pic register is one of the hard reg set
+	before setting liveness.
+
+2021-04-03  Iain Sandoe  <iain@sandoe.co.uk>
+
+	* config/darwin.c (machopic_legitimize_pic_address): Fix
+	whitespace, remove unused code.
+
+2021-04-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/99882
+	* gimple-ssa-store-merging.c (bswap_view_convert): Handle val with
+	pointer type.
+
+2021-04-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/99863
+	* dse.c (replace_read): Drop regs_live argument.  Instead of
+	regs_live, use store_insn->fixed_regs_live if non-NULL,
+	otherwise punt if insns sequence clobbers or sets any hard
+	registers.
+
+2021-04-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR testsuite/98125
+	* targhooks.h (default_print_patchable_function_entry_1): Declare.
+	* targhooks.c (default_print_patchable_function_entry_1): New function,
+	copied from default_print_patchable_function_entry with an added flags
+	argument.
+	(default_print_patchable_function_entry): Rewritten into a small
+	wrapper around default_print_patchable_function_entry_1.
+	* config/rs6000/rs6000.c (TARGET_ASM_PRINT_PATCHABLE_FUNCTION_ENTRY):
+	Redefine.
+	(rs6000_print_patchable_function_entry): New function.
+
+2021-04-02  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* doc/invoke.texi (fdelete-dead-exceptions): Minor tweak.
+
+2021-04-01  Jason Merrill  <jason@redhat.com>
+
+	PR c++/98481
+	* common.opt: Document v15 and v16.
+
+2021-04-01  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/99863
+	* gimplify.c (gimplify_init_constructor): Recompute vector
+	constructor flags.
+
+2021-04-01  Jakub Jelinek  <jakub@redhat.com>
+
+	* doc/extend.texi (symver attribute): Fix up syntax errors
+	in the examples.
+
+2021-04-01  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/96573
+	* gimple-ssa-store-merging.c (init_symbolic_number): Handle
+	also pointer types.
+
+2021-04-01  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/99856
+	* tree-vect-patterns.c (vect_recog_over_widening_pattern): Promote
+	precision to vector element precision.
+
+2021-04-01  Martin Jambor  <mjambor@suse.cz>
+
+	PR tree-optimization/97009
+	* tree-sra.c (access_or_its_child_written): New function.
+	(propagate_subaccesses_from_rhs): Use it instead of a simple grp_write
+	test.
+
+2021-03-31  Jan Hubicka  <hubicka@ucw.cz>
+
+	PR ipa/98265
+	* cif-code.def (USES_COMDAT_LOCAL): Make CIF_FINAL_NORMAL.
+
+2021-03-31  Pat Haugen  <pthaugen@linux.ibm.com>
+
+	PR target/99133
+	* config/rs6000/altivec.md (xxspltiw_v4si, xxspltiw_v4sf_inst,
+	xxspltidp_v2df_inst, xxsplti32dx_v4si_inst, xxsplti32dx_v4sf_inst,
+	xxblend_<mode>, xxpermx_inst, xxeval): Mark prefixed.
+	* config/rs6000/mma.md (mma_<vvi4i4i8>, mma_<avvi4i4i8>,
+	mma_<vvi4i4i2>, mma_<avvi4i4i2>, mma_<vvi4i4>, mma_<avvi4i4>,
+	mma_<pvi4i2>, mma_<apvi4i2>, mma_<vvi4i4i4>, mma_<avvi4i4i4>):
+	Likewise.
+	* config/rs6000/rs6000.c (rs6000_final_prescan_insn): Adjust test.
+	* config/rs6000/rs6000.md (define_attr "maybe_prefixed"): New.
+	(define_attr "prefixed"): Update initializer.
+
+2021-03-31  Jakub Jelinek  <jakub@redhat.com>
+
+	PR debug/99490
+	* dwarf2out.c (debug_ranges_dwo_section): New variable.
+	(DW_RANGES_IDX_SKELETON): Define.
+	(struct dw_ranges): Add begin_entry and end_entry members.
+	(DEBUG_DWO_RNGLISTS_SECTION): Define.
+	(add_ranges_num): Adjust r initializer for addition of *_entry
+	members.
+	(add_ranges_by_labels): For -gsplit-dwarf and force_direct,
+	set idx to DW_RANGES_IDX_SKELETON.
+	(use_distinct_base_address_for_range): New function.
+	(index_rnglists): Don't set r->idx if it is equal to
+	DW_RANGES_IDX_SKELETON.  Initialize r->begin_entry and
+	r->end_entry for -gsplit-dwarf if those will be needed by
+	output_rnglists.
+	(output_rnglists): Add DWO argument.  If true, switch to
+	debug_ranges_dwo_section rather than debug_ranges_section.
+	Adjust l1/l2 label indexes.  Only output the offset table when
+	dwo is true and don't include in there the skeleton range
+	entry if present.  For -gsplit-dwarf, skip ranges that belong
+	to the other rnglists section.  Change return type from void
+	to bool and return true if there are any range entries for
+	the other section.  For dwarf_split_debug_info use
+	DW_RLE_startx_endx, DW_RLE_startx_length and DW_RLE_base_addressx
+	entries instead of DW_RLE_start_end, DW_RLE_start_length and
+	DW_RLE_base_address.  Use use_distinct_base_address_for_range.
+	(init_sections_and_labels): Initialize debug_ranges_dwo_section
+	if -gsplit-dwarf and DWARF >= 5.  Adjust ranges_section_label
+	and range_base_label indexes.
+	(dwarf2out_finish): Call index_rnglists earlier before finalizing
+	.debug_addr.  Never emit DW_AT_rnglists_base attribute.  For
+	-gsplit-dwarf and DWARF >= 5 call output_rnglists up to twice
+	with different dwo arguments.
+	(dwarf2out_c_finalize): Clear debug_ranges_dwo_section.
+
+2021-03-31  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR tree-optimization/98268
+	* gimple-fold.c (maybe_canonicalize_mem_ref_addr): Call
+	recompute_tree_invariant_for_addr_expr after successfully
+	folding a TARGET_MEM_REF that occurs inside an ADDR_EXPR.
+
+2021-03-31  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR tree-optimization/99726
+	* tree-data-ref.c (create_intersect_range_checks_index): Bail
+	out if there is more than one access function SCEV for the loop
+	being versioned.
+
+2021-03-31  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR rtl-optimization/97141
+	PR rtl-optimization/98726
+	* emit-rtl.c (valid_for_const_vector_p): Return true for
+	CONST_POLY_INT_P.
+	* rtx-vector-builder.h (rtx_vector_builder::step): Return a
+	poly_wide_int instead of a wide_int.
+	(rtx_vector_builder::apply_set): Take a poly_wide_int instead
+	of a wide_int.
+	* rtx-vector-builder.c (rtx_vector_builder::apply_set): Likewise.
+	* config/aarch64/aarch64.c (aarch64_legitimate_constant_p): Return
+	false for CONST_VECTORs that cannot be forced to memory.
+	* config/aarch64/aarch64-simd.md (mov<mode>): If a CONST_VECTOR
+	is too complex to force to memory, build it up from individual
+	elements instead.
+
+2021-03-31  Jan Hubicka  <jh@suse.cz>
+
+	PR lto/99447
+	* cgraph.c (cgraph_node::release_body): Fix overactive check.
+
+2021-03-31  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	PR target/99786
+	* config/arm/vec-common.md (mul<mode>3): Disable on iwMMXT, expect
+	for V4HI and V2SI.
+
+2021-03-31  H.J. Lu  <hjl.tools@gmail.com>
+
+	* config/i386/i386-expand.c (expand_set_or_cpymem_via_rep):
+	For TARGET_PREFER_KNOWN_REP_MOVSB_STOSB, don't convert QImode
+	to SImode.
+	(decide_alg): For TARGET_PREFER_KNOWN_REP_MOVSB_STOSB, use
+	"rep movsb/stosb" only for known sizes.
+	* config/i386/i386-options.c (processor_cost_table): Use Ice
+	Lake cost for Cannon Lake, Ice Lake, Tiger Lake, Sapphire
+	Rapids and Alder Lake.
+	* config/i386/i386.h (TARGET_PREFER_KNOWN_REP_MOVSB_STOSB): New.
+	* config/i386/x86-tune-costs.h (icelake_memcpy): New.
+	(icelake_memset): Likewise.
+	(icelake_cost): Likewise.
+	* config/i386/x86-tune.def (X86_TUNE_PREFER_KNOWN_REP_MOVSB_STOSB):
+	New.
+
+2021-03-31  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR target/98119
+	* config/aarch64/aarch64.c
+	(aarch64_vectorize_preferred_vector_alignment): Query the size
+	of the provided SVE vector; do not assume that all SVE vectors
+	have the same size.
+
+2021-03-31  Jan Hubicka  <jh@suse.cz>
+
+	PR lto/99447
+	* cgraph.c (cgraph_node::release_body): Remove all callers and
+	references.
+	* cgraphclones.c (cgraph_node::materialize_clone): Do not do it here.
+	* cgraphunit.c (cgraph_node::expand): And here.
+
+2021-03-31  Martin Liska  <mliska@suse.cz>
+
+	* ipa-modref.c (analyze_ssa_name_flags): Fix coding style
+	and one negated condition.
+
+2021-03-31  Jakub Jelinek  <jakub@redhat.com>
+	    Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR target/99813
+	* config/aarch64/aarch64.md (*add<mode>3_poly_1): Swap Uai and Uav
+	constraints on operands[2] and similarly 0 and rk constraints
+	on operands[1] corresponding to that.
+
+2021-03-31  Jakub Jelinek  <jakub@redhat.com>
+
+	PR bootstrap/98860
+	* configure.ac (HAVE_LD_BROKEN_PE_DWARF5): New AC_DEFINE if PECOFF
+	linker doesn't support DWARF sections new in DWARF5.
+	* config/i386/i386-options.c (ix86_option_override_internal): Default
+	to dwarf_version 4 if HAVE_LD_BROKEN_PE_DWARF5 for TARGET_PECOFF
+	targets.
+	* config.in: Regenerated.
+	* configure: Regenerated.
+
+2021-03-30  Kyrylo Tkachov  <kyrylo.tkachov@arm.com>
+
+	PR target/99820
+	* config/aarch64/aarch64.c (aarch64_analyze_loop_vinfo): Check for
+	available issue_info before using it.
+
+2021-03-30  Kyrylo Tkachov  <kyrylo.tkachov@arm.com>
+
+	PR target/99822
+	* config/aarch64/aarch64.md (sub<mode>3_compare1_imm): Do not allow zero
+	in operand 1.
+
+2021-03-30  Xionghu Luo  <luoxhu@linux.ibm.com>
+
+	PR target/99718
+	* config/rs6000/altivec.md (altivec_lvsl_reg): Change to ...
+	(altivec_lvsl_reg_<mode>): ... this.
+	(altivec_lvsr_reg): Change to ...
+	(altivec_lvsr_reg_<mode>): ... this.
+	* config/rs6000/predicates.md (vec_set_index_operand): New.
+	* config/rs6000/rs6000-c.c (altivec_resolve_overloaded_builtin):
+	Enable 32bit variable vec_insert for all TARGET_VSX.
+	* config/rs6000/rs6000.c (rs6000_expand_vector_set_var_p9):
+	Enable 32bit variable vec_insert for p9 and above.
+	(rs6000_expand_vector_set_var_p8): Rename to ...
+	(rs6000_expand_vector_set_var_p7): ... this.
+	(rs6000_expand_vector_set): Use TARGET_VSX and adjust assert
+	position.
+	* config/rs6000/vector.md (vec_set<mode>): Use vec_set_index_operand.
+	* config/rs6000/vsx.md (xl_len_r): Use gen_altivec_lvsl_reg_di and
+	gen_altivec_lvsr_reg_di.
+
+2021-03-30  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR target/99744
+	* config/i386/ia32intrin.h (__rdtsc): Defined as macro.
+	(__rdtscp): Likewise.
+
+2021-03-30  Tamar Christina  <tamar.christina@arm.com>
+
+	PR tree-optimization/99825
+	* tree-vect-slp-patterns.c (vect_check_evenodd_blend):
+	Reject non-mult 2 lanes.
+
+2021-03-30  Richard Earnshaw  <rearnsha@arm.com>
+
+	PR target/99773
+	* config/arm/arm.c (arm_file_start): Fix emission of
+	Tag_ABI_VFP_args attribute.
+
+2021-03-30  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/99824
+	* stor-layout.c (set_min_and_max_values_for_integral_type):
+	Assert the precision is within the bounds of
+	WIDE_INT_MAX_PRECISION.
+	* tree-ssa-sccvn.c (ao_ref_init_from_vn_reference): Use
+	the outermost component ref only to lower the access size
+	and initialize that from the access type.
+
+2021-03-30  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR target/98136
+	* config/aarch64/aarch64.md (mov<mode>): Pass multi-instruction
+	CONST_INTs to aarch64_expand_mov_immediate when called after RA.
+
+2021-03-30  Mihailo Stojanovic  <mihailo.stojanovic@typhoon-hil.com>
+
+	* config/aarch64/aarch64.md
+	(<optab>_trunc<fcvt_target><GPI:mode>2): Set the "arch"
+	attribute to disambiguate between SIMD and FP variants of the
+	instruction.
+
+2021-03-29  Jan Hubicka  <hubicka@ucw.cz>
+
+	* ipa-modref.c (merge_call_lhs_flags): Correct handling of deref.
+	(analyze_ssa_name_flags): Fix typo in comment.
+
+2021-03-29  Alex Coplan  <alex.coplan@arm.com>
+
+	PR target/99216
+	* config/aarch64/aarch64-sve-builtins.cc
+	(function_builder::add_function): Add placeholder_p argument, use
+	placeholder decls if this is set.
+	(function_builder::add_unique_function): Instead of conditionally adding
+	direct overloads, unconditionally add either a direct overload or a
+	placeholder.
+	(function_builder::add_overloaded_function): Set placeholder_p if we're
+	using C++ overloads. Use the obstack for string storage instead
+	of relying on the tree nodes.
+	(function_builder::add_overloaded_functions): Don't return early for
+	m_direct_overloads: we need to add placeholders.
+	* config/aarch64/aarch64-sve-builtins.h
+	(function_builder::add_function): Add placeholder_p argument.
+
+2021-03-29  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/99807
+	* tree-vect-slp.c (vect_slp_analyze_node_operations_1): Move
+	assert below VEC_PERM handling.
+
+2021-03-29  Kyrylo Tkachov  <kyrylo.tkachov@arm.com>
+
+	PR target/99037
+	* config/aarch64/aarch64-simd.md (move_lo_quad_internal_<mode>): Use
+	aarch64_simd_or_scalar_imm_zero to match zeroes.  Remove pattern
+	matching const_int 0.
+	(move_lo_quad_internal_be_<mode>): Likewise.
+	(move_lo_quad_<mode>): Update for the above.
+	* config/aarch64/iterators.md (VQ_2E): Delete.
+
+2021-03-29  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/99777
+	* fold-const.c (extract_muldiv_1): For conversions, punt on casts from
+	types other than scalar integral types.
+
 2021-03-28  David Edelsohn  <dje.gcc@gmail.com>
 
 	* config/rs6000/rs6000.c (rs6000_output_dwarf_dtprel): Do not add

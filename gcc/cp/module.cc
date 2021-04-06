@@ -3570,6 +3570,7 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
 			 unsigned, unsigned *crc_ptr);
   bool read_namespaces (unsigned);
 
+  void intercluster_seed (trees_out &sec, unsigned index, depset *dep);
   unsigned write_cluster (elf_out *to, depset *depsets[], unsigned size,
 			  depset::hash &, unsigned *counts, unsigned *crc_ptr);
   bool read_cluster (unsigned snum);
@@ -4328,8 +4329,8 @@ dumper::operator () (const char *format, ...)
 	case 'N': /* Name.  */
 	  {
 	    tree t = va_arg (args, tree);
-	    if (t && TREE_CODE (t) == OVERLOAD)
-	      t = OVL_FIRST (t);
+	    while (t && TREE_CODE (t) == OVERLOAD)
+	      t = OVL_FUNCTION (t);
 	    fputc ('\'', dumps->stream);
 	    dumps->nested_name (t);
 	    fputc ('\'', dumps->stream);
@@ -4479,6 +4480,7 @@ trees_in::assert_definition (tree decl ATTRIBUTE_UNUSED,
 {
 #if CHECKING_P
   tree *slot = note_defs->find_slot (decl, installing ? INSERT : NO_INSERT);
+  tree not_tmpl = STRIP_TEMPLATE (decl);
   if (installing)
     {
       /* We must be inserting for the first time.  */
@@ -4494,13 +4496,13 @@ trees_in::assert_definition (tree decl ATTRIBUTE_UNUSED,
     gcc_assert (!is_duplicate (decl)
 		? !slot
 		: (slot
-		   || !DECL_LANG_SPECIFIC (STRIP_TEMPLATE (decl))
-		   || !DECL_MODULE_PURVIEW_P (STRIP_TEMPLATE (decl))
-		   || (!DECL_MODULE_IMPORT_P (STRIP_TEMPLATE (decl))
+		   || !DECL_LANG_SPECIFIC (not_tmpl)
+		   || !DECL_MODULE_PURVIEW_P (not_tmpl)
+		   || (!DECL_MODULE_IMPORT_P (not_tmpl)
 		       && header_module_p ())));
 
-  if (TREE_CODE (decl) == TEMPLATE_DECL)
-    gcc_assert (!note_defs->find_slot (DECL_TEMPLATE_RESULT (decl), NO_INSERT));
+  if (not_tmpl != decl)
+    gcc_assert (!note_defs->find_slot (not_tmpl, NO_INSERT));
 #endif
 }
 
@@ -5209,8 +5211,7 @@ trees_out::core_bools (tree t)
       else if (code == VAR_DECL)
 	{
 	  /* This is DECL_INITIALIZED_P.  */
-	  if (DECL_CONTEXT (t)
-	      && TREE_CODE (DECL_CONTEXT (t)) != FUNCTION_DECL)
+	  if (TREE_CODE (DECL_CONTEXT (t)) != FUNCTION_DECL)
 	    /* We'll set this when reading the definition.  */
 	    flag_1 = false;
 	}
@@ -5522,7 +5523,9 @@ trees_out::lang_decl_bools (tree t)
   WB (lang->u.base.concept_p);
   WB (lang->u.base.var_declared_inline_p);
   WB (lang->u.base.dependent_init_p);
-  WB (lang->u.base.module_purview_p);
+  /* When building a header unit, everthing is marked as purview, but
+     that's the GM purview, so not what the importer will mean  */
+  WB (lang->u.base.module_purview_p && !header_module_p ());
   if (VAR_OR_FUNCTION_DECL_P (t))
     WB (lang->u.base.module_attached_p);
   switch (lang->u.base.selector)
@@ -8552,8 +8555,7 @@ trees_out::decl_node (tree decl, walk_kind ref)
 	gcc_checking_assert (index == ~import_entity_index (decl));
 
 #if CHECKING_P
-      if (importedness)
-	gcc_assert (!import == (importedness < 0));
+      gcc_assert (!import || importedness >= 0);
 #endif
       i (tt_entity);
       u (import);
@@ -10357,8 +10359,8 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	      if (mk & MK_tmpl_alias_mask)
 		/* It should be in both tables.  */
 		gcc_checking_assert
-		  (match_mergeable_specialization (false, entry)
-		   == TREE_TYPE (existing));
+		  (same_type_p (match_mergeable_specialization (false, entry),
+				TREE_TYPE (existing)));
 	      if (mk & MK_tmpl_tmpl_mask)
 		existing = DECL_TI_TEMPLATE (existing);
 	    }
@@ -10371,7 +10373,10 @@ trees_out::key_mergeable (int tag, merge_kind mk, tree decl, tree inner,
 	    }
 
 	  /* The walkabout should have found ourselves.  */
-	  gcc_checking_assert (existing == decl);
+	  gcc_checking_assert (TREE_CODE (decl) == TYPE_DECL
+			       ? same_type_p (TREE_TYPE (decl),
+					      TREE_TYPE (existing))
+			       : existing == decl);
 	}
     }
   else if (mk != MK_unique)
@@ -11336,7 +11341,7 @@ trees_in::register_duplicate (tree decl, tree existing)
 /* We've read a definition of MAYBE_EXISTING.  If not a duplicate,
    return MAYBE_EXISTING (into which the definition should be
    installed).  Otherwise return NULL if already known bad, or the
-   duplicate we read (for ODR checking, or extracting addtional merge
+   duplicate we read (for ODR checking, or extracting additional merge
    information).  */
 
 tree
@@ -11547,7 +11552,11 @@ trees_in::read_var_def (tree decl, tree maybe_template)
       if (DECL_EXTERNAL (decl))
 	DECL_NOT_REALLY_EXTERN (decl) = true;
       if (VAR_P (decl))
-	DECL_INITIALIZED_P (decl) = true;
+	{
+	  DECL_INITIALIZED_P (decl) = true;
+	  if (maybe_dup && DECL_INITIALIZED_BY_CONSTANT_EXPRESSION_P (maybe_dup))
+	    DECL_INITIALIZED_BY_CONSTANT_EXPRESSION_P (decl) = true;
+	}
       DECL_INITIAL (decl) = init;
       if (!dyn_init)
 	;
@@ -14449,7 +14458,33 @@ enum ct_bind_flags
   cbf_wrapped = 0x8,  	/* ... that is wrapped.  */
 };
 
-/* Write the cluster of depsets in SCC[0-SIZE).  */
+/* DEP belongs to a different cluster, seed it to prevent
+   unfortunately timed duplicate import.  */
+// FIXME: QOI For inter-cluster references we could just only pick
+// one entity from an earlier cluster.  Even better track
+// dependencies between earlier clusters
+
+void
+module_state::intercluster_seed (trees_out &sec, unsigned index_hwm, depset *dep)
+{
+  if (dep->is_import ()
+      || dep->cluster < index_hwm)
+    {
+      tree ent = dep->get_entity ();
+      if (!TREE_VISITED (ent))
+	{
+	  sec.tree_node (ent);
+	  dump (dumper::CLUSTER)
+	    && dump ("Seeded %s %N",
+		     dep->is_import () ? "import" : "intercluster", ent);
+	}
+    }
+}
+
+/* Write the cluster of depsets in SCC[0-SIZE).
+   dep->section -> section number
+   dep->cluster -> entity number
+ */
 
 unsigned
 module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
@@ -14461,6 +14496,7 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 
   trees_out sec (to, this, table, table.section);
   sec.begin ();
+  unsigned index_lwm = counts[MSC_entities];
 
   /* Determine entity numbers, mark for writing.   */
   dump (dumper::CLUSTER) && dump ("Cluster members:") && (dump.indent (), true);
@@ -14514,10 +14550,10 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
     }
   dump (dumper::CLUSTER) && (dump.outdent (), true);
 
-  /* Ensure every imported decl is referenced before we start
-     streaming.  This ensures that we never encounter the situation
-     where this cluster instantiates some implicit member that
-     importing some other decl causes to be instantiated.  */
+  /* Ensure every out-of-cluster decl is referenced before we start
+     streaming.  We must do both imports *and* earlier clusters,
+     because the latter could reach into the former and cause a
+     duplicate loop.   */
   sec.set_importing (+1);
   for (unsigned ix = 0; ix != size; ix++)
     {
@@ -14535,30 +14571,14 @@ module_state::write_cluster (elf_out *to, depset *scc[], unsigned size,
 		  depset *bind = dep->deps[ix];
 		  if (bind->get_entity_kind () == depset::EK_USING)
 		    bind = bind->deps[1];
-		  if (bind->is_import ())
-		    {
-		      tree import = bind->get_entity ();
-		      if (!TREE_VISITED (import))
-			{
-			  sec.tree_node (import);
-			  dump (dumper::CLUSTER)
-			    && dump ("Seeded import %N", import);
-			}
-		    }
+
+		  intercluster_seed (sec, index_lwm, bind);
 		}
 	      /* Also check the namespace itself.  */
 	      dep = dep->deps[0];
 	    }
 
-	  if (dep->is_import ())
-	    {
-	      tree import = dep->get_entity ();
-	      if (!TREE_VISITED (import))
-		{
-		  sec.tree_node (import);
-		  dump (dumper::CLUSTER) && dump ("Seeded import %N", import);
-		}
-	    }
+	  intercluster_seed (sec, index_lwm, dep);
 	}
     }
   sec.tree_node (NULL_TREE);
@@ -19288,15 +19308,11 @@ module_begin_main_file (cpp_reader *reader, line_maps *lmaps,
    filenames.   */
 
 static void
-name_pending_imports (cpp_reader *reader, bool at_end)
+name_pending_imports (cpp_reader *reader)
 {
   auto *mapper = get_mapper (cpp_main_loc (reader));
 
-  bool only_headers = (flag_preprocess_only
-		       && !bool (mapper->get_flags () & Cody::Flags::NameOnly)
-		       && !cpp_get_deps (reader));
-  if (at_end
-      && (!vec_safe_length (pending_imports) || only_headers))
+  if (!vec_safe_length (pending_imports))
     /* Not doing anything.  */
     return;
 
@@ -19304,40 +19320,56 @@ name_pending_imports (cpp_reader *reader, bool at_end)
 
   auto n = dump.push (NULL);
   dump () && dump ("Resolving direct import names");
+  bool want_deps = (bool (mapper->get_flags () & Cody::Flags::NameOnly)
+		    || cpp_get_deps (reader));
+  bool any = false;
 
-  mapper->Cork ();
   for (unsigned ix = 0; ix != pending_imports->length (); ix++)
     {
       module_state *module = (*pending_imports)[ix];
       gcc_checking_assert (module->is_direct ());
-      if (!module->filename
-	  && !module->visited_p
-	  && (module->is_header () || !only_headers))
+      if (!module->filename && !module->visited_p)
 	{
-	  module->visited_p = true;
-	  Cody::Flags flags = (flag_preprocess_only
-			       ? Cody::Flags::None : Cody::Flags::NameOnly);
+	  bool export_p = (module->module_p
+			   && (module->is_partition () || module->exported_p));
 
-	  if (module->module_p
-	      && (module->is_partition () || module->exported_p))
+	  Cody::Flags flags = Cody::Flags::None;
+	  if (flag_preprocess_only
+	      && !(module->is_header () && !export_p))
+	    {
+	      if (!want_deps)
+		continue;
+	      flags = Cody::Flags::NameOnly;
+	    }
+
+	  if (!any)
+	    {
+	      any = true;
+	      mapper->Cork ();
+	    }
+	  if (export_p)
 	    mapper->ModuleExport (module->get_flatname (), flags);
 	  else
 	    mapper->ModuleImport (module->get_flatname (), flags);
+	  module->visited_p = true;
 	}
     }
-  
-  auto response = mapper->Uncork ();
-  auto r_iter = response.begin ();
-  for (unsigned ix = 0; ix != pending_imports->length (); ix++)
-    {
-      module_state *module = (*pending_imports)[ix];
-      if (module->visited_p)
-	{
-	  module->visited_p = false;
-	  gcc_checking_assert (!module->filename);
 
-	  module->set_filename (*r_iter);
-	  ++r_iter;
+  if (any)
+    {
+      auto response = mapper->Uncork ();
+      auto r_iter = response.begin ();
+      for (unsigned ix = 0; ix != pending_imports->length (); ix++)
+	{
+	  module_state *module = (*pending_imports)[ix];
+	  if (module->visited_p)
+	    {
+	      module->visited_p = false;
+	      gcc_checking_assert (!module->filename);
+
+	      module->set_filename (*r_iter);
+	      ++r_iter;
+	    }
 	}
     }
 
@@ -19410,7 +19442,7 @@ preprocess_module (module_state *module, location_t from_loc,
 	  unsigned n = dump.push (NULL);
 
 	  dump () && dump ("Reading %M preprocessor state", module);
-	  name_pending_imports (reader, false);
+	  name_pending_imports (reader);
 
 	  /* Preserve the state of the line-map.  */
 	  unsigned pre_hwm = LINEMAPS_ORDINARY_USED (line_table);
@@ -19472,7 +19504,7 @@ preprocessed_module (cpp_reader *reader)
 
   dump () && dump ("Completed phase-4 (tokenization) processing");
 
-  name_pending_imports (reader, true);
+  name_pending_imports (reader);
   vec_free (pending_imports);
 
   spans.maybe_init ();

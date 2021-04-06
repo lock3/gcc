@@ -1724,6 +1724,15 @@ strip_typedefs (tree t, bool *remove_attributes, unsigned int flags)
 			     remove_attributes, flags);
       result = finish_underlying_type (type);
       break;
+    case TYPE_PACK_EXPANSION:
+      type = strip_typedefs (PACK_EXPANSION_PATTERN (t),
+			     remove_attributes, flags);
+      if (type != PACK_EXPANSION_PATTERN (t))
+	{
+	  result = copy_node (t);
+	  PACK_EXPANSION_PATTERN (result) = type;
+	}
+      break;
     default:
       break;
     }
@@ -5446,6 +5455,11 @@ cp_walk_subtrees (tree *tp, int *walk_subtrees_p, walk_tree_fn func,
 	       arguments.  */
 	    WALK_SUBTREE (TREE_OPERAND (*tp, 1));
 	}
+      break;
+
+    case FUNCTION_TYPE:
+    case METHOD_TYPE:
+      WALK_SUBTREE (TYPE_RAISES_EXCEPTIONS (*tp));
       break;
 
     default:
