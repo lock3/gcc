@@ -7097,24 +7097,6 @@ trees_in::lang_vals (tree t)
 void
 trees_out::tree_node_vals (tree t)
 {
-//   tabber tabs;	
-//   if (t)
-//   {
-//     switch (TREE_CODE(t))
-//     {
-//     case CONCEPT_DECL:
-//       verbatim("%s%qC %qD", tabs(), TREE_CODE(t), t);
-//       break;
-//     case ATOMIC_CONSTR:
-//       verbatim("%s%qC (%p) %qE", tabs(), TREE_CODE(t), (void *)ATOMIC_CONSTR_EXPR(t), t);
-//       break;
-//      default:
-//        verbatim("%s%qC %qE", tabs(), TREE_CODE(t), t);
-//        break;
-//     }
-//   }
-//   else verbatim("%s<null>", tabs());
-
   core_vals (t);
   lang_vals (t);
 }
