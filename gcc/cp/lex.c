@@ -1,5 +1,5 @@
 /* Separate lexical analyzer for GNU C++.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -384,7 +384,7 @@ interface_strcmp (const char* s)
 /* We've just read a cpp-token, figure out our next state.  Hey, this
    is a hand-coded co-routine!  */
 
-struct token_coro
+struct module_token_filter
 {
   enum state
   {
@@ -405,7 +405,7 @@ struct token_coro
   module_state *module;
   module_state *import;
 
-  token_coro (cpp_reader *reader)
+  module_token_filter (cpp_reader *reader)
     : state (idle), is_import (false),
     got_export (false), got_colon (false), want_dot (false),
     token_loc (UNKNOWN_LOCATION),
@@ -515,7 +515,7 @@ struct token_coro
 	  {
 	  module_end:;
 	    /* End of the directive, handle the name.  */
-	    if (import)
+	    if (import && (is_import || !flag_header_unit))
 	      if (module_state *m
 		  = preprocess_module (import, token_loc, module != NULL,
 				       is_import, got_export, reader))
@@ -537,14 +537,14 @@ struct token_coro
 uintptr_t
 module_token_cdtor (cpp_reader *pfile, uintptr_t data_)
 {
-  if (token_coro *coro = reinterpret_cast<token_coro *> (data_))
+  if (module_token_filter *filter = reinterpret_cast<module_token_filter *> (data_))
     {
       preprocessed_module (pfile);
-      delete coro;
+      delete filter;
       data_ = 0;
     }
   else if (modules_p ())
-    data_ = reinterpret_cast <uintptr_t > (new token_coro (pfile));
+    data_ = reinterpret_cast<uintptr_t > (new module_token_filter (pfile));
 
   return data_;
 }
@@ -553,8 +553,8 @@ uintptr_t
 module_token_lang (int type, int keyword, tree value, location_t loc,
 		   uintptr_t data_)
 {
-  token_coro *coro = reinterpret_cast <token_coro *> (data_);
-  return coro->resume (type, keyword, value, loc);
+  module_token_filter *filter = reinterpret_cast<module_token_filter *> (data_);
+  return filter->resume (type, keyword, value, loc);
 }
 
 uintptr_t
@@ -1005,10 +1005,13 @@ cxx_dup_lang_specific_decl (tree node)
   struct lang_decl *ld = (struct lang_decl *) ggc_internal_alloc (size);
   memcpy (ld, DECL_LANG_SPECIFIC (node), size);
   DECL_LANG_SPECIFIC (node) = ld;
-  DECL_MODULE_ENTITY_P (node) = false;
-  DECL_MODULE_IMPORT_P (node) = false;
-  DECL_ATTACHED_DECLS_P (node) = false;
 
+  /* Directly clear some flags that do not apply to the copy
+     (module_purview_p still does).  */
+  ld->u.base.module_entity_p = false;
+  ld->u.base.module_import_p = false;
+  ld->u.base.module_attached_p = false;
+  
   if (GATHER_STATISTICS)
     {
       tree_node_counts[(int)lang_decl] += 1;

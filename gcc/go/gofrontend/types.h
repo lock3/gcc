@@ -49,6 +49,7 @@ class Function;
 class Translate_context;
 class Export;
 class Import;
+class Backend_name;
 class Btype;
 class Bexpression;
 class Bvariable;
@@ -460,6 +461,10 @@ class Type
   static Named_type*
   make_integer_type(const char* name, bool is_unsigned, int bits,
 		    int runtime_type_kind);
+
+  // Make a named integer type alias.  This is used for byte and rune.
+  static Named_type*
+  make_integer_type_alias(const char* name, Named_type* real_type);
 
   // Look up a named integer type.
   static Named_type*
@@ -1008,11 +1013,11 @@ class Type
   std::string
   reflection(Gogo*) const;
 
-  // Return a mangled name for the type.  This is a name which can be
-  // used in assembler code.  Identical types should have the same
-  // manged name.
-  std::string
-  mangled_name(Gogo*) const;
+  // Add the backend name for the type to BNAME.  This will add one or
+  // two name components.  Identical types should have the same
+  // backend name.
+  void
+  backend_name(Gogo*, Backend_name* bname) const;
 
   // If the size of the type can be determined, set *PSIZE to the size
   // in bytes and return true.  Otherwise, return false.  This queries
@@ -1066,12 +1071,11 @@ class Type
   // Write the equal function for a type.
   void
   write_equal_function(Gogo*, Named_type*, int64_t size,
-		       const std::string& equal_name,
-		       Function_type* equal_fntype);
+		       const Backend_name*, Function_type* equal_fntype);
 
   // Write the hash function for a type.
   void
-  write_hash_function(Gogo*, int64_t size, const std::string& hash_name,
+  write_hash_function(Gogo*, int64_t size, const Backend_name*,
 		      Function_type* hash_fntype);
 
   // Return the alignment required by the memequalN function.
@@ -1136,10 +1140,14 @@ class Type
   do_reflection(Gogo*, std::string*) const = 0;
 
   virtual void
-  do_mangled_name(Gogo*, std::string*) const = 0;
+  do_mangled_name(Gogo*, std::string*, bool*) const = 0;
 
   virtual void
   do_export(Export*) const;
+
+  // For children to call when they detect that they are in error.
+  void
+  set_is_error();
 
   // Return whether a method expects a pointer as the receiver.
   static bool
@@ -1194,8 +1202,9 @@ class Type
 
   // For the benefit of child class mangling.
   void
-  append_mangled_name(const Type* type, Gogo* gogo, std::string* ret) const
-  { type->do_mangled_name(gogo, ret); }
+  append_mangled_name(const Type* type, Gogo* gogo, std::string* ret,
+		      bool *is_non_identifier) const
+  { type->do_mangled_name(gogo, ret, is_non_identifier); }
 
   // Return the backend representation for the underlying type of a
   // named type.
@@ -1656,7 +1665,7 @@ class Error_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string* ret) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 };
 
 // The void type.
@@ -1685,7 +1694,7 @@ class Void_type : public Type
   { }
 
   void
-  do_mangled_name(Gogo*, std::string* ret) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 };
 
 // The boolean type.
@@ -1714,7 +1723,7 @@ class Boolean_type : public Type
   { ret->append("bool"); }
 
   void
-  do_mangled_name(Gogo*, std::string* ret) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 };
 
 // The type of an integer.
@@ -1738,6 +1747,10 @@ class Integer_type : public Type
   // Create an abstract character type.
   static Integer_type*
   create_abstract_character_type();
+
+  // Create an alias to an integer type.
+  static Named_type*
+  create_integer_type_alias(const char* name, Named_type* real_type);
 
   // Whether this is an abstract integer type.
   bool
@@ -1796,7 +1809,7 @@ protected:
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
  private:
   Integer_type(bool is_abstract, bool is_unsigned, int bits,
@@ -1882,7 +1895,7 @@ class Float_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
  private:
   Float_type(bool is_abstract, int bits, int runtime_type_kind)
@@ -1960,7 +1973,7 @@ class Complex_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
  private:
   Complex_type(bool is_abstract, int bits, int runtime_type_kind)
@@ -2014,7 +2027,7 @@ class String_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string* ret) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
  private:
   // The named string type.
@@ -2174,7 +2187,7 @@ class Function_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -2303,7 +2316,7 @@ class Pointer_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -2341,7 +2354,7 @@ class Nil_type : public Type
   { go_unreachable(); }
 
   void
-  do_mangled_name(Gogo*, std::string* ret) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 };
 
 // The type of a field in a struct.
@@ -2675,7 +2688,7 @@ class Struct_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -2858,7 +2871,7 @@ class Array_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -2996,7 +3009,7 @@ class Map_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -3110,7 +3123,7 @@ class Channel_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -3286,7 +3299,7 @@ class Interface_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string*) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -3557,10 +3570,11 @@ class Named_type : public Type
   void
   append_reflection_type_name(Gogo*, bool use_alias, std::string*) const;
 
-  // Append the mangled type name as for Type::append_mangled_name,
+  // Append the symbol type name as for Type::append_mangled_name,
   // but if USE_ALIAS use the alias name rather than the alias target.
   void
-  append_mangled_type_name(Gogo*, bool use_alias, std::string*) const;
+  append_symbol_type_name(Gogo*, bool use_alias, std::string*,
+			  bool* is_non_identifier) const;
 
   // Import a named type.
   static void
@@ -3607,7 +3621,7 @@ class Named_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string* ret) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;
@@ -3771,7 +3785,7 @@ class Forward_declaration_type : public Type
   do_reflection(Gogo*, std::string*) const;
 
   void
-  do_mangled_name(Gogo*, std::string* ret) const;
+  do_mangled_name(Gogo*, std::string*, bool*) const;
 
   void
   do_export(Export*) const;

@@ -1,5 +1,5 @@
 # Top level -*- makefile -*- fragment for GNU C++.
-#   Copyright (C) 1994-2020 Free Software Foundation, Inc.
+#   Copyright (C) 1994-2021 Free Software Foundation, Inc.
 
 #This file is part of GCC.
 
@@ -46,7 +46,8 @@ CP_PLUGIN_HEADERS := cp-tree.h cxx-pretty-print.h name-lookup.h type-utils.h ope
 # Note that it would be nice to move the dependency on g++
 # into the C++ rule, but that needs a little bit of work
 # to do the right thing within all.cross.
-c++: cc1plus$(exeext) mapper-server$(exeext)
+c++: cc1plus$(exeext)
+c++.serial = cc1plus$(exeext)
 
 # Tell GNU make to ignore these if they exist.
 .PHONY: c++
@@ -56,44 +57,13 @@ CFLAGS-cp/g++spec.o += $(DRIVER_DEFINES)
 CFLAGS-cp/module.o += -DHOST_MACHINE=\"$(host)\" \
 	-DTARGET_MACHINE=\"$(target)\"
 
-ifeq ($(DEVPHASE_c),experimental)
-# We want to make the module version volatile, when in development mode,
-# so link it to the cp dir modification time
-cp/module.o : $(srcdir)/cp
+# In non-release builds, use a date-related module version.
+ifneq ($(DEVPHASE_c),)
 # Some date's don't grok 'r', if so, simply use today's
 # date (don't bootstrap at midnight).
-MODULE_VERSION := $(shell date -r $(srcdir)/cp '+%y%m%d-%H%M' 2>/dev/null\
-  || date '+%y%m%d-0000' 2>/dev/null || echo 0)
+MODULE_VERSION := $(shell date -r $(srcdir)/cp/module.cc '+%y%m%d-%H%M' \
+  2>/dev/null || date '+%y%m%d-0000' 2>/dev/null || echo 0)
 
-# Try git commit and dirty info
-MODULE_REVISION := $(shell git -C $(srcdir)/.. rev-parse --short HEAD \
-  2>/dev/null)
-ifneq ($(MODULE_REVISION),)
-# It is git, figure branch & dirty info
-# Subterfuge for gnumake's changing #-quote requirements
-GIT_INFO := \#
-GIT_INFO := -ne '1{s/$(GIT_INFO)$(GIT_INFO) \(.*\)*\.\.\..*/\1/;p;}'
-GIT_INFO := $(shell git -C $(srcdir)/.. status --porcelain --branch 2>/dev/null \
-  | sed $(GIT_INFO) -e '2,$${s/[^?].*/M/p;q;}')
-MODULE_REVISION := $(word 1,$(GIT_INFO)) $(MODULE_REVISION)$(word 2,$(GIT_INFO))
-endif
-ifeq ($(MODULE_REVISION),)
-# Git does not have keyword expansion, use the date of the most recent entry.
-MODULE_REVISION := $(shell head -1 $(srcdir)/../ChangeLog.modules \
-  2>/dev/null | sed -ne 's/^\([0-9]\+\)-\([0-9]\+\)-\([0-9]\+\) .*/\1\2\3/p')
-endif
-ifeq ($(MODULE_REVISION),)
-MODULE_REVISION := unknown
-endif
-version.o : $(srcdir)/cp
-# Set REVISION string
-ifeq ($(REVISION_c),)
-REVISION_c := []
-endif
-# Wedge inside [...], if that's what it already looks like
-REVISION_s := '" $(REVISION_c:]=)$(if \
-	$(REVISION_c:[]=),:)$(MODULE_REVISION):20$(MODULE_VERSION)$(if \
-	$(filter %],$(REVISION_c)),])"'
 CFLAGS-cp/module.o += -DMODULE_VERSION='($(subst -,,$(MODULE_VERSION))U)'
 endif
 
@@ -139,11 +109,6 @@ $(CXX_AND_OBJCXX_OBJS): CFLAGS += -fauto-profile=cc1plus.fda
 $(CXX_AND_OBJCXX_OBJS): cc1plus.fda
 endif
 
-MAPPER_SERVER_OBJS := cp/mapper-server.o cp/mapper-resolver.o
-mapper-server$(exeext): $(MAPPER_SERVER_OBJS) $(LIBDEPS)
-	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
-	$(MAPPER_SERVER_OBJS) version.o $(CODYLIB) $(LIBIBERTY) $(LIBINTL)
-
 # Language-specific object files for C++.
 CXX_OBJS = cp/cp-lang.o c-family/stub-objc.o $(CXX_AND_OBJCXX_OBJS)
 
@@ -156,19 +121,22 @@ cp-warn = $(STRICT_WARN)
 # re-use the checksum from the prev-final stage so it passes
 # the bootstrap comparison and allows comparing of the cc1 binary
 cc1plus-checksum.c : build/genchecksum$(build_exeext) checksum-options \
-	$(CXX_OBJS) $(BACKEND) $(LIBDEPS) 
+	$(CXX_OBJS) $(BACKEND) $(CODYLIB) $(LIBDEPS) 
 	if [ -f ../stage_final ] \
 	   && cmp -s ../stage_current ../stage_final; then \
 	   cp ../prev-gcc/cc1plus-checksum.c cc1plus-checksum.c; \
 	else \
-	  build/genchecksum$(build_exeext) $(CXX_OBJS) $(BACKEND) $(LIBDEPS) \
+	  build/genchecksum$(build_exeext) $(CXX_OBJS) $(BACKEND) $(CODYLIB) $(LIBDEPS) \
                      checksum-options > cc1plus-checksum.c.tmp &&	   \
 	  $(srcdir)/../move-if-change cc1plus-checksum.c.tmp cc1plus-checksum.c; \
 	fi
 
-cc1plus$(exeext): $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(LIBDEPS)
+cc1plus$(exeext): $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(CODYLIB) $(LIBDEPS) $(c++.prev)
+	@$(call LINK_PROGRESS,$(INDEX.c++),start)
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
-	      $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(LIBS) $(BACKENDLIBS)
+	      $(CXX_OBJS) cc1plus-checksum.o $(BACKEND) $(CODYLIB) $(NETLIBS) \
+		$(LIBS) $(BACKENDLIBS)
+	@$(call LINK_PROGRESS,$(INDEX.c++),end)
 
 ifeq ($(ENABLE_MAINTAINER_RULES), true)
 # Special build rule.  This is a maintainer rule, that is only
@@ -256,7 +224,7 @@ check-c++-all:
 
 # Run the testsuite with garbage collection at every opportunity.
 check-g++-strict-gc:
-	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS) --extra_opts,--param,ggc-min-heapsize=0,--param,ggc-min-expand=0" \
+	$(MAKE) RUNTESTFLAGS="$(RUNTESTFLAGS) --extra_opts,--param,ggc-min-heapsize=0,--param,ggc-min-expand=0,--param,hash-table-verification-limit=10000" \
 	  TESTSUITEDIR="$(TESTSUITEDIR).gc" check-g++
 check-c++-subtargets : check-g++-subtargets
 # List of targets that can use the generic check- rule and its // variant.
@@ -289,9 +257,6 @@ c++.install-common: installdirs
 	    fi ; \
 	  fi; \
 	fi
-	rm -f $(DESTDIR)$(libexecsubdir)/mapper-server$(exeext)
-	$(INSTALL_PROGRAM) mapper-server$(exeext) \
-	  $(DESTDIR)$(libexecsubdir)/mapper-server$(exeext)
 
 # We can't use links because not everyone supports them.  So just copy the
 # manpage.
@@ -337,7 +302,6 @@ c++.mostlyclean:
 	-rm -f cp/*$(objext)
 	-rm -f cp/*$(coverageexts)
 	-rm -f xg++$(exeext) g++-cross$(exeext) cc1plus$(exeext) cc1plus.fda
-	-rm -f mapper-server$(exeext)
 c++.clean:
 c++.distclean:
 	-rm -f cp/config.status cp/Makefile

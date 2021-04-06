@@ -1,5 +1,5 @@
 /* Definitions for CPP library.
-   Copyright (C) 1995-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995-2021 Free Software Foundation, Inc.
    Written by Per Bothner, 1994-95.
 
 This program is free software; you can redistribute it and/or modify it
@@ -173,7 +173,8 @@ enum c_lang {CLK_GNUC89 = 0, CLK_GNUC99, CLK_GNUC11, CLK_GNUC17, CLK_GNUC2X,
 	     CLK_STDC2X,
 	     CLK_GNUCXX, CLK_CXX98, CLK_GNUCXX11, CLK_CXX11,
 	     CLK_GNUCXX14, CLK_CXX14, CLK_GNUCXX17, CLK_CXX17,
-	     CLK_GNUCXX20, CLK_CXX20, CLK_ASM};
+	     CLK_GNUCXX20, CLK_CXX20, CLK_GNUCXX23, CLK_CXX23,
+	     CLK_ASM};
 
 /* Payload of a NUMBER, STRING, CHAR or COMMENT token.  */
 struct GTY(()) cpp_string {
@@ -310,9 +311,11 @@ enum cpp_normalize_level {
 
 enum cpp_main_search 
 {
-  CMS_none,
-  CMS_user,
-  CMS_system
+  CMS_none,    /* A regular source file.  */
+  CMS_header,  /* Is a directly-specified header file (eg PCH or
+		  header-unit).  */
+  CMS_user,    /* Search the user INCLUDE path.  */
+  CMS_system,  /* Search the system INCLUDE path.  */
 };
 
 /* This structure is nested inside struct cpp_reader, and
@@ -497,6 +500,9 @@ struct cpp_options
   /* Nonzero means tokenize C++20 module directives.  */
   unsigned char module_directives;
 
+  /* Nonzero for C++23 size_t literals.  */
+  unsigned char size_t_literals;
+
   /* Holds the name of the target (execution) character set.  */
   const char *narrow_charset;
 
@@ -623,6 +629,7 @@ enum cpp_warning_reason {
   CPP_W_INVALID_PCH,
   CPP_W_WARNING_DIRECTIVE,
   CPP_W_LITERAL_SUFFIX,
+  CPP_W_SIZE_T_LITERALS,
   CPP_W_DATE_TIME,
   CPP_W_PEDANTIC,
   CPP_W_C90_C99_COMPAT,
@@ -687,7 +694,7 @@ struct cpp_callbacks
   void (*used) (cpp_reader *, location_t, cpp_hashnode *);
 
   /* Callback to identify whether an attribute exists.  */
-  int (*has_attribute) (cpp_reader *);
+  int (*has_attribute) (cpp_reader *, bool);
 
   /* Callback to determine whether a built-in function is recognized.  */
   int (*has_builtin) (cpp_reader *);
@@ -824,8 +831,8 @@ struct GTY(()) cpp_macro {
      tokens.  */
   unsigned int extra_tokens : 1;
 
-  /* Imported (from a legacy header module).  */
-  unsigned int imported : 1;
+  /* Imported C++20 macro (from a header unit).  */
+  unsigned int imported_p : 1;
 
   /* 0 bits spare (32-bit). 32 on 64-bit target.  */
 
@@ -884,6 +891,7 @@ enum cpp_builtin_type
   BT_TIMESTAMP,			/* `__TIMESTAMP__' */
   BT_COUNTER,			/* `__COUNTER__' */
   BT_HAS_ATTRIBUTE,		/* `__has_attribute(x)' */
+  BT_HAS_STD_ATTRIBUTE,		/* `__has_c_attribute(x)' */
   BT_HAS_BUILTIN,		/* `__has_builtin(x)' */
   BT_HAS_INCLUDE,		/* `__has_include(x)' */
   BT_HAS_INCLUDE_NEXT		/* `__has_include_next(x)' */
@@ -921,9 +929,11 @@ struct GTY(()) cpp_hashnode {
 
   /* 5 bits spare.  */
 
-  /* On a 64-bit system there would be 32-bits of padding to the value
+  /* The deferred cookie is applicable to NT_USER_MACRO or NT_VOID.
+     The latter for when a macro had a prevailing undef.
+     On a 64-bit system there would be 32-bits of padding to the value
      field.  So placing the deferred index here is not costly.   */
-  unsigned deferred;			/* Deferred index, (unless zero).  */
+  unsigned deferred;			/* Deferred cookie  */
 
   union _cpp_hashnode_value GTY ((desc ("%1.type"))) value;
 };
@@ -1002,8 +1012,13 @@ extern cpp_callbacks *cpp_get_callbacks (cpp_reader *) ATTRIBUTE_PURE;
 extern void cpp_set_callbacks (cpp_reader *, cpp_callbacks *);
 extern class mkdeps *cpp_get_deps (cpp_reader *) ATTRIBUTE_PURE;
 
-extern const char *cpp_find_header_unit (cpp_reader *, const char *file,
-					 bool angle_p,  location_t);
+extern const char *cpp_probe_header_unit (cpp_reader *, const char *file,
+					  bool angle_p,  location_t);
+
+/* Call these to get name data about the various compile-time
+   charsets.  */
+extern const char *cpp_get_narrow_charset_name (cpp_reader *) ATTRIBUTE_PURE;
+extern const char *cpp_get_wide_charset_name (cpp_reader *) ATTRIBUTE_PURE;
 
 /* This function reads the file, but does not start preprocessing.  It
    returns the name of the original file; this is the same as the
@@ -1016,7 +1031,6 @@ extern location_t cpp_main_loc (const cpp_reader *);
 
 /* Adjust for the main file to be an include.  */
 extern void cpp_retrofit_as_include (cpp_reader *);
-extern const cpp_hashnode *cpp_main_controlling_macro (cpp_reader *);
 
 /* Set up built-ins with special behavior.  Use cpp_init_builtins()
    instead unless your know what you are doing.  */
@@ -1054,7 +1068,6 @@ extern int cpp_avoid_paste (cpp_reader *, const cpp_token *,
 extern const cpp_token *cpp_get_token (cpp_reader *);
 extern const cpp_token *cpp_get_token_with_location (cpp_reader *,
 						     location_t *);
-extern void cpp_enable_filename_token (cpp_reader *, bool);
 inline bool cpp_user_macro_p (const cpp_hashnode *node)
 {
   return node->type == NT_USER_MACRO;
@@ -1094,6 +1107,15 @@ inline location_t cpp_macro_definition_location (cpp_hashnode *node)
   const cpp_macro *macro = node->value.macro;
   return macro ? macro->line : 0;
 }
+/* Return an idempotent time stamp (possibly from SOURCE_DATE_EPOCH).  */
+enum class CPP_time_kind 
+{
+  FIXED = -1,	/* Fixed time via source epoch.  */
+  DYNAMIC = -2,	/* Dynamic via time(2).  */
+  UNKNOWN = -3	/* Wibbly wobbly, timey wimey.  */
+};
+extern CPP_time_kind cpp_get_date (cpp_reader *, time_t *);
+
 extern void _cpp_backup_tokens (cpp_reader *, unsigned int);
 extern const cpp_token *cpp_peek_token (cpp_reader *, int);
 
@@ -1120,8 +1142,12 @@ extern cppchar_t cpp_host_to_exec_charset (cpp_reader *, cppchar_t);
 /* Used to register macros and assertions, perhaps from the command line.
    The text is the same as the command line argument.  */
 extern void cpp_define (cpp_reader *, const char *);
+extern void cpp_define_unused (cpp_reader *, const char *);
 extern void cpp_define_formatted (cpp_reader *pfile, 
 				  const char *fmt, ...) ATTRIBUTE_PRINTF_2;
+extern void cpp_define_formatted_unused (cpp_reader *pfile,
+					 const char *fmt,
+					 ...) ATTRIBUTE_PRINTF_2;
 extern void cpp_assert (cpp_reader *, const char *);
 extern void cpp_undef (cpp_reader *, const char *);
 extern void cpp_unassert (cpp_reader *, const char *);
@@ -1189,7 +1215,9 @@ struct cpp_num
 #define CPP_N_FLOATN	0x400000 /* _FloatN types.  */
 #define CPP_N_FLOATNX	0x800000 /* _FloatNx types.  */
 
-#define CPP_N_USERDEF	0x1000000 /* C++0x user-defined literal.  */
+#define CPP_N_USERDEF	0x1000000 /* C++11 user-defined literal.  */
+
+#define CPP_N_SIZE_T	0x2000000 /* C++23 size_t literal.  */
 
 #define CPP_N_WIDTH_FLOATN_NX	0xF0000000 /* _FloatN / _FloatNx value
 					      of N, divided by 16.  */

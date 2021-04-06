@@ -1,5 +1,5 @@
 /* Support routines for value queries.
-   Copyright (C) 2020 Free Software Foundation, Inc.
+   Copyright (C) 2020-2021 Free Software Foundation, Inc.
    Contributed by Aldy Hernandez <aldyh@redhat.com> and
    Andrew MacLeod <amacleod@redhat.com>.
 
@@ -78,7 +78,7 @@ tree
 range_query::value_of_expr (tree name, gimple *stmt)
 {
   tree t;
-  value_range r;
+  int_range_max r;
 
   if (!irange::supports_type_p (TREE_TYPE (name)))
     return NULL_TREE;
@@ -99,7 +99,7 @@ tree
 range_query::value_on_edge (edge e, tree name)
 {
   tree t;
-  value_range r;
+  int_range_max r;
 
   if (!irange::supports_type_p (TREE_TYPE (name)))
     return NULL_TREE;
@@ -120,7 +120,7 @@ tree
 range_query::value_of_stmt (gimple *stmt, tree name)
 {
   tree t;
-  value_range r;
+  int_range_max r;
 
   if (!name)
     name = gimple_get_lhs (stmt);

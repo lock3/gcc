@@ -1,6 +1,6 @@
 // <ranges> -*- C++ -*-
 
-// Copyright (C) 2019-2020 Free Software Foundation, Inc.
+// Copyright (C) 2019-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -2128,9 +2128,9 @@ namespace views
 
 	    for (; _M_outer != ranges::end(_M_parent->_M_base); ++_M_outer)
 	      {
-		auto& inner = __update_inner(*_M_outer);
-		_M_inner = ranges::begin(inner);
-		if (_M_inner != ranges::end(inner))
+		auto& __inner = __update_inner(*_M_outer);
+		_M_inner = ranges::begin(__inner);
+		if (_M_inner != ranges::end(__inner))
 		  return;
 	      }
 
@@ -2211,10 +2211,12 @@ namespace views
 	  operator*() const
 	  { return *_M_inner; }
 
-	  constexpr _Outer_iter
+	  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+	  // 3500. join_view::iterator::operator->() is bogus
+	  constexpr _Inner_iter
 	  operator->() const
-	    requires __detail::__has_arrow<_Outer_iter>
-	      && copyable<_Outer_iter>
+	    requires __detail::__has_arrow<_Inner_iter>
+	      && copyable<_Inner_iter>
 	  { return _M_inner; }
 
 	  constexpr _Iterator&
@@ -2956,29 +2958,29 @@ namespace views
       {
 	if constexpr (_S_needs_cached_begin)
 	  if (_M_cached_begin._M_has_value())
-	    return make_reverse_iterator(_M_cached_begin._M_get(_M_base));
+	    return std::make_reverse_iterator(_M_cached_begin._M_get(_M_base));
 
 	auto __it = ranges::next(ranges::begin(_M_base), ranges::end(_M_base));
 	if constexpr (_S_needs_cached_begin)
 	  _M_cached_begin._M_set(_M_base, __it);
-	return make_reverse_iterator(std::move(__it));
+	return std::make_reverse_iterator(std::move(__it));
       }
 
       constexpr auto
       begin() requires common_range<_Vp>
-      { return make_reverse_iterator(ranges::end(_M_base)); }
+      { return std::make_reverse_iterator(ranges::end(_M_base)); }
 
       constexpr auto
       begin() const requires common_range<const _Vp>
-      { return make_reverse_iterator(ranges::end(_M_base)); }
+      { return std::make_reverse_iterator(ranges::end(_M_base)); }
 
       constexpr reverse_iterator<iterator_t<_Vp>>
       end()
-      { return make_reverse_iterator(ranges::begin(_M_base)); }
+      { return std::make_reverse_iterator(ranges::begin(_M_base)); }
 
       constexpr auto
       end() const requires common_range<const _Vp>
-      { return make_reverse_iterator(ranges::begin(_M_base)); }
+      { return std::make_reverse_iterator(ranges::begin(_M_base)); }
 
       constexpr auto
       size() requires sized_range<_Vp>

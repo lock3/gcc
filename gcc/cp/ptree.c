@@ -1,5 +1,5 @@
 /* Prints out trees in human readable form.
-   Copyright (C) 1992-2020 Free Software Foundation, Inc.
+   Copyright (C) 1992-2021 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -286,32 +286,31 @@ cxx_print_xnode (FILE *file, tree node, int indent)
       print_node (file, "function", OVL_FUNCTION (node), indent + 4);
       print_node (file, "next", OVL_CHAIN (node), indent + 4);
       break;
-    case MODULE_VECTOR:
+    case BINDING_VECTOR:
       {
-	unsigned len = MODULE_VECTOR_NUM_CLUSTERS (node);
-	print_node (file, "name", MODULE_VECTOR_NAME (node), indent + 4);
+	unsigned len = BINDING_VECTOR_NUM_CLUSTERS (node);
+	print_node (file, "name", BINDING_VECTOR_NAME (node), indent + 4);
 	fprintf (file, " clusters %u, alloc %u", len,
-		 MODULE_VECTOR_ALLOC_CLUSTERS (node));
+		 BINDING_VECTOR_ALLOC_CLUSTERS (node));
 	for (unsigned ix = 0; ix != len; ix++)
 	  {
-	    module_cluster *cluster = &MODULE_VECTOR_CLUSTER (node, ix);
-	    char pfx[20];
-	    for (unsigned jx = 0; jx != MODULE_VECTOR_SLOTS_PER_CLUSTER; jx++)
+	    binding_cluster *cluster = &BINDING_VECTOR_CLUSTER (node, ix);
+	    char pfx[24];
+	    for (unsigned jx = 0; jx != BINDING_VECTOR_SLOTS_PER_CLUSTER; jx++)
 	      if (cluster->indices[jx].span)
 		{
 		  int len = sprintf (pfx, "module:%u",
 				     cluster->indices[jx].base);
 		  if (cluster->indices[jx].span > 1)
-		    len
-		      += sprintf (&pfx[len], "(+%u)", cluster->indices[jx].span);
+		    len += sprintf (&pfx[len], "(+%u)",
+				    cluster->indices[jx].span);
 		  len += sprintf (&pfx[len], " cluster:%u/%u", ix, jx);
-		  mc_slot &slot = cluster->slots[jx];
+		  binding_slot &slot = cluster->slots[jx];
 		  if (slot.is_lazy ())
 		    {
 		      indent_to (file, indent + 4);
 		      unsigned lazy = slot.get_lazy ();
-		      fprintf (file, "%s snum:%u flags:%d",
-			       pfx, lazy >> 2, lazy & 3);
+		      fprintf (file, "%s snum:%u", pfx, lazy);
 		    }
 		  else if (slot)
 		    print_node (file, pfx, slot, indent + 4);

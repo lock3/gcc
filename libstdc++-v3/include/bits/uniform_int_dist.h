@@ -1,6 +1,6 @@
 // Class template uniform_int_distribution -*- C++ -*-
 
-// Copyright (C) 2009-2020 Free Software Foundation, Inc.
+// Copyright (C) 2009-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -36,6 +36,7 @@
 #if __cplusplus > 201703L
 # include <concepts>
 #endif
+#include <bits/concept_check.h> // __glibcxx_function_requires
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -56,7 +57,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   namespace __detail
   {
-    /* Determine whether number is a power of 2.  */
+    // Determine whether number is a power of two.
+    // This is true for zero, which is OK because we want _Power_of_2(n+1)
+    // to be true if n==numeric_limits<_Tp>::max() and so n+1 wraps around.
     template<typename _Tp>
       constexpr bool
       _Power_of_2(_Tp __x)
@@ -278,12 +281,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	typedef typename make_unsigned<result_type>::type __utype;
 	typedef typename common_type<_Gresult_type, __utype>::type __uctype;
 
-	static_assert( __urng.min() < __urng.max(),
+	constexpr __uctype __urngmin = _UniformRandomBitGenerator::min();
+	constexpr __uctype __urngmax = _UniformRandomBitGenerator::max();
+	static_assert( __urngmin < __urngmax,
 	    "Uniform random bit generator must define min() < max()");
-
-	constexpr __uctype __urngmin = __urng.min();
-	constexpr __uctype __urngmax = __urng.max();
 	constexpr __uctype __urngrange = __urngmax - __urngmin;
+
 	const __uctype __urange
 	  = __uctype(__param.b()) - __uctype(__param.a());
 

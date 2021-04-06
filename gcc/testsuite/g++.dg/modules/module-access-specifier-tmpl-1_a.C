@@ -25,7 +25,7 @@ struct TemplateFoo
       public:
         T x;
       restrict:
-        T y;
+        T y; // TODO FIXME this is module_may_redeclare?
     };
   public:
     template<typename T> TSub<T> getSub(T t) { return TSub<T>{}; }

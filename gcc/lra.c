@@ -1,5 +1,5 @@
 /* LRA (local register allocator) driver and LRA utilities.
-   Copyright (C) 2010-2020 Free Software Foundation, Inc.
+   Copyright (C) 2010-2021 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -1852,8 +1852,6 @@ void
 lra_process_new_insns (rtx_insn *insn, rtx_insn *before, rtx_insn *after,
 		       const char *title)
 {
-  rtx_insn *last;
-
   if (before == NULL_RTX && after == NULL_RTX)
     return;
   if (lra_dump_file != NULL)
@@ -1864,12 +1862,6 @@ lra_process_new_insns (rtx_insn *insn, rtx_insn *before, rtx_insn *after,
 	  fprintf (lra_dump_file,"    %s before:\n", title);
 	  dump_rtl_slim (lra_dump_file, before, NULL, -1, 0);
 	}
-      if (after != NULL_RTX)
-	{
-	  fprintf (lra_dump_file, "    %s after:\n", title);
-	  dump_rtl_slim (lra_dump_file, after, NULL, -1, 0);
-	}
-      fprintf (lra_dump_file, "\n");
     }
   if (before != NULL_RTX)
     {
@@ -1883,12 +1875,69 @@ lra_process_new_insns (rtx_insn *insn, rtx_insn *before, rtx_insn *after,
     {
       if (cfun->can_throw_non_call_exceptions)
 	copy_reg_eh_region_note_forward (insn, after, NULL);
-      for (last = after; NEXT_INSN (last) != NULL_RTX; last = NEXT_INSN (last))
-	;
-      emit_insn_after (after, insn);
-      push_insns (last, insn);
-      setup_sp_offset (after, last);
+      if (! JUMP_P (insn))
+	{
+	  rtx_insn *last;
+	  
+	  if (lra_dump_file != NULL)
+	    {
+	      fprintf (lra_dump_file, "    %s after:\n", title);
+	      dump_rtl_slim (lra_dump_file, after, NULL, -1, 0);
+	    }
+	  for (last = after;
+	       NEXT_INSN (last) != NULL_RTX;
+	       last = NEXT_INSN (last))
+	    ;
+	  emit_insn_after (after, insn);
+	  push_insns (last, insn);
+	  setup_sp_offset (after, last);
+	}
+      else
+	{
+	  /* Put output reload insns on successor BBs: */
+	  edge_iterator ei;
+	  edge e;
+	  
+	  FOR_EACH_EDGE (e, ei, BLOCK_FOR_INSN (insn)->succs)
+	    if (e->dest != EXIT_BLOCK_PTR_FOR_FN (cfun))
+	      {
+		/* We already made the edge no-critical in ira.c::ira */
+		lra_assert (!EDGE_CRITICAL_P (e));
+		rtx_insn *curr, *tmp = BB_HEAD (e->dest);
+		if (LABEL_P (tmp))
+		  tmp = NEXT_INSN (tmp);
+		if (NOTE_INSN_BASIC_BLOCK_P (tmp))
+		  tmp = NEXT_INSN (tmp);
+		/* Do not put reload insns if it is the last BB
+		   without actual insns.  */
+		if (tmp == NULL)
+		  continue;
+		start_sequence ();
+		for (curr = after; curr != NULL_RTX; curr = NEXT_INSN (curr))
+		  emit_insn (copy_insn (PATTERN (curr)));
+		rtx_insn *copy = get_insns (), *last = get_last_insn ();
+		end_sequence ();
+		if (lra_dump_file != NULL)
+		  {
+		    fprintf (lra_dump_file, "    %s after in bb%d:\n", title,
+			     e->dest->index);
+		    dump_rtl_slim (lra_dump_file, copy, NULL, -1, 0);
+		  }
+		/* Use the right emit func for setting up BB_END/BB_HEAD: */
+		if (BB_END (e->dest) == PREV_INSN (tmp))
+		  emit_insn_after_noloc (copy, PREV_INSN (tmp), e->dest);
+		else
+		  emit_insn_before_noloc (copy, tmp, e->dest);
+		push_insns (last, PREV_INSN (copy));
+		setup_sp_offset (copy, last);
+		/* We can ignore BB live info here as it and reg notes
+		   will be updated before the next assignment
+		   sub-pass. */
+	      }
+	}
     }
+  if (lra_dump_file != NULL)
+    fprintf (lra_dump_file, "\n");
   if (cfun->can_throw_non_call_exceptions)
     {
       rtx note = find_reg_note (insn, REG_EH_REGION, NULL_RTX);
@@ -2143,6 +2192,9 @@ int lra_constraint_new_regno_start;
    it is possible.  */
 int lra_bad_spill_regno_start;
 
+/* A pseudo of Pmode.  */
+rtx lra_pmode_pseudo;
+
 /* Inheritance pseudo regnos before the new spill pass.	 */
 bitmap_head lra_inheritance_pseudos;
 
@@ -2161,6 +2213,9 @@ bitmap_head lra_subreg_reload_pseudos;
 
 /* File used for output of LRA debug information.  */
 FILE *lra_dump_file;
+
+/* True if we split hard reg after the last constraint sub-pass.  */
+bool lra_hard_reg_split_p;
 
 /* True if we found an asm error.  */
 bool lra_asm_error_p;
@@ -2203,6 +2258,7 @@ lra (FILE *f)
 
   lra_dump_file = f;
   lra_asm_error_p = false;
+  lra_pmode_pseudo = gen_reg_rtx (Pmode);
   
   timevar_push (TV_LRA);
 
@@ -2310,6 +2366,7 @@ lra (FILE *f)
 	  if (live_p)
 	    lra_clear_live_ranges ();
 	  bool fails_p;
+	  lra_hard_reg_split_p = false;
 	  do
 	    {
 	      /* We need live ranges for lra_assign -- so build them.
@@ -2354,6 +2411,7 @@ lra (FILE *f)
 		  live_p = false;
 		  if (! lra_split_hard_reg_for ())
 		    break;
+		  lra_hard_reg_split_p = true;
 		}
 	    }
 	  while (fails_p);

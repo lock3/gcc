@@ -1,4 +1,4 @@
-#  Copyright (C) 2003-2020 Free Software Foundation, Inc.
+#  Copyright (C) 2003-2021 Free Software Foundation, Inc.
 #  Contributed by Kelley Cook, June 2004.
 #  Original code from Neil Booth, May 2003.
 #
@@ -1036,8 +1036,10 @@ for (i = 0; i < n_target_save; i++) {
 	type = var;
 	sub("^.*[ *]", "", name)
 	sub(" *" name "$", "", type)
-	if (target_save_decl[i] ~ "^const char \\*+[_" alnum "]+$")
+	if (target_save_decl[i] ~ "^const char \\*+[_" alnum "]+$") {
 		var_target_str[n_target_str++] = name;
+		string_options_names[name]++
+	}
 	else {
 		if (target_save_decl[i] ~ " .*\\[.+\\]+$") {
 			size = name;
@@ -1290,6 +1292,7 @@ for (i = 0; i < n_opts; i++) {
 		var_opt_val_type[n_opt_val] = otype;
 		var_opt_val[n_opt_val] = "x_" name;
 		var_opt_hash[n_opt_val] = flag_set_p("Optimization", flags[i]);
+		var_opt_init[n_opt_val] = opt_args("Init", flags[i]);
 		n_opt_val++;
 	}
 }
@@ -1361,10 +1364,21 @@ for (i = 0; i < n_opt_val; i++) {
 	otype = var_opt_val_type[i];
 	if (otype ~ "^const char \\**$")
 		print "  bp_pack_string (ob, bp, ptr->" name", true);";
-	else if (otype ~ "^unsigned")
-		print "  bp_pack_var_len_unsigned (bp, ptr->" name");";
-	else
-		print "  bp_pack_var_len_int (bp, ptr->" name");";
+	else {
+		if (otype ~ "^unsigned") {
+			sgn = "unsigned";
+		} else {
+			sgn = "int";
+		}
+		if (name ~ "^x_param" && !(otype ~ "^enum ") && var_opt_init[i]) {
+			print "  if (" var_opt_init[i] " > (" var_opt_val_type[i] ") 10)";
+			print "    bp_pack_var_len_" sgn " (bp, ptr->" name" ^ " var_opt_init[i] ");";
+			print "  else";
+			print "    bp_pack_var_len_" sgn " (bp, ptr->" name");";
+		} else {
+			print "  bp_pack_var_len_" sgn " (bp, ptr->" name");";
+		}
+	}
 }
 print "  for (size_t i = 0; i < sizeof (ptr->explicit_mask) / sizeof (ptr->explicit_mask[0]); i++)";
 print "    bp_pack_value (bp, ptr->explicit_mask[i], 64);";
@@ -1385,10 +1399,18 @@ for (i = 0; i < n_opt_val; i++) {
 		print "  if (ptr->" name")";
 		print "    ptr->" name" = xstrdup (ptr->" name");";
 	}
-	else if (otype ~ "^unsigned")
-		print "  ptr->" name" = (" var_opt_val_type[i] ") bp_unpack_var_len_unsigned (bp);";
-	else
-		print "  ptr->" name" = (" var_opt_val_type[i] ") bp_unpack_var_len_int (bp);";
+	else {
+		if (otype ~ "^unsigned") {
+			sgn = "unsigned";
+		} else {
+			sgn = "int";
+		}
+		print "  ptr->" name" = (" var_opt_val_type[i] ") bp_unpack_var_len_" sgn " (bp);";
+		if (name ~ "^x_param" && !(otype ~ "^enum ") && var_opt_init[i]) {
+			print "  if (" var_opt_init[i] " > (" var_opt_val_type[i] ") 10)";
+			print "    ptr->" name" ^= " var_opt_init[i] ";";
+		}
+	}
 }
 print "  for (size_t i = 0; i < sizeof (ptr->explicit_mask) / sizeof (ptr->explicit_mask[0]); i++)";
 print "    ptr->explicit_mask[i] = bp_unpack_value (bp, 64);";
@@ -1421,6 +1443,15 @@ checked_options["unroll_only_small_loops"]++
 checked_options["TARGET_ALIGN_CALL"]++
 checked_options["TARGET_CASE_VECTOR_PC_RELATIVE"]++
 checked_options["arc_size_opt_level"]++
+# arm exceptions
+checked_options["arm_fp16_format"]++
+checked_options["flag_ipa_ra"]++
+# s390 exceptions
+checked_options["param_max_completely_peel_times"]++
+checked_options["param_max_completely_peeled_insns"]++
+checked_options["param_max_unroll_times"]++
+checked_options["param_max_unrolled_insns"]++
+
 
 for (i = 0; i < n_opts; i++) {
 	name = var_name(flags[i]);
@@ -1431,7 +1462,7 @@ for (i = 0; i < n_opts; i++) {
 		continue;
 	checked_options[name]++
 
-	if (name in string_options_names) {
+	if (name in string_options_names || ("x_" name) in string_options_names) {
 	  print "  if (ptr1->x_" name " != ptr2->x_" name "";
 	  print "      && (!ptr1->x_" name" || !ptr2->x_" name
 	  print "          || strcmp (ptr1->x_" name", ptr2->x_" name ")))";

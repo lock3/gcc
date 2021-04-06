@@ -239,6 +239,23 @@ extern const short *_tolower_tab_;
     COMMON_INTERCEPT_FUNCTION(fn)
 #endif
 
+#ifdef __GLIBC__
+// If we could not find the versioned symbol, fall back to an unversioned
+// lookup. This is needed to work around a GLibc bug that causes dlsym
+// with RTLD_NEXT to return the oldest versioned symbol.
+// See https://sourceware.org/bugzilla/show_bug.cgi?id=14932.
+// For certain symbols (e.g. regexec) we have to perform a versioned lookup,
+// but that versioned symbol will only exist for architectures where the
+// oldest Glibc version pre-dates support for that architecture.
+// For example, regexec@GLIBC_2.3.4 exists on x86_64, but not RISC-V.
+// See also https://gcc.gnu.org/bugzilla/show_bug.cgi?id=98920.
+#define COMMON_INTERCEPT_FUNCTION_GLIBC_VER_MIN(fn, ver) \
+  COMMON_INTERCEPT_FUNCTION_VER_UNVERSIONED_FALLBACK(fn, ver)
+#else
+#define COMMON_INTERCEPT_FUNCTION_GLIBC_VER_MIN(fn, ver) \
+  COMMON_INTERCEPT_FUNCTION(fn)
+#endif
+
 #ifndef COMMON_INTERCEPTOR_MEMSET_IMPL
 #define COMMON_INTERCEPTOR_MEMSET_IMPL(ctx, dst, v, size) \
   {                                                       \
@@ -1864,7 +1881,7 @@ UNUSED static void unpoison_passwd(void *ctx, __sanitizer_passwd *pwd) {
       COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwd->pw_gecos,
                                      REAL(strlen)(pwd->pw_gecos) + 1);
 #endif
-#if SANITIZER_MAC || SANITIZER_FREEBSD || SANITIZER_NETBSD || SANITIZER_OPENBSD
+#if SANITIZER_MAC || SANITIZER_FREEBSD || SANITIZER_NETBSD
     if (pwd->pw_class)
       COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwd->pw_class,
                                      REAL(strlen)(pwd->pw_class) + 1);
@@ -3750,7 +3767,7 @@ INTERCEPTOR(char *, strerror, int errnum) {
 //    static storage.
 #if ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE) || \
     SANITIZER_MAC || SANITIZER_ANDROID || SANITIZER_NETBSD ||                 \
-    SANITIZER_FREEBSD || SANITIZER_OPENBSD
+    SANITIZER_FREEBSD
 // POSIX version. Spec is not clear on whether buf is NULL-terminated.
 // At least on OSX, buf contents are valid even when the call fails.
 INTERCEPTOR(int, strerror_r, int errnum, char *buf, SIZE_T buflen) {
@@ -7772,7 +7789,7 @@ INTERCEPTOR(void, regfree, const void *preg) {
 }
 #define INIT_REGEX                                                             \
   COMMON_INTERCEPT_FUNCTION(regcomp);                                          \
-  COMMON_INTERCEPT_FUNCTION(regexec);                                          \
+  COMMON_INTERCEPT_FUNCTION_GLIBC_VER_MIN(regexec, "GLIBC_2.3.4");             \
   COMMON_INTERCEPT_FUNCTION(regerror);                                         \
   COMMON_INTERCEPT_FUNCTION(regfree);
 #else

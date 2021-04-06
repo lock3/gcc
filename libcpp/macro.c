@@ -1,5 +1,5 @@
 /* Part of CPP library.  (Macro and #define handling.)
-   Copyright (C) 1986-2020 Free Software Foundation, Inc.
+   Copyright (C) 1986-2021 Free Software Foundation, Inc.
    Written by Per Bothner, 1994.
    Based on CCCP program by Paul Rubin, June 1986
    Adapted to ANSI C, Richard Stallman, Jan 1987
@@ -584,7 +584,7 @@ _cpp_builtin_macro_text (cpp_reader *pfile, cpp_hashnode *node,
 	 (c) we are not in strictly conforming mode, then it has the
 	 value 0.  (b) and (c) are already checked in cpp_init_builtins.  */
     case BT_STDC:
-      if (cpp_in_system_header (pfile))
+      if (_cpp_in_system_header (pfile))
 	number = 0;
       else
 	number = 1;
@@ -602,29 +602,21 @@ _cpp_builtin_macro_text (cpp_reader *pfile, cpp_hashnode *node,
 	     at init time, because time() and localtime() are very
 	     slow on some systems.  */
 	  time_t tt;
-	  struct tm *tb = NULL;
+	  auto kind = cpp_get_date (pfile, &tt);
 
-	  /* Set a reproducible timestamp for __DATE__ and __TIME__ macro
-	     if SOURCE_DATE_EPOCH is defined.  */
-	  if (pfile->source_date_epoch == (time_t) -2
-	      && pfile->cb.get_source_date_epoch != NULL)
-	    pfile->source_date_epoch = pfile->cb.get_source_date_epoch (pfile);
-
-	  if (pfile->source_date_epoch >= (time_t) 0)
-	    tb = gmtime (&pfile->source_date_epoch);
+	  if (kind == CPP_time_kind::UNKNOWN)
+	    {
+	      cpp_errno (pfile, CPP_DL_WARNING,
+			 "could not determine date and time");
+		
+	      pfile->date = UC"\"??? ?? ????\"";
+	      pfile->time = UC"\"??:??:??\"";
+	    }
 	  else
 	    {
-	      /* (time_t) -1 is a legitimate value for "number of seconds
-		 since the Epoch", so we have to do a little dance to
-		 distinguish that from a genuine error.  */
-	      errno = 0;
-	      tt = time (NULL);
-	      if (tt != (time_t)-1 || errno == 0)
-		tb = localtime (&tt);
-	    }
+	      struct tm *tb = (kind == CPP_time_kind::FIXED
+			       ? gmtime : localtime) (&tt);
 
-	  if (tb)
-	    {
 	      pfile->date = _cpp_unaligned_alloc (pfile,
 						  sizeof ("\"Oct 11 1347\""));
 	      sprintf ((char *) pfile->date, "\"%s %2d %4d\"",
@@ -635,14 +627,6 @@ _cpp_builtin_macro_text (cpp_reader *pfile, cpp_hashnode *node,
 						  sizeof ("\"12:34:56\""));
 	      sprintf ((char *) pfile->time, "\"%02d:%02d:%02d\"",
 		       tb->tm_hour, tb->tm_min, tb->tm_sec);
-	    }
-	  else
-	    {
-	      cpp_errno (pfile, CPP_DL_WARNING,
-			 "could not determine date and time");
-		
-	      pfile->date = UC"\"??? ?? ????\"";
-	      pfile->time = UC"\"??:??:??\"";
 	    }
 	}
 
@@ -660,7 +644,11 @@ _cpp_builtin_macro_text (cpp_reader *pfile, cpp_hashnode *node,
       break;
 
     case BT_HAS_ATTRIBUTE:
-      number = pfile->cb.has_attribute (pfile);
+      number = pfile->cb.has_attribute (pfile, false);
+      break;
+
+    case BT_HAS_STD_ATTRIBUTE:
+      number = pfile->cb.has_attribute (pfile, true);
       break;
 
     case BT_HAS_BUILTIN:
@@ -682,6 +670,51 @@ _cpp_builtin_macro_text (cpp_reader *pfile, cpp_hashnode *node,
     }
 
   return result;      
+}
+
+/* Get an idempotent date.  Either the cached value, the value from
+   source epoch, or failing that, the value from time(2).  Use this
+   during compilation so that every time stamp is the same.  */
+CPP_time_kind
+cpp_get_date (cpp_reader *pfile, time_t *result)
+{
+  if (!pfile->time_stamp_kind)
+    {
+      int kind = 0;
+      if (pfile->cb.get_source_date_epoch)
+	{
+	  /* Try reading the fixed epoch.  */
+	  pfile->time_stamp = pfile->cb.get_source_date_epoch (pfile);
+	  if (pfile->time_stamp != time_t (-1))
+	    kind = int (CPP_time_kind::FIXED);
+	}
+
+      if (!kind)
+	{
+	  /* Pedantically time_t (-1) is a legitimate value for
+	     "number of seconds since the Epoch".  It is a silly
+	     time.   */
+	  errno = 0;
+	  pfile->time_stamp = time (nullptr);
+	  /* Annoyingly a library could legally set errno and return a
+	     valid time!  Bad library!  */
+	  if (pfile->time_stamp == time_t (-1) && errno)
+	    kind = errno;
+	  else
+	    kind = int (CPP_time_kind::DYNAMIC);
+	}
+
+      pfile->time_stamp_kind = kind;
+    }
+
+  *result = pfile->time_stamp;
+  if (pfile->time_stamp_kind >= 0)
+    {
+      errno = pfile->time_stamp_kind;
+      return CPP_time_kind::UNKNOWN;
+    }
+
+  return CPP_time_kind (pfile->time_stamp_kind);
 }
 
 /* Convert builtin macros like __FILE__ to a token and push it on the
@@ -2180,7 +2213,7 @@ replace_args (cpp_reader *pfile, cpp_hashnode *node, cpp_macro *macro,
 	      = (const cpp_token **) tokens_buff_last_token_ptr (buff);
 	}
       else if (CPP_PEDANTIC (pfile) && ! CPP_OPTION (pfile, c99)
-	       && ! macro->syshdr && ! cpp_in_system_header (pfile))
+	       && ! macro->syshdr && ! _cpp_in_system_header (pfile))
 	{
 	  if (CPP_OPTION (pfile, cplusplus))
 	    cpp_pedwarning (pfile, CPP_W_PEDANTIC,
@@ -2199,7 +2232,7 @@ replace_args (cpp_reader *pfile, cpp_hashnode *node, cpp_macro *macro,
 	}
       else if (CPP_OPTION (pfile, cpp_warn_c90_c99_compat) > 0
 	       && ! CPP_OPTION (pfile, cplusplus)
-	       && ! macro->syshdr && ! cpp_in_system_header (pfile))
+	       && ! macro->syshdr && ! _cpp_in_system_header (pfile))
 	cpp_warning (pfile, CPP_W_C90_C99_COMPAT,
 		     "invoking macro %s argument %d: "
 		     "empty macro arguments are undefined"
@@ -2977,7 +3010,7 @@ cpp_get_token_1 (cpp_reader *pfile, location_t *location)
 
 	  if (need_search)
 	    {
-	      found = cpp_find_header_unit (pfile, fname, angle, tmp->src_loc);
+	      found = _cpp_find_header_unit (pfile, fname, angle, tmp->src_loc);
 	      if (!found)
 		found = "";
 	      len = strlen (found);
@@ -3073,12 +3106,6 @@ const cpp_token *
 cpp_get_token_with_location (cpp_reader *pfile, location_t *loc)
 {
   return cpp_get_token_1 (pfile, loc);
-}
-
-void
-cpp_enable_filename_token (cpp_reader *pfile, bool enable)
-{
-  pfile->state.angled_headers += enable ? +1 : -1;
 }
 
 /* Returns true if we're expanding an object-like macro that was
@@ -3681,7 +3708,7 @@ _cpp_new_macro (cpp_reader *pfile, cpp_macro_kind kind, void *placement)
   macro->used = !CPP_OPTION (pfile, warn_unused_macros);
   macro->count = 0;
   macro->fun_like = 0;
-  macro->imported = false;
+  macro->imported_p = false;
   macro->extra_tokens = 0;
   /* To suppress some diagnostics.  */
   macro->syshdr = pfile->buffer && pfile->buffer->sysp != 0;
@@ -3765,6 +3792,8 @@ cpp_macro *
 cpp_get_deferred_macro (cpp_reader *pfile, cpp_hashnode *node,
 			location_t loc)
 {
+  gcc_checking_assert (node->type == NT_USER_MACRO);
+
   node->value.macro = pfile->cb.user_deferred_macro (pfile, loc, node);
 
   if (!node->value.macro)
@@ -3781,11 +3810,9 @@ get_deferred_or_lazy_macro (cpp_reader *pfile, cpp_hashnode *node,
   if (!macro)
     {
       macro = cpp_get_deferred_macro (pfile, node, loc);
-      if (!macro)
-	return NULL;
+      gcc_checking_assert (!macro || !macro->lazy);
     }
-
-  if (macro->lazy)
+  else if (macro->lazy)
     {
       pfile->cb.user_lazy_macro (pfile, macro, macro->lazy - 1);
       macro->lazy = 0;

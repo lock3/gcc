@@ -1,5 +1,5 @@
 /* Some code common to C++ and ObjC++ front ends.
-   Copyright (C) 2004-2020 Free Software Foundation, Inc.
+   Copyright (C) 2004-2021 Free Software Foundation, Inc.
    Contributed by Ziemowit Laski  <zlaski@apple.com>
 
 This file is part of GCC.
@@ -369,7 +369,8 @@ names_builtin_p (const char *name)
   tree id = get_identifier (name);
   if (tree binding = get_global_binding (id))
     {
-      if (TREE_CODE (binding) == FUNCTION_DECL && DECL_IS_BUILTIN (binding))
+      if (TREE_CODE (binding) == FUNCTION_DECL
+	  && DECL_IS_UNDECLARED_BUILTIN (binding))
 	return true;
 
       /* Handle the case when an overload for a  built-in name exists.  */
@@ -379,7 +380,7 @@ names_builtin_p (const char *name)
       for (ovl_iterator it (binding); it; ++it)
 	{
 	  tree decl = *it;
-	  if (DECL_IS_BUILTIN (decl))
+	  if (DECL_IS_UNDECLARED_BUILTIN (decl))
 	    return true;
 	}
     }
@@ -393,6 +394,7 @@ names_builtin_p (const char *name)
     case RID_BUILTIN_HAS_ATTRIBUTE:
     case RID_BUILTIN_SHUFFLE:
     case RID_BUILTIN_LAUNDER:
+    case RID_BUILTIN_BIT_CAST:
     case RID_OFFSETOF:
     case RID_HAS_NOTHROW_ASSIGN:
     case RID_HAS_NOTHROW_CONSTRUCTOR:
@@ -494,6 +496,7 @@ cp_common_init_ts (void)
   MARK_TS_EXP (ALIGNOF_EXPR);
   MARK_TS_EXP (ARROW_EXPR);
   MARK_TS_EXP (AT_ENCODE_EXPR);
+  MARK_TS_EXP (BIT_CAST_EXPR);
   MARK_TS_EXP (CAST_EXPR);
   MARK_TS_EXP (CONST_CAST_EXPR);
   MARK_TS_EXP (CTOR_INITIALIZER);

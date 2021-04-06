@@ -1,5 +1,5 @@
 /* CPP Library. (Directive handling.)
-   Copyright (C) 1986-2020 Free Software Foundation, Inc.
+   Copyright (C) 1986-2021 Free Software Foundation, Inc.
    Contributed by Per Bothner, 1994-95.
    Based on CCCP program by Paul Rubin, June 1986
    Adapted to ANSI C, Richard Stallman, Jan 1987
@@ -878,7 +878,7 @@ do_include_next (cpp_reader *pfile)
 
   /* If this is the primary source file, warn and use the normal
      search logic.  */
-  if (cpp_in_primary_file (pfile))
+  if (_cpp_in_main_source_file (pfile))
     {
       cpp_error (pfile, CPP_DL_WARNING,
 		 "#include_next in primary source file");
@@ -915,12 +915,11 @@ read_flag (cpp_reader *pfile, unsigned int last)
 /* Subroutine of do_line and do_linemarker.  Convert a number in STR,
    of length LEN, to binary; store it in NUMP, and return false if the
    number was well-formed, true if not. WRAPPED is set to true if the
-   number did not fit into 'unsigned long'.  */
+   number did not fit into 'linenum_type'.  */
 static bool
 strtolinenum (const uchar *str, size_t len, linenum_type *nump, bool *wrapped)
 {
   linenum_type reg = 0;
-  linenum_type reg_prev = 0;
 
   uchar c;
   *wrapped = false;
@@ -929,11 +928,12 @@ strtolinenum (const uchar *str, size_t len, linenum_type *nump, bool *wrapped)
       c = *str++;
       if (!ISDIGIT (c))
 	return true;
-      reg *= 10;
-      reg += c - '0';
-      if (reg < reg_prev) 
+      if (reg > ((linenum_type) -1) / 10)
 	*wrapped = true;
-      reg_prev = reg;
+      reg *= 10;
+      if (reg > ((linenum_type) -1) - (c - '0'))
+	*wrapped = true;
+      reg += c - '0';
     }
   *nump = reg;
   return false;
@@ -1005,7 +1005,6 @@ do_line (cpp_reader *pfile)
 /* Interpret the # 44 "file" [flags] notation, which has slightly
    different syntax and semantics from #line:  Flags are allowed,
    and we never complain about the line number being too big.  */
-
 static void
 do_linemarker (cpp_reader *pfile)
 {
@@ -1548,7 +1547,7 @@ do_pragma (cpp_reader *pfile)
 static void
 do_pragma_once (cpp_reader *pfile)
 {
-  if (cpp_in_primary_file (pfile))
+  if (_cpp_in_main_source_file (pfile))
     cpp_error (pfile, CPP_DL_WARNING, "#pragma once in main file");
 
   check_eol (pfile, false);
@@ -1710,7 +1709,7 @@ do_pragma_poison (cpp_reader *pfile)
 static void
 do_pragma_system_header (cpp_reader *pfile)
 {
-  if (cpp_in_primary_file (pfile))
+  if (_cpp_in_main_source_file (pfile))
     cpp_error (pfile, CPP_DL_WARNING,
 	       "#pragma system_header ignored outside include file");
   else
@@ -2418,6 +2417,15 @@ cpp_define (cpp_reader *pfile, const char *str)
   run_directive (pfile, T_DEFINE, buf, count);
 }
 
+/* Like cpp_define, but does not warn about unused macro.  */
+void
+cpp_define_unused (cpp_reader *pfile, const char *str)
+{
+    unsigned char warn_unused_macros = CPP_OPTION (pfile, warn_unused_macros);
+    CPP_OPTION (pfile, warn_unused_macros) = 0;
+    cpp_define (pfile, str);
+    CPP_OPTION (pfile, warn_unused_macros) = warn_unused_macros;
+}
 
 /* Use to build macros to be run through cpp_define() as
    described above.
@@ -2437,6 +2445,20 @@ cpp_define_formatted (cpp_reader *pfile, const char *fmt, ...)
   free (ptr);
 }
 
+/* Like cpp_define_formatted, but does not warn about unused macro.  */
+void
+cpp_define_formatted_unused (cpp_reader *pfile, const char *fmt, ...)
+{
+  char *ptr;
+
+  va_list ap;
+  va_start (ap, fmt);
+  ptr = xvasprintf (fmt, ap);
+  va_end (ap);
+
+  cpp_define_unused (pfile, ptr);
+  free (ptr);
+}
 
 /* Slight variant of the above for use by initialize_builtins.  */
 void
@@ -2574,11 +2596,25 @@ cpp_set_callbacks (cpp_reader *pfile, cpp_callbacks *cb)
   pfile->cb = *cb;
 }
 
+/* The narrow character set identifier.  */
+const char *
+cpp_get_narrow_charset_name (cpp_reader *pfile)
+{
+  return pfile->narrow_cset_desc.to;
+}
+
+/* The wide character set identifier.  */
+const char *
+cpp_get_wide_charset_name (cpp_reader *pfile)
+{
+  return pfile->wide_cset_desc.to;
+}
+
 /* The dependencies structure.  (Creates one if it hasn't already been.)  */
 class mkdeps *
 cpp_get_deps (cpp_reader *pfile)
 {
-  if (CPP_OPTION (pfile, deps.style) != DEPS_NONE && !pfile->deps)
+  if (!pfile->deps && CPP_OPTION (pfile, deps.style) != DEPS_NONE)
     pfile->deps = deps_init ();
   return pfile->deps;
 }

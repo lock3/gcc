@@ -1,5 +1,5 @@
 /* Compiler driver program that can handle many languages.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -542,6 +542,12 @@ or with constant text in a single argument.
  %s     current argument is the name of a library or startup file of some sort.
         Search for that file in a standard list of directories
 	and substitute the full name found.
+ %T	current argument is the name of a linker script.
+	Search for that file in the current list of directories to scan for
+	libraries.  If the file is located, insert a --script option into the
+	command line followed by the full path name found.  If the file is
+	not found then generate an error message.
+	Note: the current working directory is not searched.
  %eSTR  Print STR as an error message.  STR is terminated by a newline.
         Use this when inconsistent options are detected.
  %nSTR  Print STR as a notice.  STR is terminated by a newline.
@@ -741,6 +747,24 @@ proper position among the other output files.  */
 
 #ifndef LIBASAN_EARLY_SPEC
 #define LIBASAN_EARLY_SPEC ""
+#endif
+
+#ifndef LIBHWASAN_SPEC
+#define STATIC_LIBHWASAN_LIBS \
+  " %{static-libhwasan|static:%:include(libsanitizer.spec)%(link_libhwasan)}"
+#ifdef LIBHWASAN_EARLY_SPEC
+#define LIBHWASAN_SPEC STATIC_LIBHWASAN_LIBS
+#elif defined(HAVE_LD_STATIC_DYNAMIC)
+#define LIBHWASAN_SPEC "%{static-libhwasan:" LD_STATIC_OPTION \
+		     "} -lhwasan %{static-libhwasan:" LD_DYNAMIC_OPTION "}" \
+		     STATIC_LIBHWASAN_LIBS
+#else
+#define LIBHWASAN_SPEC "-lhwasan" STATIC_LIBHWASAN_LIBS
+#endif
+#endif
+
+#ifndef LIBHWASAN_EARLY_SPEC
+#define LIBHWASAN_EARLY_SPEC ""
 #endif
 
 #ifndef LIBTSAN_SPEC
@@ -1065,6 +1089,7 @@ proper position among the other output files.  */
 #ifndef SANITIZER_EARLY_SPEC
 #define SANITIZER_EARLY_SPEC "\
 %{!nostdlib:%{!r:%{!nodefaultlibs:%{%:sanitize(address):" LIBASAN_EARLY_SPEC "} \
+    %{%:sanitize(hwaddress):" LIBHWASAN_EARLY_SPEC "} \
     %{%:sanitize(thread):" LIBTSAN_EARLY_SPEC "} \
     %{%:sanitize(leak):" LIBLSAN_EARLY_SPEC "}}}}"
 #endif
@@ -1074,6 +1099,8 @@ proper position among the other output files.  */
 #define SANITIZER_SPEC "\
 %{!nostdlib:%{!r:%{!nodefaultlibs:%{%:sanitize(address):" LIBASAN_SPEC "\
     %{static:%ecannot specify -static with -fsanitize=address}}\
+    %{%:sanitize(hwaddress):" LIBHWASAN_SPEC "\
+	%{static:%ecannot specify -static with -fsanitize=hwaddress}}\
     %{%:sanitize(thread):" LIBTSAN_SPEC "\
     %{static:%ecannot specify -static with -fsanitize=thread}}\
     %{%:sanitize(undefined):" LIBUBSAN_SPEC "}\
@@ -1207,7 +1234,7 @@ static const char *cpp_unique_options =
  %{M} %{MM} %{MF*} %{MG} %{MP} %{MQ*} %{MT*}\
  %{Mmodules} %{Mno-modules}\
  %{!E:%{!M:%{!MM:%{!MT:%{!MQ:%{MD|MMD:%{o*:-MQ %*}}}}}}}\
- %{remap} %{g3|ggdb3|gstabs3|gxcoff3|gvms3:-dD}\
+ %{remap} %{%:debug-level-gt(2):-dD}\
  %{!iplugindir*:%{fplugin*:%:find-plugindir()}}\
  %{H} %C %{D*&U*&A*} %{i*} %Z %i\
  %{E|M|MM:%W{o*}}";
@@ -2169,6 +2196,32 @@ open_at_file (void)
      in_at_file = true;
 }
 
+/* Create a temporary @file name.  */
+
+static char *make_at_file (void)
+{
+  static int fileno = 0;
+  char filename[20];
+  const char *base, *ext;
+
+  if (!save_temps_flag)
+    return make_temp_file ("");
+
+  base = dumpbase;
+  if (!(base && *base))
+    base = dumpdir;
+  if (!(base && *base))
+    base = "a";
+
+  sprintf (filename, ".args.%d", fileno++);
+  ext = filename;
+
+  if (base == dumpdir && dumpdir_trailing_dash_added)
+    ext++;
+
+  return concat (base, ext, NULL);
+}
+
 /* Close the temporary @file and add @file to the argument list.  */
 
 static void
@@ -2184,7 +2237,7 @@ close_at_file (void)
     return;
 
   char **argv = (char **) alloca (sizeof (char *) * (n_args + 1));
-  char *temp_file = make_temp_file ("");
+  char *temp_file = make_at_file ();
   char *at_argument = concat ("@", temp_file, NULL);
   FILE *f = fopen (temp_file, "w");
   int status;
@@ -3344,35 +3397,6 @@ execute (void)
       int err;
       const char *string = commands[i].argv[0];
 
-      if (false && commands[i].argv == argbuf.address ())
-	{
-	  /* Munge argv[0], the one given to the exec'd command, to
-	     include information about from whence it was spawned.  We
-	     preserve the directory component so the command can
-	     determine where it is, but not what it was called.
-	     Thus its otherwise unlocated errors specify something
-	     like 'g++.cc1plus' rather than plan 'cc1plus'.  */
-	  size_t slen = strlen (string);
-	  size_t plen = strlen (progname);
-	  size_t tlen = strlen (commands[i].prog);
-
-	  while (slen && !IS_DIR_SEPARATOR (string[slen-1]))
-	    slen--;
-	  char *ren = XNEWVEC (char, slen + plen + tlen + 3);
-	  size_t off = 0;
-
-	  memcpy (ren + off, string, slen);
-	  off += slen;
-	  memcpy (ren + off, progname, plen);
-	  off += plen;
-	  ren[off++] = '.';
-	  memcpy (ren + off, commands[i].prog, tlen);
-	  off += tlen;
-	  ren[off++] = 0;
-
-	  commands[i].argv[0] = ren;
-	}
-
       errmsg = pex_run (pex,
 			((i + 1 == n_commands ? PEX_LAST : 0)
 			 | (string == commands[i].prog ? PEX_SEARCH : 0)),
@@ -3385,12 +3409,6 @@ execute (void)
 		       err ? G_("cannot execute %qs: %s: %m")
 		       : G_("cannot execute %qs: %s"),
 		       string, errmsg);
-	}
-
-      if (commands[i].argv[0] != string)
-	{
-	  free (const_cast <char *> (commands[i].argv[0]));
-	  commands[i].argv[0] = string;
 	}
 
       if (i && string != commands[i].prog)
@@ -3689,7 +3707,7 @@ convert_filename (const char *name, int do_exe ATTRIBUTE_UNUSED,
 #if defined(HAVE_TARGET_EXECUTABLE_SUFFIX)
   /* If there is no filetype, make it the executable suffix (which includes
      the ".").  But don't get confused if we have just "-o".  */
-  if (! do_exe || TARGET_EXECUTABLE_SUFFIX[0] == 0 || (len == 2 && name[0] == '-'))
+  if (! do_exe || TARGET_EXECUTABLE_SUFFIX[0] == 0 || not_actual_file_p (name))
     return name;
 
   for (i = len - 1; i >= 0; i--)
@@ -4793,6 +4811,7 @@ process_command (unsigned int decoded_options_count,
       if (decoded_options[j].opt_index == OPT_SPECIAL_input_file)
 	{
 	  const char *arg = decoded_options[j].arg;
+
 #ifdef HAVE_TARGET_OBJECT_SUFFIX
 	  arg = convert_filename (arg, 0, access (arg, F_OK));
 #endif
@@ -8620,16 +8639,7 @@ driver::maybe_print_and_exit () const
 
       if (! verbose_flag)
 	{
-#if 1
-	  printf ("\nTHIS IS AN IN-DEVELOPMENT COMPILER\n"
-#if !CHECKING_P
-		  "This has been configured with --disable-checking,"
-		  " ARE YOU SURE THAT IS WISE?\n"
-#endif
-		  "For bug reporting, see the UNUSUAL URL:\n");
-#else
 	  printf (_("\nFor bug reporting instructions, please see:\n"));
-#endif
 	  printf ("%s.\n", bug_report_url);
 
 	  return (0);
@@ -8647,7 +8657,7 @@ driver::maybe_print_and_exit () const
     {
       printf (_("%s %s%s\n"), progname, pkgversion_string,
 	      version_string);
-      printf ("Copyright %s 2020 Free Software Foundation, Inc.\n",
+      printf ("Copyright %s 2021 Free Software Foundation, Inc.\n",
 	      _("(C)"));
       fputs (_("This is free software; see the source for copying conditions.  There is NO\n\
 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"),
@@ -9010,8 +9020,15 @@ driver::maybe_run_linker (const char *argv0) const
     for (i = 0; (int) i < n_infiles; i++)
       if (explicit_link_files[i]
 	  && !(infiles[i].language && infiles[i].language[0] == '*'))
-	warning (0, "%s: linker input file unused because linking not done",
-		 outfiles[i]);
+	{
+	  warning (0, "%s: linker input file unused because linking not done",
+		   outfiles[i]);
+	  if (access (outfiles[i], F_OK) < 0)
+	    /* This is can be an indication the user specifed an errorneous
+	       separated option value, (or used the wrong prefix for an
+	       option).  */
+	    error ("%s: linker input file not found: %m", outfiles[i]);
+	}
 }
 
 /* The end of "main".  */
@@ -9027,12 +9044,7 @@ driver::final_actions () const
 
   if (print_help_list)
     {
-#if 1
-      printf ("\nTHIS IS AN IN-DEVELOPMENT COMPILER\n"
-	      "For bug reporting, see the UNUSUAL URL:\n");
-#else
       printf (("\nFor bug reporting instructions, please see:\n"));
-#endif
       printf ("%s\n", bug_report_url);
     }
 }
@@ -9765,6 +9777,7 @@ print_multilib_info (void)
   const char *p = multilib_select;
   const char *last_path = 0, *this_path;
   int skip;
+  int not_arg;
   unsigned int last_path_len = 0;
 
   while (*p != '\0')
@@ -9903,12 +9916,14 @@ print_multilib_info (void)
 	  last_path_len = p - this_path;
 	}
 
-      /* If this directory requires any default arguments, we can skip
-	 it.  We will already have printed a directory identical to
-	 this one which does not require that default argument.  */
+      /* If all required arguments are default arguments, and no default
+	 arguments appear in the ! argument list, then we can skip it.
+	 We will already have printed a directory identical to this one
+	 which does not require that default argument.  */
       if (! skip)
 	{
 	  const char *q;
+	  bool default_arg_ok = false;
 
 	  q = p + 1;
 	  while (*q != ';')
@@ -9919,9 +9934,13 @@ print_multilib_info (void)
 		goto invalid_select;
 
 	      if (*q == '!')
-		arg = NULL;
+		{
+		  not_arg = 1;
+		  q++;
+		}
 	      else
-		arg = q;
+		not_arg = 0;
+	      arg = q;
 
 	      while (*q != ' ' && *q != ';')
 		{
@@ -9930,16 +9949,35 @@ print_multilib_info (void)
 		  ++q;
 		}
 
-	      if (arg != NULL
-		  && default_arg (arg, q - arg))
+	      if (default_arg (arg, q - arg))
 		{
-		  skip = 1;
+		  /* Stop checking if any default arguments appeared in not
+		     list.  */
+		  if (not_arg)
+		    {
+		      default_arg_ok = false;
+		      break;
+		    }
+
+		  default_arg_ok = true;
+		}
+	      else if (!not_arg)
+		{
+		  /* Stop checking if any required argument is not provided by
+		     default arguments.  */
+		  default_arg_ok = false;
 		  break;
 		}
 
 	      if (*q == ' ')
 		++q;
 	    }
+
+	  /* Make sure all default argument is OK for this multi-lib set.  */
+	  if (default_arg_ok)
+	    skip = 1;
+	  else
+	    skip = 0;
 	}
 
       if (! skip)
@@ -10142,8 +10180,12 @@ sanitize_spec_function (int argc, const char **argv)
 
   if (strcmp (argv[0], "address") == 0)
     return (flag_sanitize & SANITIZE_USER_ADDRESS) ? "" : NULL;
+  if (strcmp (argv[0], "hwaddress") == 0)
+    return (flag_sanitize & SANITIZE_USER_HWADDRESS) ? "" : NULL;
   if (strcmp (argv[0], "kernel-address") == 0)
     return (flag_sanitize & SANITIZE_KERNEL_ADDRESS) ? "" : NULL;
+  if (strcmp (argv[0], "kernel-hwaddress") == 0)
+    return (flag_sanitize & SANITIZE_KERNEL_HWADDRESS) ? "" : NULL;
   if (strcmp (argv[0], "thread") == 0)
     return (flag_sanitize & SANITIZE_THREAD) ? "" : NULL;
   if (strcmp (argv[0], "undefined") == 0)
@@ -10561,7 +10603,7 @@ static bool
 not_actual_file_p (const char *name)
 {
   return (strcmp (name, "-") == 0
-	  || strcmp (output_file, HOST_BIT_BUCKET) == 0);
+	  || strcmp (name, HOST_BIT_BUCKET) == 0);
 }
 
 /* %:dumps spec function.  Take an optional argument that overrides

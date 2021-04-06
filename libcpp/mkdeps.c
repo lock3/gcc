@@ -1,5 +1,5 @@
 /* Dependency generator for Makefile fragments.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Zack Weinberg, Mar 2000
 
 This program is free software; you can redistribute it and/or modify it
@@ -81,7 +81,7 @@ public:
   };
 
   mkdeps ()
-    : module_name (NULL), bmi_name (NULL), is_header_unit (false), quote_lwm (0)
+    : module_name (NULL), cmi_name (NULL), is_header_unit (false), quote_lwm (0)
   {
   }
   ~mkdeps ()
@@ -97,7 +97,7 @@ public:
     for (i = modules.size (); i--;)
       XDELETEVEC (modules[i]);
     XDELETEVEC (module_name);
-    free (const_cast <char *> (bmi_name));
+    free (const_cast <char *> (cmi_name));
   }
 
 public:
@@ -108,28 +108,25 @@ public:
 
 public:
   const char *module_name;
-  const char *bmi_name;
+  const char *cmi_name;
   bool is_header_unit;
   unsigned short quote_lwm;
 };
 
-/* Apply Make quoting to STR, TRAIL etc.  Note that it's not possible
-   to quote all such characters - e.g. \n, %, *, ?, [, \ (in some
+/* Apply Make quoting to STR, TRAIL.  Note that it's not possible to
+   quote all such characters - e.g. \n, %, *, ?, [, \ (in some
    contexts), and ~ are not properly handled.  It isn't possible to
    get this right in any current version of Make.  (??? Still true?
    Old comment referred to 3.76.1.)  */
 
 static const char *
-munge (const char *str, const char *trail = NULL, ...)
+munge (const char *str, const char *trail = nullptr)
 {
   static unsigned alloc;
   static char *buf;
   unsigned dst = 0;
-  va_list args;
-  if (trail)
-    va_start (args, trail);
 
-  for (bool first = true; str; first = false)
+  for (; str; str = trail, trail = nullptr)
     {
       unsigned slashes = 0;
       char c;
@@ -165,7 +162,6 @@ munge (const char *str, const char *trail = NULL, ...)
 	      /* FALLTHROUGH  */
 
 	    case '#':
-	    case ':':
 	      buf[dst++] = '\\';
 	      /* FALLTHROUGH  */
 
@@ -177,14 +173,7 @@ munge (const char *str, const char *trail = NULL, ...)
 
 	  buf[dst++] = c;
 	}
-
-      if (first)
-	str = trail;
-      else
-	str = va_arg (args, const char *);
     }
-  if (trail)
-    va_end (args);
 
   buf[dst] = 0;
   return buf;
@@ -331,25 +320,26 @@ deps_add_vpath (class mkdeps *d, const char *vpath)
     }
 }
 
-/* Add a new module dependency.  M is the module name, with P being
-   any partition name thereof (might be NULL).  If BMI is NULL, this
-   is an import dependency.  Otherwise, this is an output dependency
-   specifying BMI as the output file, of type IS_HEADER_UNIT.  */
+/* Add a new module target (there can only be one).  M is the module
+   name.   */
 
 void
-deps_add_module (struct mkdeps *d, const char *m,
-		 const char *bmi, bool is_header_unit)
+deps_add_module_target (struct mkdeps *d, const char *m,
+			const char *cmi, bool is_header_unit)
 {
-  m = xstrdup (m);
+  gcc_assert (!d->module_name);
+  
+  d->module_name = xstrdup (m);
+  d->is_header_unit = is_header_unit;
+  d->cmi_name = xstrdup (cmi);
+}
 
-  if (bmi)
-    {
-      d->module_name = m;
-      d->is_header_unit = is_header_unit;
-      d->bmi_name = xstrdup (bmi);
-    }
-  else
-    d->modules.push (m);
+/* Add a new module dependency.  M is the module name.  */
+
+void
+deps_add_module_dep (struct mkdeps *d, const char *m)
+{
+  d->modules.push (xstrdup (m));
 }
 
 /* Write NAME, with a leading space to FP, a Makefile.  Advance COL as
@@ -361,7 +351,7 @@ make_write_name (const char *name, FILE *fp, unsigned col, unsigned colmax,
 		 bool quote = true, const char *trail = NULL)
 {
   if (quote)
-    name = munge (name, trail, NULL);
+    name = munge (name, trail);
   unsigned size = strlen (name);
 
   if (col)
@@ -408,8 +398,8 @@ make_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
   if (d->deps.size ())
     {
       column = make_write_vec (d->targets, fp, 0, colmax, d->quote_lwm);
-      if (CPP_OPTION (pfile, deps.modules) && d->bmi_name)
-	column = make_write_name (d->bmi_name, fp, column, colmax);
+      if (CPP_OPTION (pfile, deps.modules) && d->cmi_name)
+	column = make_write_name (d->cmi_name, fp, column, colmax);
       fputs (":", fp);
       column++;
       make_write_vec (d->deps, fp, column, colmax);
@@ -425,8 +415,8 @@ make_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
   if (d->modules.size ())
     {
       column = make_write_vec (d->targets, fp, 0, colmax, d->quote_lwm);
-      if (d->bmi_name)
-	column = make_write_name (d->bmi_name, fp, column, colmax);
+      if (d->cmi_name)
+	column = make_write_name (d->cmi_name, fp, column, colmax);
       fputs (":", fp);
       column++;
       column = make_write_vec (d->modules, fp, column, colmax, 0, ".c++m");
@@ -435,14 +425,14 @@ make_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
 
   if (d->module_name)
     {
-      if (d->bmi_name)
+      if (d->cmi_name)
 	{
-	  /* module-name : bmi-name */
+	  /* module-name : cmi-name */
 	  column = make_write_name (d->module_name, fp, 0, colmax,
 				    true, ".c++m");
 	  fputs (":", fp);
 	  column++;
-	  column = make_write_name (d->bmi_name, fp, column, colmax);
+	  column = make_write_name (d->cmi_name, fp, column, colmax);
 	  fputs ("\n", fp);
 
 	  column = fprintf (fp, ".PHONY:");
@@ -451,13 +441,13 @@ make_write (const cpp_reader *pfile, FILE *fp, unsigned int colmax)
 	  fputs ("\n", fp);
 	}
 
-      if (d->bmi_name && !d->is_header_unit)
+      if (d->cmi_name && !d->is_header_unit)
 	{
 	  /* An order-only dependency.
-	      bmi-name :| first-target
+	      cmi-name :| first-target
 	     We can probably drop this this in favour of Make-4.3's grouped
 	      targets '&:'  */
-	  column = make_write_name (d->bmi_name, fp, 0, colmax);
+	  column = make_write_name (d->cmi_name, fp, 0, colmax);
 	  fputs (":|", fp);
 	  column++;
 	  column = make_write_name (d->targets[0], fp, column, colmax);

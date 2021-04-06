@@ -10,7 +10,12 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#if defined (__unix__) || defined (__MACH__)
+#if ((defined (__unix__)						\
+      && defined _POSIX_C_SOURCE					\
+      && (_POSIX_C_SOURCE - 0) >= 200809L)				\
+     || (defined (__Apple__)						\
+	 && defined (__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) 	\
+	 && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000))
 // Autoconf test?
 #define HAVE_FSTATAT 1
 #else
@@ -29,8 +34,8 @@ inline bool IsAbsPath (char const *str)
   // IIRC windows has the concept of per-drive current directories,
   // which make drive-using paths confusing.  Let's not get into that.
   return IsDirSep (str)
-    || (((str[0] >= 'A' && str[1] <= 'Z')
-	 || (str[0] >= 'a' && str[1] <= 'z'))&& str[1] == ':');
+    || (((str[0] >= 'A' && str[0] <= 'Z')
+	 || (str[0] >= 'a' && str[0] <= 'z'))&& str[1] == ':');
 }
 #else
 inline bool IsDirSep (char c)
@@ -142,27 +147,28 @@ int Resolver::ModuleRepoRequest (Server *s)
   return 0;
 }
 
-int Resolver::ModuleExportRequest (Server *s, std::string &module)
+// Deprecated resolver functions
+int Resolver::ModuleExportRequest (Server *s, Flags, std::string &module)
 {
   auto cmi = GetCMIName (module);
   s->PathnameResponse (cmi);
   return 0;
 }
 
-int Resolver::ModuleImportRequest (Server *s, std::string &module)
+int Resolver::ModuleImportRequest (Server *s, Flags, std::string &module)
 {
   auto cmi = GetCMIName (module);
   s->PathnameResponse (cmi);
   return 0;
 }
 
-int Resolver::ModuleCompiledRequest (Server *s, std::string &)
+int Resolver::ModuleCompiledRequest (Server *s, Flags, std::string &)
 {
   s->OKResponse ();
   return 0;
 }
 
-int Resolver::IncludeTranslateRequest (Server *s, std::string &include)
+int Resolver::IncludeTranslateRequest (Server *s, Flags, std::string &include)
 {
   bool xlate = false;
 
@@ -175,7 +181,7 @@ int Resolver::IncludeTranslateRequest (Server *s, std::string &include)
   if (fd_dir >= 0
       && fstatat (fd_dir, cmi.c_str (), &statbuf, 0) == 0
       && S_ISREG (statbuf.st_mode))
-    // Sadly can't easily check if this proces has read access,
+    // Sadly can't easily check if this process has read access,
     // except by trying to open it.
     xlate = true;
   if (fd_dir >= 0)
@@ -194,12 +200,6 @@ int Resolver::IncludeTranslateRequest (Server *s, std::string &include)
   else
     s->BoolResponse (false);
 
-  return 0;
-}
-
-int Resolver::InvokeSubProcessRequest (Server *s, std::vector<std::string> &)
-{
-  s->ErrorResponse ("unimplemented");
   return 0;
 }
 

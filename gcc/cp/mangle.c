@@ -1,5 +1,5 @@
 /* Name mangling for the 3.0 -*- C++ -*- ABI.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Written by Alex Samuel <samuel@codesourcery.com>
 
    This file is part of GCC.
@@ -2868,16 +2868,20 @@ write_member_name (tree member)
 {
   if (identifier_p (member))
     {
-      if (abi_version_at_least (11) && IDENTIFIER_ANY_OP_P (member))
+      if (IDENTIFIER_ANY_OP_P (member))
 	{
-	  write_string ("on");
+	  if (abi_version_at_least (11))
+	    write_string ("on");
 	  if (abi_warn_or_compat_version_crosses (11))
 	    G.need_abi_warning = 1;
 	}
       write_unqualified_id (member);
     }
   else if (DECL_P (member))
-    write_unqualified_name (member);
+    {
+      gcc_assert (!DECL_OVERLOADED_OPERATOR_P (member));
+      write_unqualified_name (member);
+    }
   else if (TREE_CODE (member) == TEMPLATE_ID_EXPR)
     {
       tree name = TREE_OPERAND (member, 0);
@@ -3111,11 +3115,30 @@ write_expression (tree expr)
       else
 	goto normal_expr;
     }
-  else if (TREE_CODE (expr) == ALIGNOF_EXPR
-	   && TYPE_P (TREE_OPERAND (expr, 0)))
+  else if (TREE_CODE (expr) == ALIGNOF_EXPR)
     {
-      write_string ("at");
-      write_type (TREE_OPERAND (expr, 0));
+      if (!ALIGNOF_EXPR_STD_P (expr))
+	{
+	  if (abi_warn_or_compat_version_crosses (15))
+	    G.need_abi_warning = true;
+	  if (abi_version_at_least (15))
+	    {
+	      /* We used to mangle __alignof__ like alignof.  */
+	      write_string ("v111__alignof__");
+	      if (TYPE_P (TREE_OPERAND (expr, 0)))
+		write_type (TREE_OPERAND (expr, 0));
+	      else
+		write_expression (TREE_OPERAND (expr, 0));
+	      return;
+	    }
+	}
+      if (TYPE_P (TREE_OPERAND (expr, 0)))
+	{
+	  write_string ("at");
+	  write_type (TREE_OPERAND (expr, 0));
+	}
+      else
+	goto normal_expr;
     }
   else if (code == SCOPE_REF
 	   || code == BASELINK)
@@ -3143,6 +3166,7 @@ write_expression (tree expr)
 	write_expression (member);
       else
 	{
+	  gcc_assert (code != BASELINK || BASELINK_QUALIFIED_P (expr));
 	  write_string ("sr");
 	  write_type (scope);
 	  write_member_name (member);
@@ -3325,7 +3349,15 @@ write_expression (tree expr)
     }
   else if (dependent_name (expr))
     {
-      write_unqualified_id (dependent_name (expr));
+      tree name = dependent_name (expr);
+      if (IDENTIFIER_ANY_OP_P (name))
+	{
+	  if (abi_version_at_least (15))
+	    write_string ("on");
+	  if (abi_warn_or_compat_version_crosses (15))
+	    G.need_abi_warning = 1;
+	}
+      write_unqualified_id (name);
     }
   else
     {

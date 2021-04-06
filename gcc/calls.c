@@ -1,5 +1,5 @@
 /* Convert function calls to rtl insns, for GNU C compiler.
-   Copyright (C) 1989-2020 Free Software Foundation, Inc.
+   Copyright (C) 1989-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1548,7 +1548,7 @@ maybe_warn_alloc_args_overflow (tree fn, tree exp, tree args[2], int idx[2])
     {
       location_t fnloc = DECL_SOURCE_LOCATION (fn);
 
-      if (DECL_IS_BUILTIN (fn))
+      if (DECL_IS_UNDECLARED_BUILTIN (fn))
 	inform (loc,
 		"in a call to built-in allocation function %qD", fn);
       else
@@ -1922,7 +1922,7 @@ maybe_warn_nonstring_arg (tree fndecl, tree exp)
 /* Issue an error if CALL_EXPR was flagged as requiring
    tall-call optimization.  */
 
-static void
+void
 maybe_complain_about_tail_call (tree call_expr, const char *reason)
 {
   gcc_assert (TREE_CODE (call_expr) == CALL_EXPR);
@@ -2032,7 +2032,7 @@ maybe_warn_rdwr_sizes (rdwr_map *rwm, tree fndecl, tree fntype, tree exp)
       tree sizrng[2] = { size_zero_node, build_all_ones_cst (sizetype) };
       if (get_size_range (access_size, sizrng, true))
 	{
-	  const char *s0 = print_generic_expr_to_str (sizrng[0]);
+	  char *s0 = print_generic_expr_to_str (sizrng[0]);
 	  if (tree_int_cst_equal (sizrng[0], sizrng[1]))
 	    {
 	      gcc_checking_assert (strlen (s0) < sizeof sizstr);
@@ -2040,11 +2040,13 @@ maybe_warn_rdwr_sizes (rdwr_map *rwm, tree fndecl, tree fntype, tree exp)
 	    }
 	  else
 	    {
-	      const char *s1 = print_generic_expr_to_str (sizrng[1]);
+	      char *s1 = print_generic_expr_to_str (sizrng[1]);
 	      gcc_checking_assert (strlen (s0) + strlen (s1)
 				   < sizeof sizstr - 4);
 	      sprintf (sizstr, "[%s, %s]", s0, s1);
+	      free (s1);
 	    }
+	  free (s0);
 	}
       else
 	*sizstr = '\0';
@@ -2386,19 +2388,17 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
       function_arg_info arg (type, argpos < n_named_args);
       if (pass_by_reference (args_so_far_pnt, arg))
 	{
-	  bool callee_copies;
-	  tree base = NULL_TREE;
+	  const bool callee_copies
+	    = reference_callee_copied (args_so_far_pnt, arg);
+	  tree base;
 
-	  callee_copies = reference_callee_copied (args_so_far_pnt, arg);
-
-	  /* If we're compiling a thunk, pass through invisible references
-	     instead of making a copy.  */
-	  if (call_from_thunk_p
-	      || (callee_copies
-		  && !TREE_ADDRESSABLE (type)
-		  && (base = get_base_address (args[i].tree_value))
-		  && TREE_CODE (base) != SSA_NAME
-		  && (!DECL_P (base) || MEM_P (DECL_RTL (base)))))
+	  /* If we're compiling a thunk, pass directly the address of an object
+	     already in memory, instead of making a copy.  Likewise if we want
+	     to make the copy in the callee instead of the caller.  */
+	  if ((call_from_thunk_p || callee_copies)
+	      && (base = get_base_address (args[i].tree_value))
+	      && TREE_CODE (base) != SSA_NAME
+	      && (!DECL_P (base) || MEM_P (DECL_RTL (base))))
 	    {
 	      /* We may have turned the parameter value into an SSA name.
 		 Go back to the original parameter so we can take the
@@ -2623,6 +2623,10 @@ initialize_argument_information (int num_actuals ATTRIBUTE_UNUSED,
 
   /* Check attribute access arguments.  */
   maybe_warn_rdwr_sizes (&rdwr_idx, fndecl, fntype, exp);
+
+  /* Check calls to operator new for mismatched forms and attempts
+     to deallocate unallocated objects.  */
+  maybe_emit_free_warning (exp);
 }
 
 /* Update ARGS_SIZE to contain the total size for the argument block.
@@ -3525,7 +3529,6 @@ static bool
 can_implement_as_sibling_call_p (tree exp,
 				 rtx structure_value_addr,
 				 tree funtype,
-				 int reg_parm_stack_space ATTRIBUTE_UNUSED,
 				 tree fndecl,
 				 int flags,
 				 tree addr,
@@ -3549,20 +3552,6 @@ can_implement_as_sibling_call_p (tree exp,
       maybe_complain_about_tail_call (exp, "callee returns a structure");
       return false;
     }
-
-#ifdef REG_PARM_STACK_SPACE
-  /* If outgoing reg parm stack space changes, we cannot do sibcall.  */
-  if (OUTGOING_REG_PARM_STACK_SPACE (funtype)
-      != OUTGOING_REG_PARM_STACK_SPACE (TREE_TYPE (current_function_decl))
-      || (reg_parm_stack_space != REG_PARM_STACK_SPACE (current_function_decl)))
-    {
-      maybe_complain_about_tail_call (exp,
-				      "inconsistent size of stack space"
-				      " allocated for arguments which are"
-				      " passed in registers");
-      return false;
-    }
-#endif
 
   /* Check whether the target is able to optimize the call
      into a sibcall.  */
@@ -4088,7 +4077,6 @@ expand_call (tree exp, rtx target, int ignore)
     try_tail_call = can_implement_as_sibling_call_p (exp,
 						     structure_value_addr,
 						     funtype,
-						     reg_parm_stack_space,
 						     fndecl,
 						     flags, addr, args_size);
 

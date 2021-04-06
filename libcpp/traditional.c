@@ -1,5 +1,5 @@
 /* CPP Library - traditional lexical analysis and macro expansion.
-   Copyright (C) 2002-2020 Free Software Foundation, Inc.
+   Copyright (C) 2002-2021 Free Software Foundation, Inc.
    Contributed by Neil Booth, May 2002
 
 This program is free software; you can redistribute it and/or modify it
@@ -330,6 +330,7 @@ fun_like_macro (cpp_hashnode *node)
 {
   if (cpp_builtin_macro_p (node))
     return (node->value.builtin == BT_HAS_ATTRIBUTE
+	    || node->value.builtin == BT_HAS_STD_ATTRIBUTE
 	    || node->value.builtin == BT_HAS_BUILTIN
 	    || node->value.builtin == BT_HAS_INCLUDE
 	    || node->value.builtin == BT_HAS_INCLUDE_NEXT);
@@ -772,7 +773,7 @@ _cpp_scan_out_logical_line (cpp_reader *pfile, cpp_macro *macro,
 		      /* This is a kludge.  We want to have the ISO
 			 preprocessor lex the next token.  */
 		      pfile->buffer->cur = cur;
-		      _cpp_handle_directive (pfile, false);
+		      _cpp_handle_directive (pfile, false /* indented */);
 		      result = false;
 		      goto done;
 		    }

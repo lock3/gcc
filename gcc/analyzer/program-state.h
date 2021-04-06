@@ -1,5 +1,5 @@
 /* Classes for representing the state of interest at a given path of analysis.
-   Copyright (C) 2019-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2021 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -104,7 +104,7 @@ public:
   typedef hash_map <const svalue *, entry_t> map_t;
   typedef map_t::iterator iterator_t;
 
-  sm_state_map (const state_machine &sm, int m_sm_idx);
+  sm_state_map (const state_machine &sm);
 
   sm_state_map *clone () const;
 
@@ -157,6 +157,9 @@ public:
 			  bool is_mutable,
 			  const extrinsic_state &ext_state);
 
+  void purge_state_involving (const svalue *sval,
+			      const extrinsic_state &ext_state);
+
   iterator_t begin () const { return m_map.begin (); }
   iterator_t end () const { return m_map.end (); }
   size_t elements () const { return m_map.elements (); }
@@ -168,7 +171,6 @@ public:
 
 private:
   const state_machine &m_sm;
-  int m_sm_idx;
   map_t m_map;
   state_machine::state_t m_global_state;
 };

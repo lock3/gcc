@@ -1,5 +1,5 @@
 /* Diagnostic routines shared by all languages that are variants of C.
-   Copyright (C) 1992-2020 Free Software Foundation, Inc.
+   Copyright (C) 1992-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -585,7 +585,7 @@ warn_logical_not_parentheses (location_t location, enum tree_code code,
    (potential) location of the expression.  */
 
 bool
-warn_if_unused_value (const_tree exp, location_t locus)
+warn_if_unused_value (const_tree exp, location_t locus, bool quiet)
 {
  restart:
   if (TREE_USED (exp) || TREE_NO_WARNING (exp))
@@ -633,7 +633,7 @@ warn_if_unused_value (const_tree exp, location_t locus)
       goto restart;
 
     case COMPOUND_EXPR:
-      if (warn_if_unused_value (TREE_OPERAND (exp, 0), locus))
+      if (warn_if_unused_value (TREE_OPERAND (exp, 0), locus, quiet))
 	return true;
       /* Let people do `(foo (), 0)' without a warning.  */
       if (TREE_CONSTANT (TREE_OPERAND (exp, 1)))
@@ -647,6 +647,13 @@ warn_if_unused_value (const_tree exp, location_t locus)
       if (TREE_SIDE_EFFECTS (exp))
 	return false;
       goto warn;
+
+    case COMPLEX_EXPR:
+      /* Warn only if both operands are unused.  */
+      if (warn_if_unused_value (TREE_OPERAND (exp, 0), locus, true)
+	  && warn_if_unused_value (TREE_OPERAND (exp, 1), locus, true))
+	goto warn;
+      return false;
 
     case INDIRECT_REF:
       /* Don't warn about automatic dereferencing of references, since
@@ -671,6 +678,8 @@ warn_if_unused_value (const_tree exp, location_t locus)
 	return false;
 
     warn:
+      if (quiet)
+	return true;
       return warning_at (locus, OPT_Wunused_value, "value computed is not used");
     }
 }
@@ -2770,7 +2779,8 @@ do_warn_duplicated_branches (tree expr)
 
   /* Compare the hashes.  */
   if (h0 == h1
-      && operand_equal_p (thenb, elseb, OEP_LEXICOGRAPHIC)
+      && operand_equal_p (thenb, elseb, OEP_LEXICOGRAPHIC
+					| OEP_ADDRESS_OF_SAME_FIELD)
       /* Don't warn if any of the branches or their subexpressions comes
 	 from a macro.  */
       && !walk_tree_without_duplicates (&thenb, expr_from_macro_expansion_r,
@@ -3310,6 +3320,19 @@ warn_parm_ptrarray_mismatch (location_t origloc, tree curparms, tree newparms)
     }
 }
 
+/* Format EXPR if nonnull and return the formatted string.  If EXPR is
+   null return DFLT.  */
+
+static inline const char*
+expr_to_str (pretty_printer &pp, tree expr, const char *dflt)
+{
+  if (!expr)
+    return dflt;
+
+  dump_generic_node (&pp, expr, 0, TDF_VOPS | TDF_MEMSYMS, false);
+  return pp_formatted_text (&pp);
+}
+
 /* Detect and diagnose a mismatch between an attribute access specification
    on the original declaration of FNDECL and that on the parameters NEWPARMS
    from its refeclaration.  ORIGLOC is the location of the first declaration
@@ -3365,18 +3388,21 @@ warn_parm_array_mismatch (location_t origloc, tree fndecl, tree newparms)
   for (tree curp = curparms, newp = newparms; curp;
        curp = TREE_CHAIN (curp), newp = TREE_CHAIN (newp), ++parmpos)
     {
+      if (!newp)
+	/* Bail on invalid redeclarations with fewer arguments.  */
+	return;
+
       /* Only check pointers and C++ references.  */
+      tree curptype = TREE_TYPE (curp);
       tree newptype = TREE_TYPE (newp);
-      if (!POINTER_TYPE_P (newptype))
+      if (!POINTER_TYPE_P (curptype) || !POINTER_TYPE_P (newptype))
 	continue;
 
-      {
-	/* Skip mismatches in __builtin_va_list that is commonly
-	   an array but that in declarations of built-ins decays
-	   to a pointer.  */
-	if (builtin && TREE_TYPE (newptype) == TREE_TYPE (va_list_type_node))
-	  continue;
-      }
+      /* Skip mismatches in __builtin_va_list that is commonly
+	 an array but that in declarations of built-ins decays
+	 to a pointer.  */
+      if (builtin && TREE_TYPE (newptype) == TREE_TYPE (va_list_type_node))
+	continue;
 
       /* Access specs for the argument on the current (previous) and
 	 new (to replace the current) declarations.  Either may be null,
@@ -3419,7 +3445,6 @@ warn_parm_array_mismatch (location_t origloc, tree fndecl, tree newparms)
       if (origloc == UNKNOWN_LOCATION)
 	origloc = newloc;
 
-      tree curptype = TREE_TYPE (curp);
       const std::string newparmstr = newa->array_as_string (newptype);
       const std::string curparmstr = cura->array_as_string (curptype);
       if (new_vla_p && !cur_vla_p)
@@ -3574,10 +3599,9 @@ warn_parm_array_mismatch (location_t origloc, tree fndecl, tree newparms)
 	       the same.  */
 	    continue;
 
-	  const char* const newbndstr =
-	    newbnd ? print_generic_expr_to_str (newbnd) : "*";
-	  const char* const curbndstr =
-	    curbnd ? print_generic_expr_to_str (curbnd) : "*";
+	  pretty_printer pp1, pp2;
+	  const char* const newbndstr = expr_to_str (pp1, newbnd, "*");
+	  const char* const curbndstr = expr_to_str (pp2, curbnd, "*");
 
 	  if (!newpos != !curpos
 	      || (newpos && !tree_int_cst_equal (newpos, curpos)))

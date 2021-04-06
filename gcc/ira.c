@@ -1,5 +1,5 @@
 /* Integrated Register Allocator (IRA) entry point.
-   Copyright (C) 2006-2020 Free Software Foundation, Inc.
+   Copyright (C) 2006-2021 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -1829,7 +1829,10 @@ ira_setup_alts (rtx_insn *insn)
 		  case '0':  case '1':  case '2':  case '3':  case '4':
 		  case '5':  case '6':  case '7':  case '8':  case '9':
 		    {
-		      rtx other = recog_data.operand[c - '0'];
+		      char *end;
+		      unsigned long dup = strtoul (p, &end, 10);
+		      rtx other = recog_data.operand[dup];
+		      len = end - p;
 		      if (MEM_P (other)
 			  ? rtx_equal_p (other, op)
 			  : REG_P (op) || SUBREG_P (op))
@@ -1845,6 +1848,7 @@ ira_setup_alts (rtx_insn *insn)
 		  default:
 		    {
 		      enum constraint_num cn = lookup_constraint (p);
+		      rtx mem = NULL;
 		      switch (get_constraint_type (cn))
 			{
 			case CT_REGISTER:
@@ -1867,8 +1871,13 @@ ira_setup_alts (rtx_insn *insn)
 			  goto op_success;
 
 			case CT_MEMORY:
+			case CT_RELAXED_MEMORY:
+			  mem = op;
+			  /* Fall through.  */
 			case CT_SPECIAL_MEMORY:
-			  if (MEM_P (extract_mem_from_operand (op)))
+			  if (!mem)
+			    mem = extract_mem_from_operand (op);
+			  if (MEM_P (mem))
 			    goto op_success;
 			  win_p = true;
 			  break;
@@ -1917,7 +1926,7 @@ ira_setup_alts (rtx_insn *insn)
 int
 ira_get_dup_out_num (int op_num, alternative_mask alts)
 {
-  int curr_alt, c, original, dup;
+  int curr_alt, c, original;
   bool ignore_p, use_commut_op_p;
   const char *str;
 
@@ -1964,18 +1973,22 @@ ira_get_dup_out_num (int op_num, alternative_mask alts)
 		
 	      case '0': case '1': case '2': case '3': case '4':
 	      case '5': case '6': case '7': case '8': case '9':
-		if (original != -1 && original != c)
-		  goto fail;
-		original = c;
-		break;
+		{
+		  char *end;
+		  int n = (int) strtoul (str, &end, 10);
+		  str = end;
+		  if (original != -1 && original != n)
+		    goto fail;
+		  original = n;
+		  continue;
+		}
 	      }
 	  str += CONSTRAINT_LEN (c, str);
 	}
       if (original == -1)
 	goto fail;
-      dup = original - '0';
-      if (recog_data.operand_type[dup] == OP_OUT)
-	return dup;
+      if (recog_data.operand_type[original] == OP_OUT)
+	return original;
     fail:
       if (use_commut_op_p)
 	break;
@@ -4661,7 +4674,9 @@ find_moveable_pseudos (void)
 		|| !DF_REF_INSN_INFO (def)
 		|| HARD_REGISTER_NUM_P (regno)
 		|| DF_REG_EQ_USE_COUNT (regno) > 0
-		|| (!INTEGRAL_MODE_P (mode) && !FLOAT_MODE_P (mode)))
+		|| (!INTEGRAL_MODE_P (mode)
+		    && !FLOAT_MODE_P (mode)
+		    && !OPAQUE_MODE_P (mode)))
 	      continue;
 	    def_insn = DF_REF_INSN (def);
 
@@ -5104,6 +5119,15 @@ move_unallocated_pseudos (void)
       {
 	int idx = i - first_moveable_pseudo;
 	rtx other_reg = pseudo_replaced_reg[idx];
+	/* The iterating range [first_moveable_pseudo, last_moveable_pseudo)
+	   covers every new pseudo created in find_moveable_pseudos,
+	   regardless of the validation with it is successful or not.
+	   So we need to skip the pseudos which were used in those failed
+	   validations to avoid unexpected DF info and consequent ICE.
+	   We only set pseudo_replaced_reg[] when the validation is successful
+	   in find_moveable_pseudos, it's enough to check it here.  */
+	if (!other_reg)
+	  continue;
 	rtx_insn *def_insn = DF_REF_INSN (DF_REG_DEF_CHAIN (i));
 	/* The use must follow all definitions of OTHER_REG, so we can
 	   insert the new definition immediately after any of them.  */
@@ -5214,7 +5238,8 @@ contains_X_constraint_p (const char *str)
   return false;
 }
   
-/* Change INSN's scratches into pseudos and save their location.  */
+/* Change INSN's scratches into pseudos and save their location.
+   Return true if we changed any scratch.  */
 bool
 ira_remove_insn_scratches (rtx_insn *insn, bool all_p, FILE *dump_file,
 			   rtx (*get_reg) (rtx original))
@@ -5245,17 +5270,19 @@ ira_remove_insn_scratches (rtx_insn *insn, bool all_p, FILE *dump_file,
 }
 
 /* Return new register of the same mode as ORIGINAL.  Used in
-   ira_remove_scratches.  */
+   remove_scratches.  */
 static rtx
 get_scratch_reg (rtx original)
 {
   return gen_reg_rtx (GET_MODE (original));
 }
 
-/* Change scratches into pseudos and save their location.  */
-void
-ira_remove_scratches (void)
+/* Change scratches into pseudos and save their location.  Return true
+   if we changed any scratch.  */
+static bool
+remove_scratches (void)
 {
+  bool change_p = false;
   basic_block bb;
   rtx_insn *insn;
 
@@ -5266,8 +5293,12 @@ ira_remove_scratches (void)
     FOR_BB_INSNS (bb, insn)
     if (INSN_P (insn)
 	&& ira_remove_insn_scratches (insn, false, ira_dump_file, get_scratch_reg))
-      /* Because we might use DF, we need to keep DF info up to date.  */
-      df_insn_rescan (insn);
+      {
+	/* Because we might use DF, we need to keep DF info up to date.  */
+	df_insn_rescan (insn);
+	change_p = true;
+      }
+  return change_p;
 }
 
 /* Changes pseudos created by function remove_scratches onto scratches.	 */
@@ -5389,6 +5420,58 @@ ira (FILE *f)
   int ira_max_point_before_emit;
   bool saved_flag_caller_saves = flag_caller_saves;
   enum ira_region saved_flag_ira_region = flag_ira_region;
+  basic_block bb;
+  edge_iterator ei;
+  edge e;
+  bool output_jump_reload_p = false;
+  
+  if (ira_use_lra_p)
+    {
+      /* First put potential jump output reloads on the output edges
+	 as USE which will be removed at the end of LRA.  The major
+	 goal is actually to create BBs for critical edges for LRA and
+	 populate them later by live info.  In LRA it will be
+	 difficult to do this. */
+      FOR_EACH_BB_FN (bb, cfun)
+	{
+	  rtx_insn *end = BB_END (bb);
+	  if (!JUMP_P (end))
+	    continue;
+	  extract_insn (end);
+	  for (int i = 0; i < recog_data.n_operands; i++)
+	    if (recog_data.operand_type[i] != OP_IN)
+	      {
+		bool skip_p = false;
+		FOR_EACH_EDGE (e, ei, bb->succs)
+		  if (EDGE_CRITICAL_P (e)
+		      && e->dest != EXIT_BLOCK_PTR_FOR_FN (cfun)
+		      && (e->flags & EDGE_ABNORMAL))
+		    {
+		      skip_p = true;
+		      break;
+		    }
+		if (skip_p)
+		  break;
+		output_jump_reload_p = true;
+		FOR_EACH_EDGE (e, ei, bb->succs)
+		  if (EDGE_CRITICAL_P (e)
+		      && e->dest != EXIT_BLOCK_PTR_FOR_FN (cfun))
+		    {
+		      start_sequence ();
+		      /* We need to put some no-op insn here.  We can
+			 not put a note as commit_edges insertion will
+			 fail.  */
+		      emit_insn (gen_rtx_USE (VOIDmode, const1_rtx));
+		      rtx_insn *insns = get_insns ();
+		      end_sequence ();
+		      insert_insn_on_edge (insns, e);
+		    }
+		break;
+	      }
+	}
+      if (output_jump_reload_p)
+	commit_edge_insertions ();
+    }
 
   if (flag_ira_verbose < 10)
     {
@@ -5491,6 +5574,15 @@ ira (FILE *f)
   if (warn_clobbered)
     generate_setjmp_warnings ();
 
+  /* update_equiv_regs can use reg classes of pseudos and they are set up in
+     register pressure sensitive scheduling and loop invariant motion and in
+     live range shrinking.  This info can become obsolete if we add new pseudos
+     since the last set up.  Recalculate it again if the new pseudos were
+     added.  */
+  if (resize_reg_info () && (flag_sched_pressure || flag_live_range_shrinkage
+			     || flag_ira_loop_pressure))
+    ira_set_pseudo_classes (true, ira_dump_file);
+
   init_alias_analysis ();
   loop_optimizer_init (AVOID_CFG_MODIFICATIONS);
   reg_equiv = XCNEWVEC (struct equivalence, max_reg_num ());
@@ -5514,11 +5606,26 @@ ira (FILE *f)
   end_alias_analysis ();
   free (reg_equiv);
 
-  if (ira_use_lra_p)
-    ira_remove_scratches ();
+  /* Once max_regno changes, we need to free and re-init/re-compute
+     some data structures like regstat_n_sets_and_refs and reg_info_p.  */
+  auto regstat_recompute_for_max_regno = []() {
+    regstat_free_n_sets_and_refs ();
+    regstat_free_ri ();
+    regstat_init_n_sets_and_refs ();
+    regstat_compute_ri ();
+  };
 
-  if (resize_reg_info () && flag_ira_loop_pressure)
-    ira_set_pseudo_classes (true, ira_dump_file);
+  int max_regno_before_rm = max_reg_num ();
+  if (ira_use_lra_p && remove_scratches ())
+    {
+      ira_expand_reg_equiv ();
+      /* For now remove_scatches is supposed to create pseudos when it
+	 succeeds, assert this happens all the time.  Once it doesn't
+	 hold, we should guard the regstat recompute for the case
+	 max_regno changes.  */
+      gcc_assert (max_regno_before_rm != max_reg_num ());
+      regstat_recompute_for_max_regno ();
+    }
 
   setup_reg_equiv ();
   grow_reg_equivs ();
@@ -5642,12 +5749,7 @@ ira (FILE *f)
 #endif
 
   if (max_regno != max_regno_before_ira)
-    {
-      regstat_free_n_sets_and_refs ();
-      regstat_free_ri ();
-      regstat_init_n_sets_and_refs ();
-      regstat_compute_ri ();
-    }
+    regstat_recompute_for_max_regno ();
 
   overall_cost_before = ira_overall_cost;
   if (! ira_conflicts_p)
@@ -5682,6 +5784,21 @@ ira (FILE *f)
       flag_caller_saves = saved_flag_caller_saves;
       flag_ira_region = saved_flag_ira_region;
     }
+}
+
+/* Modify asm goto to avoid further trouble with this insn.  We can
+   not replace the insn by USE as in other asm insns as we still
+   need to keep CFG consistency.  */
+void
+ira_nullify_asm_goto (rtx_insn *insn)
+{
+  ira_assert (JUMP_P (insn) && INSN_CODE (insn) < 0);
+  rtx tmp = extract_asm_operands (PATTERN (insn));
+  PATTERN (insn) = gen_rtx_ASM_OPERANDS (VOIDmode, ggc_strdup (""), "", 0,
+					 rtvec_alloc (0),
+					 rtvec_alloc (0),
+					 ASM_OPERANDS_LABEL_VEC (tmp),
+					 ASM_OPERANDS_SOURCE_LOCATION(tmp));
 }
 
 static void

@@ -1,5 +1,5 @@
 /* Classes for representing the state of interest at a given path of analysis.
-   Copyright (C) 2019-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2021 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -154,8 +154,8 @@ sm_state_map::entry_t::cmp (const entry_t &entry_a, const entry_t &entry_b)
 
 /* sm_state_map's ctor.  */
 
-sm_state_map::sm_state_map (const state_machine &sm, int sm_idx)
-: m_sm (sm), m_sm_idx (sm_idx), m_map (), m_global_state (sm.get_start_state ())
+sm_state_map::sm_state_map (const state_machine &sm)
+: m_sm (sm), m_map (), m_global_state (sm.get_start_state ())
 {
 }
 
@@ -523,7 +523,7 @@ sm_state_map::on_liveness_change (const svalue_set &live_svalues,
        ++iter)
     {
       const svalue *iter_sval = (*iter).first;
-      if (!iter_sval->live_p (live_svalues, model))
+      if (!iter_sval->live_p (&live_svalues, model))
 	{
 	  svals_to_unset.add (iter_sval);
 	  entry_t e = (*iter).second;
@@ -579,6 +579,36 @@ sm_state_map::on_unknown_change (const svalue *sval,
 	    if (changed_key->get_base_region () == changed_reg)
 	      svals_to_unset.add (key);
 	  }
+    }
+
+  for (svalue_set::iterator iter = svals_to_unset.begin ();
+       iter != svals_to_unset.end (); ++iter)
+    impl_set_state (*iter, (state_machine::state_t)0, NULL, ext_state);
+}
+
+/* Purge state for things involving SVAL.
+   For use when SVAL changes meaning, at the def_stmt on an SSA_NAME.   */
+
+void
+sm_state_map::purge_state_involving (const svalue *sval,
+				     const extrinsic_state &ext_state)
+{
+  /* Currently svalue::involves_p requires this.  */
+  if (sval->get_kind () != SK_INITIAL)
+    return;
+
+  svalue_set svals_to_unset;
+
+  for (map_t::iterator iter = m_map.begin ();
+       iter != m_map.end ();
+       ++iter)
+    {
+      const svalue *key = (*iter).first;
+      entry_t e = (*iter).second;
+      if (!m_sm.can_purge_p (e.m_state))
+	continue;
+      if (key->involves_p (sval))
+	svals_to_unset.add (key);
     }
 
   for (svalue_set::iterator iter = svals_to_unset.begin ();
@@ -656,7 +686,7 @@ program_state::program_state (const extrinsic_state &ext_state)
   const int num_states = ext_state.get_num_checkers ();
   for (int i = 0; i < num_states; i++)
     {
-      sm_state_map *sm = new sm_state_map (ext_state.get_sm (i), i);
+      sm_state_map *sm = new sm_state_map (ext_state.get_sm (i));
       m_checker_states.quick_push (sm);
     }
 }
@@ -1201,7 +1231,7 @@ program_state::detect_leaks (const program_state &src_state,
 	 live in DEST_STATE: either explicitly reachable, or implicitly
 	 live based on the set of explicitly reachable svalues.
 	 Record those that have ceased to be live.  */
-      if (!sval->live_p (dest_svalues, dest_state.m_region_model))
+      if (!sval->live_p (&dest_svalues, dest_state.m_region_model))
 	dead_svals.quick_push (sval);
     }
 
@@ -1251,7 +1281,7 @@ test_sm_state_map ()
     const svalue *y_sval = model.get_rvalue (y, NULL);
     const svalue *z_sval = model.get_rvalue (z, NULL);
 
-    sm_state_map map (*sm, 0);
+    sm_state_map map (*sm);
     ASSERT_TRUE (map.is_empty_p ());
     ASSERT_EQ (map.get_state (x_sval, ext_state), start);
 
@@ -1280,7 +1310,7 @@ test_sm_state_map ()
     const svalue *y_sval = model.get_rvalue (y, NULL);
     const svalue *z_sval = model.get_rvalue (z, NULL);
 
-    sm_state_map map (*sm, 0);
+    sm_state_map map (*sm);
     ASSERT_TRUE (map.is_empty_p ());
     ASSERT_EQ (map.get_state (x_sval, ext_state), start);
     ASSERT_EQ (map.get_state (y_sval, ext_state), start);
@@ -1303,9 +1333,9 @@ test_sm_state_map ()
     const svalue *y_sval = model.get_rvalue (y, NULL);
     const svalue *z_sval = model.get_rvalue (z, NULL);
 
-    sm_state_map map0 (*sm, 0);
-    sm_state_map map1 (*sm, 0);
-    sm_state_map map2 (*sm, 0);
+    sm_state_map map0 (*sm);
+    sm_state_map map1 (*sm);
+    sm_state_map map2 (*sm);
 
     ASSERT_EQ (map0.hash (), map1.hash ());
     ASSERT_EQ (map0, map1);
@@ -1326,9 +1356,9 @@ test_sm_state_map ()
     const state_machine::state_t TEST_STATE_2 = &test_state_2;
     const state_machine::state test_state_3 ("test state 3", 3);
     const state_machine::state_t TEST_STATE_3 = &test_state_3;
-    sm_state_map map0 (*sm, 0);
-    sm_state_map map1 (*sm, 0);
-    sm_state_map map2 (*sm, 0);
+    sm_state_map map0 (*sm);
+    sm_state_map map1 (*sm);
+    sm_state_map map2 (*sm);
 
     ASSERT_EQ (map0.hash (), map1.hash ());
     ASSERT_EQ (map0, map1);

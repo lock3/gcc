@@ -1,5 +1,5 @@
 /* Tracking equivalence classes and constraints at a point on an execution path.
-   Copyright (C) 2019-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2021 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -1643,7 +1643,7 @@ public:
 
   bool should_purge_p (const svalue *sval) const
   {
-    return !sval->live_p (m_live_svalues, m_model);
+    return !sval->live_p (&m_live_svalues, m_model);
   }
 
 private:
@@ -1790,9 +1790,8 @@ class merger_fact_visitor : public fact_visitor
 {
 public:
   merger_fact_visitor (const constraint_manager *cm_b,
-		       constraint_manager *out,
-		       const model_merger &merger)
-  : m_cm_b (cm_b), m_out (out), m_merger (merger)
+		       constraint_manager *out)
+  : m_cm_b (cm_b), m_out (out)
   {}
 
   void on_fact (const svalue *lhs, enum tree_code code, const svalue *rhs)
@@ -1826,7 +1825,6 @@ public:
 private:
   const constraint_manager *m_cm_b;
   constraint_manager *m_out;
-  const model_merger &m_merger;
 };
 
 /* Use MERGER to merge CM_A and CM_B into *OUT.
@@ -1838,14 +1836,13 @@ private:
 void
 constraint_manager::merge (const constraint_manager &cm_a,
 			   const constraint_manager &cm_b,
-			   constraint_manager *out,
-			   const model_merger &merger)
+			   constraint_manager *out)
 {
   /* Merge the equivalence classes and constraints.
      The easiest way to do this seems to be to enumerate all of the facts
      in cm_a, see which are also true in cm_b,
      and add those to *OUT.  */
-  merger_fact_visitor v (&cm_b, out, merger);
+  merger_fact_visitor v (&cm_b, out);
   cm_a.for_each_fact (&v);
 }
 

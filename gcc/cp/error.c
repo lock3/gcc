@@ -1,6 +1,6 @@
 /* Call-backs for C++ error reporting.
    This code is non-reentrant.
-   Copyright (C) 1993-2020 Free Software Foundation, Inc.
+   Copyright (C) 1993-2021 Free Software Foundation, Inc.
    This file is part of GCC.
 
 GCC is free software; you can redistribute it and/or modify
@@ -179,6 +179,8 @@ cxx_initialize_diagnostics (diagnostic_context *context)
   pp->m_format_postprocessor = new cxx_format_postprocessor ();
 }
 
+/* Dump an '@module' name suffix for DECL, if any.  */
+
 static void
 dump_module_suffix (cxx_pretty_printer *pp, tree decl, int flags)
 {
@@ -253,9 +255,7 @@ dump_scope (cxx_pretty_printer *pp, tree scope, int flags)
     }
   else if ((flags & TFF_SCOPE) && TREE_CODE (scope) == FUNCTION_DECL)
     {
-      if (DECL_USE_TEMPLATE (scope))
-	f |= TFF_NO_FUNCTION_ARGUMENTS;
-      dump_function_decl (pp, scope, f);
+      dump_function_decl (pp, scope, f | TFF_NO_TEMPLATE_BINDINGS);
       pp_cxx_colon_colon (pp);
     }
 }
@@ -571,6 +571,7 @@ dump_type (cxx_pretty_printer *pp, tree t, int flags)
     case INTEGER_TYPE:
     case REAL_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case BOOLEAN_TYPE:
     case COMPLEX_TYPE:
     case VECTOR_TYPE:
@@ -918,6 +919,7 @@ dump_type_prefix (cxx_pretty_printer *pp, tree t, int flags)
     case UNION_TYPE:
     case LANG_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case TYPENAME_TYPE:
     case COMPLEX_TYPE:
     case VECTOR_TYPE:
@@ -1041,6 +1043,7 @@ dump_type_suffix (cxx_pretty_printer *pp, tree t, int flags)
     case UNION_TYPE:
     case LANG_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case TYPENAME_TYPE:
     case COMPLEX_TYPE:
     case VECTOR_TYPE:
@@ -2359,7 +2362,8 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
 	if (INDIRECT_REF_P (ob))
 	  {
 	    ob = TREE_OPERAND (ob, 0);
-	    if (!is_this_parameter (ob))
+	    if (!is_this_parameter (ob)
+		&& !is_dummy_object (ob))
 	      {
 		dump_expr (pp, ob, flags | TFF_EXPR_IN_PARENS);
 		if (TYPE_REF_P (TREE_TYPE (ob)))
@@ -2424,32 +2428,8 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
       break;
 
     case MEM_REF:
-      if (TREE_CODE (TREE_OPERAND (t, 0)) == ADDR_EXPR
-	  && integer_zerop (TREE_OPERAND (t, 1)))
-	dump_expr (pp, TREE_OPERAND (TREE_OPERAND (t, 0), 0), flags);
-      else
-	{
-	  pp_cxx_star (pp);
-	  if (!integer_zerop (TREE_OPERAND (t, 1)))
-	    {
-	      pp_cxx_left_paren (pp);
-	      if (!integer_onep (TYPE_SIZE_UNIT
-				 (TREE_TYPE (TREE_TYPE (TREE_OPERAND (t, 0))))))
-		{
-		  pp_cxx_left_paren (pp);
-		  dump_type (pp, ptr_type_node, flags);
-		  pp_cxx_right_paren (pp);
-		}
-	    }
-	  dump_expr (pp, TREE_OPERAND (t, 0), flags);
-	  if (!integer_zerop (TREE_OPERAND (t, 1)))
-	    {
-	      pp_cxx_ws_string (pp, "+");
-	      dump_expr (pp, fold_convert (ssizetype, TREE_OPERAND (t, 1)),
-                         flags);
-	      pp_cxx_right_paren (pp);
-	    }
-	}
+      /* Delegate to the base "C" pretty printer.  */
+      pp->c_pretty_printer::unary_expression (t);
       break;
 
     case TARGET_MEM_REF:
@@ -2859,6 +2839,7 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
     case ENUMERAL_TYPE:
     case REAL_TYPE:
     case VOID_TYPE:
+    case OPAQUE_TYPE:
     case BOOLEAN_TYPE:
     case INTEGER_TYPE:
     case COMPLEX_TYPE:
@@ -3598,6 +3579,14 @@ function_category (tree fn)
     return _("In function %qs");
 }
 
+/* Disable warnings about missing quoting in GCC diagnostics for
+   the pp_verbatim calls.  Their format strings deliberately don't
+   follow GCC diagnostic conventions.  */
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wformat-diag"
+#endif
+
 /* Report the full context of a current template instantiation,
    onto BUFFER.  */
 static void
@@ -4198,11 +4187,16 @@ add_quotes (const char *content, bool show_color)
   pp_show_color (&tmp_pp) = show_color;
 
   /* We have to use "%<%s%>" rather than "%qs" here in order to avoid
-     quoting colorization bytes within the results.  */
+     quoting colorization bytes within the results and using either
+     pp_quote or pp_begin_quote doesn't work the same.  */
   pp_printf (&tmp_pp, "%<%s%>", content);
 
   return pp_ggc_formatted_text (&tmp_pp);
 }
+
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic pop
+#endif
 
 /* If we had %H and %I, and hence deferred printing them,
    print them now, storing the result into the chunk_info

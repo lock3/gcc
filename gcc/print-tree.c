@@ -1,5 +1,5 @@
 /* Prints out tree in human readable form - GCC
-   Copyright (C) 1990-2020 Free Software Foundation, Inc.
+   Copyright (C) 1990-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1052,7 +1052,7 @@ print_decl_identifier (FILE *file, tree decl, int flags)
 
   if (flags & PRINT_DECL_ORIGIN)
     {
-      if (DECL_IS_BUILTIN (decl))
+      if (DECL_IS_UNDECLARED_BUILTIN (decl))
 	fputs ("<built-in>", file);
       else
 	{

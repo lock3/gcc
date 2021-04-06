@@ -1,5 +1,5 @@
 /* Data References Analysis and Manipulation Utilities for Vectorization.
-   Copyright (C) 2003-2020 Free Software Foundation, Inc.
+   Copyright (C) 2003-2021 Free Software Foundation, Inc.
    Contributed by Dorit Naishlos <dorit@il.ibm.com>
    and Ira Rosen <irar@il.ibm.com>
 
@@ -136,6 +136,8 @@ vect_get_smallest_scalar_type (stmt_vec_info stmt_info,
 	  || gimple_assign_rhs_code (assign) == WIDEN_SUM_EXPR
 	  || gimple_assign_rhs_code (assign) == WIDEN_MULT_EXPR
 	  || gimple_assign_rhs_code (assign) == WIDEN_LSHIFT_EXPR
+	  || gimple_assign_rhs_code (assign) == WIDEN_PLUS_EXPR
+	  || gimple_assign_rhs_code (assign) == WIDEN_MINUS_EXPR
 	  || gimple_assign_rhs_code (assign) == FLOAT_EXPR))
     {
       tree rhs_type = TREE_TYPE (gimple_assign_rhs1 (assign));
@@ -688,7 +690,8 @@ vect_slp_analyze_node_dependences (vec_info *vinfo, slp_tree node,
       stmt_vec_info last_access_info = vect_find_last_scalar_stmt_in_slp (node);
       for (unsigned k = 0; k < SLP_TREE_SCALAR_STMTS (node).length (); ++k)
 	{
-	  stmt_vec_info access_info = SLP_TREE_SCALAR_STMTS (node)[k];
+	  stmt_vec_info access_info
+	    = vect_orig_stmt (SLP_TREE_SCALAR_STMTS (node)[k]);
 	  if (access_info == last_access_info)
 	    continue;
 	  data_reference *dr_a = STMT_VINFO_DATA_REF (access_info);
@@ -759,7 +762,8 @@ vect_slp_analyze_node_dependences (vec_info *vinfo, slp_tree node,
 	= vect_find_first_scalar_stmt_in_slp (node);
       for (unsigned k = 0; k < SLP_TREE_SCALAR_STMTS (node).length (); ++k)
 	{
-	  stmt_vec_info access_info = SLP_TREE_SCALAR_STMTS (node)[k];
+	  stmt_vec_info access_info
+	    = vect_orig_stmt (SLP_TREE_SCALAR_STMTS (node)[k]);
 	  if (access_info == first_access_info)
 	    continue;
 	  data_reference *dr_a = STMT_VINFO_DATA_REF (access_info);
@@ -1184,14 +1188,9 @@ static void
 vect_update_misalignment_for_peel (dr_vec_info *dr_info,
 				   dr_vec_info *dr_peel_info, int npeel)
 {
-  /* It can be assumed that if dr_info has the same alignment as dr_peel,
-     it is aligned in the vector loop.  */
+  /* If dr_info is aligned of dr_peel_info is, then mark it so.  */
   if (vect_dr_aligned_if_peeled_dr_is (dr_info, dr_peel_info))
     {
-      gcc_assert (!known_alignment_for_access_p (dr_info)
-		  || !known_alignment_for_access_p (dr_peel_info)
-		  || (DR_MISALIGNMENT (dr_info)
-		      == DR_MISALIGNMENT (dr_peel_info)));
       SET_DR_MISALIGNMENT (dr_info, 0);
       return;
     }
@@ -2164,7 +2163,7 @@ vect_enhance_data_refs_alignment (loop_vec_info loop_vinfo)
         {
           unsigned max_allowed_peel
 	    = param_vect_max_peeling_for_alignment;
-	  if (flag_vect_cost_model == VECT_COST_MODEL_CHEAP)
+	  if (flag_vect_cost_model <= VECT_COST_MODEL_CHEAP)
 	    max_allowed_peel = 0;
           if (max_allowed_peel != (unsigned)-1)
             {
@@ -2262,7 +2261,7 @@ vect_enhance_data_refs_alignment (loop_vec_info loop_vinfo)
   do_versioning
     = (optimize_loop_nest_for_speed_p (loop)
        && !loop->inner /* FORNOW */
-       && flag_vect_cost_model != VECT_COST_MODEL_CHEAP);
+       && flag_vect_cost_model > VECT_COST_MODEL_CHEAP);
 
   if (do_versioning)
     {
@@ -2444,7 +2443,8 @@ vect_slp_analyze_node_alignment (vec_info *vinfo, slp_tree node)
 
   /* For creating the data-ref pointer we need alignment of the
      first element as well.  */
-  first_stmt_info = vect_find_first_scalar_stmt_in_slp (node);
+  first_stmt_info
+    = vect_stmt_to_vectorize (vect_find_first_scalar_stmt_in_slp (node));
   if (first_stmt_info != SLP_TREE_SCALAR_STMTS (node)[0])
     {
       first_dr_info = STMT_VINFO_DR_INFO (first_stmt_info);
@@ -2538,7 +2538,11 @@ vect_analyze_group_access_1 (vec_info *vinfo, dr_vec_info *dr_info)
 	 size.  */
       if (DR_IS_READ (dr)
 	  && (dr_step % type_size) == 0
-	  && groupsize > 0)
+	  && groupsize > 0
+	  /* This could be UINT_MAX but as we are generating code in a very
+	     inefficient way we have to cap earlier.
+	     See PR91403 for example.  */
+	  && groupsize <= 4096)
 	{
 	  DR_GROUP_FIRST_ELEMENT (stmt_info) = stmt_info;
 	  DR_GROUP_SIZE (stmt_info) = groupsize;
@@ -3258,7 +3262,7 @@ vect_vfa_access_size (vec_info *vinfo, dr_vec_info *dr_info)
 static unsigned int
 vect_vfa_align (dr_vec_info *dr_info)
 {
-  return TYPE_ALIGN_UNIT (TREE_TYPE (DR_REF (dr_info->dr)));
+  return dr_alignment (dr_info->dr);
 }
 
 /* Function vect_no_alias_p.
@@ -3683,6 +3687,10 @@ vect_prune_runtime_alias_test_list (loop_vec_info loop_vinfo)
 
   unsigned int count = (comp_alias_ddrs.length ()
 			+ check_unequal_addrs.length ());
+
+  if (count && flag_vect_cost_model == VECT_COST_MODEL_VERY_CHEAP)
+    return opt_result::failure_at
+      (vect_location, "would need a runtime alias check\n");
 
   if (dump_enabled_p ())
     dump_printf_loc (MSG_NOTE, vect_location,

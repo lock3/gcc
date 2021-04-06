@@ -1,5 +1,5 @@
 /* Passes for transactional memory support.
-   Copyright (C) 2008-2020 Free Software Foundation, Inc.
+   Copyright (C) 2008-2021 Free Software Foundation, Inc.
    Contributed by Richard Henderson <rth@redhat.com>
    and Aldy Hernandez <aldyh@redhat.com>.
 
@@ -4998,7 +4998,7 @@ ipa_tm_create_version (struct cgraph_node *old_node)
   new_node->lowered = true;
   new_node->tm_clone = 1;
   if (!old_node->implicit_section)
-    new_node->set_section (old_node->get_section ());
+    new_node->set_section (*old_node);
   get_cg_data (&old_node, true)->clone = new_node;
 
   if (old_node->get_availability () >= AVAIL_INTERPOSABLE)

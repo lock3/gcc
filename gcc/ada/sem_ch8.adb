@@ -772,6 +772,31 @@ package body Sem_Ch8 is
       --  Obtain the name of the object from node Nod which is being renamed by
       --  the object renaming declaration N.
 
+      function Find_Raise_Node (N : Node_Id) return Traverse_Result;
+      --  Process one node in search for N_Raise_xxx_Error nodes.
+      --  Return Abandon if found, OK otherwise.
+
+      ---------------------
+      -- Find_Raise_Node --
+      ---------------------
+
+      function Find_Raise_Node (N : Node_Id) return Traverse_Result is
+      begin
+         if Nkind (N) in N_Raise_xxx_Error then
+            return Abandon;
+         else
+            return OK;
+         end if;
+      end Find_Raise_Node;
+
+      ------------------------
+      -- No_Raise_xxx_Error --
+      ------------------------
+
+      function No_Raise_xxx_Error is new Traverse_Func (Find_Raise_Node);
+      --  Traverse tree to look for a N_Raise_xxx_Error node and returns
+      --  Abandon if so and OK if none found.
+
       ------------------------------
       -- Check_Constrained_Object --
       ------------------------------
@@ -805,11 +830,19 @@ package body Sem_Ch8 is
             --  that are used in iterators. This is an optimization, but it
             --  also prevents typing anomalies when the prefix is further
             --  expanded.
+
             --  Note that we cannot just use the Is_Limited_Record flag because
             --  it does not apply to records with limited components, for which
             --  this syntactic flag is not set, but whose size is also fixed.
 
-            elsif Is_Limited_Type (Typ) then
+            --  Note also that we need to build the constrained subtype for an
+            --  array in order to make the bounds explicit in most cases, but
+            --  not if the object comes from an extended return statement, as
+            --  this would create dangling references to them later on.
+
+            elsif Is_Limited_Type (Typ)
+              and then (not Is_Array_Type (Typ) or else Is_Return_Object (Id))
+            then
                null;
 
             else
@@ -1036,6 +1069,22 @@ package body Sem_Ch8 is
 
          if Is_Entity_Name (Nam) then
             Mark_Ghost_Renaming (N, Entity (Nam));
+         end if;
+
+         --  Check against AI12-0401 here before Resolve may rewrite Nam and
+         --  potentially generate spurious warnings.
+
+         if Nkind (Nam) = N_Qualified_Expression
+           and then Is_Variable (Expression (Nam))
+           and then not
+             (Subtypes_Statically_Match (T, Etype (Expression (Nam)))
+                or else
+              Subtypes_Statically_Match (Base_Type (T), Etype (Nam)))
+         then
+            Error_Msg_N
+              ("subtype of renamed qualified expression does not " &
+               "statically match", N);
+            return;
          end if;
 
          Resolve (Nam, T);
@@ -1438,10 +1487,11 @@ package body Sem_Ch8 is
       then
          Error_Msg_N ("incompatible types in renaming", Nam);
 
-      --  AI12-0383: Names that denote values can be renamed
+      --  AI12-0383: Names that denote values can be renamed.
+      --  Ignore (accept) N_Raise_xxx_Error nodes in this context.
 
-      elsif Ada_Version < Ada_2020 then
-         Error_Msg_N ("value in renaming requires -gnat2020", Nam);
+      elsif No_Raise_xxx_Error (Nam) = OK then
+         Error_Msg_Ada_2020_Feature ("value in renaming", Sloc (Nam));
       end if;
 
       Set_Etype (Id, T2);
@@ -5606,7 +5656,10 @@ package body Sem_Ch8 is
          --  undefined reference. The entry is not added if we are ignoring
          --  errors.
 
-         if not All_Errors_Mode and then Ignore_Errors_Enable = 0 then
+         if not All_Errors_Mode
+           and then Ignore_Errors_Enable = 0
+           and then not Get_Ignore_Errors
+         then
             Urefs.Append (
               (Node => N,
                Err  => Emsg,
@@ -5659,8 +5712,7 @@ package body Sem_Ch8 is
                --  happens for trees generated from Exp_Pakd, where expressions
                --  can be deliberately "mis-typed" to the packed array type.
 
-               if Is_Array_Type (Entyp)
-                 and then Is_Packed (Entyp)
+               if Is_Packed_Array (Entyp)
                  and then Present (Etype (N))
                  and then Etype (N) = Packed_Array_Impl_Type (Entyp)
                then
@@ -5736,12 +5788,6 @@ package body Sem_Ch8 is
 
          E := Homonym (E);
       end loop;
-
-      --  If we are ignoring errors, skip the error processing
-
-      if Get_Ignore_Errors then
-         return;
-      end if;
 
       --  If no entries on homonym chain that were potentially visible,
       --  and no entities reasonably considered as non-visible, then
@@ -7520,7 +7566,7 @@ package body Sem_Ch8 is
 
          --  Reference to type name in predicate/invariant expression
 
-         elsif (Is_Task_Type (P_Type) or else Is_Protected_Type (P_Type))
+         elsif Is_Concurrent_Type (P_Type)
            and then not In_Open_Scopes (P_Name)
            and then (not Is_Concurrent_Type (Etype (P_Name))
                       or else not In_Open_Scopes (Etype (P_Name)))
@@ -7855,7 +7901,7 @@ package body Sem_Ch8 is
 
                      elsif Warn_On_Obsolescent_Feature and then False then
                         Error_Msg_N
-                          ("applying 'Class to an untagged incomplete type"
+                          ("applying ''Class to an untagged incomplete type"
                            & " is an obsolescent feature (RM J.11)?r?", N);
                      end if;
                   end if;
@@ -8751,9 +8797,8 @@ package body Sem_Ch8 is
 
          --  Mark primitives
 
-         elsif (Ekind (Id) in Overloadable_Kind
-                 or else Ekind (Id) in
-                           E_Generic_Function | E_Generic_Procedure)
+         elsif (Is_Overloadable (Id)
+                 or else Is_Generic_Subprogram (Id))
            and then (Is_Potentially_Use_Visible (Id)
                       or else Is_Intrinsic_Subprogram (Id)
                       or else (Ekind (Id) in E_Function | E_Procedure

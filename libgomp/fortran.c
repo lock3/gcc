@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2020 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2021 Free Software Foundation, Inc.
    Contributed by Jakub Jelinek <jakub@redhat.com>.
 
    This file is part of the GNU Offloading and Multi Processing Library
@@ -47,10 +47,13 @@ ialias_redirect (omp_test_lock)
 ialias_redirect (omp_test_nest_lock)
 # endif
 ialias_redirect (omp_set_dynamic)
-ialias_redirect (omp_set_nested)
-ialias_redirect (omp_set_num_threads)
 ialias_redirect (omp_get_dynamic)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+ialias_redirect (omp_set_nested)
 ialias_redirect (omp_get_nested)
+#pragma GCC diagnostic pop
+ialias_redirect (omp_set_num_threads)
 ialias_redirect (omp_in_parallel)
 ialias_redirect (omp_get_max_threads)
 ialias_redirect (omp_get_num_procs)
@@ -281,6 +284,8 @@ omp_set_dynamic_8_ (const int64_t *set)
   omp_set_dynamic (!!*set);
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 void
 omp_set_nested_ (const int32_t *set)
 {
@@ -292,6 +297,7 @@ omp_set_nested_8_ (const int64_t *set)
 {
   omp_set_nested (!!*set);
 }
+#pragma GCC diagnostic pop
 
 void
 omp_set_num_threads_ (const int32_t *set)
@@ -311,11 +317,14 @@ omp_get_dynamic_ (void)
   return omp_get_dynamic ();
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 int32_t
 omp_get_nested_ (void)
 {
   return omp_get_nested ();
 }
+#pragma GCC diagnostic pop
 
 int32_t
 omp_in_parallel_ (void)
@@ -593,6 +602,12 @@ int32_t
 omp_get_max_task_priority_ (void)
 {
   return omp_get_max_task_priority ();
+}
+
+void
+omp_fulfill_event_ (intptr_t event)
+{
+  omp_fulfill_event ((omp_event_handle_t) event);
 }
 
 void

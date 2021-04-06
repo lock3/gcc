@@ -1,5 +1,5 @@
 /* Dependency generator for Makefile fragments.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Zack Weinberg, Mar 2000
 
 This program is free software; you can redistribute it and/or modify it
@@ -51,14 +51,18 @@ extern void deps_add_target (class mkdeps *, const char *, int);
    string as the default target is interpreted as stdin.  */
 extern void deps_add_default_target (class mkdeps *, const char *);
 
+/* Adds a module target.  The module name and cmi name are copied.  */
+extern void deps_add_module_target (struct mkdeps *, const char *module,
+				    const char *cmi, bool is_header);
+
+/* Adds a module dependency.  The module name is copied.  */
+extern void deps_add_module_dep (struct mkdeps *, const char *module);
+
 /* Add a dependency (appears on the right side of the colon) to the
    deps list.  Dependencies will be printed in the order that they
    were entered with this function.  By convention, the first
    dependency entered should be the primary source file.  */
 extern void deps_add_dep (class mkdeps *, const char *);
-
-extern void deps_add_module (struct mkdeps *, const char *,
-			     const char * = NULL, bool = false);
 
 /* Write out a deps buffer to a specified file.  The last argument
    is the number of columns to word-wrap at (0 means don't wrap).  */

@@ -1,5 +1,5 @@
 /* Code for RTL transformations to satisfy insn constraints.
-   Copyright (C) 2010-2020 Free Software Foundation, Inc.
+   Copyright (C) 2010-2021 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
    This file is part of GCC.
@@ -250,6 +250,7 @@ in_class_p (rtx reg, enum reg_class cl, enum reg_class *new_class,
 {
   enum reg_class rclass, common_class;
   machine_mode reg_mode;
+  rtx src;
   int class_size, hard_regno, nregs, i, j;
   int regno = REGNO (reg);
 
@@ -265,6 +266,7 @@ in_class_p (rtx reg, enum reg_class cl, enum reg_class *new_class,
     }
   reg_mode = GET_MODE (reg);
   rclass = get_reg_class (regno);
+  src = curr_insn_set != NULL ? SET_SRC (curr_insn_set) : NULL;
   if (regno < new_regno_start
       /* Do not allow the constraints for reload instructions to
 	 influence the classes of new pseudos.  These reloads are
@@ -273,12 +275,10 @@ in_class_p (rtx reg, enum reg_class cl, enum reg_class *new_class,
 	 where other reload pseudos are no longer allocatable.  */
       || (!allow_all_reload_class_changes_p
 	  && INSN_UID (curr_insn) >= new_insn_uid_start
-	  && curr_insn_set != NULL
-	  && ((OBJECT_P (SET_SRC (curr_insn_set))
-	       && ! CONSTANT_P (SET_SRC (curr_insn_set)))
-	      || (GET_CODE (SET_SRC (curr_insn_set)) == SUBREG
-		  && OBJECT_P (SUBREG_REG (SET_SRC (curr_insn_set)))
-		  && ! CONSTANT_P (SUBREG_REG (SET_SRC (curr_insn_set)))))))
+	  && src != NULL
+	  && ((REG_P (src) || MEM_P (src))
+	      || (GET_CODE (src) == SUBREG
+		  && (REG_P (SUBREG_REG (src)) || MEM_P (SUBREG_REG (src)))))))
     /* When we don't know what class will be used finally for reload
        pseudos, we use ALL_REGS.  */
     return ((regno >= new_regno_start && rclass == ALL_REGS)
@@ -406,10 +406,11 @@ valid_address_p (rtx op, struct address_info *ad,
   address_eliminator eliminator (ad);
 
   /* Allow a memory OP if it matches CONSTRAINT, even if CONSTRAINT is more
-     forgiving than "m".  */
-  if (MEM_P (op)
-      && (insn_extra_memory_constraint (constraint)
-	  || insn_extra_special_memory_constraint (constraint))
+     forgiving than "m".
+     Need to extract memory from op for special memory constraint,
+     i.e. bcst_mem_operand in i386 backend.  */
+  if (MEM_P (extract_mem_from_operand (op))
+      && insn_extra_relaxed_memory_constraint (constraint)
       && constraint_satisfied_p (op, constraint))
     return true;
 
@@ -1902,16 +1903,6 @@ uses_hard_regs_p (rtx x, HARD_REG_SET set)
       return (x_hard_regno >= 0
 	      && overlaps_hard_reg_set_p (set, mode, x_hard_regno));
     }
-  if (MEM_P (x))
-    {
-      struct address_info ad;
-
-      decompose_mem_address (&ad, x);
-      if (ad.base_term != NULL && uses_hard_regs_p (*ad.base_term, set))
-	return true;
-      if (ad.index_term != NULL && uses_hard_regs_p (*ad.index_term, set))
-	return true;
-    }
   fmt = GET_RTX_FORMAT (code);
   for (i = GET_RTX_LENGTH (code) - 1; i >= 0; i--)
     {
@@ -2426,7 +2417,9 @@ process_alt_operands (int only_alternative)
 		      break;
 
 		    case CT_MEMORY:
-		      if (satisfies_memory_constraint_p (op, cn))
+		    case CT_RELAXED_MEMORY:
+		      if (MEM_P (op)
+			  && satisfies_memory_constraint_p (op, cn))
 			win = true;
 		      else if (spilled_pseudo_p (op))
 			win = true;
@@ -3103,8 +3096,13 @@ process_alt_operands (int only_alternative)
 		    && operand_reg[j] != NULL_RTX
 		    && HARD_REGISTER_P (operand_reg[j])
 		    && REG_USERVAR_P (operand_reg[j]))
-		  fatal_insn ("unable to generate reloads for "
-			      "impossible constraints:", curr_insn);
+		  {
+		    /* For asm, let curr_insn_transform diagnose it.  */
+		    if (INSN_CODE (curr_insn) < 0)
+		      return false;
+		    fatal_insn ("unable to generate reloads for "
+				"impossible constraints:", curr_insn);
+		  }
 	      }
 	  if (last_conflict_j < 0)
 	    continue;
@@ -3394,6 +3392,21 @@ equiv_address_substitution (struct address_info *ad)
   return change_p;
 }
 
+/* Skip all modifiers and whitespaces in constraint STR and return the
+   result.  */
+static const char *
+skip_constraint_modifiers (const char *str)
+{
+  for (;;str++)
+    switch (*str)
+      {
+      case '+': case '&' : case '=': case '*': case ' ': case '\t':
+      case '$': case '^' : case '%': case '?': case '!':
+	break;
+      default: return str;
+      }
+}
+
 /* Major function to make reloads for an address in operand NOP or
    check its correctness (If CHECK_ONLY_P is true). The supported
    cases are:
@@ -3427,15 +3440,36 @@ process_address_1 (int nop, bool check_only_p,
   rtx new_reg;
   HOST_WIDE_INT scale;
   rtx op = *curr_id->operand_loc[nop];
-  const char *constraint = curr_static_id->operand[nop].constraint;
-  enum constraint_num cn = lookup_constraint (constraint);
+  rtx mem = extract_mem_from_operand (op);
+  const char *constraint;
+  enum constraint_num cn;
   bool change_p = false;
 
-  if (MEM_P (op)
-      && GET_MODE (op) == BLKmode
-      && GET_CODE (XEXP (op, 0)) == SCRATCH)
+  if (MEM_P (mem)
+      && GET_MODE (mem) == BLKmode
+      && GET_CODE (XEXP (mem, 0)) == SCRATCH)
     return false;
 
+  constraint
+    = skip_constraint_modifiers (curr_static_id->operand[nop].constraint);
+  if (IN_RANGE (constraint[0], '0', '9'))
+    {
+      char *end;
+      unsigned long dup = strtoul (constraint, &end, 10);
+      constraint
+	= skip_constraint_modifiers (curr_static_id->operand[dup].constraint);
+    }
+  cn = lookup_constraint (*constraint == '\0' ? "X" : constraint);
+  /* If we have several alternatives or/and several constraints in an
+     alternative and we can not say at this stage what constraint will be used,
+     use unknown constraint.  The exception is an address constraint.  If
+     operand has one address constraint, probably all others constraints are
+     address ones.  */
+  if (constraint[0] != '\0' && get_constraint_type (cn) != CT_ADDRESS
+      && *skip_constraint_modifiers (constraint
+				     + CONSTRAINT_LEN (constraint[0],
+						       constraint)) != '\0')
+    cn = CONSTRAINT__UNKNOWN;
   if (insn_extra_address_constraint (cn)
       /* When we find an asm operand with an address constraint that
 	 doesn't satisfy address_operand to begin with, we clear
@@ -3446,12 +3480,14 @@ process_address_1 (int nop, bool check_only_p,
       && curr_static_id->operand[nop].is_address)
     decompose_lea_address (&ad, curr_id->operand_loc[nop]);
   /* Do not attempt to decompose arbitrary addresses generated by combine
-     for asm operands with loose constraints, e.g 'X'.  */
-  else if (MEM_P (op)
+     for asm operands with loose constraints, e.g 'X'.
+     Need to extract memory from op for special memory constraint,
+     i.e. bcst_mem_operand in i386 backend.  */
+  else if (MEM_P (mem)
 	   && !(INSN_CODE (curr_insn) < 0
 		&& get_constraint_type (cn) == CT_FIXED_FORM
-	        && constraint_satisfied_p (op, cn)))
-    decompose_mem_address (&ad, op);
+		&& constraint_satisfied_p (op, cn)))
+    decompose_mem_address (&ad, mem);
   else if (GET_CODE (op) == SUBREG
 	   && MEM_P (SUBREG_REG (op)))
     decompose_mem_address (&ad, SUBREG_REG (op));
@@ -3948,10 +3984,10 @@ curr_insn_transform (bool check_only_p)
   no_input_reloads_p = no_output_reloads_p = false;
   goal_alt_number = -1;
   change_p = sec_mem_p = false;
-  /* JUMP_INSNs and CALL_INSNs are not allowed to have any output
-     reloads; neither are insns that SET cc0.  Insns that use CC0 are
-     not allowed to have any input reloads.  */
-  if (JUMP_P (curr_insn) || CALL_P (curr_insn))
+  /* CALL_INSNs are not allowed to have any output reloads; neither
+     are insns that SET cc0.  Insns that use CC0 are not allowed to
+     have any input reloads.  */
+  if (CALL_P (curr_insn))
     no_output_reloads_p = true;
 
   if (HAVE_cc0 && reg_referenced_p (cc0_rtx, PATTERN (curr_insn)))
@@ -4098,9 +4134,18 @@ curr_insn_transform (bool check_only_p)
       error_for_asm (curr_insn,
 		     "inconsistent operand constraints in an %<asm%>");
       lra_asm_error_p = true;
-      /* Avoid further trouble with this insn.  Don't generate use
-	 pattern here as we could use the insn SP offset.  */
-      lra_set_insn_deleted (curr_insn);
+      if (! JUMP_P (curr_insn))
+	{
+	  /* Avoid further trouble with this insn.  Don't generate use
+	     pattern here as we could use the insn SP offset.  */
+	  lra_set_insn_deleted (curr_insn);
+	}
+      else
+	{
+	  lra_invalidate_insn_data (curr_insn);
+	  ira_nullify_asm_goto (curr_insn);
+	  lra_update_insn_regno_info (curr_insn);
+	}
       return true;
     }
 
@@ -4325,7 +4370,8 @@ curr_insn_transform (bool check_only_p)
 	      {
 		enum constraint_num cn = lookup_constraint (constraint);
 		if ((insn_extra_memory_constraint (cn)
-		     || insn_extra_special_memory_constraint (cn))
+		     || insn_extra_special_memory_constraint (cn)
+		     || insn_extra_relaxed_memory_constraint (cn))
 		    && satisfies_memory_constraint_p (tem, cn))
 		  break;
 	      }

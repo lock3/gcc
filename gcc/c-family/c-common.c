@@ -1,5 +1,5 @@
 /* Subroutines shared by all languages that are variants of C.
-   Copyright (C) 1992-2020 Free Software Foundation, Inc.
+   Copyright (C) 1992-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -374,6 +374,7 @@ const struct c_common_resword c_common_reswords[] =
   { "__auto_type",	RID_AUTO_TYPE,	D_CONLY },
   { "__bases",          RID_BASES, D_CXXONLY },
   { "__builtin_addressof", RID_ADDRESSOF, D_CXXONLY },
+  { "__builtin_bit_cast", RID_BUILTIN_BIT_CAST, D_CXXONLY },
   { "__builtin_call_with_static_chain",
     RID_BUILTIN_CALL_WITH_STATIC_CHAIN, D_CONLY },
   { "__builtin_choose_expr", RID_CHOOSE_EXPR, D_CONLY },
@@ -577,14 +578,21 @@ const struct c_common_resword c_common_reswords[] =
   { "oneway",		RID_ONEWAY,		D_OBJC },
   { "out",		RID_OUT,		D_OBJC },
   /* These are recognized inside a property attribute list */
-  { "assign",	        RID_ASSIGN,		D_OBJC }, 
-  { "copy",	        RID_COPY,		D_OBJC }, 
-  { "getter",		RID_GETTER,		D_OBJC }, 
-  { "nonatomic",	RID_NONATOMIC,		D_OBJC }, 
-  { "readonly",		RID_READONLY,		D_OBJC }, 
-  { "readwrite",	RID_READWRITE,		D_OBJC }, 
-  { "retain",	        RID_RETAIN,		D_OBJC }, 
-  { "setter",		RID_SETTER,		D_OBJC }, 
+  { "assign",		RID_ASSIGN,		D_OBJC },
+  { "atomic",		RID_PROPATOMIC,		D_OBJC },
+  { "copy",		RID_COPY,		D_OBJC },
+  { "getter",		RID_GETTER,		D_OBJC },
+  { "nonatomic",	RID_NONATOMIC,		D_OBJC },
+  { "readonly",		RID_READONLY,		D_OBJC },
+  { "readwrite",	RID_READWRITE,		D_OBJC },
+  { "retain",		RID_RETAIN,		D_OBJC },
+  { "setter",		RID_SETTER,		D_OBJC },
+  /* These are Objective C implementation of nullability, accepted only in
+     specific contexts.  */
+  { "null_unspecified", RID_NULL_UNSPECIFIED,	D_OBJC },
+  { "nullable",		RID_NULLABLE,		D_OBJC },
+  { "nonnull",		RID_NONNULL,		D_OBJC },
+  { "null_resettable",	RID_NULL_RESETTABLE,	D_OBJC },
 };
 
 const unsigned int num_c_common_reswords =
@@ -2048,23 +2056,45 @@ verify_tree (tree x, struct tlist **pbefore_sp, struct tlist **pno_sp,
     }
 }
 
+static constexpr size_t verify_sequence_points_limit = 1024;
+
+/* Called from verify_sequence_points via walk_tree.  */
+
+static tree
+verify_tree_lim_r (tree *tp, int *walk_subtrees, void *data)
+{
+  if (++*((size_t *) data) > verify_sequence_points_limit)
+    return integer_zero_node;
+
+  if (TYPE_P (*tp))
+    *walk_subtrees = 0;
+
+  return NULL_TREE;
+}
+
 /* Try to warn for undefined behavior in EXPR due to missing sequence
    points.  */
 
-DEBUG_FUNCTION void
+void
 verify_sequence_points (tree expr)
 {
-  struct tlist *before_sp = 0, *after_sp = 0;
+  tlist *before_sp = nullptr, *after_sp = nullptr;
 
-  warned_ids = 0;
-  save_expr_cache = 0;
-  if (tlist_firstobj == 0)
+  /* verify_tree is highly recursive, and merge_tlist is O(n^2),
+     so we return early if the expression is too big.  */
+  size_t n = 0;
+  if (walk_tree (&expr, verify_tree_lim_r, &n, nullptr))
+    return;
+
+  warned_ids = nullptr;
+  save_expr_cache = nullptr;
+  if (!tlist_firstobj)
     {
       gcc_obstack_init (&tlist_obstack);
       tlist_firstobj = (char *) obstack_alloc (&tlist_obstack, 0);
     }
 
-  verify_tree (expr, &before_sp, &after_sp, 0);
+  verify_tree (expr, &before_sp, &after_sp, NULL_TREE);
   warn_for_collisions (after_sp);
   obstack_free (&tlist_obstack, tlist_firstobj);
 }
@@ -4523,7 +4553,7 @@ build_va_arg (location_t loc, tree expr, tree type)
       if (canon_va_type == NULL_TREE)
 	error_at (loc, "first argument to %<va_arg%> not of type %<va_list%>");
 
-      /* Let's handle things neutrallly, if expr:
+      /* Let's handle things neutrally, if expr:
 	 - has undeclared type, or
 	 - is not an va_list type.  */
       return build_va_arg_1 (loc, type, error_mark_node);
@@ -4535,7 +4565,7 @@ build_va_arg (location_t loc, tree expr, tree type)
 
       /* Take the address, to get '&ap'.  Note that &ap is not a va_list
 	 type.  */
-      mark_addressable (expr);
+      c_common_mark_addressable_vec (expr);
       expr = build1 (ADDR_EXPR, build_pointer_type (TREE_TYPE (expr)), expr);
 
       return build_va_arg_1 (loc, type, expr);
@@ -4597,7 +4627,7 @@ build_va_arg (location_t loc, tree expr, tree type)
 
       /* Take the address, to get '&ap'.  Make sure it's a pointer to array
 	 elem type.  */
-      mark_addressable (expr);
+      c_common_mark_addressable_vec (expr);
       expr = build1 (ADDR_EXPR, build_pointer_type (TREE_TYPE (canon_va_type)),
 		     expr);
 
@@ -5565,7 +5595,7 @@ check_nonnull_arg (void *ctx, tree param, unsigned HOST_WIDE_INT param_num)
   if (param_num == 0)
     {
       warned = warning_at (loc, OPT_Wnonnull,
-			   "%qs pointer null", "this");
+			   "%qs pointer is null", "this");
       if (warned && pctx->fndecl)
 	inform (DECL_SOURCE_LOCATION (pctx->fndecl),
 		"in a call to non-static member function %qD",
@@ -5740,6 +5770,7 @@ parse_optimize_options (tree args, bool attr_p)
   decode_options (&global_options, &global_options_set,
 		  decoded_options, decoded_options_count,
 		  input_location, global_dc, NULL);
+  free (decoded_options);
 
   targetm.override_options_after_change();
 
@@ -5757,9 +5788,10 @@ attribute_fallthrough_p (tree attr)
   tree t = lookup_attribute ("fallthrough", attr);
   if (t == NULL_TREE)
     return false;
-  /* This attribute shall appear at most once in each attribute-list.  */
+  /* It is no longer true that "this attribute shall appear at most once in
+     each attribute-list", but we still give a warning.  */
   if (lookup_attribute ("fallthrough", TREE_CHAIN (t)))
-    warning (OPT_Wattributes, "%<fallthrough%> attribute specified multiple "
+    warning (OPT_Wattributes, "attribute %<fallthrough%> specified multiple "
 	     "times");
   /* No attribute-argument-clause shall be present.  */
   else if (TREE_VALUE (t) != NULL_TREE)
@@ -6155,9 +6187,16 @@ check_builtin_function_arguments (location_t loc, vec<location_t> arg_loc,
 	    }
 	  else if (TYPE_READONLY (TREE_TYPE (TREE_TYPE (args[2]))))
 	    {
-	      error_at (ARG_LOCATION (2), "argument 3 in call to function %qE "
-			"has pointer to %<const%> type (%qT)", fndecl,
+	      error_at (ARG_LOCATION (2), "argument %u in call to function %qE "
+			"has pointer to %qs type (%qT)", 3, fndecl, "const",
 			TREE_TYPE (args[2]));
+	      return false;
+	    }
+	  else if (TYPE_ATOMIC (TREE_TYPE (TREE_TYPE (args[2]))))
+	    {
+	      error_at (ARG_LOCATION (2), "argument %u in call to function %qE "
+			"has pointer to %qs type (%qT)", 3, fndecl,
+			"_Atomic", TREE_TYPE (args[2]));
 	      return false;
 	    }
 	  return true;
@@ -6187,6 +6226,39 @@ check_builtin_function_arguments (location_t loc, vec<location_t> arg_loc,
 	    {
 	      error_at (ARG_LOCATION (2), "argument 3 in call to function "
 			"%qE has boolean type", fndecl);
+	      return false;
+	    }
+	  return true;
+	}
+      return false;
+
+    case BUILT_IN_CLEAR_PADDING:
+      if (builtin_function_validate_nargs (loc, fndecl, nargs, 1))
+	{
+	  if (!POINTER_TYPE_P (TREE_TYPE (args[0])))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function "
+			"%qE does not have pointer type", 1, fndecl);
+	      return false;
+	    }
+	  else if (!COMPLETE_TYPE_P (TREE_TYPE (TREE_TYPE (args[0]))))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function "
+			"%qE points to incomplete type", 1, fndecl);
+	      return false;
+	    }
+	  else if (TYPE_READONLY (TREE_TYPE (TREE_TYPE (args[0]))))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function %qE "
+			"has pointer to %qs type (%qT)", 1, fndecl, "const",
+			TREE_TYPE (args[0]));
+	      return false;
+	    }
+	  else if (TYPE_ATOMIC (TREE_TYPE (TREE_TYPE (args[0]))))
+	    {
+	      error_at (ARG_LOCATION (0), "argument %u in call to function %qE "
+			"has pointer to %qs type (%qT)", 1, fndecl,
+			"_Atomic", TREE_TYPE (args[0]));
 	      return false;
 	    }
 	  return true;
@@ -7869,7 +7941,7 @@ set_underlying_type (tree x)
 {
   if (x == error_mark_node)
     return;
-  if (DECL_IS_BUILTIN (x) && TREE_CODE (TREE_TYPE (x)) != ARRAY_TYPE)
+  if (DECL_IS_UNDECLARED_BUILTIN (x) && TREE_CODE (TREE_TYPE (x)) != ARRAY_TYPE)
     {
       if (TYPE_NAME (TREE_TYPE (x)) == 0)
 	TYPE_NAME (TREE_TYPE (x)) = x;
@@ -7903,7 +7975,7 @@ user_facing_original_type_p (const_tree type)
   tree decl = TYPE_NAME (type);
 
   /* Look through any typedef in "user" code.  */
-  if (!DECL_IN_SYSTEM_HEADER (decl) && !DECL_IS_BUILTIN (decl))
+  if (!DECL_IN_SYSTEM_HEADER (decl) && !DECL_IS_UNDECLARED_BUILTIN (decl))
     return true;
 
   /* If the original type is also named and is in the user namespace,
@@ -8399,13 +8471,13 @@ reject_gcc_builtin (const_tree expr, location_t loc /* = UNKNOWN_LOCATION */)
   if (TREE_TYPE (expr)
       && TREE_CODE (TREE_TYPE (expr)) == FUNCTION_TYPE
       && TREE_CODE (expr) == FUNCTION_DECL
-      /* The intersection of DECL_BUILT_IN and DECL_IS_BUILTIN avoids
+      /* The intersection of DECL_BUILT_IN and DECL_IS_UNDECLARED_BUILTIN avoids
 	 false positives for user-declared built-ins such as abs or
 	 strlen, and for C++ operators new and delete.
 	 The c_decl_implicit() test avoids false positives for implicitly
 	 declared built-ins with library fallbacks (such as abs).  */
       && fndecl_built_in_p (expr)
-      && DECL_IS_BUILTIN (expr)
+      && DECL_IS_UNDECLARED_BUILTIN (expr)
       && !c_decl_implicit (expr)
       && !DECL_ASSEMBLER_NAME_SET_P (expr))
     {
@@ -9167,7 +9239,8 @@ c_common_finalize_early_debug (void)
   struct cgraph_node *cnode;
   FOR_EACH_FUNCTION (cnode)
     if (!cnode->alias && !cnode->thunk
-	&& (cnode->has_gimple_body_p () || !DECL_IS_BUILTIN (cnode->decl)))
+	&& (cnode->has_gimple_body_p ()
+	    || !DECL_IS_UNDECLARED_BUILTIN (cnode->decl)))
       (*debug_hooks->early_global_decl) (cnode->decl);
 }
 

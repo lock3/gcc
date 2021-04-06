@@ -1,5 +1,5 @@
 /* Callgraph clones
-   Copyright (C) 2003-2020 Free Software Foundation, Inc.
+   Copyright (C) 2003-2021 Free Software Foundation, Inc.
    Contributed by Jan Hubicka
 
 This file is part of GCC.
@@ -239,7 +239,7 @@ duplicate_thunk_for_node (cgraph_node *thunk, cgraph_node *node)
   new_thunk->thunk = thunk->thunk;
   new_thunk->unique_name = in_lto_p;
   new_thunk->former_clone_of = thunk->decl;
-  if (info->param_adjustments)
+  if (info && info->param_adjustments)
     clone_info::get_create (new_thunk)->param_adjustments
 	   = info->param_adjustments;
   new_thunk->unit_id = thunk->unit_id;
@@ -626,7 +626,7 @@ cgraph_node::create_virtual_clone (vec<cgraph_edge *> redirect_callers,
   if (tree_map)
     clone_info::get_create (new_node)->tree_map = tree_map;
   if (!implicit_section)
-    new_node->set_section (get_section ());
+    new_node->set_section (*this);
 
   /* Clones of global symbols or symbols with unique names are unique.  */
   if ((TREE_PUBLIC (old_decl)
@@ -648,9 +648,10 @@ cgraph_node::create_virtual_clone (vec<cgraph_edge *> redirect_callers,
 }
 
 /* callgraph node being removed from symbol table; see if its entry can be
-   replaced by other inline clone.  */
+   replaced by other inline clone. 
+   INFO is clone info to attach to the new root.  */
 cgraph_node *
-cgraph_node::find_replacement (void)
+cgraph_node::find_replacement (clone_info *info)
 {
   cgraph_node *next_inline_clone, *replacement;
 
@@ -690,7 +691,6 @@ cgraph_node::find_replacement (void)
       clones = NULL;
 
       /* Copy clone info.  */
-      clone_info *info = clone_info::get (this);
       if (info)
 	*clone_info::get_create (next_inline_clone) = *info;
 
@@ -1060,7 +1060,7 @@ cgraph_node::create_version_clone_with_body
   new_version_node->local = 1;
   new_version_node->lowered = true;
   if (!implicit_section)
-    new_version_node->set_section (get_section ());
+    new_version_node->set_section (*this);
   /* Clones of global symbols or symbols with unique names are unique.  */
   if ((TREE_PUBLIC (old_decl)
        && !DECL_EXTERNAL (old_decl)
@@ -1107,7 +1107,7 @@ cgraph_node::materialize_clone ()
       fprintf (symtab->dump_file, "cloning %s to %s\n",
 	       clone_of->dump_name (),
 	       dump_name ());
-      if (info->tree_map)
+      if (info && info->tree_map)
         {
 	  fprintf (symtab->dump_file, "    replace map:");
 	  for (unsigned int i = 0;
@@ -1123,7 +1123,7 @@ cgraph_node::materialize_clone ()
 	    }
 	  fprintf (symtab->dump_file, "\n");
 	}
-      if (info->param_adjustments)
+      if (info && info->param_adjustments)
 	info->param_adjustments->dump (symtab->dump_file);
     }
   clear_stmts_in_references ();

@@ -1,5 +1,5 @@
 /* Wrapper to call lto.  Used by collect2 and the linker plugin.
-   Copyright (C) 2009-2020 Free Software Foundation, Inc.
+   Copyright (C) 2009-2021 Free Software Foundation, Inc.
 
    Factored out of collect2 by Rafael Espindola <espindola@google.com>
 
@@ -323,8 +323,9 @@ merge_and_complain (struct cl_decoded_option **decoded_options,
 		  if (cf_protection_option
 		      && cf_protection_option->value == CF_CHECK)
 		    fatal_error (input_location,
-				 "option -fcf-protection with mismatching values"
+				 "option %qs with mismatching values"
 				 " (%s, %s)",
+				 "-fcf-protection",
 				 (*decoded_options)[j].arg, foption->arg);
 		  else
 		    {
@@ -1779,6 +1780,8 @@ cont1:
 	{
 	  char buf[256];
 	  init_num_threads ();
+	  if (nthreads_var == 0)
+	    nthreads_var = 1;
 	  if (verbose)
 	    fprintf (stderr, "LTO parallelism level set to %ld\n",
 		     nthreads_var);

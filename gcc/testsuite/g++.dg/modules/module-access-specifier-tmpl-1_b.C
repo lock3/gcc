@@ -56,10 +56,10 @@ void test2()
   TemplateFoo<int>::TSub<double> tsub_double; // { dg-error "restricted to module" }
   auto tsub_int2 = tfoo_int.getSub(5);
   tsub_int2.x = 6; // { dg-bogus "restricted to module" }
-  tsub_int2.y = 7; // { dg-error "restricted to module" }
+  tsub_int2.y = 7; //  dg-error "restricted to module" }
   auto tsub_double2 = tfoo_int.getSub(5.0);
   tsub_double2.x = 6.5; // { dg-bogus "restricted to module" }
-  tsub_double2.y = 7.6; // { dg-error "restricted to module" }
+  tsub_double2.y = 7.6; //  dg-error "restricted to module" }
 }
 
 void test3()

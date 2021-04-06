@@ -1,5 +1,5 @@
 /* Branch prediction routines for the GNU compiler.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -2204,7 +2204,7 @@ predict_loops (void)
 	     {
 	       gimple *call_stmt = SSA_NAME_DEF_STMT (gimple_cond_lhs (stmt));
 	       if (gimple_code (call_stmt) == GIMPLE_ASSIGN
-		   && gimple_expr_code (call_stmt) == NOP_EXPR
+		   && CONVERT_EXPR_CODE_P (gimple_assign_rhs_code (call_stmt))
 		   && TREE_CODE (gimple_assign_rhs1 (call_stmt)) == SSA_NAME)
 		 call_stmt = SSA_NAME_DEF_STMT (gimple_assign_rhs1 (call_stmt));
 	       if (gimple_call_internal_p (call_stmt, IFN_BUILTIN_EXPECT)

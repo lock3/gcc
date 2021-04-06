@@ -236,6 +236,16 @@
 /* Define if you want runtime assertions enabled. This is a cheap check. */
 #undef ENABLE_RUNTIME_CHECKING
 
+/* Define to enable evaluating float expressions with double precision in
+   standards-compatible mode on s390 targets. */
+#undef ENABLE_S390_EXCESS_FLOAT_PRECISION
+
+/* Define if the -stdlib= option should be enabled. */
+#ifndef USED_FOR_TARGET
+#undef ENABLE_STDLIB_OPTION
+#endif
+
+
 /* Define if you want all operations on trees (the basic data structure of the
    front ends) to be checked for dynamic type safety at runtime. This is
    moderately expensive. */
@@ -299,12 +309,6 @@
 /* mcontext_t fields start with __ */
 #ifndef USED_FOR_TARGET
 #undef HAS_MCONTEXT_T_UNDERSCORES
-#endif
-
-
-/* Define if accept4 provided. */
-#ifndef USED_FOR_TARGET
-#undef HAVE_ACCEPT4
 #endif
 
 
@@ -582,9 +586,21 @@
 #endif
 
 
+/* Define if the assembler understands -march=rv*_zifencei. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_AS_MARCH_ZIFENCEI
+#endif
+
+
 /* Define if your assembler supports mfcr field. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_AS_MFCRF
+#endif
+
+
+/* Define if the assembler understands -misa-spec=. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_AS_MISA_SPEC
 #endif
 
 
@@ -1193,18 +1209,6 @@
 #endif
 
 
-/* Define if epoll_create, epoll_ctl, epoll_pwait provided. */
-#ifndef USED_FOR_TARGET
-#undef HAVE_EPOLL
-#endif
-
-
-/* Define to 1 if you have the `execv' function. */
-#ifndef USED_FOR_TARGET
-#undef HAVE_EXECV
-#endif
-
-
 /* Define to 1 if you have the <ext/hash_map> header file. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_EXT_HASH_MAP
@@ -1388,6 +1392,19 @@
 #endif
 
 
+/* Define 0/1 if your assembler supports 'o' flag in .section directive. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_GAS_SECTION_LINK_ORDER
+#endif
+
+
+/* Define 0/1 if your assembler supports marking sections with SHF_GNU_RETAIN
+   flag. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_GAS_SHF_GNU_RETAIN
+#endif
+
+
 /* Define 0/1 if your assembler supports marking sections with SHF_MERGE flag.
    */
 #ifndef USED_FOR_TARGET
@@ -1478,12 +1495,6 @@
 /* Define to 1 if you have the <iconv.h> header file. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_ICONV_H
-#endif
-
-
-/* Define if inet_ntop provided. */
-#ifndef USED_FOR_TARGET
-#undef HAVE_INET_NTOP
 #endif
 
 
@@ -1757,12 +1768,6 @@
 #endif
 
 
-/* Define to 1 if you have the `memrchr' function. */
-#ifndef USED_FOR_TARGET
-#undef HAVE_MEMRCHR
-#endif
-
-
 /* Define to 1 if you have the `mmap' function. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_MMAP
@@ -1812,12 +1817,6 @@
 #endif
 
 
-/* Define if pselect provided. */
-#ifndef USED_FOR_TARGET
-#undef HAVE_PSELECT
-#endif
-
-
 /* Define to 1 if you have the `putchar_unlocked' function. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_PUTCHAR_UNLOCKED
@@ -1827,12 +1826,6 @@
 /* Define to 1 if you have the `putc_unlocked' function. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_PUTC_UNLOCKED
-#endif
-
-
-/* Define if select provided. */
-#ifndef USED_FOR_TARGET
-#undef HAVE_SELECT
 #endif
 
 

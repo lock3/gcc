@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 2013-2020 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 2013-2021 by The D Language Foundation, All Rights Reserved
  * written by Iain Buclaw
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -19,8 +19,10 @@
 class ClassDeclaration;
 class Dsymbol;
 class Expression;
+class FuncDeclaration;
 class Parameter;
 class Type;
+class TypeFunction;
 class TypeTuple;
 struct OutBuffer;
 
@@ -38,6 +40,7 @@ struct TargetCPP
 
     const char *toMangle(Dsymbol *s);
     const char *typeInfoMangle(ClassDeclaration *cd);
+    const char *thunkMangle(FuncDeclaration *fd, int offset);
     const char *typeMangle(Type *t);
     Type *parameterType(Parameter *p);
     bool fundamentalType(const Type *t, bool& isFundamental);
@@ -103,6 +106,8 @@ public:
     // ABI and backend.
     LINK systemLinkage();
     TypeTuple *toArgTypes(Type *t);
+    bool isReturnOnStack(TypeFunction *tf, bool needsThis);
+    Expression *getTargetInfo(const char* name, const Loc& loc);
 };
 
 extern Target target;

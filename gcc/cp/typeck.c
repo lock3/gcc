@@ -1,5 +1,5 @@
 /* Build expressions with type checking for C++ compiler.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -133,8 +133,15 @@ complete_type (tree type)
 	  TYPE_HAS_NONTRIVIAL_DESTRUCTOR (t) = has_nontrivial_dtor;
 	}
     }
-  else if (CLASS_TYPE_P (type) && CLASSTYPE_TEMPLATE_INSTANTIATION (type))
-    instantiate_class_template (TYPE_MAIN_VARIANT (type));
+  else if (CLASS_TYPE_P (type))
+    {
+      if (modules_p ())
+	/* TYPE could be a class member we've not loaded the definition of.  */ 
+	lazy_load_pendings (TYPE_NAME (TYPE_MAIN_VARIANT (type)));
+
+      if (CLASSTYPE_TEMPLATE_INSTANTIATION (type))
+	instantiate_class_template (TYPE_MAIN_VARIANT (type));
+    }
 
   return type;
 }
@@ -154,6 +161,7 @@ complete_type_or_maybe_complain (tree type, tree value, tsubst_flags_t complain)
     {
       if (complain & tf_error)
 	cxx_incomplete_type_diagnostic (value, type, DK_ERROR);
+      note_failed_type_completion_for_satisfaction (type);
       return NULL_TREE;
     }
   else
@@ -1247,24 +1255,21 @@ cxx_safe_function_type_cast_p (tree t1, tree t2)
 static bool
 structural_comptypes (tree t1, tree t2, int strict)
 {
-  if (t1 == t2)
-    return true;
+  /* Both should be types that are not obviously the same.  */
+  gcc_checking_assert (t1 != t2 && TYPE_P (t1) && TYPE_P (t2));
 
-  /* Suppress errors caused by previously reported errors.  */
-  if (t1 == error_mark_node || t2 == error_mark_node)
-    return false;
+  /* Suppress typename resolution under spec_hasher::equal in place of calling
+     push_to_top_level there.  */
+  if (!comparing_specializations)
+    {
+      /* TYPENAME_TYPEs should be resolved if the qualifying scope is the
+	 current instantiation.  */
+      if (TREE_CODE (t1) == TYPENAME_TYPE)
+	t1 = resolve_typename_type (t1, /*only_current_p=*/true);
 
-  gcc_assert (TYPE_P (t1) && TYPE_P (t2));
-
-  /* TYPENAME_TYPEs should be resolved if the qualifying scope is the
-     current instantiation, and we don't care about typename
-     structural equality.  The comparing_typenames check is after the
-     code check, in order to early-out the common case.  */
-  if (TREE_CODE (t1) == TYPENAME_TYPE && !comparing_typenames)
-    t1 = resolve_typename_type (t1, /*only_current_p=*/true);
-
-  if (TREE_CODE (t2) == TYPENAME_TYPE && !comparing_typenames)
-    t2 = resolve_typename_type (t2, /*only_current_p=*/true);
+      if (TREE_CODE (t2) == TYPENAME_TYPE)
+	t2 = resolve_typename_type (t2, /*only_current_p=*/true);
+    }
 
   if (TYPE_PTRMEMFUNC_P (t1))
     t1 = TYPE_PTRMEMFUNC_FN_TYPE (t1);
@@ -1299,13 +1304,13 @@ structural_comptypes (tree t1, tree t2, int strict)
   /* Allow for two different type nodes which have essentially the same
      definition.  Note that we already checked for equality of the type
      qualifiers (just above).  */
-
   if (TREE_CODE (t1) != ARRAY_TYPE
       && TYPE_MAIN_VARIANT (t1) == TYPE_MAIN_VARIANT (t2))
-    return true;
+    goto check_alias;
 
-
-  /* Compare the types.  Break out if they could be the same.  */
+  /* Compare the types.  Return false on known not-same. Break on not
+     known.   Never return true from this switch -- you'll break
+     specialization comparison.    */
   switch (TREE_CODE (t1))
     {
     case VOID_TYPE:
@@ -1313,6 +1318,7 @@ structural_comptypes (tree t1, tree t2, int strict)
       /* All void and bool types are the same.  */
       break;
 
+    case OPAQUE_TYPE:
     case INTEGER_TYPE:
     case FIXED_POINT_TYPE:
     case REAL_TYPE:
@@ -1330,7 +1336,11 @@ structural_comptypes (tree t1, tree t2, int strict)
 	 have identical properties, different TYPE_MAIN_VARIANTs, but
 	 represent the same type.  The canonical type system keeps
 	 track of equivalence in this case, so we fall back on it.  */
-      return TYPE_CANONICAL (t1) == TYPE_CANONICAL (t2);
+      if (TYPE_CANONICAL (t1) != TYPE_CANONICAL (t2))
+	return false;
+
+      /* We don't need or want the attribute comparison.  */
+      goto check_alias;
 
     case TEMPLATE_TEMPLATE_PARM:
     case BOUND_TEMPLATE_TEMPLATE_PARM:
@@ -1475,24 +1485,28 @@ structural_comptypes (tree t1, tree t2, int strict)
       return false;
     }
 
-  /* Don't treat an alias template specialization with dependent
-     arguments as equivalent to its underlying type when used as a
-     template argument; we need them to be distinct so that we
-     substitute into the specialization arguments at instantiation
-     time.  And aliases can't be equivalent without being ==, so
-     we don't need to look any deeper.  */
-  if (comparing_specializations)
+  /* If we get here, we know that from a target independent POV the
+     types are the same.  Make sure the target attributes are also
+     the same.  */
+  if (!comp_type_attributes (t1, t2))
+    return false;
+
+ check_alias:
+  if (comparing_dependent_aliases)
     {
+      /* Don't treat an alias template specialization with dependent
+	 arguments as equivalent to its underlying type when used as a
+	 template argument; we need them to be distinct so that we
+	 substitute into the specialization arguments at instantiation
+	 time.  And aliases can't be equivalent without being ==, so
+	 we don't need to look any deeper.  */
       tree dep1 = dependent_alias_template_spec_p (t1, nt_transparent);
       tree dep2 = dependent_alias_template_spec_p (t2, nt_transparent);
       if ((dep1 || dep2) && dep1 != dep2)
 	return false;
     }
 
-  /* If we get here, we know that from a target independent POV the
-     types are the same.  Make sure the target attributes are also
-     the same.  */
-  return comp_type_attributes (t1, t2);
+  return true;
 }
 
 /* Return true if T1 and T2 are related as allowed by STRICT.  STRICT
@@ -1507,19 +1521,15 @@ comptypes (tree t1, tree t2, int strict)
   gcc_checking_assert (TREE_CODE (t1) != TYPE_ARGUMENT_PACK
 		       && TREE_CODE (t2) != TYPE_ARGUMENT_PACK);
 
-  if (strict == COMPARE_STRICT && comparing_specializations
-      && (t1 != TYPE_CANONICAL (t1) || t2 != TYPE_CANONICAL (t2)))
-    /* If comparing_specializations, treat dependent aliases as distinct.  */
-    strict = COMPARE_STRUCTURAL;
+  if (t1 == t2)
+    return true;
+
+  /* Suppress errors caused by previously reported errors.  */
+  if (t1 == error_mark_node || t2 == error_mark_node)
+    return false;
 
   if (strict == COMPARE_STRICT)
     {
-      if (t1 == t2)
-	return true;
-
-      if (t1 == error_mark_node || t2 == error_mark_node)
-	return false;
-
       if (TYPE_STRUCTURAL_EQUALITY_P (t1) || TYPE_STRUCTURAL_EQUALITY_P (t2))
 	/* At least one of the types requires structural equality, so
 	   perform a deep check. */
@@ -1831,10 +1841,12 @@ cxx_sizeof_expr (location_t loc, tree e, tsubst_flags_t complain)
 /* Implement the __alignof keyword: Return the minimum required
    alignment of E, measured in bytes.  For VAR_DECL's and
    FIELD_DECL's return DECL_ALIGN (which can be set from an
-   "aligned" __attribute__ specification).  */
+   "aligned" __attribute__ specification).  STD_ALIGNOF acts
+   like in cxx_sizeof_or_alignof_type.  */
 
 static tree
-cxx_alignof_expr (location_t loc, tree e, tsubst_flags_t complain)
+cxx_alignof_expr (location_t loc, tree e, bool std_alignof,
+		  tsubst_flags_t complain)
 {
   tree t;
 
@@ -1847,6 +1859,7 @@ cxx_alignof_expr (location_t loc, tree e, tsubst_flags_t complain)
       TREE_SIDE_EFFECTS (e) = 0;
       TREE_READONLY (e) = 1;
       SET_EXPR_LOCATION (e, loc);
+      ALIGNOF_EXPR_STD_P (e) = std_alignof;
 
       return e;
     }
@@ -1899,23 +1912,25 @@ cxx_alignof_expr (location_t loc, tree e, tsubst_flags_t complain)
     }
   else
     return cxx_sizeof_or_alignof_type (loc, TREE_TYPE (e),
-				       ALIGNOF_EXPR, false,
+				       ALIGNOF_EXPR, std_alignof,
                                        complain & tf_error);
 
   return fold_convert_loc (loc, size_type_node, t);
 }
 
 /* Process a sizeof or alignof expression E with code OP where the operand
-   is an expression.  */
+   is an expression. STD_ALIGNOF acts like in cxx_sizeof_or_alignof_type.  */
 
 tree
 cxx_sizeof_or_alignof_expr (location_t loc, tree e, enum tree_code op,
-			    bool complain)
+			    bool std_alignof, bool complain)
 {
+  gcc_assert (op == SIZEOF_EXPR || op == ALIGNOF_EXPR);
   if (op == SIZEOF_EXPR)
     return cxx_sizeof_expr (loc, e, complain? tf_warning_or_error : tf_none);
   else
-    return cxx_alignof_expr (loc, e, complain? tf_warning_or_error : tf_none);
+    return cxx_alignof_expr (loc, e, std_alignof,
+			     complain? tf_warning_or_error : tf_none);
 }
 
 /*  Build a representation of an expression 'alignas(E).'  Return the
@@ -2894,7 +2909,8 @@ access_failure_info::add_fixit_hint (rich_location *richloc,
 				     tree accessor_decl)
 {
   pretty_printer pp;
-  pp_printf (&pp, "%s()", IDENTIFIER_POINTER (DECL_NAME (accessor_decl)));
+  pp_string (&pp, IDENTIFIER_POINTER (DECL_NAME (accessor_decl)));
+  pp_string (&pp, "()");
   richloc->add_fixit_replace (pp_formatted_text (&pp));
 }
 
@@ -2968,7 +2984,8 @@ complain_about_unrecognized_member (tree access_path, tree name,
 		    TREE_CODE (access_path) == TREE_BINFO
 		    ? TREE_TYPE (access_path) : object_type,
 		    name, afi.get_diag_decl ());
-	  complain_about_access (afi.get_decl (), afi.get_diag_decl (), false);
+	  complain_about_access (afi.get_decl (), afi.get_diag_decl (),
+				 afi.get_diag_decl (), false, ak_none);
 	}
     }
   else
@@ -3313,7 +3330,15 @@ build_x_indirect_ref (location_t loc, tree expr, ref_operator errorstring,
     {
       /* Retain the type if we know the operand is a pointer.  */
       if (TREE_TYPE (expr) && INDIRECT_TYPE_P (TREE_TYPE (expr)))
-	return build_min (INDIRECT_REF, TREE_TYPE (TREE_TYPE (expr)), expr);
+	{
+	  if (expr == current_class_ptr
+	      || (TREE_CODE (expr) == NOP_EXPR
+		  && TREE_OPERAND (expr, 0) == current_class_ptr
+		  && (same_type_ignoring_top_level_qualifiers_p
+			(TREE_TYPE (expr), TREE_TYPE (current_class_ptr)))))
+	    return current_class_ref;
+	  return build_min (INDIRECT_REF, TREE_TYPE (TREE_TYPE (expr)), expr);
+	}
       if (type_dependent_expression_p (expr))
 	return build_min_nt_loc (loc, INDIRECT_REF, expr);
       expr = build_non_dependent_expr (expr);
@@ -4042,7 +4067,8 @@ error_args_num (location_t loc, tree fndecl, bool too_many_p)
       if (TREE_CODE (TREE_TYPE (fndecl)) == METHOD_TYPE)
 	{
 	  if (DECL_NAME (fndecl) == NULL_TREE
-	      || IDENTIFIER_HAS_TYPE_VALUE (DECL_NAME (fndecl)))
+	      || (DECL_NAME (fndecl)
+		  == DECL_NAME (TYPE_NAME (DECL_CONTEXT (fndecl)))))
 	    error_at (loc,
 		      too_many_p
 		      ? G_("too many arguments to constructor %q#D")
@@ -4061,7 +4087,7 @@ error_args_num (location_t loc, tree fndecl, bool too_many_p)
 		  ? G_("too many arguments to function %q#D")
 		  : G_("too few arguments to function %q#D"),
 		  fndecl);
-      if (!DECL_IS_BUILTIN (fndecl))
+      if (!DECL_IS_UNDECLARED_BUILTIN (fndecl))
 	inform (DECL_SOURCE_LOCATION (fndecl), "declared here");
     }
   else
@@ -5973,7 +5999,7 @@ pointer_diff (location_t loc, tree op0, tree op1, tree ptrtype,
   tree restype = ptrdiff_type_node;
   tree target_type = TREE_TYPE (ptrtype);
 
-  if (!complete_type_or_else (target_type, NULL_TREE))
+  if (!complete_type_or_maybe_complain (target_type, NULL_TREE, complain))
     return error_mark_node;
 
   if (VOID_TYPE_P (target_type))
@@ -8849,7 +8875,7 @@ cp_build_modify_expr (location_t loc, tree lhs, enum tree_code modifycode,
        LOOKUP_ONLYCONVERTING.  */
     newrhs = convert_for_initialization (lhs, olhstype, newrhs, LOOKUP_NORMAL,
 					 ICR_INIT, NULL_TREE, 0,
-                                         complain);
+					 complain | tf_no_cleanup);
   else
     newrhs = convert_for_assignment (olhstype, newrhs, ICR_ASSIGN,
 				     NULL_TREE, 0, complain, LOOKUP_IMPLICIT);

@@ -5,6 +5,9 @@
 #ifndef CODY_HH
 #define CODY_HH 1
 
+// If the user specifies this as non-zero, it must be what we expect,
+// generally only good for requesting no networking
+#if !defined (CODY_NETWORKING)
 // Have a known-good list of networking systems
 #if defined (__unix__) || defined (__MACH__)
 #define CODY_NETWORKING 1
@@ -14,6 +17,7 @@
 #if 0  // For testing
 #undef CODY_NETWORKING
 #define CODY_NETWORKING 0
+#endif
 #endif
 
 // C++
@@ -194,7 +198,6 @@ enum RequestCode
   RC_MODULE_IMPORT,
   RC_MODULE_COMPILED,
   RC_INCLUDE_TRANSLATE,
-  RC_INVOKE,
   RC_HWM
 };
 
@@ -205,6 +208,22 @@ struct FD
   int to;	///< Write to this FD
 };
 
+}
+
+// Flags for various requests
+enum class Flags : unsigned
+{
+  None,
+  NameOnly = 1<<0,  // Only querying for CMI names, not contents
+};
+
+inline Flags operator& (Flags a, Flags b)
+{
+  return Flags (unsigned (a) & unsigned (b));
+}
+inline Flags operator| (Flags a, Flags b)
+{
+  return Flags (unsigned (a) | unsigned (b));
 }
 
 ///
@@ -226,7 +245,7 @@ private:
     std::string string; ///< String value
     std::vector<std::string> vector;  ///< Vector of string value
   };
-  Category cat : 2;  ///< Discriminatory
+  Category cat : 2;  ///< Discriminator
 
 private:
   unsigned short code = 0;  ///< Packet type
@@ -435,7 +454,8 @@ public:
   /// @param ident compilation identifiation (maybe nullptr)
   /// @param alen length of agent string, if known
   /// @param ilen length of ident string, if known
-  /// @result packet indicating success (or deferrment) of the connection.
+  /// @result packet indicating success (or deferrment) of the
+  /// connection, payload is optional flags
   Packet Connect (char const *agent, char const *ident,
 		 size_t alen = ~size_t (0), size_t ilen = ~size_t (0));
   /// std::string wrapper for connection
@@ -448,52 +468,59 @@ public:
   }
 
 public:
-  /// Invoke a sub process
-  /// @param str command args
-  /// @result packet indicating success or error of command
-  Packet InvokeSubProcess (char const *const *argv, size_t argc);
-
-  Packet InvokeSubProcess (std::vector<const char *> &args)
-  {
-    return InvokeSubProcess (args.data (), args.size ());
-  }
-
-public:
   /// Request compiler module repository
   /// @result packet indicating repo
   Packet ModuleRepo ();
 
+public:
   /// Inform of compilation of a named module interface or partition,
   /// or a header unit
   /// @param str module or header-unit
   /// @param len name length, if known
   /// @result CMI name (or deferrment/error)
-  Packet ModuleExport (char const *str, size_t len = ~size_t (0));
-  Packet ModuleExport (std::string const &s)
+  Packet ModuleExport (char const *str, Flags flags, size_t len = ~size_t (0));
+
+  Packet ModuleExport (char const *str)
   {
-    return ModuleExport (s.c_str (), s.size ());
+    return ModuleExport (str, Flags::None, ~size_t (0));
+  }
+  Packet ModuleExport (std::string const &s, Flags flags = Flags::None)
+  {
+    return ModuleExport (s.c_str (), flags, s.size ());
   }
 
+public:
   /// Importation of a module, partition or header-unit
   /// @param str module or header-unit
   /// @param len name length, if known
   /// @result CMI name (or deferrment/error)
-  Packet ModuleImport (char const *str, size_t len = ~size_t (0));
-  Packet ModuleImport (std::string const &s)
+  Packet ModuleImport (char const *str, Flags flags, size_t len = ~size_t (0));
+
+  Packet ModuleImport (char const *str)
   {
-    return ModuleImport (s.c_str (), s.size ());
+    return ModuleImport (str, Flags::None, ~size_t (0));
+  }
+  Packet ModuleImport (std::string const &s, Flags flags = Flags::None)
+  {
+    return ModuleImport (s.c_str (), flags, s.size ());
   }
 
+public:
   /// Successful compilation of a module interface, partition or
   /// header-unit.  Must have been preceeded by a ModuleExport
   /// request.
   /// @param str module or header-unit
   /// @param len name length, if known
   /// @result  OK (or deferment/error)
-  Packet ModuleCompiled (char const *str, size_t len = ~size_t (0));
-  Packet ModuleCompiled (std::string const &s)
+  Packet ModuleCompiled (char const *str, Flags flags, size_t len = ~size_t (0));
+
+  Packet ModuleCompiled (char const *str)
   {
-    return ModuleCompiled (s.c_str (), s.size ());
+    return ModuleCompiled (str, Flags::None, ~size_t (0));
+  }
+  Packet ModuleCompiled (std::string const &s, Flags flags = Flags::None)
+  {
+    return ModuleCompiled (s.c_str (), flags, s.size ());
   }
 
   /// Include translation query.
@@ -501,10 +528,16 @@ public:
   /// @param len name length, if known
   /// @result  Packet indicating include translation boolean, or CMI
   /// name (or deferment/error)
-  Packet IncludeTranslate (char const *str, size_t len = ~size_t (0));
-  Packet IncludeTranslate (std::string const &s)
+  Packet IncludeTranslate (char const *str, Flags flags,
+			   size_t len = ~size_t (0));
+
+  Packet IncludeTranslate (char const *str)
   {
-    return IncludeTranslate (s.c_str (), s.size ());
+    return IncludeTranslate (str, Flags::None, ~size_t (0));
+  }
+  Packet IncludeTranslate (std::string const &s, Flags flags = Flags::None)
+  {
+    return IncludeTranslate (s.c_str (), flags, s.size ());
   }
 
 public:
@@ -582,13 +615,15 @@ public:
 public:
   // return 0 on ok, ERRNO on failure, -1 on unspecific error
   virtual int ModuleRepoRequest (Server *s);
-  virtual int ModuleExportRequest (Server *s, std::string &module);
-  virtual int ModuleImportRequest (Server *s, std::string &module);
-  virtual int ModuleCompiledRequest (Server *s, std::string &module);
-  virtual int IncludeTranslateRequest (Server *s, std::string &include);
 
-public:
-  virtual int InvokeSubProcessRequest (Server *s, std::vector<std::string> &args);
+  virtual int ModuleExportRequest (Server *s, Flags flags,
+				   std::string &module);
+  virtual int ModuleImportRequest (Server *s, Flags flags,
+				   std::string &module);
+  virtual int ModuleCompiledRequest (Server *s, Flags flags,
+				     std::string &module);
+  virtual int IncludeTranslateRequest (Server *s, Flags flags,
+				       std::string &include);
 };
 
 

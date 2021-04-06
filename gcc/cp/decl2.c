@@ -1,5 +1,5 @@
 /* Process declarations and variables for C++ compiler.
-   Copyright (C) 1988-2020 Free Software Foundation, Inc.
+   Copyright (C) 1988-2021 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -48,6 +48,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "intl.h"
 #include "c-family/c-ada-spec.h"
 #include "asan.h"
+#include "optabs-query.h"
 
 /* Id for dumping the raw trees.  */
 int raw_dump_id;
@@ -1116,7 +1117,7 @@ grokbitfield (const cp_declarator *declarator,
 	  && !INTEGRAL_OR_UNSCOPED_ENUMERATION_TYPE_P (TREE_TYPE (width)))
 	error ("width of bit-field %qD has non-integral type %qT", value,
 	       TREE_TYPE (width));
-      else
+      else if (!check_for_bare_parameter_packs (width))
 	{
 	  /* Temporarily stash the width in DECL_BIT_FIELD_REPRESENTATIVE.
 	     check_bitfield_decl picks it from there later and sets DECL_SIZE
@@ -1595,9 +1596,6 @@ cplus_decl_attributes (tree *decl, tree attributes, int flags)
       decl_attributes (decl, attributes, flags, last_decl);
     }
 
-  if (TREE_CODE (*decl) == TYPE_DECL)
-    SET_IDENTIFIER_TYPE_VALUE (DECL_NAME (*decl), TREE_TYPE (*decl));
-
   /* Propagate deprecation out to the template.  */
   if (TREE_DEPRECATED (*decl))
     if (tree ti = get_template_info (*decl))
@@ -1928,7 +1926,7 @@ static void
 clear_consteval_vfns (vec<tree> &consteval_vtables)
 {
   for (tree vtable : consteval_vtables)
-    for (constructor_elt &elt : *CONSTRUCTOR_ELTS (DECL_INITIAL (vtable)))
+    for (constructor_elt &elt : CONSTRUCTOR_ELTS (DECL_INITIAL (vtable)))
       {
 	tree fn = cp_get_fndecl_from_callee (elt.value, /*fold*/false);
 	if (fn && DECL_IMMEDIATE_FUNCTION_P (fn))
@@ -2357,9 +2355,6 @@ min_vis_r (tree *tp, int *walk_subtrees, void *data)
   int this_vis = VISIBILITY_DEFAULT;
   if (! TYPE_P (*tp))
     *walk_subtrees = 0;
-  else if (typedef_variant_p (*tp))
-    /* Look through typedefs despite cp_walk_subtrees.  */
-    this_vis = type_visibility (DECL_ORIGINAL_TYPE (TYPE_NAME (*tp)));
   else if (OVERLOAD_TYPE_P (*tp)
 	   && !TREE_PUBLIC (TYPE_MAIN_DECL (*tp)))
     {
@@ -2377,6 +2372,10 @@ min_vis_r (tree *tp, int *walk_subtrees, void *data)
 
   if (this_vis > *vis_p)
     *vis_p = this_vis;
+
+  /* Tell cp_walk_subtrees to look through typedefs.  */
+  if (*walk_subtrees == 1)
+    *walk_subtrees = 2;
 
   return NULL;
 }
@@ -3297,18 +3296,34 @@ get_guard (tree decl)
   return guard;
 }
 
+/* Returns true if accessing the GUARD atomic is expensive,
+   i.e. involves a call to __sync_synchronize or similar.
+   In this case let __cxa_guard_acquire handle the atomics.  */
+
+static bool
+is_atomic_expensive_p (machine_mode mode)
+{
+  if (!flag_inline_atomics)
+    return true;
+
+  if (!can_compare_and_swap_p (mode, false) || !can_atomic_load_p (mode))
+    return true;
+
+  return false;
+}
+
 /* Return an atomic load of src with the appropriate memory model.  */
 
 static tree
-build_atomic_load_byte (tree src, HOST_WIDE_INT model)
+build_atomic_load_type (tree src, HOST_WIDE_INT model, tree type)
 {
-  tree ptr_type = build_pointer_type (char_type_node);
+  tree ptr_type = build_pointer_type (type);
   tree mem_model = build_int_cst (integer_type_node, model);
   tree t, addr, val;
   unsigned int size;
   int fncode;
 
-  size = tree_to_uhwi (TYPE_SIZE_UNIT (char_type_node));
+  size = tree_to_uhwi (TYPE_SIZE_UNIT (type));
 
   fncode = BUILT_IN_ATOMIC_LOAD_N + exact_log2 (size) + 1;
   t = builtin_decl_implicit ((enum built_in_function) fncode);
@@ -3351,7 +3366,15 @@ get_guard_cond (tree guard, bool thread_safe)
   if (!thread_safe)
     guard = get_guard_bits (guard);
   else
-    guard = build_atomic_load_byte (guard, MEMMODEL_ACQUIRE);
+    {
+      tree type = targetm.cxx.guard_mask_bit ()
+		  ? TREE_TYPE (guard) : char_type_node;
+
+      if (is_atomic_expensive_p (TYPE_MODE (type)))
+	guard = integer_zero_node;
+      else
+	guard = build_atomic_load_type (guard, MEMMODEL_ACQUIRE, type);
+    }
 
   /* Mask off all but the low bit.  */
   if (targetm.cxx.guard_mask_bit ())
@@ -4383,7 +4406,7 @@ collect_source_refs (tree namespc)
 {
   /* Iterate over names in this name space.  */
   for (tree t = NAMESPACE_LEVEL (namespc)->names; t; t = TREE_CHAIN (t))
-    if (DECL_IS_BUILTIN (t))
+    if (DECL_IS_UNDECLARED_BUILTIN (t))
       ;
     else if (TREE_CODE (t) == NAMESPACE_DECL && !DECL_NAMESPACE_ALIAS (t))
       collect_source_refs (t);
@@ -4887,11 +4910,7 @@ lower_var_init ()
 void
 c_parse_final_cleanups (void)
 {
-  tree vars;
-  bool reconsider;
   size_t i;
-  unsigned ssdf_count = 0;
-  int retries = 0;
   tree decl;
 
   locus_at_end_of_parsing = input_location;
@@ -4957,11 +4976,10 @@ c_parse_final_cleanups (void)
   /* Track vtables we want to emit that refer to consteval functions.  */
   auto_vec<tree> consteval_vtables;
 
-  do
+  int retries = 0;
+  unsigned ssdf_count = 0;
+  for (bool reconsider = true; reconsider; retries++)
     {
-      tree t;
-      tree decl;
-
       reconsider = false;
 
       /* If there are templates that we've put off instantiating, do
@@ -4970,13 +4988,16 @@ c_parse_final_cleanups (void)
       ggc_collect ();
 
       if (header_module_p ())
-	goto skip;
+	/* A header modules initializations are handled in its
+	   importer.  */
+	continue;
 
       /* Write out virtual tables as required.  Writing out the
 	 virtual table for a template class may cause the
 	 instantiation of members of that class.  If we write out
 	 vtables then we remove the class from our list so we don't
 	 have to look at it again.  */
+      tree t;
       for (i = keyed_classes->length ();
 	   keyed_classes->iterate (--i, &t);)
 	if (maybe_emit_vtables (t, consteval_vtables))
@@ -5006,10 +5027,15 @@ c_parse_final_cleanups (void)
 	 aggregates added during the initialization of these will be
 	 initialized in the correct order when we next come around the
 	 loop.  */
-      vars = prune_vars_needing_no_initialization (&static_aggregates);
-
-      if (vars)
+      if (tree vars = prune_vars_needing_no_initialization (&static_aggregates))
 	{
+	  if (flag_openmp)
+	    /* Add initializer information from VARS into
+	       DYNAMIC_INITIALIZERS.  */
+	    for (t = vars; t; t = TREE_CHAIN (t))
+	      hash_map_safe_put<hm_ggc> (dynamic_initializers,
+					 TREE_VALUE (t), TREE_PURPOSE (t));
+
 	  /* We need to start a new initialization function each time
 	     through the loop.  That's because we need to know which
 	     vtables have been referenced, and TREE_SYMBOL_REFERENCED
@@ -5055,7 +5081,6 @@ c_parse_final_cleanups (void)
 	     instantiations, etc.  */
 	  reconsider = true;
 	  ssdf_count++;
-	  /* ??? was:  locus_at_end_of_parsing.line++; */
 	}
 
       /* Now do the same for thread_local variables.  */
@@ -5067,8 +5092,6 @@ c_parse_final_cleanups (void)
       FOR_EACH_VEC_SAFE_ELT (deferred_fns, i, decl)
 	{
 	  /* Does it need synthesizing?  */
-	  // FiXME: We should synthesize upon first ODR use, that's
-	  // what the std says
 	  if (DECL_DEFAULTED_FN (decl) && ! DECL_INITIAL (decl)
 	      && (! DECL_REALLY_EXTERN (decl) || possibly_inlined_p (decl)))
 	    {
@@ -5167,15 +5190,12 @@ c_parse_final_cleanups (void)
 	  if (DECL_NOT_REALLY_EXTERN (decl) && decl_needed_p (decl))
 	    DECL_EXTERNAL (decl) = 0;
 	}
+
       if (vec_safe_length (pending_statics) != 0
 	  && wrapup_global_declarations (pending_statics->address (),
 					 pending_statics->length ()))
 	reconsider = true;
-
-    skip:;
-      retries++;
     }
-  while (reconsider);
 
   finish_module_processing (parse_in);
 
@@ -5260,6 +5280,7 @@ c_parse_final_cleanups (void)
   perform_deferred_noexcept_checks ();
 
   fini_constexpr ();
+  cp_tree_c_finish_parsing ();
   clear_consteval_vfns (consteval_vtables);
 
   /* The entire file is now complete.  If requested, dump everything
@@ -5533,7 +5554,8 @@ cp_warn_deprecated_use_scopes (tree scope)
 	 && scope != error_mark_node
 	 && scope != global_namespace)
     {
-      if (cp_warn_deprecated_use (scope))
+      if ((TREE_CODE (scope) == NAMESPACE_DECL || OVERLOAD_TYPE_P (scope))
+	  && cp_warn_deprecated_use (scope))
 	return;
       if (TYPE_P (scope))
 	scope = CP_TYPE_CONTEXT (scope);

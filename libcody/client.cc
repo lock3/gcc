@@ -6,6 +6,7 @@
 #include "internal.hh"
 // C
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 
 // Client code
@@ -28,7 +29,6 @@ static Packet (*const responseTable[Detail::RC_HWM])
     &PathnameResponse,
     &OKResponse,
     &IncludeTranslateResponse,
-    &OKResponse,
   };
 
 Client::Client ()
@@ -122,8 +122,7 @@ Packet Client::ProcessResponse (std::vector<std::string> &words,
   Assert (!words.empty ());
   if (words[0] == u8"ERROR")
     return Packet (Client::PC_ERROR,
-		  std::move (words.size () == 2 ? words[1]
-			     : u8"malformed error response"));
+		   words.size () == 2 ? words[1]: u8"malformed error response");
 
   if (isLast && !read.IsAtEnd ())
     return Packet (Client::PC_ERROR,
@@ -209,17 +208,27 @@ Packet Client::Connect (char const *agent, char const *ident,
   return MaybeRequest (Detail::RC_CONNECT);
 }
 
-// HELLO VERSION AGENT
+// HELLO $version $agent [$flags]
 Packet ConnectResponse (std::vector<std::string> &words)
 {
-  if (words[0] == u8"HELLO" && words.size () == 3)
+  if (words[0] == u8"HELLO" && (words.size () == 3 || words.size () == 4))
     {
       char *eptr;
-      unsigned long version = strtoul (words[1].c_str (), &eptr, 10);
-      if (*eptr || version < Version)
+      unsigned long val = strtoul (words[1].c_str (), &eptr, 10);
+
+      unsigned version = unsigned (val);
+      if (*eptr || version != val || version < Version)
 	return Packet (Client::PC_ERROR, u8"incompatible version");
       else
-	return Packet (Client::PC_CONNECT, version);
+	{
+	  unsigned flags = 0;
+	  if (words.size () == 4)
+	    {
+	      val = strtoul (words[3].c_str (), &eptr, 10);
+	      flags = unsigned (val);
+	    }
+	  return Packet (Client::PC_CONNECT, flags);
+	}
     }
 
   return Packet (Client::PC_ERROR, u8"");
@@ -244,19 +253,6 @@ Packet PathnameResponse (std::vector<std::string> &words)
   return Packet (Client::PC_ERROR, u8"");
 }
 
-// INVOKE $args
-Packet Client::InvokeSubProcess (char const *const *argv, size_t argc)
-{
-  write.BeginLine ();
-  write.AppendWord (u8"INVOKE");
-
-  for(size_t i = 0; i < argc; i++) 
-    write.AppendWord (argv[i]);
-
-  write.EndLine ();
-  return MaybeRequest (Detail::RC_INVOKE);
-}
-
 // OK or ERROR
 Packet OKResponse (std::vector<std::string> &words)
 {
@@ -267,50 +263,59 @@ Packet OKResponse (std::vector<std::string> &words)
 		   words.size () == 2 ? std::move (words[1]) : "");
 }
 
-// MODULE-EXPORT $modulename
-Packet Client::ModuleExport (char const *module, size_t mlen)
+// MODULE-EXPORT $modulename [$flags]
+Packet Client::ModuleExport (char const *module, Flags flags, size_t mlen)
 {
   write.BeginLine ();
   write.AppendWord (u8"MODULE-EXPORT");
   write.AppendWord (module, true, mlen);
+  if (flags != Flags::None)
+    write.AppendInteger (unsigned (flags));
   write.EndLine ();
 
   return MaybeRequest (Detail::RC_MODULE_EXPORT);
 }
 
-// MODULE-IMPORT $modulename
-Packet Client::ModuleImport (char const *module, size_t mlen)
+// MODULE-IMPORT $modulename [$flags]
+Packet Client::ModuleImport (char const *module, Flags flags, size_t mlen)
 {
   write.BeginLine ();
   write.AppendWord (u8"MODULE-IMPORT");
   write.AppendWord (module, true, mlen);
+  if (flags != Flags::None)
+    write.AppendInteger (unsigned (flags));
   write.EndLine ();
 
   return MaybeRequest (Detail::RC_MODULE_IMPORT);
 }
 
-// MODULE-COMPILED $modulename
-Packet Client::ModuleCompiled (char const *module, size_t mlen)
+// MODULE-COMPILED $modulename [$flags]
+Packet Client::ModuleCompiled (char const *module, Flags flags, size_t mlen)
 {
   write.BeginLine ();
   write.AppendWord (u8"MODULE-COMPILED");
   write.AppendWord (module, true, mlen);
+  if (flags != Flags::None)
+    write.AppendInteger (unsigned (flags));
   write.EndLine ();
 
   return MaybeRequest (Detail::RC_MODULE_COMPILED);
 }
 
-Packet Client::IncludeTranslate (char const *include, size_t ilen)
+// INCLUDE-TRANSLATE $includename [$flags]
+Packet Client::IncludeTranslate (char const *include, Flags flags, size_t ilen)
 {
   write.BeginLine ();
   write.AppendWord (u8"INCLUDE-TRANSLATE");
   write.AppendWord (include, true, ilen);
+  if (flags != Flags::None)
+    write.AppendInteger (unsigned (flags));
   write.EndLine ();
 
   return MaybeRequest (Detail::RC_INCLUDE_TRANSLATE);
 }
 
-// BOOL $truthiness
+// BOOL $knowntextualness
 // PATHNAME $cmifile
 Packet IncludeTranslateResponse (std::vector<std::string> &words)
 {

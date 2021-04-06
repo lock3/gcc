@@ -1,5 +1,5 @@
 /* C++ modules.  Experimental!
-   Copyright (C) 2017-2020 Free Software Foundation, Inc.
+   Copyright (C) 2017-2021 Free Software Foundation, Inc.
    Written by Nathan Sidwell <nathan@acm.org> while at FaceBook
 
    This file is part of GCC.
@@ -19,13 +19,25 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #include "config.h"
+#if defined (__unix__)
+// Solaris11's socket header used bcopy, which we poison.  cody.hh
+// will include it later under the above check
+#include <sys/socket.h>
+#endif
+#define INCLUDE_STRING
+#define INCLUDE_VECTOR
 #include "system.h"
 
 #include "line-map.h"
 #include "diagnostic-core.h"
-#define MAPPER_FOR_GCC 1
-#include "mapper.h"
+#include "mapper-client.h"
 #include "intl.h"
+
+#include "../../c++tools/resolver.h"
+
+#if !HOST_HAS_O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
 
 module_client::module_client (pex_obj *p, int fd_from, int fd_to)
   : Client (fd_from, fd_to), pex (p)
@@ -50,6 +62,16 @@ spawn_mapper_program (char const **errmsg, std::string &name,
 	ptr++;
       if (!*ptr)
 	break;
+
+      if (!arg_no)
+	{
+	  /* @name means look in the compiler's install dir.  */
+	  if (ptr[0] == '@')
+	    ptr++;
+	  else
+	    full_program_name = nullptr;
+	}
+
       argv[arg_no++] = ptr;
       while (*ptr && *ptr != ' ')
 	ptr++;
@@ -67,10 +89,11 @@ spawn_mapper_program (char const **errmsg, std::string &name,
   else
     {
       int flags = PEX_SEARCH;
-	  
+
       if (full_program_name)
 	{
-	  /* Prepend the invoking path.  */
+	  /* Prepend the invoking path, if the mapper is a simple
+	     file name.  */
 	  size_t dir_len = progname - full_program_name;
 	  std::string argv0;
 	  argv0.reserve (dir_len + name.size ());
@@ -134,30 +157,65 @@ module_client::open_module_client (location_t loc, const char *o,
 	    case '<':
 	      // <from>to or <>fromto, or <>
 	      {
+		size_t pos = name.find ('>', 1);
+		if (pos == std::string::npos)
+		  pos = name.size ();
+		std::string from (name, 1, pos - 1);
+		std::string to;
+		if (pos != name.size ())
+		  to.append (name, pos + 1, std::string::npos);
+
 		int fd_from = -1, fd_to = -1;
-		char const *ptr = name.c_str ();
-		char *eptr;
-
-		fd_from = strtoul (++ptr, &eptr, 0);
-		if (*eptr == '>')
+		if (from.empty () && to.empty ())
 		  {
-		    ptr = eptr;
-		    fd_to = strtoul (++ptr, &eptr, 0);
-		    if (eptr != ptr && ptr == name.c_str () + 1)
-		      fd_from = fd_to;
+		    fd_from = fileno (stdin);
+		    fd_to = fileno (stdout);
 		  }
-
-		if (*eptr)
-		  errmsg = "parsing";
 		else
 		  {
-		    if (name.size () == 2)
+		    char *ptr;
+		    if (!from.empty ())
 		      {
-			fd_from = fileno (stdin);
-			fd_to = fileno (stdout);
+			/* Sadly str::stoul is not portable.  */
+			const char *cstr = from.c_str ();
+			fd_from = strtoul (cstr, &ptr, 10);
+			if (*ptr)
+			  {
+			    /* Not a number -- a named pipe.  */
+			    int dir = to.empty ()
+			      ? O_RDWR | O_CLOEXEC : O_RDONLY | O_CLOEXEC;
+			    fd_from = open (cstr, dir);
+			  }
+			if (to.empty ())
+			  fd_to = fd_from;
 		      }
-		    c = new module_client (fd_from, fd_to);
+
+		    if (!from.empty () && fd_from < 0)
+		      ;
+		    else if (to.empty ())
+		      ;
+		    else
+		      {
+			const char *cstr = to.c_str ();
+			fd_to = strtoul (cstr, &ptr, 10);
+			if (*ptr)
+			  {
+			    /* Not a number, a named pipe.  */
+			    int dir = from.empty ()
+			      ? O_RDWR | O_CLOEXEC : O_WRONLY | O_CLOEXEC;
+			    fd_to = open (cstr, dir);
+			    if (fd_to < 0)
+			      close (fd_from);
+			  }
+			if (from.empty ())
+			  fd_from = fd_to;
+		      }
 		  }
+
+		if (fd_from < 0 || fd_to < 0)
+		  errmsg = "opening";
+		else
+		  c = new module_client (fd_from, fd_to);
 	      }
 	      break;
 
@@ -191,7 +249,7 @@ module_client::open_module_client (location_t loc, const char *o,
 		    if (port && endp != cptr + 1 && !*endp)
 		      {
 			name[colon] = 0;
-			int fd = 01;
+			int fd = -1;
 #if CODY_NETWORKING
 			fd = Cody::OpenInet6 (&errmsg, name.c_str (), port);
 #endif
@@ -256,7 +314,7 @@ module_client::open_module_client (location_t loc, const char *o,
 
   auto &connect = packets[0];
   if (connect.GetCode () == Cody::Client::PC_CONNECT)
-    ;
+    c->flags = Cody::Flags (connect.GetInteger ());
   else if (connect.GetCode () == Cody::Client::PC_ERROR)
     error_at (loc, "failed mapper handshake %s", connect.GetString ().c_str ());
 

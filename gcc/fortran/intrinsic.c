@@ -1,6 +1,6 @@
 /* Build up a list of intrinsic subroutines and functions for the
    name-resolution stage.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Andy Vaught & Katherine Holcomb
 
 This file is part of GCC.
@@ -5070,6 +5070,11 @@ got_specific:
       sym->attr.function = 1;
       sym->attr.intrinsic = 1;
       sym->attr.flavor = FL_PROCEDURE;
+    }
+  if (sym->attr.flavor == FL_PROCEDURE)
+    {
+      sym->attr.function = 1;
+      sym->attr.proc = PROC_INTRINSIC;
     }
 
   if (!sym->module)

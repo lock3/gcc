@@ -1,5 +1,5 @@
-/* Functions related to building classes and their related objects.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+/* Functions related to building -*- C++ -*- classes and their related objects.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -402,16 +402,9 @@ build_base_path (enum tree_code code,
   if (TREE_SIDE_EFFECTS (expr) && (null_test || virtual_access))
     expr = save_expr (expr);
 
-  /* Now that we've saved expr, build the real null test.  */
+  /* Store EXPR and build the real null test just before returning.  */
   if (null_test)
-    {
-      tree zero = cp_convert (TREE_TYPE (expr), nullptr_node, complain);
-      null_test = build2_loc (input_location, NE_EXPR, boolean_type_node,
-			      expr, zero);
-      /* This is a compiler generated comparison, don't emit
-	 e.g. -Wnonnull-compare warning for it.  */
-      TREE_NO_WARNING (null_test) = 1;
-    }
+    null_test = expr;
 
   /* If this is a simple base reference, express it as a COMPONENT_REF.  */
   if (code == PLUS_EXPR && !virtual_access
@@ -494,8 +487,6 @@ build_base_path (enum tree_code code,
   if (want_pointer)
     target_type = ptr_target_type;
 
-  expr = build1 (NOP_EXPR, ptr_target_type, expr);
-
   if (!integer_zerop (offset))
     {
       offset = fold_convert (sizetype, offset);
@@ -505,6 +496,8 @@ build_base_path (enum tree_code code,
     }
   else
     null_test = NULL;
+
+  expr = build1 (NOP_EXPR, ptr_target_type, expr);
 
  indout:
   if (!want_pointer)
@@ -516,14 +509,8 @@ build_base_path (enum tree_code code,
 
  out:
   if (null_test)
-    {
-      expr = fold_build3_loc (input_location, COND_EXPR, target_type, null_test,
-			      expr, build_zero_cst (target_type));
-      /* Avoid warning for the whole conditional expression (in addition
-	 to NULL_TEST itself -- see above) in case the result is used in
-	 a nonnull context that the front end -Wnonnull checks.  */
-      TREE_NO_WARNING (expr) = 1;
-    }
+    /* Wrap EXPR in a null test.  */
+    expr = build_if_nonnull (null_test, expr, complain);
 
   return expr;
 }
@@ -659,6 +646,33 @@ convert_to_base_statically (tree expr, tree base)
   return expr;
 }
 
+/* True IFF EXPR is a reference to an empty base class "subobject", as built in
+   convert_to_base_statically.  We look for the result of the fold_convert
+   call, a NOP_EXPR from one pointer type to another, where the target is an
+   empty base of the original type.  */
+
+bool
+is_empty_base_ref (tree expr)
+{
+  if (TREE_CODE (expr) == INDIRECT_REF)
+    expr = TREE_OPERAND (expr, 0);
+  if (TREE_CODE (expr) != NOP_EXPR)
+    return false;
+  tree type = TREE_TYPE (expr);
+  if (!POINTER_TYPE_P (type))
+    return false;
+  type = TREE_TYPE (type);
+  if (!is_empty_class (type))
+    return false;
+  STRIP_NOPS (expr);
+  tree fromtype = TREE_TYPE (expr);
+  if (!POINTER_TYPE_P (fromtype))
+    return false;
+  fromtype = TREE_TYPE (fromtype);
+  return (CLASS_TYPE_P (fromtype)
+	  && !same_type_ignoring_top_level_qualifiers_p (fromtype, type)
+	  && DERIVED_FROM_P (type, fromtype));
+}
 
 tree
 build_vfield_ref (tree datum, tree type)
@@ -1322,6 +1336,8 @@ handle_using_decl (tree using_decl, tree t)
       return;
     }
 
+  iloc_sentinel ils (DECL_SOURCE_LOCATION (using_decl));
+
   /* Make type T see field decl FDECL with access ACCESS.  */
   if (flist)
     for (ovl_iterator iter (flist); iter; ++iter)
@@ -1329,6 +1345,23 @@ handle_using_decl (tree using_decl, tree t)
 	add_method (t, *iter, true);
 	alter_access (t, *iter, access);
       }
+  else if (USING_DECL_UNRELATED_P (using_decl))
+    {
+      /* C++20 using enum can import non-inherited enumerators into class
+	 scope.  We implement that by making a copy of the CONST_DECL for which
+	 CONST_DECL_USING_P is true.  */
+      gcc_assert (TREE_CODE (decl) == CONST_DECL);
+
+      tree copy = copy_decl (decl);
+      DECL_CONTEXT (copy) = t;
+      DECL_ARTIFICIAL (copy) = true;
+      /* We emitted debug info for the USING_DECL above; make sure we don't
+	 also emit anything for this clone.  */
+      DECL_IGNORED_P (copy) = true;
+      DECL_SOURCE_LOCATION (copy) = DECL_SOURCE_LOCATION (using_decl);
+      finish_member_declaration (copy);
+      DECL_ABSTRACT_ORIGIN (copy) = decl;
+    }
   else
     alter_access (t, decl, access);
 }
@@ -1461,6 +1494,10 @@ mark_or_check_tags (tree t, tree *tp, abi_tag_data *p, bool val)
 static tree
 find_abi_tags_r (tree *tp, int *walk_subtrees, void *data)
 {
+  if (TYPE_P (*tp) && *walk_subtrees == 1)
+    /* Tell cp_walk_subtrees to look though typedefs.  */
+    *walk_subtrees = 2;
+
   if (!OVERLOAD_TYPE_P (*tp))
     return NULL_TREE;
 
@@ -1481,6 +1518,10 @@ find_abi_tags_r (tree *tp, int *walk_subtrees, void *data)
 static tree
 mark_abi_tags_r (tree *tp, int *walk_subtrees, void *data)
 {
+  if (TYPE_P (*tp) && *walk_subtrees == 1)
+    /* Tell cp_walk_subtrees to look though typedefs.  */
+    *walk_subtrees = 2;
+
   if (!OVERLOAD_TYPE_P (*tp))
     return NULL_TREE;
 
@@ -1781,15 +1822,13 @@ check_bases (tree t,
 	  else if (CLASSTYPE_REPEATED_BASE_P (t))
 	    CLASSTYPE_NON_STD_LAYOUT (t) = 1;
 	  else
-	    /* ...either has no non-static data members in the most-derived
-	       class and at most one base class with non-static data
-	       members, or has no base classes with non-static data
-	       members.  FIXME This was reworded in DR 1813.  */
+	    /* ...has all non-static data members and bit-fields in the class
+	       and its base classes first declared in the same class.  */
 	    for (basefield = TYPE_FIELDS (basetype); basefield;
 		 basefield = DECL_CHAIN (basefield))
 	      if (TREE_CODE (basefield) == FIELD_DECL
 		  && !(DECL_FIELD_IS_BASE (basefield)
-		       && integer_zerop (DECL_SIZE (basefield))))
+		       && is_empty_field (basefield)))
 		{
 		  if (field)
 		    CLASSTYPE_NON_STD_LAYOUT (t) = 1;
@@ -1953,35 +1992,45 @@ determine_primary_bases (tree t)
 /* Update the variant types of T.  */
 
 void
-fixup_type_variants (tree t)
+fixup_type_variants (tree type)
 {
-  tree variants;
-
-  if (!t)
+  if (!type)
     return;
 
-  for (variants = TYPE_NEXT_VARIANT (t);
-       variants;
-       variants = TYPE_NEXT_VARIANT (variants))
+  for (tree variant = TYPE_NEXT_VARIANT (type);
+       variant;
+       variant = TYPE_NEXT_VARIANT (variant))
     {
       /* These fields are in the _TYPE part of the node, not in
 	 the TYPE_LANG_SPECIFIC component, so they are not shared.  */
-      TYPE_HAS_USER_CONSTRUCTOR (variants) = TYPE_HAS_USER_CONSTRUCTOR (t);
-      TYPE_NEEDS_CONSTRUCTING (variants) = TYPE_NEEDS_CONSTRUCTING (t);
-      TYPE_HAS_NONTRIVIAL_DESTRUCTOR (variants)
-	= TYPE_HAS_NONTRIVIAL_DESTRUCTOR (t);
+      TYPE_HAS_USER_CONSTRUCTOR (variant) = TYPE_HAS_USER_CONSTRUCTOR (type);
+      TYPE_NEEDS_CONSTRUCTING (variant) = TYPE_NEEDS_CONSTRUCTING (type);
+      TYPE_HAS_NONTRIVIAL_DESTRUCTOR (variant)
+	= TYPE_HAS_NONTRIVIAL_DESTRUCTOR (type);
 
-      TYPE_POLYMORPHIC_P (variants) = TYPE_POLYMORPHIC_P (t);
-      CLASSTYPE_FINAL (variants) = CLASSTYPE_FINAL (t);
+      TYPE_POLYMORPHIC_P (variant) = TYPE_POLYMORPHIC_P (type);
+      CLASSTYPE_FINAL (variant) = CLASSTYPE_FINAL (type);
 
-      TYPE_BINFO (variants) = TYPE_BINFO (t);
+      TYPE_BINFO (variant) = TYPE_BINFO (type);
 
       /* Copy whatever these are holding today.  */
-      TYPE_VFIELD (variants) = TYPE_VFIELD (t);
-      TYPE_FIELDS (variants) = TYPE_FIELDS (t);
+      TYPE_VFIELD (variant) = TYPE_VFIELD (type);
+      TYPE_FIELDS (variant) = TYPE_FIELDS (type);
 
-      TYPE_SIZE (variants) = TYPE_SIZE (t);
-      TYPE_SIZE_UNIT (variants) = TYPE_SIZE_UNIT (t);
+      TYPE_SIZE (variant) = TYPE_SIZE (type);
+      TYPE_SIZE_UNIT (variant) = TYPE_SIZE_UNIT (type);
+
+      if (!TYPE_USER_ALIGN (variant)
+	  || TYPE_NAME (variant) == TYPE_NAME (type)
+	  || TYPE_ALIGN_RAW (variant) < TYPE_ALIGN_RAW (type))
+	{
+	  TYPE_ALIGN_RAW (variant) =  TYPE_ALIGN_RAW (type);
+	  TYPE_USER_ALIGN (variant) = TYPE_USER_ALIGN (type);
+	}
+
+      TYPE_PRECISION (variant) = TYPE_PRECISION (type);
+      TYPE_MODE_RAW (variant) = TYPE_MODE_RAW (type);
+      TYPE_EMPTY_P (variant) = TYPE_EMPTY_P (type);
     }
 }
 
@@ -4172,6 +4221,25 @@ field_poverlapping_p (tree decl)
 			   DECL_ATTRIBUTES (decl));
 }
 
+/* Return true iff DECL is an empty field, either for an empty base or a
+   [[no_unique_address]] data member.  */
+
+bool
+is_empty_field (tree decl)
+{
+  if (TREE_CODE (decl) != FIELD_DECL)
+    return false;
+
+  bool r = (is_empty_class (TREE_TYPE (decl))
+	    && (DECL_FIELD_IS_BASE (decl)
+		|| field_poverlapping_p (decl)));
+
+  /* Empty fields should have size zero.  */
+  gcc_checking_assert (!r || integer_zerop (DECL_SIZE (decl)));
+
+  return r;
+}
+
 /* Record all of the empty subobjects of DECL_OR_BINFO.  */
 
 static void
@@ -4953,9 +5021,7 @@ build_cdtor_clones (tree fn, bool needs_vtt_p, bool base_omits_inherited_p,
 
 /* Produce declarations for all appropriate clones of FN.  If
    UPDATE_METHODS is true, the clones are added to the
-   CLASSTYPE_METHOD_VEC.  VIA_USING indicates whether these are
-   cloning decls brought in via using declarations (i.e. inheriting
-   ctors).  */
+   CLASSTYPE_MEMBER_VEC.  */
 
 void
 clone_cdtor (tree fn, bool update_methods)
@@ -6561,7 +6627,9 @@ layout_class_type (tree t, tree *virtuals_p)
 	  /* end_of_class doesn't always give dsize, but it does in the case of
 	     a class with virtual bases, which is when dsize > nvsize.  */
 	  tree dsize = end_of_class (type, /*vbases*/true);
-	  if (tree_int_cst_le (dsize, nvsize))
+	  if (CLASSTYPE_EMPTY_P (type))
+	    DECL_SIZE (field) = DECL_SIZE_UNIT (field) = size_zero_node;
+	  else if (tree_int_cst_le (dsize, nvsize))
 	    {
 	      DECL_SIZE_UNIT (field) = nvsize;
 	      DECL_SIZE (field) = CLASSTYPE_SIZE (type);
@@ -7479,9 +7547,6 @@ finish_struct_1 (tree t)
 
   /* Finish debugging output for this type.  */
   rest_of_type_compilation (t, ! LOCAL_CLASS_P (t));
-
-  /* Recalculate satisfaction that might depend on completeness.  */
-  clear_satisfaction_cache ();
 
   if (TYPE_TRANSPARENT_AGGR (t))
     {

@@ -12,7 +12,12 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/un.h>
+
+#ifndef AI_NUMERICSERV
+#define AI_NUMERICSERV 0
+#endif
 
 // Server-side networking helpers
 

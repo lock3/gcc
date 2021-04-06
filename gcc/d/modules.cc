@@ -1,5 +1,5 @@
 /* modules.cc -- D module initialization and termination.
-   Copyright (C) 2013-2020 Free Software Foundation, Inc.
+   Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 GCC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "stringpool.h"
 
 #include "d-tree.h"
+#include "d-target.h"
 
 
 /* D generates module information to inform the runtime library which modules
@@ -74,7 +75,7 @@ static tree stop_minfo_node;
 /* Record information about module initialization, termination,
    unit testing, and thread local storage in the compilation.  */
 
-struct GTY(()) module_info
+struct module_info
 {
   vec <tree, va_gc> *ctors;
   vec <tree, va_gc> *dtors;
@@ -119,11 +120,6 @@ static module_info *current_testing_module;
 /* The declaration of the current module being compiled.  */
 
 static Module *current_module_decl;
-
-/* Static constructors and destructors (not D `static this').  */
-
-static GTY(()) vec <tree, va_gc> *static_ctor_list;
-static GTY(()) vec <tree, va_gc> *static_dtor_list;
 
 /* Returns an internal function identified by IDENT.  This is used
    by both module initialization and dso handlers.  */
@@ -405,6 +401,10 @@ build_dso_registry_var (const char * name, tree type)
 static void
 register_moduleinfo (Module *decl, tree minfo)
 {
+  /* No defined minfo section for target.  */
+  if (targetdm.d_minfo_section == NULL)
+    return;
+
   if (!targetm_common.have_named_sections)
     sorry ("%<-fmoduleinfo%> is not supported on this target");
 
@@ -420,7 +420,8 @@ register_moduleinfo (Module *decl, tree minfo)
   DECL_EXTERNAL (mref) = 0;
   DECL_PRESERVE_P (mref) = 1;
 
-  set_decl_section_name (mref, "minfo");
+  set_decl_section_name (mref, targetdm.d_minfo_section);
+  symtab_node::get (mref)->implicit_section = true;
   d_pushdecl (mref);
   rest_of_decl_compilation (mref, 1, 0);
 
@@ -431,10 +432,12 @@ register_moduleinfo (Module *decl, tree minfo)
   if (!first_module)
     return;
 
-  start_minfo_node = build_dso_registry_var ("__start_minfo", ptr_type_node);
+  start_minfo_node = build_dso_registry_var (targetdm.d_minfo_start_name,
+					     ptr_type_node);
   rest_of_decl_compilation (start_minfo_node, 1, 0);
 
-  stop_minfo_node = build_dso_registry_var ("__stop_minfo", ptr_type_node);
+  stop_minfo_node = build_dso_registry_var (targetdm.d_minfo_end_name,
+					    ptr_type_node);
   rest_of_decl_compilation (stop_minfo_node, 1, 0);
 
   /* Declare dso_slot and dso_initialized.  */
@@ -452,10 +455,12 @@ register_moduleinfo (Module *decl, tree minfo)
 
   /* Declare dso_ctor() and dso_dtor().  */
   tree dso_ctor = build_dso_cdtor_fn (true);
-  vec_safe_push (static_ctor_list, dso_ctor);
+  DECL_STATIC_CONSTRUCTOR (dso_ctor) = 1;
+  decl_init_priority_insert (dso_ctor, DEFAULT_INIT_PRIORITY);
 
   tree dso_dtor = build_dso_cdtor_fn (false);
-  vec_safe_push (static_dtor_list, dso_dtor);
+  DECL_STATIC_DESTRUCTOR (dso_dtor) = 1;
+  decl_fini_priority_insert (dso_dtor, DEFAULT_INIT_PRIORITY);
 
   first_module = false;
 }
@@ -900,27 +905,4 @@ d_finish_compilation (tree *vec, int len)
       tree decl = vec[i];
       wrapup_global_declarations (&decl, 1);
     }
-
-  /* If the target does not directly support static constructors,
-     static_ctor_list contains a list of all static constructors defined
-     so far.  This routine will create a function to call all of those
-     and is picked up by collect2.  */
-  if (static_ctor_list)
-    {
-      tree decl = build_funcs_gates_fn (get_file_function_name ("I"),
-					static_ctor_list, NULL);
-      DECL_STATIC_CONSTRUCTOR (decl) = 1;
-      decl_init_priority_insert (decl, DEFAULT_INIT_PRIORITY);
-    }
-
-  if (static_dtor_list)
-    {
-      tree decl = build_funcs_gates_fn (get_file_function_name ("D"),
-					static_dtor_list, NULL);
-      DECL_STATIC_DESTRUCTOR (decl) = 1;
-      decl_fini_priority_insert (decl, DEFAULT_INIT_PRIORITY);
-    }
 }
-
-
-#include "gt-d-modules.h"

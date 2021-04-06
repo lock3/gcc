@@ -1,5 +1,5 @@
 /* Declarations and data types for RTL call insn generation.
-   Copyright (C) 2013-2020 Free Software Foundation, Inc.
+   Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -133,6 +133,7 @@ extern bool reference_callee_copied (CUMULATIVE_ARGS *,
 extern void maybe_warn_alloc_args_overflow (tree, tree, tree[2], int[2]);
 extern tree get_attr_nonstring_decl (tree, tree * = NULL);
 extern bool maybe_warn_nonstring_arg (tree, tree);
+extern void maybe_complain_about_tail_call (tree, const char *);
 enum size_range_flags
   {
    /* Set to consider zero a valid range.  */

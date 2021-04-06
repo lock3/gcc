@@ -1,5 +1,5 @@
 /* Part of CPP library.
-   Copyright (C) 1997-2020 Free Software Foundation, Inc.
+   Copyright (C) 1997-2021 Free Software Foundation, Inc.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -48,6 +48,8 @@ struct cset_converter
   convert_f func;
   iconv_t cd;
   int width;
+  const char* from;
+  const char* to;
 };
 
 #define BITS_PER_CPPCHAR_T (CHAR_BIT * sizeof (cppchar_t))
@@ -366,9 +368,6 @@ struct cpp_buffer
      token from the enclosing buffer is returned.  */
   bool return_at_eof : 1;
 
-  /* Is from main file.  */
-  bool main_file : 1;
-
   /* One for a system header, two for a C system header file that therefore
      needs to be extern "C" protected in C++, and zero otherwise.  */
   unsigned char sysp;
@@ -524,10 +523,9 @@ struct cpp_reader
   const unsigned char *date;
   const unsigned char *time;
 
-  /* Externally set timestamp to replace current date and time useful for
-     reproducibility.  It should be initialized to -2 (not yet set) and
-     set to -1 to disable it or to a non-negative value to enable it.  */
-  time_t source_date_epoch;
+  /* Time stamp, set idempotently lazily.  */
+  time_t time_stamp;
+  int time_stamp_kind; /* Or errno.  */
 
   /* A token forcing paste avoidance, and one demarking macro arguments.  */
   cpp_token avoid_paste;
@@ -636,22 +634,23 @@ typedef unsigned char uchar;
 
 #define UC (const uchar *)  /* Intended use: UC"string" */
 
-/* Macros.  */
+/* Accessors.  */
 
-static inline int cpp_in_system_header (cpp_reader *);
-static inline int
-cpp_in_system_header (cpp_reader *pfile)
+inline int
+_cpp_in_system_header (cpp_reader *pfile)
 {
   return pfile->buffer ? pfile->buffer->sysp : 0;
 }
 #define CPP_PEDANTIC(PF) CPP_OPTION (PF, cpp_pedantic)
 #define CPP_WTRADITIONAL(PF) CPP_OPTION (PF, cpp_warn_traditional)
 
-static inline int cpp_in_primary_file (cpp_reader *);
-static inline int
-cpp_in_primary_file (cpp_reader *pfile)
+/* Return true if we're in the main file (unless it's considered to be
+   an include file in its own right.  */
+inline int
+_cpp_in_main_source_file (cpp_reader *pfile)
 {
-  return pfile->buffer->main_file;
+  return (!CPP_OPTION (pfile, main_search)
+	  && pfile->buffer->file == pfile->main_file);
 }
 
 /* True if NODE is a macro for the purposes of ifdef, defined etc.  */
@@ -702,8 +701,10 @@ enum _cpp_find_file_kind
   { _cpp_FFK_NORMAL, _cpp_FFK_FAKE, _cpp_FFK_PRE_INCLUDE, _cpp_FFK_HAS_INCLUDE };
 extern _cpp_file *_cpp_find_file (cpp_reader *, const char *, cpp_dir *,
 				  int angle, _cpp_find_file_kind, location_t);
-extern const char *_cpp_found_name (_cpp_file *);
+extern bool _cpp_find_failed (_cpp_file *);
 extern void _cpp_mark_file_once_only (cpp_reader *, struct _cpp_file *);
+extern const char *_cpp_find_header_unit (cpp_reader *, const char *file,
+					  bool angle_p,  location_t);
 extern void _cpp_fake_include (cpp_reader *, const char *);
 extern bool _cpp_stack_file (cpp_reader *, _cpp_file*, include_type, location_t);
 extern bool _cpp_stack_include (cpp_reader *, const char *, int,
