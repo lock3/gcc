@@ -19052,7 +19052,7 @@ module_may_redeclare (tree decl)
   module_state *me = (*modules)[0];
   module_state *them = me;
   tree not_tmpl = STRIP_TEMPLATE (decl);
-  if (TREE_CODE (CP_DECL_CONTEXT (decl)) == RECORD_TYPE)
+  while (TYPE_P (CP_DECL_CONTEXT (decl)))
     {
       decl = TYPE_NAME (CP_DECL_CONTEXT (decl));
       not_tmpl = STRIP_TEMPLATE (decl);
@@ -19065,9 +19065,10 @@ module_may_redeclare (tree decl)
 	    not_tmpl = STRIP_TEMPLATE (decl);
 	  }
 
-      if (!DECL_LANG_SPECIFIC (not_tmpl))
+      if (!DECL_LANG_SPECIFIC (decl))
 	return !module_purview_p ();
-      if (!DECL_MODULE_IMPORT_P (not_tmpl)
+      if (DECL_LANG_SPECIFIC (not_tmpl)
+	  && !DECL_MODULE_IMPORT_P (not_tmpl)
 	  && DECL_MODULE_PURVIEW_P (not_tmpl) == module_purview_p ())
 	return true;
 
