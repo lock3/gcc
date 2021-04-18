@@ -25,7 +25,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "cp-objcp-common.h"
 #include "dwarf2.h"
 #include "stringpool.h"
-#include "cxx-contracts.h"
+#include "contracts.h"
 
 /* Special routine to get the alias set for C++.  */
 

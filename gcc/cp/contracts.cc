@@ -139,7 +139,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "stringpool.h"
 #include "diagnostic.h"
 #include "options.h"
-#include "cxx-contracts.h"
+#include "contracts.h"
 #include "tree.h"
 #include "tree-inline.h"
 #include "attribs.h"
