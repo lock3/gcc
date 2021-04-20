@@ -32,7 +32,9 @@
 
 #pragma GCC system_header
 
-#if __cplusplus > 201703L
+#if __cplusplus <= 201703L
+#error <experimental/contracts> only available with -std=c++20
+#else // < C++20
 
 #include <bits/c++config.h>
 #include <experimental/meta>
@@ -159,5 +161,6 @@ namespace contracts
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
-#endif // C++17
+#endif // C++20
+
 #endif // _GLIBCXX_CONTRACT
