@@ -24,7 +24,7 @@ D_EXTRA_DFLAGS=-nostdinc -I $(srcdir) -I .
 # D flags for compilation
 AM_DFLAGS= \
 	$(phobos_lt_pic_flag) $(phobos_compiler_shared_flag) \
-	$(WARN_DFLAGS) $(CHECKING_DFLAGS) $(CET_DFLAGS)
+	$(WARN_DFLAGS) $(CHECKING_DFLAGS) $(SECTION_FLAGS) $(CET_DFLAGS)
 
 # Flags for other kinds of sources
 AM_CFLAGS=$(CET_FLAGS)
@@ -69,7 +69,8 @@ if DRUNTIME_OS_LINUX
     DRUNTIME_SOURCES_CONFIGURED += $(DRUNTIME_DSOURCES_LINUX)
 endif
 if DRUNTIME_OS_MINGW
-    DRUNTIME_SOURCES_CONFIGURED += $(DRUNTIME_DSOURCES_WINDOWS)
+    DRUNTIME_SOURCES_CONFIGURED += $(DRUNTIME_DSOURCES_WINDOWS) \
+				   config/mingw/msvc.c
 endif
 if DRUNTIME_OS_SOLARIS
     DRUNTIME_SOURCES_CONFIGURED += $(DRUNTIME_DSOURCES_SOLARIS)
@@ -184,20 +185,19 @@ DRUNTIME_DSOURCES = core/atomic.d core/attribute.d core/bitop.d \
 	core/thread/threadbase.d core/thread/threadgroup.d core/thread/types.d \
 	core/time.d core/vararg.d core/volatile.d gc/bits.d gc/config.d \
 	gc/gcinterface.d gc/impl/conservative/gc.d gc/impl/manual/gc.d gc/os.d \
-	gc/pooltable.d gc/proxy.d gcc/attribute.d gcc/backtrace.d \
-	gcc/builtins.d gcc/deh.d gcc/emutls.d gcc/gthread.d \
-	gcc/sections/android.d gcc/sections/elf_shared.d gcc/sections/osx.d \
-	gcc/sections/package.d gcc/sections/win32.d gcc/sections/win64.d \
-	gcc/unwind/arm.d gcc/unwind/arm_common.d gcc/unwind/c6x.d \
-	gcc/unwind/generic.d gcc/unwind/package.d gcc/unwind/pe.d object.d \
-	rt/aApply.d rt/aApplyR.d rt/aaA.d rt/adi.d rt/arrayassign.d \
-	rt/arraycast.d rt/arraycat.d rt/cast_.d rt/config.d rt/critical_.d \
-	rt/deh.d rt/dmain2.d rt/invariant.d rt/lifetime.d rt/memory.d \
-	rt/minfo.d rt/monitor_.d rt/obj.d rt/qsort.d rt/sections.d \
-	rt/switch_.d rt/tlsgc.d rt/util/array.d rt/util/container/array.d \
-	rt/util/container/common.d rt/util/container/hashtab.d \
-	rt/util/container/treap.d rt/util/random.d rt/util/typeinfo.d \
-	rt/util/utf.d
+	gc/pooltable.d gc/proxy.d gcc/attribute.d gcc/attributes.d \
+	gcc/backtrace.d gcc/builtins.d gcc/deh.d gcc/emutls.d gcc/gthread.d \
+	gcc/sections/common.d gcc/sections/elf.d gcc/sections/macho.d \
+	gcc/sections/package.d gcc/sections/pecoff.d gcc/unwind/arm.d \
+	gcc/unwind/arm_common.d gcc/unwind/c6x.d gcc/unwind/generic.d \
+	gcc/unwind/package.d gcc/unwind/pe.d object.d rt/aApply.d rt/aApplyR.d \
+	rt/aaA.d rt/adi.d rt/arrayassign.d rt/arraycast.d rt/arraycat.d \
+	rt/cast_.d rt/config.d rt/critical_.d rt/deh.d rt/dmain2.d \
+	rt/invariant.d rt/lifetime.d rt/memory.d rt/minfo.d rt/monitor_.d \
+	rt/obj.d rt/qsort.d rt/sections.d rt/switch_.d rt/tlsgc.d \
+	rt/util/array.d rt/util/container/array.d rt/util/container/common.d \
+	rt/util/container/hashtab.d rt/util/container/treap.d rt/util/random.d \
+	rt/util/typeinfo.d rt/util/utf.d
 
 DRUNTIME_DSOURCES_STDCXX = core/stdcpp/exception.d \
 	core/stdcpp/typeinfo.d
@@ -206,19 +206,19 @@ DRUNTIME_DSOURCES_BIONIC = core/sys/bionic/err.d \
 	core/sys/bionic/fcntl.d core/sys/bionic/stdlib.d \
 	core/sys/bionic/string.d core/sys/bionic/unistd.d
 
-DRUNTIME_DSOURCES_DARWIN = core/sys/darwin/crt_externs.d \
-	core/sys/darwin/dlfcn.d core/sys/darwin/err.d \
-	core/sys/darwin/execinfo.d core/sys/darwin/fcntl.d \
-	core/sys/darwin/ifaddrs.d core/sys/darwin/mach/dyld.d \
-	core/sys/darwin/mach/getsect.d core/sys/darwin/mach/kern_return.d \
-	core/sys/darwin/mach/loader.d core/sys/darwin/mach/nlist.d \
-	core/sys/darwin/mach/port.d core/sys/darwin/mach/semaphore.d \
-	core/sys/darwin/mach/stab.d core/sys/darwin/mach/thread_act.d \
-	core/sys/darwin/netinet/in_.d core/sys/darwin/pthread.d \
-	core/sys/darwin/stdlib.d core/sys/darwin/string.d \
-	core/sys/darwin/sys/attr.d core/sys/darwin/sys/cdefs.d \
-	core/sys/darwin/sys/event.d core/sys/darwin/sys/mman.d \
-	core/sys/darwin/sys/sysctl.d
+DRUNTIME_DSOURCES_DARWIN = core/sys/darwin/config.d \
+	core/sys/darwin/crt_externs.d core/sys/darwin/dlfcn.d \
+	core/sys/darwin/err.d core/sys/darwin/execinfo.d \
+	core/sys/darwin/fcntl.d core/sys/darwin/ifaddrs.d \
+	core/sys/darwin/mach/dyld.d core/sys/darwin/mach/getsect.d \
+	core/sys/darwin/mach/kern_return.d core/sys/darwin/mach/loader.d \
+	core/sys/darwin/mach/nlist.d core/sys/darwin/mach/port.d \
+	core/sys/darwin/mach/semaphore.d core/sys/darwin/mach/stab.d \
+	core/sys/darwin/mach/thread_act.d core/sys/darwin/netinet/in_.d \
+	core/sys/darwin/pthread.d core/sys/darwin/stdlib.d \
+	core/sys/darwin/string.d core/sys/darwin/sys/attr.d \
+	core/sys/darwin/sys/cdefs.d core/sys/darwin/sys/event.d \
+	core/sys/darwin/sys/mman.d core/sys/darwin/sys/sysctl.d
 
 DRUNTIME_DSOURCES_DRAGONFLYBSD = core/sys/dragonflybsd/dlfcn.d \
 	core/sys/dragonflybsd/err.d core/sys/dragonflybsd/execinfo.d \

@@ -10882,7 +10882,21 @@ cp_parser_lambda_expression (cp_parser* parser)
   LAMBDA_EXPR_LOCATION (lambda_expr) = token->location;
 
   if (cxx_dialect >= cxx20)
-    /* C++20 allows lambdas in unevaluated context.  */;
+    {
+      /* C++20 allows lambdas in unevaluated context, but one in the type of a
+	 non-type parameter is nonsensical.
+
+	 Distinguish a lambda in the parameter type from a lambda in the
+	 default argument by looking at local_variables_forbidden_p, which is
+	 only set in default arguments.  */
+      if (processing_template_parmlist && !parser->local_variables_forbidden_p)
+	{
+	  error_at (token->location,
+		    "lambda-expression in template parameter type");
+	  token->error_reported = true;
+	  ok = false;
+	}
+    }
   else if (cp_unevaluated_operand)
     {
       if (!token->error_reported)
@@ -12254,10 +12268,11 @@ cp_parser_compound_statement (cp_parser *parser, tree in_statement_expr,
   if (function_body)
     maybe_splice_retval_cleanup (compound_stmt);
 
-  /* Finish the compound-statement.  */
-  finish_compound_stmt (compound_stmt);
   /* Consume the `}'.  */
   braces.require_close (parser);
+
+  /* Finish the compound-statement.  */
+  finish_compound_stmt (compound_stmt);
 
   return compound_stmt;
 }
@@ -17188,6 +17203,10 @@ cp_parser_default_type_template_argument (cp_parser *parser)
   cp_lexer_consume_token (parser->lexer);
 
   cp_token *token = cp_lexer_peek_token (parser->lexer);
+
+  /* Tell cp_parser_lambda_expression this is a default argument.  */
+  auto lvf = make_temp_override (parser->local_variables_forbidden_p);
+  parser->local_variables_forbidden_p = LOCAL_VARS_AND_THIS_FORBIDDEN;
 
   /* Parse the default-argument.  */
   push_deferring_access_checks (dk_no_deferred);
@@ -22476,7 +22495,7 @@ cp_parser_direct_declarator (cp_parser* parser,
 
 		  tree save_ccp = current_class_ptr;
 		  tree save_ccr = current_class_ref;
-		  if (memfn && !friend_p)
+		  if (memfn && !friend_p && !static_p)
 		    /* DR 1207: 'this' is in scope after the cv-quals.  */
 		    inject_this_parameter (current_class_type, cv_quals);
 
@@ -24922,7 +24941,7 @@ cp_parser_class_name (cp_parser *parser,
   const bool typename_p = (typename_keyword_p
 			   && parser->scope
 			   && TYPE_P (parser->scope)
-			   && dependent_type_p (parser->scope));
+			   && dependent_scope_p (parser->scope));
   /* Handle the common case (an identifier, but not a template-id)
      efficiently.  */
   if (token->type == CPP_NAME
@@ -24994,9 +25013,7 @@ cp_parser_class_name (cp_parser *parser,
   decl = cp_parser_maybe_treat_template_as_class (decl, class_head_p);
 
   /* If this is a typename, create a TYPENAME_TYPE.  */
-  if (typename_p
-      && decl != error_mark_node
-      && !is_overloaded_fn (decl))
+  if (typename_p && decl != error_mark_node)
     {
       decl = make_typename_type (scope, decl, typename_type,
 				 /*complain=*/tf_error);
@@ -26747,8 +26764,8 @@ cp_parser_member_declaration (cp_parser* parser)
 		  || !DECL_DECLARES_FUNCTION_P (decl))
 		finish_member_declaration (decl);
 
-	      if (TREE_CODE (decl) == FUNCTION_DECL)
-		cp_parser_save_default_args (parser, decl);
+	      if (DECL_DECLARES_FUNCTION_P (decl))
+		cp_parser_save_default_args (parser, STRIP_TEMPLATE (decl));
 	      else if (TREE_CODE (decl) == FIELD_DECL
 		       && DECL_INITIAL (decl))
 		/* Add DECL to the queue of NSDMI to be parsed later.  */
@@ -28902,6 +28919,9 @@ cp_parser_label_declaration (cp_parser* parser)
 static tree
 cp_parser_concept_definition (cp_parser *parser)
 {
+  /* A concept definition is an unevaluated context.  */
+  cp_unevaluated u;
+
   gcc_assert (cp_lexer_next_token_is_keyword (parser->lexer, RID_CONCEPT));
   cp_lexer_consume_token (parser->lexer);
 
@@ -29057,7 +29077,20 @@ cp_parser_constraint_requires_parens (cp_parser *parser, bool lambda_p)
       case CPP_PLUS_PLUS:
       case CPP_MINUS_MINUS:
       case CPP_DOT:
+	/* Unenclosed postfix operator.  */
+	return pce_maybe_postfix;
+
       case CPP_DEREF:
+	/* A primary constraint that precedes the lambda-declarator of a
+	   lambda expression is followed by trailing return type.
+
+	      []<typename T> requires C -> void {}
+
+	   Don't try to re-parse this as a postfix expression in
+	   C++23 and later.  In C++20 ( needs to come in between but we
+	   allow it to be omitted with pedwarn.  */
+	if (lambda_p)
+	  return pce_ok;
 	/* Unenclosed postfix operator.  */
 	return pce_maybe_postfix;
    }
@@ -29263,6 +29296,9 @@ cp_parser_constraint_expression (cp_parser *parser)
 static tree
 cp_parser_requires_clause_opt (cp_parser *parser, bool lambda_p)
 {
+  /* A requires clause is an unevaluated context.  */
+  cp_unevaluated u;
+
   cp_token *tok = cp_lexer_peek_token (parser->lexer);
   if (tok->keyword != RID_REQUIRES)
     {
@@ -36068,7 +36104,6 @@ cp_parser_omp_var_list_no_open (cp_parser *parser, enum omp_clause_code kind,
 	cp_parser_parse_tentatively (parser);
       token = cp_lexer_peek_token (parser->lexer);
       if (kind != 0
-	  && current_class_ptr
 	  && cp_parser_is_keyword (token, RID_THIS))
 	{
 	  decl = finish_this_expr ();

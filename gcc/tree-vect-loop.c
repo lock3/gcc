@@ -8202,11 +8202,12 @@ vectorizable_induction (loop_vec_info loop_vinfo,
 	  /* Fill up to the number of vectors we need for the whole group.  */
 	  nivs = least_common_multiple (group_size,
 					const_nunits) / const_nunits;
+	  vec_steps.reserve (nivs-ivn);
 	  for (; ivn < nivs; ++ivn)
 	    {
 	      SLP_TREE_VEC_STMTS (slp_node)
 		.quick_push (SLP_TREE_VEC_STMTS (slp_node)[0]);
-	      vec_steps.safe_push (vec_steps[0]);
+	      vec_steps.quick_push (vec_steps[0]);
 	    }
 	}
 
@@ -9675,13 +9676,27 @@ vect_transform_loop (loop_vec_info loop_vinfo, gimple *loop_vectorized_call)
 	   !gsi_end_p (gsi); gsi_next (&gsi))
 	{
 	  gcall *call = dyn_cast <gcall *> (gsi_stmt (gsi));
-	  if (call && gimple_call_internal_p (call, IFN_MASK_LOAD))
+	  if (!call || !gimple_call_internal_p (call))
+	    continue;
+	  internal_fn ifn = gimple_call_internal_fn (call);
+	  if (ifn == IFN_MASK_LOAD)
 	    {
 	      tree lhs = gimple_get_lhs (call);
 	      if (!VECTOR_TYPE_P (TREE_TYPE (lhs)))
 		{
 		  tree zero = build_zero_cst (TREE_TYPE (lhs));
 		  gimple *new_stmt = gimple_build_assign (lhs, zero);
+		  gsi_replace (&gsi, new_stmt, true);
+		}
+	    }
+	  else if (conditional_internal_fn_code (ifn) != ERROR_MARK)
+	    {
+	      tree lhs = gimple_get_lhs (call);
+	      if (!VECTOR_TYPE_P (TREE_TYPE (lhs)))
+		{
+		  tree else_arg
+		    = gimple_call_arg (call, gimple_call_num_args (call) - 1);
+		  gimple *new_stmt = gimple_build_assign (lhs, else_arg);
 		  gsi_replace (&gsi, new_stmt, true);
 		}
 	    }
