@@ -1072,7 +1072,6 @@ build_contract_handler_fn (tree contract)
     violation_fn = on_contract_violation_fn;
   else
     violation_fn = on_contract_violation_never_fn;
-  violation_fn = on_contract_violation_fn;
   tree call = build_call_expr (violation_fn, 8, line_number, file_name,
 			       function_name, comment, attr, sem,
 			       labels, label_count);
