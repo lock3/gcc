@@ -8134,6 +8134,7 @@ extern void diagnose_constraints                (location_t, tree, tree);
 
 extern void note_failed_type_completion_for_satisfaction (tree);
 extern void save_atomic_constraint (tree);
+extern void walk_atom_cache 			(bool (*) (tree, void *), void *);
 
 /* Elements of the satisfaction cache.  */
 
