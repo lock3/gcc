@@ -631,7 +631,10 @@ parameter_mapping_equivalent_p (tree t1, tree t2)
   tree map2 = ATOMIC_CONSTR_MAP (t2);
   while (map1 && map2)
     {
-      gcc_checking_assert (TREE_VALUE (map1) == TREE_VALUE (map2));
+      // NOTE: If map1 or map2 were imported, then they will have 
+      // different pointer values. Better defer to cp_tree_equal.
+      //gcc_checking_assert (TREE_VALUE (map1) == TREE_VALUE (map2));
+      gcc_assert(cp_tree_equal(TREE_VALUE (map1), TREE_VALUE (map2)));
       tree arg1 = TREE_PURPOSE (map1);
       tree arg2 = TREE_PURPOSE (map2);
       if (!template_args_equal (arg1, arg2))
@@ -704,6 +707,8 @@ struct norm_info : subst_info
      template parameters of ORIG_DECL.  */
 
   tree initial_parms = NULL_TREE;
+
+  unsigned index = 0;
 };
 
 static tree normalize_expression (tree, tree, norm_info);
@@ -715,7 +720,9 @@ static tree
 normalize_logical_operation (tree t, tree args, tree_code c, norm_info info)
 {
   tree t0 = normalize_expression (TREE_OPERAND (t, 0), args, info);
+  info.index++;
   tree t1 = normalize_expression (TREE_OPERAND (t, 1), args, info);
+  info.index++;
 
   /* Build a new info object for the constraint.  */
   tree ci = info.generate_diagnostics()
@@ -771,6 +778,23 @@ normalize_concept_check (tree check, tree args, norm_info info)
 
 static GTY(()) hash_table<atom_hasher> *atom_cache;
 
+/* Call CB for each atomic constraint in the cache.  */
+
+void 
+walk_atom_cache(bool (*cb) (tree, void *), void *ctx)
+{
+   if (!atom_cache) 
+     return;
+
+  hash_table<atom_hasher>::iterator end = atom_cache->end ();
+  for (hash_table<atom_hasher>::iterator i = atom_cache->begin (); i != end;
+       ++i)
+    {
+      if (!cb (*i, ctx))
+	  return;
+    }
+}
+
 /* Called during module import to save serialized atomic constraints.  */
 
 void 
@@ -779,36 +803,44 @@ save_atomic_constraint (tree atom)
   gcc_assert (atom && TREE_CODE (atom) == ATOMIC_CONSTR);
   if (!atom_cache)
     atom_cache = hash_table<atom_hasher>::create_ggc (31);
+
+  // FIXME: atom's constr_expr is serialized by value; that is 
+  // it'll never hash to the same value as it's associated concept 
+  // decl's constr_expr.
+  // we'll just override it with the concept decl's constraint expr.
+  // hopefully it exists :(
+  // It'd be better to actually make these things mergeable
+  tree decl = TREE_TYPE(TREE_TYPE(atom));
+  decl = DECL_TEMPLATE_RESULT (decl);
+  ATOMIC_CONSTR_EXPR(atom) = DECL_INITIAL(decl);
+
   tree *slot = atom_cache->find_slot (atom, INSERT);
   /* Note: the constraint may have been satisfied beforehand.
      Because lazy loading in modules. */
+     
   if (!*slot)
     *slot = atom;
 }
 
-/* Append the new atom into the a tree list associated with a concept decl. */
+/* Returns the outer template decl for DECL. */
 
-static void 
-append_atom(tree decl, tree atom)
+static tree unpack_concept_decl(tree decl)
 {
-  if (!(modules_p() && flag_export_atoms))
-    return;
-
   // Nested requirements clauses within a concept definition.
   if (!decl) 
-    return;
+    return NULL_TREE;
 
   if (TREE_CODE (decl) == OVERLOAD)
     decl = OVL_FIRST (decl);
 
+  tree tmpl = decl;
   if (TREE_CODE (decl) == TEMPLATE_DECL)
     decl = DECL_TEMPLATE_RESULT (decl);
 
   if (TREE_CODE (decl) != CONCEPT_DECL)
-    return;
+    return NULL_TREE;
 
-  CONCEPT_ATOMIC_CONSTRAINTS (decl)
-      = tree_cons (NULL_TREE, atom, CONCEPT_ATOMIC_CONSTRAINTS (decl));
+  return tmpl;
 }
 
 /* The normal form of an atom depends on the expression. The normal
@@ -837,6 +869,17 @@ normalize_atom (tree t, tree args, norm_info info)
 	 later can cheaply compare two atoms using just pointer equality.  */
       if (!atom_cache)
 	atom_cache = hash_table<atom_hasher>::create_ggc (31);
+
+      tree cdecl = NULL_TREE;
+      if (modules_p()) 
+	{
+	  // Check for pre-cached atomic constraints associated with 
+	  // the concept declaration (if this is such a thing).
+	  cdecl = unpack_concept_decl(info.in_decl);
+	  if (cdecl)
+	    lazy_load_pendings(cdecl);
+	}
+
       tree *slot = atom_cache->find_slot (atom, INSERT);
       if (*slot)
 	return *slot;
@@ -860,7 +903,14 @@ normalize_atom (tree t, tree args, norm_info info)
 	  TREE_TYPE (map) = target_parms;
 	}
       
-      append_atom (info.in_decl, atom);
+      if (cdecl && flag_export_atoms) 
+	{
+	  // Store the concept decl's template decl because 
+  	  // That's what gets stored in the module's entity array/map.
+  	  gcc_assert(!TREE_TYPE(TREE_TYPE(atom)));
+  	  TREE_TYPE(TREE_TYPE(atom)) = cdecl;
+	}
+
       *slot = atom;
     }
   return atom;
@@ -1106,6 +1156,7 @@ hash_atomic_constraint (tree t)
 
   /* Hash the identity of the expression.  */
   hashval_t val = htab_hash_pointer (ATOMIC_CONSTR_EXPR (t));
+  verbatim("%qE -> %llu", t, val);
 
   /* Hash the targets of the parameter map.  */
   tree p = ATOMIC_CONSTR_MAP (t);
