@@ -4685,7 +4685,13 @@ write_constraint_satisfactions (sat_entry *entry, void *param)
 
   if (entry->cached_atom == ctx->atom)
     {
-      // ctx->out->tree_node(entry->atom);
+      // Don't bother writing un-instantiated atoms. they'll be 
+      // re-computed during satisfaction.    
+      // FIXME: these shouln't need to be recomputed during 
+      // satisfaction, but it's not clear why they are.
+      if (!ATOMIC_CONSTR_MAP_INSTANTIATED_P(entry->atom)) 
+        return true;
+
       // Don't write the atom as is. Write it's constituent components 
       // to prevent recursion.
       tree ci = TREE_TYPE(entry->atom);
@@ -7737,22 +7743,22 @@ trees_out::decl_value (tree decl, depset *dep)
 	    {
 	      /* Write the any satisfaction results associated with this 
 	         atomic constraint. */
-	      static int atom_recursion = 0;
+	      //static int atom_recursion = 0;
 	      if (flag_export_satisfactions)
 		{
-		//   if (!atom_recursion)
-		//     {
-		//       atom_recursion++;
+		  //if (!atom_recursion)
+		  //  {
+		  //    atom_recursion++;
 		
-		//       constraint_satisfaction_context ctx;
-		//       ctx.atom = decl;
-		//       ctx.out = this;
-		//       ctx.state = state;
-		//       walk_constraint_satisfactions (write_constraint_satisfactions,
-		//                                &ctx);
-		//       tree_node (NULL_TREE);
-		//       atom_recursion--;
-		//     }
+		      constraint_satisfaction_context ctx;
+		      ctx.atom = decl;
+		      ctx.out = this;
+		      ctx.state = state;
+		      walk_constraint_satisfactions (write_constraint_satisfactions,
+		                               &ctx);
+		      tree_node (NULL_TREE);
+		  //    atom_recursion--;
+		  //  }
 		}
 	    }		
 	}
@@ -8057,29 +8063,26 @@ trees_in::decl_value ()
       spec.args = tree_node ();
     }
   /* Hold constraints on the spec field, for a short while.  */
+
+  auto_vec<tree> sat_results;
   if (TREE_CODE(decl) != ATOMIC_CONSTR)
     spec.spec = tree_node ();
   else 
     {
-      if (state->has_atom_cache_p())
-        {
-        //   // Save the atom.
-        //   save_atomic_constraint (decl);
-        //   if (state->has_constraint_cache_p())
-	//   {
-        //     // And any satisfaction results.
-	//     tree ci;
-	//     while ((ci = tree_node()) != NULL_TREE)
-        //       {
-	//         tree map = tree_node();
-	//         tree atom = build1(ATOMIC_CONSTR, ci, map);
-	//         ATOMIC_CONSTR_MAP_INSTANTIATED_P(atom) = u();
-	//         tree args = tree_node();
-	//         tree result = tree_node ();
-	//         save_constraint_satisfaction (atom, args, result);
-	//       }
-        //    }
-        }	    
+      if (state->has_constraint_cache_p())
+	{
+	  // And any satisfaction results.
+	  tree ci;
+	  while ((ci = tree_node()) != NULL_TREE)
+	    {
+	      tree map = tree_node();
+	      tree atom = build1(ATOMIC_CONSTR, ci, map);
+	      ATOMIC_CONSTR_MAP_INSTANTIATED_P(atom) = u();
+	      sat_results.safe_push(atom);
+	      sat_results.safe_push(tree_node());  // args
+	      sat_results.safe_push(tree_node ()); // result
+	    }
+	}
     }
 
   dump (dumper::TREE) && dump ("Read:%d %C:%N", tag, TREE_CODE (decl), decl);
@@ -8142,8 +8145,14 @@ trees_in::decl_value ()
       if (TREE_CODE(decl) != ATOMIC_CONSTR && spec.spec)
 	set_constraints (decl, spec.spec);
 
-      if (TREE_CODE(decl) == ATOMIC_CONSTR)	
-        save_atomic_constraint(decl);
+      if (TREE_CODE(decl) == ATOMIC_CONSTR && state->has_atom_cache_p()) 
+        {
+          save_atomic_constraint(decl);
+	  for (tree *i = sat_results.begin(); i < sat_results.end(); i += 3)
+	  {
+	    save_constraint_satisfaction (i[0], i[1], i[2]);
+	  }
+	}
 
       if (TREE_CODE (decl) == INTEGER_CST && !TREE_OVERFLOW (decl))
 	{
@@ -11593,7 +11602,6 @@ void
 trees_out::write_var_def (tree decl)
 {
   tree init = DECL_INITIAL (decl);
-  bool is_concept = TREE_CODE(decl) == CONCEPT_DECL;
   tree_node (init);
   if (!init)
     {

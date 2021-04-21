@@ -1156,7 +1156,6 @@ hash_atomic_constraint (tree t)
 
   /* Hash the identity of the expression.  */
   hashval_t val = htab_hash_pointer (ATOMIC_CONSTR_EXPR (t));
-  verbatim("%qE -> %llu", t, val);
 
   /* Hash the targets of the parameter map.  */
   tree p = ATOMIC_CONSTR_MAP (t);
