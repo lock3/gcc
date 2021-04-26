@@ -2788,7 +2788,10 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
  (plus:c @0 (lshift:s @0 INTEGER_CST@1))
   (if (ANY_INTEGRAL_TYPE_P (TREE_TYPE (@0))
        && tree_fits_uhwi_p (@1)
-       && tree_to_uhwi (@1) < element_precision (type))
+       && tree_to_uhwi (@1) < element_precision (type)
+       && (INTEGRAL_TYPE_P (TREE_TYPE (@0))
+	   || optab_handler (smul_optab,
+			     TYPE_MODE (type)) != CODE_FOR_nothing))
    (with { tree t = type;
 	   if (!TYPE_OVERFLOW_WRAPS (t)) t = unsigned_type_for (t);
 	   wide_int w = wi::set_bit_in_zero (tree_to_uhwi (@1),
@@ -2804,7 +2807,10 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
        && tree_fits_uhwi_p (@1)
        && tree_to_uhwi (@1) < element_precision (type)
        && tree_fits_uhwi_p (@2)
-       && tree_to_uhwi (@2) < element_precision (type))
+       && tree_to_uhwi (@2) < element_precision (type)
+       && (INTEGRAL_TYPE_P (TREE_TYPE (@0))
+	   || optab_handler (smul_optab,
+			     TYPE_MODE (type)) != CODE_FOR_nothing))
    (with { tree t = type;
 	   if (!TYPE_OVERFLOW_WRAPS (t)) t = unsigned_type_for (t);
 	   unsigned int prec = element_precision (type);
@@ -3640,7 +3646,7 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 
 /* Sink binary operation to branches, but only if we can fold it.  */
 (for op (tcc_comparison plus minus mult bit_and bit_ior bit_xor
-	 rdiv trunc_div ceil_div floor_div round_div
+	 lshift rshift rdiv trunc_div ceil_div floor_div round_div
 	 trunc_mod ceil_mod floor_mod round_mod min max)
 /* (c ? a : b) op (c ? d : e)  -->  c ? (a op d) : (b op e) */
  (simplify
@@ -6197,7 +6203,7 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
       /* We keep an exact subset of the constructor elements.  */
       (if (multiple_p (idx, k, &elt) && multiple_p (n, k, &count))
        (if (CONSTRUCTOR_NELTS (ctor) == 0)
-        { build_constructor (type, NULL); }
+        { build_zero_cst (type); }
 	(if (count == 1)
 	 (if (elt < CONSTRUCTOR_NELTS (ctor))
 	  (view_convert { CONSTRUCTOR_ELT (ctor, elt)->value; })
@@ -6206,15 +6212,24 @@ DEFINE_INT_AND_FLOAT_ROUND_FN (RINT)
 	    ???  Eventually allow this if the CTOR ends up constant or
 	    uniform.  */
 	 (if (single_use (@0))
-	  {
-	    vec<constructor_elt, va_gc> *vals;
-	    vec_alloc (vals, count);
-	    for (unsigned i = 0;
-		 i < count && elt + i < CONSTRUCTOR_NELTS (ctor); ++i)
-	      CONSTRUCTOR_APPEND_ELT (vals, NULL_TREE,
-				      CONSTRUCTOR_ELT (ctor, elt + i)->value);
-	    build_constructor (type, vals);
-	  }))))
+	  (with
+	    {
+	      vec<constructor_elt, va_gc> *vals;
+	      vec_alloc (vals, count);
+	      bool constant_p = true;
+	      tree res;
+	      for (unsigned i = 0;
+		   i < count && elt + i < CONSTRUCTOR_NELTS (ctor); ++i)
+		{
+		  tree e = CONSTRUCTOR_ELT (ctor, elt + i)->value;
+		  CONSTRUCTOR_APPEND_ELT (vals, NULL_TREE, e);
+		  if (!CONSTANT_CLASS_P (e))
+		    constant_p = false;
+		}
+	      res = (constant_p ? build_vector_from_ctor (type, vals)
+		     : build_constructor (type, vals));
+	    }
+	    { res; })))))
       /* The bitfield references a single constructor element.  */
       (if (k.is_constant (&const_k)
 	   && idx + n <= (idx / const_k + 1) * const_k)

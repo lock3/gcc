@@ -386,30 +386,20 @@ build_round_expr (tree arg, tree restype)
   argprec = TYPE_PRECISION (argtype);
   resprec = TYPE_PRECISION (restype);
 
-  /* Depending on the type of the result, choose the int intrinsic
-     (iround, available only as a builtin, therefore cannot use it for
-     __float128), long int intrinsic (lround family) or long long
-     intrinsic (llround).  We might also need to convert the result
-     afterwards.  */
+  /* Depending on the type of the result, choose the int intrinsic (iround,
+     available only as a builtin, therefore cannot use it for __float128), long
+     int intrinsic (lround family) or long long intrinsic (llround).  If we
+     don't have an appropriate function that converts directly to the integer
+     type (such as kind == 16), just use ROUND, and then convert the result to
+     an integer.  We might also need to convert the result afterwards.  */
   if (resprec <= INT_TYPE_SIZE && argprec <= LONG_DOUBLE_TYPE_SIZE)
     fn = builtin_decl_for_precision (BUILT_IN_IROUND, argprec);
   else if (resprec <= LONG_TYPE_SIZE)
     fn = builtin_decl_for_precision (BUILT_IN_LROUND, argprec);
   else if (resprec <= LONG_LONG_TYPE_SIZE)
     fn = builtin_decl_for_precision (BUILT_IN_LLROUND, argprec);
-  else if (resprec >= argprec && resprec == 128)
-    {
-      /* Search for a real kind suitable as temporary for conversion.  */
-      int kind = -1;
-      for (int i = 0; kind < 0 && gfc_real_kinds[i].kind != 0; i++)
-	if (gfc_real_kinds[i].mode_precision >= resprec)
-	  kind = gfc_real_kinds[i].kind;
-      if (kind < 0)
-	gfc_internal_error ("Could not find real kind with at least %d bits",
-			    resprec);
-      arg = fold_convert (gfc_float128_type_node, arg);
-      fn = gfc_builtin_decl_for_float_kind (BUILT_IN_ROUND, kind);
-    }
+  else if (resprec >= argprec)
+    fn = builtin_decl_for_precision (BUILT_IN_ROUND, argprec);
   else
     gcc_unreachable ();
 
@@ -8006,8 +7996,10 @@ gfc_conv_intrinsic_size (gfc_se * se, gfc_expr * expr)
     {
       symbol_attribute attr;
       char *msg;
+      tree temp;
+      tree cond;
 
-      attr = gfc_expr_attr (e);
+      attr = sym ? sym->attr : gfc_expr_attr (e);
       if (attr.allocatable)
 	msg = xasprintf ("Allocatable argument '%s' is not allocated",
 			 e->symtree->n.sym->name);
@@ -8017,14 +8009,24 @@ gfc_conv_intrinsic_size (gfc_se * se, gfc_expr * expr)
       else
 	goto end_arg_check;
 
-      argse.descriptor_only = 1;
-      gfc_conv_expr_descriptor (&argse, actual->expr);
-      tree temp = gfc_conv_descriptor_data_get (argse.expr);
-      tree cond = fold_build2_loc (input_location, EQ_EXPR,
-				   logical_type_node, temp,
-				   fold_convert (TREE_TYPE (temp),
-						 null_pointer_node));
+      if (sym)
+	{
+	  temp = gfc_class_data_get (sym->backend_decl);
+	  temp = gfc_conv_descriptor_data_get (temp);
+	}
+      else
+	{
+	  argse.descriptor_only = 1;
+	  gfc_conv_expr_descriptor (&argse, actual->expr);
+	  temp = gfc_conv_descriptor_data_get (argse.expr);
+	}
+
+      cond = fold_build2_loc (input_location, EQ_EXPR,
+			      logical_type_node, temp,
+			      fold_convert (TREE_TYPE (temp),
+					    null_pointer_node));
       gfc_trans_runtime_check (true, false, cond, &argse.pre, &e->where, msg);
+
       free (msg);
     }
  end_arg_check:

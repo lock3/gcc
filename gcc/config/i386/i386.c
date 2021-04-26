@@ -67,6 +67,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "pass_manager.h"
 #include "target-globals.h"
 #include "gimple-iterator.h"
+#include "gimple-fold.h"
 #include "tree-vectorizer.h"
 #include "shrink-wrap.h"
 #include "builtins.h"
@@ -1705,6 +1706,10 @@ init_cumulative_args (CUMULATIVE_ARGS *cum,  /* Argument info to initialize */
   struct cgraph_node *local_info_node = NULL;
   struct cgraph_node *target = NULL;
 
+  /* Set silent_p to false to raise an error for invalid calls when
+     expanding function body.  */
+  cfun->machine->silent_p = false;
+
   memset (cum, 0, sizeof (*cum));
 
   if (fndecl)
@@ -2534,6 +2539,10 @@ construct_container (machine_mode mode, machine_mode orig_mode,
      some less clueful developer tries to use floating-point anyway.  */
   if (needed_sseregs && !TARGET_SSE)
     {
+      /* Return early if we shouldn't raise an error for invalid
+	 calls.  */
+      if (cfun != NULL && cfun->machine->silent_p)
+	return NULL;
       if (in_return)
 	{
 	  if (!issued_sse_ret_error)
@@ -2558,6 +2567,10 @@ construct_container (machine_mode mode, machine_mode orig_mode,
 	  || regclass[i] == X86_64_X87UP_CLASS
 	  || regclass[i] == X86_64_COMPLEX_X87_CLASS)
 	{
+	  /* Return early if we shouldn't raise an error for invalid
+	     calls.  */
+	  if (cfun != NULL && cfun->machine->silent_p)
+	    return NULL;
 	  if (!issued_x87_ret_error)
 	    {
 	      error ("x87 register return with x87 disabled");
@@ -6660,7 +6673,8 @@ ix86_compute_frame_layout (void)
       frame->hard_frame_pointer_offset = frame->sse_reg_save_offset;
 
       /* If we can leave the frame pointer where it is, do so.  Also, return
-	 the establisher frame for __builtin_frame_address (0).  */
+	 the establisher frame for __builtin_frame_address (0) or else if the
+	 frame overflows the SEH maximum frame size.  */
       const HOST_WIDE_INT diff
 	= frame->stack_pointer_offset - frame->hard_frame_pointer_offset;
       if (diff <= 255)
@@ -6678,6 +6692,8 @@ ix86_compute_frame_layout (void)
 	     frame that is addressable with 8-bit offsets.  */
 	  frame->hard_frame_pointer_offset = frame->stack_pointer_offset - 128;
 	}
+      else
+	frame->hard_frame_pointer_offset = frame->hfp_save_offset;
     }
 }
 
@@ -10164,7 +10180,7 @@ ix86_decompose_address (rtx addr, struct ix86_address *out)
      Avoid this by transforming to [%esi+0].
      Reload calls address legitimization without cfun defined, so we need
      to test cfun for being non-NULL. */
-  if (TARGET_K6 && cfun && optimize_function_for_speed_p (cfun)
+  if (TARGET_CPU_P (K6) && cfun && optimize_function_for_speed_p (cfun)
       && base_reg && !index_reg && !disp
       && REGNO (base_reg) == SI_REG)
     disp = const0_rtx;
@@ -10242,7 +10258,7 @@ ix86_address_cost (rtx x, machine_mode, addr_space_t, bool)
      memory address, but I don't have AMD-K6 machine handy to check this
      theory.  */
 
-  if (TARGET_K6
+  if (TARGET_CPU_P (K6)
       && ((!parts.disp && parts.base && parts.index && parts.scale != 1)
 	  || (parts.disp && !parts.base && parts.index && parts.scale != 1)
 	  || (!parts.disp && parts.base && parts.index && parts.scale == 1)))
@@ -10262,15 +10278,20 @@ darwin_local_data_pic (rtx disp)
 	  && XINT (disp, 1) == UNSPEC_MACHOPIC_OFFSET);
 }
 
-/* True if operand X should be loaded from GOT.  */
+/* True if the function symbol operand X should be loaded from GOT.
+
+   NB: In 32-bit mode, only non-PIC is allowed in inline assembly
+   statements, since a PIC register could not be available at the
+   call site.  */
 
 bool
 ix86_force_load_from_GOT_p (rtx x)
 {
-  return ((TARGET_64BIT || HAVE_AS_IX86_GOT32X)
+  return ((TARGET_64BIT || (!flag_pic && HAVE_AS_IX86_GOT32X))
 	  && !TARGET_PECOFF && !TARGET_MACHO
-	  && !flag_pic
+	  && (!flag_pic || this_is_asm_operands)
 	  && ix86_cmodel != CM_LARGE
+	  && ix86_cmodel != CM_LARGE_PIC
 	  && GET_CODE (x) == SYMBOL_REF
 	  && SYMBOL_REF_FUNCTION_P (x)
 	  && (!flag_plt
@@ -10797,12 +10818,11 @@ ix86_legitimate_address_p (machine_mode, rtx addr, bool strict)
 
       else if (SYMBOLIC_CONST (disp)
 	       && (flag_pic
-		   || (TARGET_MACHO
 #if TARGET_MACHO
-		       && MACHOPIC_INDIRECT
-		       && !machopic_operand_p (disp)
+		   || (MACHOPIC_INDIRECT
+		       && !machopic_operand_p (disp))
 #endif
-	       )))
+		  ))
 	{
 
 	is_legitimate_pic:
@@ -12698,7 +12718,8 @@ print_reg (rtx x, int code, FILE *file)
    y -- print "st(0)" instead of "st" as a register.
    d -- print duplicated register operand for AVX instruction.
    D -- print condition for SSE cmp instruction.
-   P -- if PIC, print an @PLT suffix.
+   P -- if PIC, print an @PLT suffix.  For -fno-plt, load function
+	address from GOT.
    p -- print raw symbol name.
    X -- don't print any sort of PIC '@' suffix for a symbol.
    & -- print some in-use local-dynamic symbol name.
@@ -13442,7 +13463,23 @@ ix86_print_operand (FILE *file, rtx x, int code)
 	  x = const0_rtx;
 	}
 
-      if (code != 'P' && code != 'p')
+      if (code == 'P')
+	{
+	  if (ix86_force_load_from_GOT_p (x))
+	    {
+	      /* For inline assembly statement, load function address
+		 from GOT with 'P' operand modifier to avoid PLT.  */
+	      x = gen_rtx_UNSPEC (Pmode, gen_rtvec (1, x),
+				  (TARGET_64BIT
+				   ? UNSPEC_GOTPCREL
+				   : UNSPEC_GOT));
+	      x = gen_rtx_CONST (Pmode, x);
+	      x = gen_const_mem (Pmode, x);
+	      ix86_print_operand (file, x, 'A');
+	      return;
+	    }
+	}
+      else if (code != 'p')
 	{
 	  if (CONST_INT_P (x))
 	    {
@@ -14903,7 +14940,7 @@ ix86_lea_outperforms (rtx_insn *insn, unsigned int regno0, unsigned int regno1,
   /* For Atom processors newer than Bonnell, if using a 2-source or
      3-source LEA for non-destructive destination purposes, or due to
      wanting ability to use SCALE, the use of LEA is justified.  */
-  if (!TARGET_BONNELL)
+  if (!TARGET_CPU_P (BONNELL))
     {
       if (has_scale)
 	return true;
@@ -15045,7 +15082,7 @@ ix86_avoid_lea_for_addr (rtx_insn *insn, rtx operands[])
      than lea for most processors.  For the processors like BONNELL, if
      the destination register of LEA holds an actual address which will
      be used soon, LEA is better and otherwise ADD is better.  */
-  if (!TARGET_BONNELL
+  if (!TARGET_CPU_P (BONNELL)
       && parts.scale == 1
       && (!parts.disp || parts.disp == const0_rtx)
       && (regno0 == regno1 || regno0 == regno2))
@@ -17829,6 +17866,7 @@ ix86_gimple_fold_builtin (gimple_stmt_iterator *gsi)
   tree decl = NULL_TREE;
   tree arg0, arg1, arg2;
   enum rtx_code rcode;
+  enum tree_code tcode;
   unsigned HOST_WIDE_INT count;
   bool is_vshift;
 
@@ -17909,6 +17947,48 @@ ix86_gimple_fold_builtin (gimple_stmt_iterator *gsi)
 	  return true;
 	}
       break;
+
+    case IX86_BUILTIN_PCMPEQB128:
+    case IX86_BUILTIN_PCMPEQW128:
+    case IX86_BUILTIN_PCMPEQD128:
+    case IX86_BUILTIN_PCMPEQQ:
+    case IX86_BUILTIN_PCMPEQB256:
+    case IX86_BUILTIN_PCMPEQW256:
+    case IX86_BUILTIN_PCMPEQD256:
+    case IX86_BUILTIN_PCMPEQQ256:
+      tcode = EQ_EXPR;
+      goto do_cmp;
+
+    case IX86_BUILTIN_PCMPGTB128:
+    case IX86_BUILTIN_PCMPGTW128:
+    case IX86_BUILTIN_PCMPGTD128:
+    case IX86_BUILTIN_PCMPGTQ:
+    case IX86_BUILTIN_PCMPGTB256:
+    case IX86_BUILTIN_PCMPGTW256:
+    case IX86_BUILTIN_PCMPGTD256:
+    case IX86_BUILTIN_PCMPGTQ256:
+      tcode = GT_EXPR;
+
+    do_cmp:
+      gcc_assert (n_args == 2);
+      arg0 = gimple_call_arg (stmt, 0);
+      arg1 = gimple_call_arg (stmt, 1);
+      {
+	location_t loc = gimple_location (stmt);
+	tree type = TREE_TYPE (arg0);
+	tree zero_vec = build_zero_cst (type);
+	tree minus_one_vec = build_minus_one_cst (type);
+	tree cmp_type = truth_type_for (type);
+	gimple_seq stmts = NULL;
+	tree cmp = gimple_build (&stmts, tcode, cmp_type, arg0, arg1);
+	gsi_insert_before (gsi, stmts, GSI_SAME_STMT);
+	gimple *g = gimple_build_assign (gimple_call_lhs (stmt),
+					 VEC_COND_EXPR, cmp,
+					 minus_one_vec, zero_vec);
+	gimple_set_location (g, loc);
+	gsi_replace (gsi, g, false);
+      }
+      return true;
 
     case IX86_BUILTIN_PSLLD:
     case IX86_BUILTIN_PSLLD128:
@@ -21370,9 +21450,10 @@ ix86_c_mode_for_suffix (char suffix)
    with the old cc0-based compiler.  */
 
 static rtx_insn *
-ix86_md_asm_adjust (vec<rtx> &outputs, vec<rtx> &/*inputs*/,
-		    vec<const char *> &constraints,
-		    vec<rtx> &clobbers, HARD_REG_SET &clobbered_regs)
+ix86_md_asm_adjust (vec<rtx> &outputs, vec<rtx> & /*inputs*/,
+		    vec<machine_mode> & /*input_modes*/,
+		    vec<const char *> &constraints, vec<rtx> &clobbers,
+		    HARD_REG_SET &clobbered_regs)
 {
   bool saw_asm_flag = false;
 
@@ -22349,7 +22430,7 @@ ix86_add_stmt_cost (class vec_info *vinfo, void *data, int count,
     stmt_cost = ix86_builtin_vectorization_cost (kind, vectype, misalign);
 
   /* Penalize DFmode vector operations for Bonnell.  */
-  if (TARGET_BONNELL && kind == vector_stmt
+  if (TARGET_CPU_P (BONNELL) && kind == vector_stmt
       && vectype && GET_MODE_INNER (TYPE_MODE (vectype)) == DFmode)
     stmt_cost *= 5;  /* FIXME: The value here is arbitrary.  */
 
@@ -22365,8 +22446,10 @@ ix86_add_stmt_cost (class vec_info *vinfo, void *data, int count,
   /* We need to multiply all vector stmt cost by 1.7 (estimated cost)
      for Silvermont as it has out of order integer pipeline and can execute
      2 scalar instruction per tick, but has in order SIMD pipeline.  */
-  if ((TARGET_SILVERMONT || TARGET_GOLDMONT || TARGET_GOLDMONT_PLUS
-       || TARGET_TREMONT || TARGET_INTEL) && stmt_info && stmt_info->stmt)
+  if ((TARGET_CPU_P (SILVERMONT) || TARGET_CPU_P (GOLDMONT)
+       || TARGET_CPU_P (GOLDMONT_PLUS) || TARGET_CPU_P (TREMONT)
+       || TARGET_CPU_P (INTEL))
+      && stmt_info && stmt_info->stmt)
     {
       tree lhs_op = gimple_get_lhs (stmt_info->stmt);
       if (lhs_op && TREE_CODE (TREE_TYPE (lhs_op)) == INTEGER_TYPE)

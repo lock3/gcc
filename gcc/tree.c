@@ -5538,9 +5538,11 @@ fld_simplified_type (tree t, class free_lang_data_d *fld)
   if (POINTER_TYPE_P (t))
     return fld_incomplete_type_of (t, fld);
   /* FIXME: This triggers verification error, see PR88140.  */
-  if (TREE_CODE (t) == ARRAY_TYPE && 0)
+#if 0
+  if (TREE_CODE (t) == ARRAY_TYPE)
     return fld_process_array_type (t, fld_simplified_type (TREE_TYPE (t), fld),
 				   fld_simplified_types, fld);
+#endif
   return t;
 }
 
@@ -5849,7 +5851,7 @@ free_lang_data_in_decl (tree decl, class free_lang_data_d *fld)
       if (!(node = cgraph_node::get (decl))
 	  || (!node->definition && !node->clones))
 	{
-	  if (node)
+	  if (node && !node->declare_variant_alt)
 	    node->release_body ();
 	  else
 	    {
@@ -6609,7 +6611,9 @@ check_aligned_type (const_tree cand, const_tree base, unsigned int align)
 	  && TYPE_CONTEXT (cand) == TYPE_CONTEXT (base)
 	  /* Check alignment.  */
 	  && TYPE_ALIGN (cand) == align
-	  && TYPE_USER_ALIGN (cand) == TYPE_USER_ALIGN (base)
+	  /* Check this is a user-aligned type as build_aligned_type
+	     would create.  */
+	  && TYPE_USER_ALIGN (cand)
 	  && attribute_list_equal (TYPE_ATTRIBUTES (cand),
 				   TYPE_ATTRIBUTES (base))
 	  && check_lang_type (cand, base));
@@ -13449,7 +13453,7 @@ get_tree_code_name (enum tree_code code)
      invalid values, so force an unsigned comparison.  */
   if (unsigned (code) >= MAX_TREE_CODES)
     {
-      if (code == 0xa5a5)
+      if ((unsigned)code == 0xa5a5)
 	return "ggc_freed";
       return invalid;
     }
@@ -14097,8 +14101,10 @@ verify_type_variant (const_tree t, tree tv)
 
   verify_variant_match (TREE_CODE);
   /* FIXME: Ada builds non-artificial variants of artificial types.  */
-  if (TYPE_ARTIFICIAL (tv) && 0)
+#if 0
+  if (TYPE_ARTIFICIAL (tv))
     verify_variant_match (TYPE_ARTIFICIAL);
+#endif
   if (POINTER_TYPE_P (tv))
     verify_variant_match (TYPE_REF_CAN_ALIAS_ALL);
   /* FIXME: TYPE_SIZES_GIMPLIFIED may differs for Ada build.  */
@@ -14111,8 +14117,10 @@ verify_type_variant (const_tree t, tree tv)
   else
     verify_variant_match (TYPE_SATURATING);
   /* FIXME: This check trigger during libstdc++ build.  */
-  if (RECORD_OR_UNION_TYPE_P (t) && COMPLETE_TYPE_P (t) && 0)
+#if 0
+  if (RECORD_OR_UNION_TYPE_P (t) && COMPLETE_TYPE_P (t))
     verify_variant_match (TYPE_FINAL_P);
+#endif
 
   /* tree_type_common checks.  */
 
@@ -14147,8 +14155,10 @@ verify_type_variant (const_tree t, tree tv)
      that may differ BY TYPE_CONTEXT that in turn may point 
      to TRANSLATION_UNIT_DECL.
      Ada also builds variants of types with different TYPE_CONTEXT.   */
-  if ((!in_lto_p || !TYPE_FILE_SCOPE_P (t)) && 0)
+#if 0
+  if (!in_lto_p || !TYPE_FILE_SCOPE_P (t))
     verify_variant_match (TYPE_CONTEXT);
+#endif
   if (TREE_CODE (t) == ARRAY_TYPE || TREE_CODE (t) == INTEGER_TYPE)
     verify_variant_match (TYPE_STRING_FLAG);
   if (TREE_CODE (t) == RECORD_TYPE || TREE_CODE (t) == UNION_TYPE)
