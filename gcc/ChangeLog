@@ -1,3 +1,361 @@
+2021-04-25  liuhongt  <hongtao.liu@intel.com>
+
+	PR target/98911
+	* config/i386/i386-builtin.def (BDESC): Change the icode of
+	the following builtins to CODE_FOR_nothing.
+	* config/i386/i386.c (ix86_gimple_fold_builtin): Fold
+	IX86_BUILTIN_PCMPEQB128, IX86_BUILTIN_PCMPEQW128,
+	IX86_BUILTIN_PCMPEQD128, IX86_BUILTIN_PCMPEQQ,
+	IX86_BUILTIN_PCMPEQB256, IX86_BUILTIN_PCMPEQW256,
+	IX86_BUILTIN_PCMPEQD256, IX86_BUILTIN_PCMPEQQ256,
+	IX86_BUILTIN_PCMPGTB128, IX86_BUILTIN_PCMPGTW128,
+	IX86_BUILTIN_PCMPGTD128, IX86_BUILTIN_PCMPGTQ,
+	IX86_BUILTIN_PCMPGTB256, IX86_BUILTIN_PCMPGTW256,
+	IX86_BUILTIN_PCMPGTD256, IX86_BUILTIN_PCMPGTQ256.
+	* config/i386/sse.md (avx2_eq<mode>3): Deleted.
+	(sse2_eq<mode>3): Ditto.
+	(sse4_1_eqv2di3): Ditto.
+	(sse2_gt<mode>3): Rename to ..
+	(*sse2_gt<mode>3): .. this.
+
+2021-04-24  Iain Sandoe  <iain@sandoe.co.uk>
+
+	Revert:
+	2021-04-24  Iain Sandoe  <iain@sandoe.co.uk>
+
+	PR target/100152
+	* config/darwin.c (darwin_binds_local_p): Assume that any
+	public symbol might be interposed for PIC code. Update function
+	header comment to reflect current Darwin capability.
+
+2021-04-24  Iain Sandoe  <iain@sandoe.co.uk>
+
+	PR target/100152
+	* config/darwin.c (darwin_binds_local_p): Assume that any
+	public symbol might be interposed for PIC code. Update function
+	header comment to reflect current Darwin capability.
+
+2021-04-24  Richard Sandiford  <richard.sandiford@arm.com>
+
+	* doc/sourcebuild.texi: Document no-opts and any-opts target
+	selectors.
+
+2021-04-23  YiFei Zhu  <zhuyifei1999@gmail.com>
+
+	* config/bpf/bpf.h (ASM_OUTPUT_ALIGNED_BSS): Use .type and .lcomm.
+
+2021-04-23  YiFei Zhu  <zhuyifei1999@gmail.com>
+
+	* config/bpf/bpf.h (FUNCTION_BOUNDARY): Set to 64.
+
+2021-04-23  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/100041
+	* config/i386/i386-options.c (ix86_option_override_internal):
+	Error out when -m96bit-long-double is used with 64bit targets.
+	* config/i386/i386.md (*pushxf_rounded): Remove pattern.
+
+2021-04-23  Martin Liska  <mliska@suse.cz>
+
+	* lto-wrapper.c: Remove FIXME about usage of
+	hardware_concurrency. The function is not on par with
+	what we have now.
+
+2021-04-23  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/100182
+	* config/i386/sync.md (FILD_ATOMIC/FIST_ATOMIC FP load peephole2):
+	Copy operand 3 to operand 4.  Use sse_reg_operand
+	as operand 3 predicate.
+	(FILD_ATOMIC/FIST_ATOMIC FP load peephole2 with mem blockage): Ditto.
+	(LDX_ATOMIC/STX_ATOMIC FP load peephole2): Ditto.
+	(LDX_ATOMIC/LDX_ATOMIC FP load peephole2 with mem blockage): Ditto.
+	(FILD_ATOMIC/FIST_ATOMIC FP store peephole2):
+	Copy operand 1 to operand 0.
+	(FILD_ATOMIC/FIST_ATOMIC FP store peephole2 with mem blockage): Ditto.
+	(LDX_ATOMIC/STX_ATOMIC FP store peephole2): Ditto.
+	(LDX_ATOMIC/LDX_ATOMIC FP store peephole2 with mem blockage): Ditto.
+
+2021-04-23  Alex Coplan  <alex.coplan@arm.com>
+
+	PR rtl-optimization/100230
+	* early-remat.c (early_remat::sort_candidates): Use delete[]
+	instead of delete for array allocated with new[].
+
+2021-04-23  Richard Biener  <rguenther@suse.de>
+
+	* genmatch.c (lower_cond): Remove VEC_COND_EXPR special-casing.
+	(capture_info::capture_info): Likewise.
+	(capture_info::walk_match): Likewise.
+	(expr::gen_transform): Likewise.
+	(dt_simplify::gen_1): Likewise.
+	* gimple-match-head.c (maybe_resimplify_conditional_op):
+	Remove VEC_COND_EXPR special-casing.
+	(gimple_simplify): Likewise.
+	* gimple.c (gimple_could_trap_p_1): Adjust.
+	* tree-ssa-pre.c (compute_avail): Allow VEC_COND_EXPR
+	to participate in PRE.
+
+2021-04-23  Richard Biener  <rguenther@suse.de>
+
+	* cfganal.c (connect_infinite_loops_to_exit): First call
+	add_noreturn_fake_exit_edges.
+	* ipa-sra.c (process_scan_results): Do not call the now redundant
+	add_noreturn_fake_exit_edges.
+	* predict.c (tree_estimate_probability): Likewise.
+	(rebuild_frequencies): Likewise.
+	* store-motion.c (one_store_motion_pass): Likewise.
+
+2021-04-23  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100222
+	* predict.c (pass_profile::execute): Remove redundant call to
+	mark_irreducible_loops.
+	(report_predictor_hitrates): Likewise.
+
+2021-04-23  Richard Biener  <rguenther@suse.de>
+
+	* tree-ssa-loop-ivopts.c (rewrite_use_nonlinear_expr): Avoid
+	valid_gimple_rhs_p by instead gimplifying to one.
+
+2021-04-23  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/99971
+	* tree-vect-data-refs.c (vect_slp_analyze_node_dependences):
+	Always use TBAA for loads.
+
+2021-04-23  liuhongt  <hongtao.liu@intel.com>
+
+	PR target/100093
+	* config/i386/i386-options.c (ix86_option_override_internal):
+	Clear MASK_AVX256_SPLIT_UNALIGNED_LOAD/STORE in x_target_flags
+	when X86_TUNE_AVX256_UNALIGNED_LOAD/STORE_OPTIMAL is enabled
+	by target attribute.
+
+2021-04-23  David Edelsohn  <dje.gcc@gmail.com>
+
+	* config/rs6000/aix71.h (PREFERRED_DEBUGGING_TYPE): Change to
+	DWARF2_DEBUG.
+	* config/rs6000/aix72.h (PREFERRED_DEBUGGING_TYPE): Same.
+
+2021-04-22  David Edelsohn  <dje.gcc@gmail.com>
+
+	* config.gcc (powerpc-ibm-aix6.*): Remove.
+	* config/rs6000/aix61.h: Delete.
+
+2021-04-22  Martin Liska  <mliska@suse.cz>
+
+	PR testsuite/100159
+	PR testsuite/100192
+	* builtins.c (expand_builtin): Fix typos and missing comments.
+	* dwarf2out.c (gen_subprogram_die): Likewise.
+	(gen_struct_or_union_type_die): Likewise.
+
+2021-04-22  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/100119
+	* config/i386/i386-expand.c (ix86_expand_convert_uns_sidf_sse):
+	Remove the sign with FE_DOWNWARD, where x - x = -0.0.
+
+2021-04-21  Iain Sandoe  <iain@sandoe.co.uk>
+
+	* config/i386/darwin.h (TARGET_64BIT): Remove definition
+	based on TARGET_ISA_64BIT.
+	(TARGET_64BIT_P): Remove definition based on
+	TARGET_ISA_64BIT_P().
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	Revert:
+	2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* lto-wrapper.c (cpuset_popcount): Remove.
+	(init_num_threads): Remove and use hardware_concurrency.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	PR jit/98615
+	* main.c (main): Call toplev::finalize in CHECKING_P mode.
+	* ipa-modref.c (ipa_modref_c_finalize): summaries are NULL
+	when incremental LTO linking happens.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* lto-wrapper.c (run_gcc): When -flto=jobserver is used, but the
+	makeserver cannot be detected, then use -flto=N fallback.
+
+2021-04-21  Richard Sandiford  <richard.sandiford@arm.com>
+
+	* acinclude.m4 (gcc_AC_INITFINI_ARRAY): When cross-compiling,
+	default to yes for aarch64-linux-gnu.
+	* configure: Regenerate.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* lto-wrapper.c (cpuset_popcount): Remove.
+	(init_num_threads): Remove and use hardware_concurrency.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* config/i386/i386.c: Remove superfluous || TARGET_MACHO
+	which remains to be '(... || 0)' and clang complains about it.
+	* dwarf2out.c (AT_vms_delta): Declare conditionally.
+	(add_AT_vms_delta): Likewise.
+	* tree.c (fld_simplified_type): Use rather more common pattern
+	for disabling of something (#if 0).
+	(get_tree_code_name): Likewise.
+	(verify_type_variant): Likewise.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* config/i386/i386-expand.c (decide_alignment): Use newly named
+	macro TARGET_CPU_P.
+	* config/i386/i386.c (ix86_decompose_address): Likewise.
+	(ix86_address_cost): Likewise.
+	(ix86_lea_outperforms): Likewise.
+	(ix86_avoid_lea_for_addr): Likewise.
+	(ix86_add_stmt_cost): Likewise.
+	* config/i386/i386.h (TARGET_*): Remove.
+	(TARGET_CPU_P): New macro.
+	* config/i386/i386.md: Use newly named macro TARGET_CPU_P.
+	* config/i386/x86-tune-sched-atom.c (do_reorder_for_imul): Likewise.
+	(swap_top_of_ready_list): Likewise.
+	(ix86_atom_sched_reorder): Likewise.
+	* config/i386/x86-tune-sched-bd.c (ix86_bd_has_dispatch): Likewise.
+	* config/i386/x86-tune-sched.c (ix86_adjust_cost): Likewise.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* config/i386/i386-options.c (TARGET_EXPLICIT_NO_SAHF_P):
+	Define.
+	(SET_TARGET_NO_SAHF): Likewise.
+	(TARGET_EXPLICIT_PREFETCH_SSE_P): Likewise.
+	(SET_TARGET_PREFETCH_SSE): Likewise.
+	(TARGET_EXPLICIT_NO_TUNE_P): Likewise.
+	(SET_TARGET_NO_TUNE): Likewise.
+	(TARGET_EXPLICIT_NO_80387_P): Likewise.
+	(SET_TARGET_NO_80387): Likewise.
+	(DEF_PTA): New.
+	* config/i386/i386.h (TARGET_*): Remove.
+	* opth-gen.awk: Generate new used macros.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* config/i386/i386.h (PTA_*): Remove.
+	(enum pta_flag): New.
+	(DEF_PTA): Generate PTA_* values from i386-isa.def.
+	* config/i386/i386-isa.def: New file.
+
+2021-04-21  Alex Coplan  <alex.coplan@arm.com>
+
+	PR target/99988
+	* config/aarch64/aarch64-bti-insert.c (aarch64_bti_j_insn_p): New.
+	(rest_of_insert_bti): Avoid inserting duplicate bti j insns for
+	jump table targets.
+
+2021-04-21  H.J. Lu  <hjl.tools@gmail.com>
+
+	* config.gcc: Install mwaitintrin.h for i[34567]86-*-* and
+	x86_64-*-* targets.
+	* common/config/i386/i386-common.c (OPTION_MASK_ISA2_MWAIT_SET):
+	New.
+	(OPTION_MASK_ISA2_MWAIT_UNSET): Likewise.
+	(ix86_handle_option): Handle -mmwait.
+	* config/i386/i386-builtins.c (ix86_init_mmx_sse_builtins):
+	Replace OPTION_MASK_ISA_SSE3 with OPTION_MASK_ISA2_MWAIT on
+	__builtin_ia32_monitor and __builtin_ia32_mwait.
+	* config/i386/i386-options.c (isa2_opts): Add -mmwait.
+	(ix86_valid_target_attribute_inner_p): Likewise.
+	(ix86_option_override_internal): Enable mwait/monitor
+	instructions for -msse3.
+	* config/i386/i386.h (TARGET_MWAIT): New.
+	(TARGET_MWAIT_P): Likewise.
+	* config/i386/i386.opt: Add -mmwait.
+	* config/i386/mwaitintrin.h: New file.
+	* config/i386/pmmintrin.h: Include <mwaitintrin.h>.
+	* config/i386/sse.md (sse3_mwait): Replace TARGET_SSE3 with
+	TARGET_MWAIT.
+	(@sse3_monitor_<mode>): Likewise.
+	* config/i386/x86gprintrin.h: Include <mwaitintrin.h>.
+	* doc/extend.texi: Document mwait target attribute.
+	* doc/invoke.texi: Document -mmwait.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* config/i386/i386-options.c (DEF_ENUM): Remove it.
+	* config/i386/i386-opts.h (DEF_ENUM): Likewise.
+	* config/i386/stringop.def (DEF_ENUM): Likewise.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	* tree-cfg.c (gimple_verify_flow_info): Use qD instead
+	of print_generic_expr.
+
+2021-04-21  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/100148
+	* cprop.c (constprop_register): Use next_nondebug_insn instead of
+	NEXT_INSN.
+
+2021-04-21  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/98815
+	* cgraphunit.c (cgraph_node::analyze): Remove duplicate
+	free_dominance_info calls.
+
+2021-04-21  Richard Biener  <rguenther@suse.de>
+
+	* gimple-fold.c (maybe_fold_reference): Remove is_lhs
+	parameter (and assume it to be false).
+	(fold_gimple_assign): Adjust, remove all callers of
+	maybe_fold_reference calling it with is_lhs true.
+	(gimple_fold_call): Likewise.
+	(fold_stmt_1): Likewise.
+
+2021-04-21  Richard Biener  <rguenther@suse.de>
+
+	* fold-const.c (pedantic_non_lvalue_loc): Remove.
+	(fold_binary_loc): Adjust.
+	(fold_ternary_loc): Likewise.
+
+2021-04-21  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR middle-end/100130
+	* varasm.c (get_block_for_decl): Make sure that any use of the
+	retain attribute matches the section's retain flag.
+	(switch_to_section): Check for retain mismatches even when
+	changing sections, but do not warn if the given decl is the
+	section's named.decl.
+	(output_object_block): Pass the first decl in the block (if any)
+	to switch_to_section.
+
+2021-04-20  H.J. Lu  <hjl.tools@gmail.com>
+
+	* config/i386/i386-c.c (ix86_target_macros_internal): Define
+	__CRC32__ for -mcrc32.
+	* config/i386/i386-options.c (ix86_option_override_internal):
+	Enable crc32 instruction for -msse4.2.
+	* config/i386/i386.md (sse4_2_crc32<mode>): Remove TARGET_SSE4_2
+	check.
+	(sse4_2_crc32di): Likewise.
+	* config/i386/ia32intrin.h: Use crc32 target option for CRC32
+	intrinsics.
+
+2021-04-20  Segher Boessenkool  <segher@kernel.crashing.org>
+
+	PR target/100108
+	* config/rs6000/rs6000.c (rs6000_machine_from_flags): Do not consider
+	OPTION_MASK_ISEL.
+
+2021-04-20  Martin Liska  <mliska@suse.cz>
+
+	* doc/invoke.texi: Fix typo.
+	* params.opt: Likewise.
+
+2021-04-20  Martin Liska  <mliska@suse.cz>
+
+	* doc/invoke.texi: Document new param.
+
 2021-04-19  Andrew MacLeod  <amacleod@redhat.com>
 
 	PR tree-optimization/100081

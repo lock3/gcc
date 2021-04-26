@@ -20223,6 +20223,10 @@ cp_parser_enum_specifier (cp_parser* parser)
       /* Consume the `:'.  */
       cp_lexer_consume_token (parser->lexer);
 
+      auto tdf
+	= make_temp_override (parser->type_definition_forbidden_message,
+			      G_("types may not be defined in enum-base"));
+
       /* Parse the type-specifier-seq.  */
       cp_parser_type_specifier_seq (parser, CP_PARSER_FLAGS_NONE,
 				    /*is_declaration=*/false,
@@ -23549,10 +23553,13 @@ cp_parser_type_id_1 (cp_parser *parser, cp_parser_flags flags,
 	    location_t loc = type_specifier_seq.locations[ds_type_spec];
 	    if (tree tmpl = CLASS_PLACEHOLDER_TEMPLATE (auto_node))
 	      {
-		error_at (loc, "missing template arguments after %qT",
-			  auto_node);
-		inform (DECL_SOURCE_LOCATION (tmpl), "%qD declared here",
-			tmpl);
+		if (!cp_parser_simulate_error (parser))
+		  {
+		    error_at (loc, "missing template arguments after %qT",
+			      auto_node);
+		    inform (DECL_SOURCE_LOCATION (tmpl), "%qD declared here",
+			    tmpl);
+		  }
 	      }
 	    else if (parser->in_template_argument_list_p)
 	      error_at (loc, "%qT not permitted in template argument",
