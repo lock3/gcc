@@ -711,18 +711,16 @@ struct norm_info : subst_info
   unsigned index = 0;
 };
 
-static tree normalize_expression (tree, tree, norm_info);
+static tree normalize_expression (tree, tree, norm_info &);
 
 /* Transform a logical-or or logical-and expression into either
    a conjunction or disjunction. */
 
 static tree
-normalize_logical_operation (tree t, tree args, tree_code c, norm_info info)
+normalize_logical_operation (tree t, tree args, tree_code c, norm_info &info)
 {
   tree t0 = normalize_expression (TREE_OPERAND (t, 0), args, info);
-  info.index++;
   tree t1 = normalize_expression (TREE_OPERAND (t, 1), args, info);
-  info.index++;
 
   /* Build a new info object for the constraint.  */
   tree ci = info.generate_diagnostics()
@@ -850,7 +848,7 @@ static tree unpack_concept_decl(tree decl)
    constraint is a predicate constraint.  */
 
 static tree
-normalize_atom (tree t, tree args, norm_info info)
+normalize_atom (tree t, tree args, norm_info &info)
 {
   /* Concept checks are not atomic.  */
   if (concept_check_p (t))
@@ -911,6 +909,14 @@ normalize_atom (tree t, tree args, norm_info info)
   	  TREE_TYPE(TREE_TYPE(atom)) = cdecl;
 	}
 
+      /* Assign the atom's index. The atom uses TREE_LANG_FLAG_0 
+         to indicate wether or not it's instantiated so I'll pack 
+	 the index into the remaining bits using the TREE_VEC's length
+	 field. FIXME: use a macro or find a better set of bits or 
+	 use a macro to make this explicit. */
+      atom->base.u.length |= (info.index << 1);
+      info.index++;
+
       *slot = atom;
     }
   return atom;
@@ -919,7 +925,7 @@ normalize_atom (tree t, tree args, norm_info info)
 /* Returns the normal form of an expression. */
 
 static tree
-normalize_expression (tree t, tree args, norm_info info)
+normalize_expression (tree t, tree args, norm_info &info)
 {
   if (!t)
     return NULL_TREE;
