@@ -13516,6 +13516,15 @@ depset_cmp (const void *a_, const void *b_)
       a_decl = OVL_FUNCTION (a_decl);
       b_decl = OVL_FUNCTION (b_decl);
     }
+  else if (a_kind == depset::EK_ATOM)
+    {
+      /* Defer to the concept decls */
+      tree a_atom = a_decl, b_atom = b_decl;
+      a_decl = TREE_TYPE(TREE_TYPE(a_decl));
+      b_decl = TREE_TYPE(TREE_TYPE(b_decl));
+      if (a_decl == b_decl) 
+        return (a_atom->base.u.length >> 1) < (b_atom->base.u.length >> 1) ? -1 : +1;
+    }
 
   if (a_decl != b_decl)
     /* Different entities, order by their UID.  */
