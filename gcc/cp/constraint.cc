@@ -871,8 +871,8 @@ normalize_atom (tree t, tree args, norm_info &info)
       tree cdecl = NULL_TREE;
       if (modules_p()) 
 	{
-	  // Check for pre-cached atomic constraints associated with 
-	  // the concept declaration (if this is such a thing).
+	  /* Check for pre-cached atomic constraints associated with 
+	     the concept declaration. */
 	  cdecl = unpack_concept_decl(info.in_decl);
 	  if (cdecl)
 	    lazy_load_pendings(cdecl);
@@ -903,19 +903,21 @@ normalize_atom (tree t, tree args, norm_info &info)
       
       if (cdecl && flag_export_atoms) 
 	{
-	  // Store the concept decl's template decl because 
-  	  // That's what gets stored in the module's entity array/map.
+	  /* Store the concept decl's template decl because 
+  	     That's what gets stored in the module's entity array/map. */
   	  gcc_assert(!TREE_TYPE(TREE_TYPE(atom)));
   	  TREE_TYPE(TREE_TYPE(atom)) = cdecl;
-	}
 
-      /* Assign the atom's index. The atom uses TREE_LANG_FLAG_0 
-         to indicate wether or not it's instantiated so I'll pack 
-	 the index into the remaining bits using the TREE_VEC's length
-	 field. FIXME: use a macro or find a better set of bits or 
-	 use a macro to make this explicit. */
-      atom->base.u.length |= (info.index << 1);
-      info.index++;
+	  /* Also assign the atom's in-order index for the purpose of 
+	     sorting during export. Note that the atom uses TREE_LANG_FLAG_0 
+             to indicate wether or not it's instantiated so I'll pack 
+	     the index into the remaining bits using the TREE_VEC's length
+	     field. FIXME: use a macro or find a better set of bits or 
+	     use a macro to make this explicit. */
+	  atom->base.u.length |= (info.index << 1);
+	  verbatim("%qE: %d (by way of %p)", atom, info.index, (void *)cdecl);
+	  info.index++;
+	}
 
       *slot = atom;
     }
