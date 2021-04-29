@@ -4051,8 +4051,8 @@ public:
   {
     if (!dumps || !dumps->stream)
       return false;
-//     if (mask && !(mask & flags))
-//       return false;
+    if (mask && !(mask & flags))
+      return false;
     return true;
   }
   /* Dump some information.  */
