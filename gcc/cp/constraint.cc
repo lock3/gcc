@@ -915,7 +915,6 @@ normalize_atom (tree t, tree args, norm_info &info)
 	     field. FIXME: use a macro or find a better set of bits or 
 	     use a macro to make this explicit. */
 	  atom->base.u.length |= (info.index << 1);
-	  verbatim("%qE: %d (by way of %p)", atom, info.index, (void *)cdecl);
 	  info.index++;
 	}
 
