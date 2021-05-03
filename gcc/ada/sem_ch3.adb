@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -245,11 +245,12 @@ package body Sem_Ch3 is
    --  belongs must be a concurrent type or a descendant of a type with
    --  the reserved word 'limited' in its declaration.
 
-   procedure Check_Anonymous_Access_Components
-      (Typ_Decl  : Node_Id;
-       Typ       : Entity_Id;
-       Prev      : Entity_Id;
-       Comp_List : Node_Id);
+   procedure Check_Anonymous_Access_Component
+     (Typ_Decl   : Node_Id;
+      Typ        : Entity_Id;
+      Prev       : Entity_Id;
+      Comp_Def   : Node_Id;
+      Access_Def : Node_Id);
    --  Ada 2005 AI-382: an access component in a record definition can refer to
    --  the enclosing record, in which case it denotes the type itself, and not
    --  the current instance of the type. We create an anonymous access type for
@@ -258,6 +259,13 @@ package body Sem_Ch3 is
    --  is placed ahead of that of the record to prevent order-of-elaboration
    --  circularity issues in Gigi. We create an incomplete type for the record
    --  declaration, which is the designated type of the anonymous access.
+
+   procedure Check_Anonymous_Access_Components
+     (Typ_Decl  : Node_Id;
+      Typ       : Entity_Id;
+      Prev      : Entity_Id;
+      Comp_List : Node_Id);
+   --  Call Check_Anonymous_Access_Component on Comp_List
 
    procedure Check_Constraining_Discriminant (New_Disc, Old_Disc : Entity_Id);
    --  Check that, if a new discriminant is used in a constraint defining the
@@ -840,13 +848,6 @@ package body Sem_Ch3 is
       --  the corresponding semantic routine
 
       if Present (Access_To_Subprogram_Definition (N)) then
-
-         --  Compiler runtime units are compiled in Ada 2005 mode when building
-         --  the runtime library but must also be compilable in Ada 95 mode
-         --  (when bootstrapping the compiler).
-
-         Check_Compiler_Unit ("anonymous access to subprogram", N);
-
          Access_Subprogram_Declaration
            (T_Name => Anon_Type,
             T_Def  => Access_To_Subprogram_Definition (N));
@@ -1312,6 +1313,8 @@ package body Sem_Ch3 is
       Set_Can_Never_Be_Null (T_Name, Null_Exclusion_Present (T_Def));
 
       Check_Restriction (No_Access_Subprograms, T_Def);
+
+      Create_Extra_Formals (Desig_Type);
    end Access_Subprogram_Declaration;
 
    ----------------------------
@@ -1580,9 +1583,8 @@ package body Sem_Ch3 is
 
    begin
       if not RTE_Available (RE_Interface_Tag) then
-         Error_Msg
-           ("(Ada 2005) interface types not supported by this run-time!",
-            Sloc (N));
+         Error_Msg_N
+           ("(Ada 2005) interface types not supported by this run-time!", N);
          return;
       end if;
 
@@ -1775,7 +1777,7 @@ package body Sem_Ch3 is
                      elsif not Comes_From_Source (Prim) then
                         Error_Msg_NE
                           ("&inherits non-conforming preconditions and must "
-                           & "be overridden (RM 6.1.1 (10-16)",
+                           & "be overridden (RM 6.1.1 (10-16))",
                            Parent (Tagged_Type), Prim);
                      end if;
                   end if;
@@ -3567,10 +3569,7 @@ package body Sem_Ch3 is
                if T = Any_Type then
                   T := It.Typ;
 
-               elsif It.Typ = Universal_Real
-                       or else
-                     It.Typ = Universal_Integer
-               then
+               elsif Is_Universal_Numeric_Type (It.Typ) then
                   --  Choose universal interpretation over any other
 
                   T := It.Typ;
@@ -4164,27 +4163,10 @@ package body Sem_Ch3 is
          Set_Related_Array_Object (Base_Type (T), Id);
       end if;
 
-      --  Special checks for protected objects not at library level
+      --  Check for protected objects not at library level
 
       if Has_Protected (T) and then not Is_Library_Level_Entity (Id) then
          Check_Restriction (No_Local_Protected_Objects, Id);
-
-         --  Protected objects with interrupt handlers must be at library level
-
-         --  Ada 2005: This test is not needed (and the corresponding clause
-         --  in the RM is removed) because accessibility checks are sufficient
-         --  to make handlers not at the library level illegal.
-
-         --  AI05-0303: The AI is in fact a binding interpretation, and thus
-         --  applies to the '95 version of the language as well.
-
-         if Is_Protected_Type (T)
-           and then Has_Interrupt_Handler (T)
-           and then Ada_Version < Ada_95
-         then
-            Error_Msg_N
-              ("interrupt object can only be declared at library level", Id);
-         end if;
       end if;
 
       --  Check for violation of No_Local_Timing_Events
@@ -4515,7 +4497,7 @@ package body Sem_Ch3 is
 
             elsif Is_Class_Wide_Type (T) then
                Error_Msg_N
-                 ("initialization required in class-wide declaration ", N);
+                 ("initialization required in class-wide declaration", N);
 
             else
                Error_Msg_N
@@ -5103,7 +5085,7 @@ package body Sem_Ch3 is
 
       elsif not Is_Tagged_Type (Parent_Type) then
          Error_Msg_N
-           ("parent of type extension must be a tagged type ", Indic);
+           ("parent of type extension must be a tagged type", Indic);
          goto Leave;
 
       elsif Ekind (Parent_Type) in E_Void | E_Incomplete_Type then
@@ -11180,21 +11162,20 @@ package body Sem_Ch3 is
       end if;
    end Check_Aliased_Component_Types;
 
-   ---------------------------------------
-   -- Check_Anonymous_Access_Components --
-   ---------------------------------------
+   --------------------------------------
+   -- Check_Anonymous_Access_Component --
+   --------------------------------------
 
-   procedure Check_Anonymous_Access_Components
-      (Typ_Decl  : Node_Id;
-       Typ       : Entity_Id;
-       Prev      : Entity_Id;
-       Comp_List : Node_Id)
+   procedure Check_Anonymous_Access_Component
+     (Typ_Decl   : Node_Id;
+      Typ        : Entity_Id;
+      Prev       : Entity_Id;
+      Comp_Def   : Node_Id;
+      Access_Def : Node_Id)
    is
-      Loc         : constant Source_Ptr := Sloc (Typ_Decl);
+      Loc         : constant Source_Ptr := Sloc (Comp_Def);
       Anon_Access : Entity_Id;
       Acc_Def     : Node_Id;
-      Comp        : Node_Id;
-      Comp_Def    : Node_Id;
       Decl        : Node_Id;
       Type_Def    : Node_Id;
 
@@ -11228,13 +11209,18 @@ package body Sem_Ch3 is
          --  Is_Tagged indicates whether the type is tagged. It is tagged if
          --  it's "is new ... with record" or else "is tagged record ...".
 
+         Typ_Def   : constant Node_Id :=
+           (if Nkind (Typ_Decl) = N_Full_Type_Declaration
+            then Type_Definition (Typ_Decl) else Empty);
          Is_Tagged : constant Boolean :=
-             (Nkind (Type_Definition (Typ_Decl)) = N_Derived_Type_Definition
-               and then
-                 Present (Record_Extension_Part (Type_Definition (Typ_Decl))))
-           or else
-             (Nkind (Type_Definition (Typ_Decl)) = N_Record_Definition
-               and then Tagged_Present (Type_Definition (Typ_Decl)));
+           Present (Typ_Def)
+             and then
+               ((Nkind (Typ_Def) = N_Derived_Type_Definition
+                  and then
+                    Present (Record_Extension_Part (Typ_Def)))
+                or else
+                  (Nkind (Typ_Def) = N_Record_Definition
+                    and then Tagged_Present (Typ_Def)));
 
       begin
          --  If there is a previous partial view, no need to create a new one
@@ -11452,8 +11438,92 @@ package body Sem_Ch3 is
          return False;
       end Mentions_T;
 
-   --  Start of processing for Check_Anonymous_Access_Components
+   --  Start of processing for Check_Anonymous_Access_Component
 
+   begin
+      if Present (Access_Def) and then Mentions_T (Access_Def) then
+         Acc_Def := Access_To_Subprogram_Definition (Access_Def);
+
+         Build_Incomplete_Type_Declaration;
+         Anon_Access := Make_Temporary (Loc, 'S');
+
+         --  Create a declaration for the anonymous access type: either
+         --  an access_to_object or an access_to_subprogram.
+
+         if Present (Acc_Def) then
+            if Nkind (Acc_Def) = N_Access_Function_Definition then
+               Type_Def :=
+                 Make_Access_Function_Definition (Loc,
+                   Parameter_Specifications =>
+                     Parameter_Specifications (Acc_Def),
+                   Result_Definition        => Result_Definition (Acc_Def));
+            else
+               Type_Def :=
+                 Make_Access_Procedure_Definition (Loc,
+                   Parameter_Specifications =>
+                     Parameter_Specifications (Acc_Def));
+            end if;
+
+         else
+            Type_Def :=
+              Make_Access_To_Object_Definition (Loc,
+                Subtype_Indication =>
+                   Relocate_Node (Subtype_Mark (Access_Def)));
+
+            Set_Constant_Present (Type_Def, Constant_Present (Access_Def));
+            Set_All_Present (Type_Def, All_Present (Access_Def));
+         end if;
+
+         Set_Null_Exclusion_Present
+           (Type_Def, Null_Exclusion_Present (Access_Def));
+
+         Decl :=
+           Make_Full_Type_Declaration (Loc,
+             Defining_Identifier => Anon_Access,
+             Type_Definition     => Type_Def);
+
+         Insert_Before (Typ_Decl, Decl);
+         Analyze (Decl);
+
+         --  If an access to subprogram, create the extra formals
+
+         if Present (Acc_Def) then
+            Create_Extra_Formals (Designated_Type (Anon_Access));
+         end if;
+
+         if Nkind (Comp_Def) = N_Component_Definition then
+            Rewrite (Comp_Def,
+              Make_Component_Definition (Loc,
+                Subtype_Indication => New_Occurrence_Of (Anon_Access, Loc)));
+         else
+            pragma Assert (Nkind (Comp_Def) = N_Discriminant_Specification);
+            Rewrite (Comp_Def,
+              Make_Discriminant_Specification (Loc,
+                Defining_Identifier => Defining_Identifier (Comp_Def),
+                Discriminant_Type   => New_Occurrence_Of (Anon_Access, Loc)));
+         end if;
+
+         if Ekind (Designated_Type (Anon_Access)) = E_Subprogram_Type then
+            Set_Ekind (Anon_Access, E_Anonymous_Access_Subprogram_Type);
+         else
+            Set_Ekind (Anon_Access, E_Anonymous_Access_Type);
+         end if;
+
+         Set_Is_Local_Anonymous_Access (Anon_Access);
+      end if;
+   end Check_Anonymous_Access_Component;
+
+   ---------------------------------------
+   -- Check_Anonymous_Access_Components --
+   ---------------------------------------
+
+   procedure Check_Anonymous_Access_Components
+     (Typ_Decl  : Node_Id;
+      Typ       : Entity_Id;
+      Prev      : Entity_Id;
+      Comp_List : Node_Id)
+   is
+      Comp : Node_Id;
    begin
       if No (Comp_List) then
          return;
@@ -11461,79 +11531,11 @@ package body Sem_Ch3 is
 
       Comp := First (Component_Items (Comp_List));
       while Present (Comp) loop
-         if Nkind (Comp) = N_Component_Declaration
-           and then Present
-             (Access_Definition (Component_Definition (Comp)))
-           and then
-             Mentions_T (Access_Definition (Component_Definition (Comp)))
-         then
-            Comp_Def := Component_Definition (Comp);
-            Acc_Def :=
-              Access_To_Subprogram_Definition (Access_Definition (Comp_Def));
-
-            Build_Incomplete_Type_Declaration;
-            Anon_Access := Make_Temporary (Loc, 'S');
-
-            --  Create a declaration for the anonymous access type: either
-            --  an access_to_object or an access_to_subprogram.
-
-            if Present (Acc_Def) then
-               if Nkind (Acc_Def) = N_Access_Function_Definition then
-                  Type_Def :=
-                    Make_Access_Function_Definition (Loc,
-                      Parameter_Specifications =>
-                        Parameter_Specifications (Acc_Def),
-                      Result_Definition        => Result_Definition (Acc_Def));
-               else
-                  Type_Def :=
-                    Make_Access_Procedure_Definition (Loc,
-                      Parameter_Specifications =>
-                        Parameter_Specifications (Acc_Def));
-               end if;
-
-            else
-               Type_Def :=
-                 Make_Access_To_Object_Definition (Loc,
-                   Subtype_Indication =>
-                      Relocate_Node
-                        (Subtype_Mark (Access_Definition (Comp_Def))));
-
-               Set_Constant_Present
-                 (Type_Def, Constant_Present (Access_Definition (Comp_Def)));
-               Set_All_Present
-                 (Type_Def, All_Present (Access_Definition (Comp_Def)));
-            end if;
-
-            Set_Null_Exclusion_Present
-              (Type_Def,
-               Null_Exclusion_Present (Access_Definition (Comp_Def)));
-
-            Decl :=
-              Make_Full_Type_Declaration (Loc,
-                Defining_Identifier => Anon_Access,
-                Type_Definition     => Type_Def);
-
-            Insert_Before (Typ_Decl, Decl);
-            Analyze (Decl);
-
-            --  If an access to subprogram, create the extra formals
-
-            if Present (Acc_Def) then
-               Create_Extra_Formals (Designated_Type (Anon_Access));
-            end if;
-
-            Rewrite (Comp_Def,
-              Make_Component_Definition (Loc,
-                Subtype_Indication =>
-               New_Occurrence_Of (Anon_Access, Loc)));
-
-            if Ekind (Designated_Type (Anon_Access)) = E_Subprogram_Type then
-               Set_Ekind (Anon_Access, E_Anonymous_Access_Subprogram_Type);
-            else
-               Set_Ekind (Anon_Access, E_Anonymous_Access_Type);
-            end if;
-
-            Set_Is_Local_Anonymous_Access (Anon_Access);
+         if Nkind (Comp) = N_Component_Declaration then
+            Check_Anonymous_Access_Component
+              (Typ_Decl, Typ, Prev,
+               Component_Definition (Comp),
+               Access_Definition (Component_Definition (Comp)));
          end if;
 
          Next (Comp);
@@ -17443,10 +17445,10 @@ package body Sem_Ch3 is
               and then Nkind (N) = N_Private_Type_Declaration
             then
                Error_Msg_NE
-                 ("declaration of private } must be a tagged type ", Id, Prev);
+                 ("declaration of private } must be a tagged type", Id, Prev);
             else
                Error_Msg_NE
-                 ("full declaration of } must be a tagged type ", Id, Prev);
+                 ("full declaration of } must be a tagged type", Id, Prev);
             end if;
 
          else
@@ -17454,10 +17456,10 @@ package body Sem_Ch3 is
               and then Nkind (N) = N_Private_Type_Declaration
             then
                Error_Msg_NE
-                 ("declaration of private } must be a tagged type ", Prev, Id);
+                 ("declaration of private } must be a tagged type", Prev, Id);
             else
                Error_Msg_NE
-                 ("full declaration of } must be a tagged type ", Prev, Id);
+                 ("full declaration of } must be a tagged type", Prev, Id);
             end if;
          end if;
       end Tag_Mismatch;
@@ -19354,7 +19356,7 @@ package body Sem_Ch3 is
 
       else
          if not Is_Entity_Name (N) or else not Is_Type (Entity (N)) then
-            Error_Msg_N ("invalid subtype mark in discrete range ", N);
+            Error_Msg_N ("invalid subtype mark in discrete range", N);
             Set_Etype (N, Any_Integer);
             return;
 
@@ -20064,19 +20066,34 @@ package body Sem_Ch3 is
          end if;
 
          if Nkind (Discriminant_Type (Discr)) = N_Access_Definition then
-            Discr_Type := Access_Definition (Discr, Discriminant_Type (Discr));
+            Check_Anonymous_Access_Component
+              (Typ_Decl   => N,
+               Typ        => Defining_Identifier (N),
+               Prev       => Prev,
+               Comp_Def   => Discr,
+               Access_Def => Discriminant_Type (Discr));
 
-            --  Ada 2005 (AI-254)
+            --  if Check_Anonymous_Access_Component replaced Discr then
+            --  its Original_Node points to the old Discr and the access type
+            --  for Discr_Type has already been created.
 
-            if Present (Access_To_Subprogram_Definition
-                         (Discriminant_Type (Discr)))
-              and then Protected_Present (Access_To_Subprogram_Definition
-                                           (Discriminant_Type (Discr)))
-            then
+            if Original_Node (Discr) /= Discr then
+               Discr_Type := Etype (Discriminant_Type (Discr));
+            else
                Discr_Type :=
-                 Replace_Anonymous_Access_To_Protected_Subprogram (Discr);
-            end if;
+                 Access_Definition (Discr, Discriminant_Type (Discr));
 
+               --  Ada 2005 (AI-254)
+
+               if Present (Access_To_Subprogram_Definition
+                            (Discriminant_Type (Discr)))
+                 and then Protected_Present (Access_To_Subprogram_Definition
+                                              (Discriminant_Type (Discr)))
+               then
+                  Discr_Type :=
+                    Replace_Anonymous_Access_To_Protected_Subprogram (Discr);
+               end if;
+            end if;
          else
             Find_Type (Discriminant_Type (Discr));
             Discr_Type := Etype (Discriminant_Type (Discr));

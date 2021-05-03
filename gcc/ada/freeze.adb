@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -3644,8 +3644,8 @@ package body Freeze is
                  and then not Freezing_Library_Level_Tagged_Type
                then
                   Error_Msg_Node_1 := F_Type;
-                  Error_Msg
-                    ("type & must be fully defined before this point", Loc);
+                  Error_Msg_N
+                    ("type & must be fully defined before this point", N);
                end if;
             end if;
 
@@ -3749,8 +3749,8 @@ package body Freeze is
 
                Error_Msg_NE ("?x?type of argument& is unconstrained array",
                   Warn_Node, Formal);
-               Error_Msg_NE ("?x?foreign caller must pass bounds explicitly",
-                  Warn_Node, Formal);
+               Error_Msg_N ("\?x?foreign caller must pass bounds explicitly",
+                  Warn_Node);
                Error_Msg_Qual_Level := 0;
             end if;
 
@@ -4002,11 +4002,6 @@ package body Freeze is
          --  Set True if we find at least one component with no component
          --  clause (used to warn about useless Pack pragmas).
 
-         function Check_Allocator (N : Node_Id) return Node_Id;
-         --  If N is an allocator, possibly wrapped in one or more level of
-         --  qualified expression(s), return the inner allocator node, else
-         --  return Empty.
-
          procedure Check_Itype (Typ : Entity_Id);
          --  If the component subtype is an access to a constrained subtype of
          --  an already frozen type, make the subtype frozen as well. It might
@@ -4021,25 +4016,6 @@ package body Freeze is
          --  Make sure that all types mentioned in Discrete_Choices of the
          --  variants referenceed by the Variant_Part VP are frozen. This is
          --  a recursive routine to deal with nested variants.
-
-         ---------------------
-         -- Check_Allocator --
-         ---------------------
-
-         function Check_Allocator (N : Node_Id) return Node_Id is
-            Inner : Node_Id;
-         begin
-            Inner := N;
-            loop
-               if Nkind (Inner) = N_Allocator then
-                  return Inner;
-               elsif Nkind (Inner) = N_Qualified_Expression then
-                  Inner := Expression (Inner);
-               else
-                  return Empty;
-               end if;
-            end loop;
-         end Check_Allocator;
 
          -----------------
          -- Check_Itype --
@@ -4355,22 +4331,24 @@ package body Freeze is
 
             elsif Is_Access_Type (Etype (Comp))
               and then Present (Parent (Comp))
+              and then
+                Nkind (Parent (Comp))
+                  in N_Component_Declaration | N_Discriminant_Specification
               and then Present (Expression (Parent (Comp)))
             then
                declare
                   Alloc : constant Node_Id :=
-                            Check_Allocator (Expression (Parent (Comp)));
+                            Unqualify (Expression (Parent (Comp)));
 
                begin
-                  if Present (Alloc) then
+                  if Nkind (Alloc) = N_Allocator then
 
                      --  If component is pointer to a class-wide type, freeze
                      --  the specific type in the expression being allocated.
                      --  The expression may be a subtype indication, in which
                      --  case freeze the subtype mark.
 
-                     if Is_Class_Wide_Type
-                          (Designated_Type (Etype (Comp)))
+                     if Is_Class_Wide_Type (Designated_Type (Etype (Comp)))
                      then
                         if Is_Entity_Name (Expression (Alloc)) then
                            Freeze_And_Append
@@ -4382,17 +4360,14 @@ package body Freeze is
                             (Entity (Subtype_Mark (Expression (Alloc))),
                              N, Result);
                         end if;
-
                      elsif Is_Itype (Designated_Type (Etype (Comp))) then
                         Check_Itype (Etype (Comp));
-
                      else
                         Freeze_And_Append
                           (Designated_Type (Etype (Comp)), N, Result);
                      end if;
                   end if;
                end;
-
             elsif Is_Access_Type (Etype (Comp))
               and then Is_Itype (Designated_Type (Etype (Comp)))
             then

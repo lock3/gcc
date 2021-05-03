@@ -827,11 +827,6 @@ class ovl_iterator {
   {
   }
 
- private:
-  /* Do not duplicate.  */
-  ovl_iterator &operator= (const ovl_iterator &);
-  ovl_iterator (const ovl_iterator &);
-
  public:
   operator bool () const
   {
@@ -850,6 +845,10 @@ class ovl_iterator {
     gcc_checking_assert (allow_inner || TREE_CODE (fn) != OVERLOAD);
 
     return fn;
+  }
+  bool operator== (const ovl_iterator &o) const
+  {
+    return ovl == o.ovl;
   }
   tree get_using () const
   {
@@ -913,6 +912,19 @@ class ovl_iterator {
   static tree reveal_node (tree ovl, tree node);
 };
 
+/* Treat a tree as a range of ovl_iterator, e.g.
+   for (tree f : ovl_range (fns)) { ... }  */
+
+class ovl_range
+{
+  tree t;
+  bool allow;
+public:
+  explicit ovl_range (tree t, bool allow = false): t(t), allow(allow) { }
+  ovl_iterator begin() { return ovl_iterator (t, allow); }
+  ovl_iterator end() { return ovl_iterator (NULL_TREE, allow); }
+};
+
 /* Iterator over a (potentially) 2 dimensional overload, which is
    produced by name lookup.  */
 
@@ -943,6 +955,18 @@ class lkp_iterator : public ovl_iterator {
 
     return *this;
   }
+};
+
+/* Treat a tree as a range of lkp_iterator, e.g.
+   for (tree f : lkp_range (fns)) { ... }  */
+
+class lkp_range
+{
+  tree t;
+public:
+  lkp_range (tree t): t(t) { }
+  lkp_iterator begin() { return lkp_iterator (t); }
+  lkp_iterator end() { return lkp_iterator (NULL_TREE); }
 };
 
 /* hash traits for declarations.  Hashes potential overload sets via
@@ -4571,7 +4595,7 @@ more_aggr_init_expr_args_p (const aggr_init_expr_arg_iterator *iter)
    When appearing in a SAVE_EXPR, it means that underneath
    is a call to a constructor.
 
-   When appearing in a CONSTRUCTOR, the expression is a
+   When appearing in a CONSTRUCTOR, the expression is an unconverted
    compound literal.
 
    When appearing in a FIELD_DECL, it means that this field
@@ -4583,7 +4607,9 @@ more_aggr_init_expr_args_p (const aggr_init_expr_arg_iterator *iter)
   (TREE_CODE (NODE) == CONSTRUCTOR && TREE_TYPE (NODE) == init_list_type_node)
 
 /* True if NODE is a compound-literal, i.e., a brace-enclosed
-   initializer cast to a particular type.  */
+   initializer cast to a particular type.  This is mostly only set during
+   template parsing; once the initializer has been digested into an actual
+   value of the type, the expression is represented by a TARGET_EXPR.  */
 #define COMPOUND_LITERAL_P(NODE) \
   (TREE_CODE (NODE) == CONSTRUCTOR && TREE_HAS_CONSTRUCTOR (NODE))
 
@@ -5644,9 +5670,10 @@ class cp_evaluated
 public:
   int uneval;
   int inhibit;
-  cp_evaluated ()
+  cp_evaluated (bool reset = true)
     : uneval(cp_unevaluated_operand), inhibit(c_inhibit_evaluation_warnings)
-  { cp_unevaluated_operand = c_inhibit_evaluation_warnings = 0; }
+  { if (reset)
+      cp_unevaluated_operand = c_inhibit_evaluation_warnings = 0; }
   ~cp_evaluated ()
   { cp_unevaluated_operand = uneval;
     c_inhibit_evaluation_warnings = inhibit; }
@@ -7029,7 +7056,7 @@ extern void mark_exp_read			(tree);
 extern int is_friend				(tree, tree);
 extern void make_friend_class			(tree, tree, bool);
 extern void add_friend				(tree, tree, bool);
-extern tree do_friend				(tree, tree, tree, tree,
+extern tree do_friend				(tree, tree, tree,
 						 enum overload_flags, bool);
 
 extern void set_global_friend			(tree);

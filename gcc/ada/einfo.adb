@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -1120,7 +1120,9 @@ package body Einfo is
 
    function Discriminant_Constraint (Id : E) return L is
    begin
-      pragma Assert (Is_Composite_Type (Id) and then Has_Discriminants (Id));
+      pragma Assert
+        (Is_Composite_Type (Id)
+          and then (Has_Discriminants (Id) or else Is_Constrained (Id)));
       return Elist21 (Id);
    end Discriminant_Constraint;
 
@@ -10190,7 +10192,7 @@ package body Einfo is
             Write_Eol;
 
          when E_Component =>
-            if Ekind (Scope (Id)) in Record_Kind then
+            if Is_Record_Type (Scope (Id)) then
                Write_Attribute (
                   "   Original_Record_Component   ",
                   Original_Record_Component (Id));

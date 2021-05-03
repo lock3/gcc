@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -817,6 +817,12 @@ procedure Gnat1drv is
            Ttypes.Standard_Long_Long_Integer_Size;
          Ttypes.System_Max_Binary_Modulus_Power :=
            Ttypes.Standard_Long_Long_Integer_Size;
+      end if;
+
+      --  Forcefully use a 32-bit Duration with only 32-bit integer types
+
+      if Ttypes.System_Max_Integer_Size < 64 then
+         Targparm.Duration_32_Bits_On_Target := True;
       end if;
 
       --  Finally capture adjusted value of Suppress_Options as the initial

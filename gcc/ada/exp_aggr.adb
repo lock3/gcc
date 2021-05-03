@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -77,15 +77,6 @@ package body Exp_Aggr is
 
    type Case_Table_Type is array (Nat range <>) of Case_Bounds;
    --  Table type used by Check_Case_Choices procedure
-
-   procedure Collect_Initialization_Statements
-     (Obj        : Entity_Id;
-      N          : Node_Id;
-      Node_After : Node_Id);
-   --  If Obj is not frozen, collect actions inserted after N until, but not
-   --  including, Node_After, for initialization of Obj, and move them to an
-   --  expression with actions, which becomes the Initialization_Statements for
-   --  Obj.
 
    procedure Expand_Delta_Array_Aggregate  (N : Node_Id; Deltas : List_Id);
    procedure Expand_Delta_Record_Aggregate (N : Node_Id; Deltas : List_Id);
@@ -4210,40 +4201,6 @@ package body Exp_Aggr is
       return L;
    end Build_Record_Aggr_Code;
 
-   ---------------------------------------
-   -- Collect_Initialization_Statements --
-   ---------------------------------------
-
-   procedure Collect_Initialization_Statements
-     (Obj        : Entity_Id;
-      N          : Node_Id;
-      Node_After : Node_Id)
-   is
-      Loc          : constant Source_Ptr := Sloc (N);
-      Init_Actions : constant List_Id    := New_List;
-      Init_Node    : Node_Id;
-      Comp_Stmt    : Node_Id;
-
-   begin
-      --  Nothing to do if Obj is already frozen, as in this case we known we
-      --  won't need to move the initialization statements about later on.
-
-      if Is_Frozen (Obj) then
-         return;
-      end if;
-
-      Init_Node := N;
-      while Next (Init_Node) /= Node_After loop
-         Append_To (Init_Actions, Remove_Next (Init_Node));
-      end loop;
-
-      if not Is_Empty_List (Init_Actions) then
-         Comp_Stmt := Make_Compound_Statement (Loc, Actions => Init_Actions);
-         Insert_Action_After (Init_Node, Comp_Stmt);
-         Set_Initialization_Statements (Obj, Comp_Stmt);
-      end if;
-   end Collect_Initialization_Statements;
-
    -------------------------------
    -- Convert_Aggr_In_Allocator --
    -------------------------------
@@ -4313,6 +4270,8 @@ package body Exp_Aggr is
       Loc  : constant Source_Ptr := Sloc (Aggr);
       Typ  : constant Entity_Id  := Etype (Aggr);
       Occ  : constant Node_Id    := New_Occurrence_Of (Obj, Loc);
+
+      Has_Transient_Scope : Boolean := False;
 
       function Discriminants_Ok return Boolean;
       --  If the object type is constrained, the discriminants in the
@@ -4405,7 +4364,7 @@ package body Exp_Aggr is
       --  the finalization list of the return must be moved to the caller's
       --  finalization list to complete the return.
 
-      --  However, if the aggregate is limited, it is built in place, and the
+      --  Similarly if the aggregate is limited, it is built in place, and the
       --  controlled components are not assigned to intermediate temporaries
       --  so there is no need for a transient scope in this case either.
 
@@ -4414,13 +4373,60 @@ package body Exp_Aggr is
         and then not Is_Limited_Type (Typ)
       then
          Establish_Transient_Scope (Aggr, Manage_Sec_Stack => False);
+         Has_Transient_Scope := True;
       end if;
 
       declare
-         Node_After : constant Node_Id := Next (N);
+         Stmts : constant List_Id := Late_Expansion (Aggr, Typ, Occ);
+         Stmt  : Node_Id;
+         Param : Node_Id;
+
       begin
-         Insert_Actions_After (N, Late_Expansion (Aggr, Typ, Occ));
-         Collect_Initialization_Statements (Obj, N, Node_After);
+         --  If Obj is already frozen or if N is wrapped in a transient scope,
+         --  Stmts do not need to be saved in Initialization_Statements since
+         --  there is no freezing issue.
+
+         if Is_Frozen (Obj) or else Has_Transient_Scope then
+            Insert_Actions_After (N, Stmts);
+         else
+            Stmt := Make_Compound_Statement (Sloc (N), Actions => Stmts);
+            Insert_Action_After (N, Stmt);
+
+            --  Insert_Action_After may freeze Obj in which case we should
+            --  remove the compound statement just created and simply insert
+            --  Stmts after N.
+
+            if Is_Frozen (Obj) then
+               Remove (Stmt);
+               Insert_Actions_After (N, Stmts);
+            else
+               Set_Initialization_Statements (Obj, Stmt);
+            end if;
+         end if;
+
+         --  If Typ has controlled components and a call to a Slice_Assign
+         --  procedure is part of the initialization statements, then we
+         --  need to initialize the array component since Slice_Assign will
+         --  need to adjust it.
+
+         if Has_Controlled_Component (Typ) then
+            Stmt := First (Stmts);
+
+            while Present (Stmt) loop
+               if Nkind (Stmt) = N_Procedure_Call_Statement
+                 and then Get_TSS_Name (Entity (Name (Stmt)))
+                            = TSS_Slice_Assign
+               then
+                  Param := First (Parameter_Associations (Stmt));
+                  Insert_Actions
+                    (Stmt,
+                     Build_Initialization_Call
+                       (Sloc (N), New_Copy_Tree (Param), Etype (Param)));
+               end if;
+
+               Next (Stmt);
+            end loop;
+         end if;
       end;
 
       Set_No_Initialization (N);
@@ -5694,7 +5700,7 @@ package body Exp_Aggr is
       function Safe_Left_Hand_Side (N : Node_Id) return Boolean;
       --  In addition to Maybe_In_Place_OK, in order for an aggregate to be
       --  built directly into the target of the assignment it must be free
-      --  of side effects.
+      --  of side effects. N is the LHS of an assignment.
 
       ----------------------------
       -- Build_Constrained_Type --
@@ -6655,9 +6661,13 @@ package body Exp_Aggr is
          Set_Expansion_Delayed (N);
          return;
 
-      --  In the remaining cases the aggregate is the RHS of an assignment
+      --  In the remaining cases the aggregate appears in the RHS of an
+      --  assignment, which may be part of the expansion of an object
+      --  delaration. If the aggregate is an actual in a call, itself
+      --  possibly in a RHS, building it in the target is not possible.
 
       elsif Maybe_In_Place_OK
+        and then Nkind (Parent_Node) not in N_Subprogram_Call
         and then Safe_Left_Hand_Side (Name (Parent_Node))
       then
          Tmp := Name (Parent_Node);
@@ -6793,6 +6803,7 @@ package body Exp_Aggr is
       --  code must be inserted after it. The defining entity might not come
       --  from source if this is part of an inlined body, but the declaration
       --  itself will.
+      --  The test below looks very specialized and kludgy???
 
       if Comes_From_Source (Tmp)
         or else
@@ -6800,18 +6811,18 @@ package body Exp_Aggr is
             and then Comes_From_Source (Parent (N))
             and then Tmp = Defining_Entity (Parent (N)))
       then
-         declare
-            Node_After : constant Node_Id := Next (Parent_Node);
-
-         begin
+         if Parent_Kind /= N_Object_Declaration or else Is_Frozen (Tmp) then
             Insert_Actions_After (Parent_Node, Aggr_Code);
-
-            if Parent_Kind = N_Object_Declaration then
-               Collect_Initialization_Statements
-                 (Obj => Tmp, N => Parent_Node, Node_After => Node_After);
-            end if;
-         end;
-
+         else
+            declare
+               Comp_Stmt : constant Node_Id :=
+                 Make_Compound_Statement
+                   (Sloc (Parent_Node), Actions => Aggr_Code);
+            begin
+               Insert_Action_After (Parent_Node, Comp_Stmt);
+               Set_Initialization_Statements (Tmp, Comp_Stmt);
+            end;
+         end if;
       else
          Insert_Actions (N, Aggr_Code);
       end if;
@@ -8612,7 +8623,7 @@ package body Exp_Aggr is
       --  Aggregates are not supported for nonstandard rep clauses, since they
       --  may lead to extra padding fields in CCG.
 
-      if Ekind (Etype (N)) in Record_Kind
+      if Is_Record_Type (Etype (N))
         and then Has_Non_Standard_Rep (Etype (N))
       then
          return False;
@@ -8667,30 +8678,25 @@ package body Exp_Aggr is
    begin
       return Building_Static_Dispatch_Tables
         and then Tagged_Type_Expansion
-        and then RTU_Loaded (Ada_Tags)
 
          --  Avoid circularity when rebuilding the compiler
 
-        and then Cunit_Entity (Get_Source_Unit (N)) /= RTU_Entity (Ada_Tags)
-        and then (Typ = RTE (RE_Dispatch_Table_Wrapper)
+        and then not Is_RTU (Cunit_Entity (Get_Source_Unit (N)), Ada_Tags)
+        and then (Is_RTE (Typ, RE_Dispatch_Table_Wrapper)
                     or else
-                  Typ = RTE (RE_Address_Array)
+                  Is_RTE (Typ, RE_Address_Array)
                     or else
-                  Typ = RTE (RE_Type_Specific_Data)
+                  Is_RTE (Typ, RE_Type_Specific_Data)
                     or else
-                  Typ = RTE (RE_Tag_Table)
+                  Is_RTE (Typ, RE_Tag_Table)
                     or else
-                  (RTE_Available (RE_Object_Specific_Data)
-                     and then Typ = RTE (RE_Object_Specific_Data))
+                  Is_RTE (Typ, RE_Object_Specific_Data)
                     or else
-                  (RTE_Available (RE_Interface_Data)
-                     and then Typ = RTE (RE_Interface_Data))
+                  Is_RTE (Typ, RE_Interface_Data)
                     or else
-                  (RTE_Available (RE_Interfaces_Array)
-                     and then Typ = RTE (RE_Interfaces_Array))
+                  Is_RTE (Typ, RE_Interfaces_Array)
                     or else
-                  (RTE_Available (RE_Interface_Data_Element)
-                     and then Typ = RTE (RE_Interface_Data_Element)));
+                  Is_RTE (Typ, RE_Interface_Data_Element));
    end Is_Static_Dispatch_Table_Aggregate;
 
    -----------------------------
@@ -8794,8 +8800,6 @@ package body Exp_Aggr is
      (N            : Node_Id;
       Default_Size : Nat := 5000) return Nat
    is
-      Typ : constant Entity_Id := Etype (N);
-
       function Use_Small_Size (N : Node_Id) return Boolean;
       --  True if we should return a very small size, which means large
       --  aggregates will be implemented as a loop when possible (potentially
@@ -8804,6 +8808,10 @@ package body Exp_Aggr is
       function Aggr_Context (N : Node_Id) return Node_Id;
       --  Return the context in which the aggregate appears, not counting
       --  qualified expressions and similar.
+
+      ------------------
+      -- Aggr_Context --
+      ------------------
 
       function Aggr_Context (N : Node_Id) return Node_Id is
          Result : Node_Id := Parent (N);
@@ -8821,6 +8829,10 @@ package body Exp_Aggr is
 
          return Result;
       end Aggr_Context;
+
+      --------------------
+      -- Use_Small_Size --
+      --------------------
 
       function Use_Small_Size (N : Node_Id) return Boolean is
          C : constant Node_Id := Aggr_Context (N);
@@ -8852,11 +8864,15 @@ package body Exp_Aggr is
          end case;
       end Use_Small_Size;
 
+      --  Local variables
+
+      Typ : constant Entity_Id := Etype (N);
+
    --  Start of processing for Max_Aggregate_Size
 
    begin
-      --  We use a small limit in CodePeer mode where we favor loops
-      --  instead of thousands of single assignments (from large aggregates).
+      --  We use a small limit in CodePeer mode where we favor loops instead of
+      --  thousands of single assignments (from large aggregates).
 
       --  We also increase the limit to 2**24 (about 16 million) if
       --  Restrictions (No_Elaboration_Code) or Restrictions

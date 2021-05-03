@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -217,6 +217,16 @@ package Types is
    --  have different ranges, so it is possible to tell from a Source_Ptr value
    --  which source it refers to. Note that negative numbers are allowed to
    --  accommodate the following special values.
+
+   type Source_Span is record
+      Ptr, First, Last : Source_Ptr;
+   end record;
+   --  Type used to represent a source span, consisting in a main location Ptr,
+   --  with a First and Last location, such that Ptr in First .. Last
+
+   function To_Span (Loc : Source_Ptr) return Source_Span is ((others => Loc));
+   function To_Span (Ptr, First, Last : Source_Ptr) return Source_Span is
+     ((Ptr, First, Last));
 
    No_Location : constant Source_Ptr := -1;
    --  Value used to indicate no source position set in a node. A test for a

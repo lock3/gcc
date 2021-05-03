@@ -5880,6 +5880,15 @@ This hook returns true if @var{x} is a legitimate constant for a
 The default definition returns true.
 @end deftypefn
 
+@deftypefn {Target Hook} bool TARGET_PRECOMPUTE_TLS_P (machine_mode @var{mode}, rtx @var{x})
+This hook returns true if @var{x} is a TLS operand on the target
+machine that should be pre-computed when used as the argument in a call.
+You can assume that @var{x} satisfies @code{CONSTANT_P}, so you need not 
+check this.
+
+The default definition returns false.
+@end deftypefn
+
 @deftypefn {Target Hook} rtx TARGET_DELEGITIMIZE_ADDRESS (rtx @var{x})
 This hook is used to undo the possibly obfuscating effects of the
 @code{LEGITIMIZE_ADDRESS} and @code{LEGITIMIZE_RELOAD_ADDRESS} target
@@ -6756,6 +6765,13 @@ the body of the memory operation.
 Returning true for higher values of @code{size} may also cause an increase
 in code size, for example where the number of insns emitted to perform a
 move would be greater than that of a library call.
+@end deftypefn
+
+@deftypefn {Target Hook} bool TARGET_OVERLAP_OP_BY_PIECES_P (void)
+This target hook should return true if when the @code{by_pieces}
+infrastructure is used, an offset adjusted unaligned memory operation
+in the smallest integer mode for the last piece operation of a memory
+region can be generated to avoid doing more than one smaller operations.
 @end deftypefn
 
 @deftypefn {Target Hook} int TARGET_COMPARE_BY_PIECES_BRANCH_RATIO (machine_mode @var{mode})

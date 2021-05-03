@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -130,8 +130,6 @@ package body Debug_A is
 
    procedure Debug_Output_Astring is
       Vbars : constant String := "|||||||||||||||||||||||||";
-      --  Should be constant, removed because of GNAT 1.78 bug ???
-
    begin
       if Debug_A_Depth > Vbars'Length then
          for I in Vbars'Length .. Debug_A_Depth loop

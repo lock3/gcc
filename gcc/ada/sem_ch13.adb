@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -2500,10 +2500,7 @@ package body Sem_Ch13 is
 
             begin
                if Ada_Version < Ada_2020 then
-                  Error_Msg_N
-                    ("aspect % is an Ada 202x feature", Aspect);
-                  Error_Msg_N ("\compile with -gnat2020", Aspect);
-
+                  Error_Msg_Ada_2020_Feature ("aspect %", Sloc (Aspect));
                   return;
                end if;
 
@@ -2594,8 +2591,9 @@ package body Sem_Ch13 is
 
                   for Asp in Pre_Post_Aspects loop
                      if Has_Aspect (E, Asp) then
+                        Error_Msg_Name_1 := Aspect_Names (Asp);
                         Error_Msg_N
-                          ("this aspect is not allowed for a static "
+                          ("aspect % is not allowed for a static "
                            & "expression function",
                            Find_Aspect (E, Asp));
 
@@ -2609,25 +2607,23 @@ package body Sem_Ch13 is
                   --  component type C, a similar rule applies to C."
                end if;
 
-               --  Preanalyze the expression (if any) when the aspect resides
-               --  in a generic unit. (Is this generic-related code necessary
-               --  for this aspect? It's modeled on what's done for aspect
-               --  Disable_Controlled. ???)
+               --  When the expression is present, it must be static. If it
+               --  evaluates to True, the expression function is treated as
+               --  a static function. Otherwise the aspect appears without
+               --  an expression and defaults to True.
 
-               if Inside_A_Generic then
-                  if Present (Expr) then
+               if Present (Expr) then
+                  --  Preanalyze the expression when the aspect resides in a
+                  --  generic unit. (Is this generic-related code necessary
+                  --  for this aspect? It's modeled on what's done for aspect
+                  --  Disable_Controlled. ???)
+
+                  if Inside_A_Generic then
                      Preanalyze_And_Resolve (Expr, Any_Boolean);
-                  end if;
 
-               --  Otherwise the aspect resides in a nongeneric context
+                  --  Otherwise the aspect resides in a nongeneric context
 
-               else
-                  --  When the expression statically evaluates to True, the
-                  --  expression function is treated as a static function.
-                  --  Otherwise the aspect appears without an expression and
-                  --  defaults to True.
-
-                  if Present (Expr) then
+                  else
                      Analyze_And_Resolve (Expr, Any_Boolean);
 
                      --  Error if the boolean expression is not static
@@ -4147,8 +4143,8 @@ package body Sem_Ch13 is
                         --  Must not be parenthesized
 
                         if Paren_Count (Expr) /= 0 then
-                           Error_Msg -- CODEFIX
-                             ("redundant parentheses", First_Sloc (Expr));
+                           Error_Msg_F -- CODEFIX
+                             ("redundant parentheses", Expr);
                         end if;
 
                         --  List of arguments is list of aggregate expressions
@@ -4442,8 +4438,8 @@ package body Sem_Ch13 is
                   --  parentheses).
 
                   if Paren_Count (Expr) /= 0 then
-                     Error_Msg -- CODEFIX
-                       ("redundant parentheses", First_Sloc (Expr));
+                     Error_Msg_F -- CODEFIX
+                       ("redundant parentheses", Expr);
                      goto Continue;
                   end if;
 
@@ -4576,11 +4572,7 @@ package body Sem_Ch13 is
                   --  Ada 202x (AI12-0363): Full_Access_Only
 
                   elsif A_Id = Aspect_Full_Access_Only then
-                     if Ada_Version < Ada_2020 then
-                        Error_Msg_N
-                          ("aspect % is an Ada 202x feature", Aspect);
-                        Error_Msg_N ("\compile with -gnat2020", Aspect);
-                     end if;
+                     Error_Msg_Ada_2020_Feature ("aspect %", Sloc (Aspect));
 
                   --  Ada 202x (AI12-0075): static expression functions
 
@@ -4860,11 +4852,11 @@ package body Sem_Ch13 is
                      Error_Msg_Name_1 := Aspect_Names (A_Id);
                      Error_Msg_Sloc := Sloc (Inherited_Aspect);
 
-                     Error_Msg
+                     Error_Msg_N
                        ("overriding aspect specification for "
                           & "nonoverridable aspect % does not confirm "
                           & "aspect specification inherited from #",
-                        Sloc (Aspect));
+                        Aspect);
                   end if;
                end;
             end if;
@@ -7438,9 +7430,7 @@ package body Sem_Ch13 is
             --    type Q is access Float;
             --    for Q'Storage_Size use T'Storage_Size; -- incorrect
 
-            if RTE_Available (RE_Stack_Bounded_Pool)
-              and then Base_Type (T) = RTE (RE_Stack_Bounded_Pool)
-            then
+            if Is_RTE (Base_Type (T), RE_Stack_Bounded_Pool) then
                Error_Msg_N ("non-shareable internal Pool", Expr);
                return;
             end if;
@@ -7730,7 +7720,7 @@ package body Sem_Ch13 is
 
       if Etype (Expression (N)) = Any_Type then
          return;
-      elsif Etype (Expression (N)) /= RTE (RE_Asm_Insn) then
+      elsif not Is_RTE (Etype (Expression (N)), RE_Asm_Insn) then
          Error_Msg_N ("incorrect type for code statement", N);
          return;
       end if;
@@ -7909,9 +7899,8 @@ package body Sem_Ch13 is
       --  Check that the expression is a proper aggregate (no parentheses)
 
       elsif Paren_Count (Aggr) /= 0 then
-         Error_Msg
-           ("extra parentheses surrounding aggregate not allowed",
-            First_Sloc (Aggr));
+         Error_Msg_F
+           ("extra parentheses surrounding aggregate not allowed", Aggr);
          return;
 
       --  All tests passed, so set rep clause in place
@@ -9985,17 +9974,29 @@ package body Sem_Ch13 is
    --  Start of processing for Build_Predicate_Functions
 
    begin
-      --  Return if already built or if type does not have predicates
+      --  Return if already built, if type does not have predicates,
+      --  or if type is a constructed subtype that will inherit a
+      --  predicate function from its ancestor. In a generic context
+      --  the predicated parent may not have a predicate function yet
+      --  but we don't want to build a new one for the subtype. This can
+      --  happen in an instance body which is nested within a generic
+      --  unit, in which case Within_A_Generic may be false, SId is
+      --  Empty, but uses of Typ will receive a predicate check in a
+      --  context where expansion and tests are enabled.
 
       SId := Predicate_Function (Typ);
       if not Has_Predicates (Typ)
         or else (Present (SId) and then Has_Completion (SId))
+        or else
+          (Is_Itype (Typ)
+           and then not Comes_From_Source (Typ)
+           and then Present (Predicated_Parent (Typ)))
       then
          return;
 
         --  Do not generate predicate bodies within a generic unit. The
         --  expressions have been analyzed already, and the bodies play
-        --  no role if not within an executable unit. However, if a statc
+        --  no role if not within an executable unit. However, if a static
         --  predicate is present it must be processed for legality checks
         --  such as case coverage in an expression.
 
@@ -11802,6 +11803,8 @@ package body Sem_Ch13 is
                end if;
             end;
          end Check_Component_List;
+
+         --  Local variables
 
          Sbit : Uint;
          --  Starting bit for call to Check_Component_List. Zero for an
@@ -14909,7 +14912,7 @@ package body Sem_Ch13 is
             Find_Direct_Name (N);
             Set_Entity (N, Empty);
 
-         --  The name is component association needs no resolution.
+         --  The name is component association needs no resolution
 
          elsif Nkind (N) = N_Component_Association then
             Dummy := Resolve_Name (Expression (N));
@@ -14931,10 +14934,6 @@ package body Sem_Ch13 is
    --  Start of processing for Resolve_Aspect_Expressions
 
    begin
-      if No (ASN) then
-         return;
-      end if;
-
       while Present (ASN) loop
          if Nkind (ASN) = N_Aspect_Specification and then Entity (ASN) = E then
             declare
@@ -14971,16 +14970,12 @@ package body Sem_Ch13 is
                      --  discriminants of the type.
 
                      if No (Predicate_Function (E)) then
-                        declare
-                           FDecl : constant Node_Id :=
-                                     Build_Predicate_Function_Declaration (E);
-                           pragma Unreferenced (FDecl);
+                        Discard_Node
+                          (Build_Predicate_Function_Declaration (E));
 
-                        begin
-                           Push_Type (E);
-                           Resolve_Aspect_Expression (Expr);
-                           Pop_Type (E);
-                        end;
+                        Push_Type (E);
+                        Resolve_Aspect_Expression (Expr);
+                        Pop_Type (E);
                      end if;
 
                   when Pre_Post_Aspects =>

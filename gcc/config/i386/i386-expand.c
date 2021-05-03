@@ -2658,6 +2658,14 @@ ix86_expand_int_compare (enum rtx_code code, rtx op0, rtx op1)
   machine_mode cmpmode;
   rtx tmp, flags;
 
+  /* Swap operands to emit carry flag comparison.  */
+  if ((code == GTU || code == LEU)
+      && nonimmediate_operand (op1, VOIDmode))
+    {
+      std::swap (op0, op1);
+      code = swap_condition (code);
+    }
+
   cmpmode = SELECT_CC_MODE (code, op0, op1);
   flags = gen_rtx_REG (cmpmode, FLAGS_REG);
 
@@ -13237,6 +13245,14 @@ rdseed_step:
     {
       i = fcode - IX86_BUILTIN__BDESC_SPECIAL_ARGS_FIRST;
       return ix86_expand_special_args_builtin (bdesc_special_args + i, exp,
+					       target);
+    }
+
+  if (fcode >= IX86_BUILTIN__BDESC_PURE_ARGS_FIRST
+      && fcode <= IX86_BUILTIN__BDESC_PURE_ARGS_LAST)
+    {
+      i = fcode - IX86_BUILTIN__BDESC_PURE_ARGS_FIRST;
+      return ix86_expand_special_args_builtin (bdesc_pure_args + i, exp,
 					       target);
     }
 

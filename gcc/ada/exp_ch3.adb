@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -124,7 +124,7 @@ package body Exp_Ch3 is
    --  Build assignment procedure for one-dimensional arrays of controlled
    --  types. Other array and slice assignments are expanded in-line, but
    --  the code expansion for controlled components (when control actions
-   --  are active) can lead to very large blocks that GCC3 handles poorly.
+   --  are active) can lead to very large blocks that GCC handles poorly.
 
    procedure Build_Untagged_Equality (Typ : Entity_Id);
    --  AI05-0123: Equality on untagged records composes. This procedure
@@ -4168,7 +4168,7 @@ package body Exp_Ch3 is
 
    --  Generates the following subprogram:
 
-   --    procedure Assign
+   --    procedure array_typeSA
    --     (Source,  Target    : Array_Type,
    --      Left_Lo, Left_Hi   : Index;
    --      Right_Lo, Right_Hi : Index;
@@ -4178,7 +4178,6 @@ package body Exp_Ch3 is
    --       Ri1 : Index;
 
    --    begin
-
    --       if Left_Hi < Left_Lo then
    --          return;
    --       end if;
@@ -4204,7 +4203,7 @@ package body Exp_Ch3 is
    --             Ri1 := Index'succ (Ri1);
    --          end if;
    --       end loop;
-   --    end Assign;
+   --    end array_typeSA;
 
    procedure Build_Slice_Assignment (Typ : Entity_Id) is
       Loc   : constant Source_Ptr := Sloc (Typ);
@@ -6561,7 +6560,7 @@ package body Exp_Ch3 is
          if Needs_Finalization (Typ) and then not No_Initialization (N) then
             Obj_Init :=
               Make_Init_Call
-                (Obj_Ref => New_Occurrence_Of (Def_Id, Loc),
+                (Obj_Ref => New_Object_Reference,
                  Typ     => Typ);
          end if;
 
@@ -6977,11 +6976,7 @@ package body Exp_Ch3 is
       else
          --  Obtain actual expression from qualified expression
 
-         if Nkind (Expr) = N_Qualified_Expression then
-            Expr_Q := Expression (Expr);
-         else
-            Expr_Q := Expr;
-         end if;
+         Expr_Q := Unqualify (Expr);
 
          --  When we have the appropriate type of aggregate in the expression
          --  (it has been determined during analysis of the aggregate by
@@ -7782,9 +7777,14 @@ package body Exp_Ch3 is
       --  Expand_Record_Extension is called directly from the semantics, so
       --  we must check to see whether expansion is active before proceeding,
       --  because this affects the visibility of selected components in bodies
-      --  of instances.
+      --  of instances. Within a generic we still need to set Parent_Subtype
+      --  link because the visibility of inherited components will have to be
+      --  verified in subsequent instances.
 
       if not Expander_Active then
+         if Inside_A_Generic and then Ekind (T) = E_Record_Type then
+            Set_Parent_Subtype (T, Etype (T));
+         end if;
          return;
       end if;
 
@@ -8597,35 +8597,28 @@ package body Exp_Ch3 is
       --------------------------------
 
       function Simple_Init_Defaulted_Type return Node_Id is
-         Subtyp : constant Entity_Id := First_Subtype (Typ);
+         Subtyp : Entity_Id := First_Subtype (Typ);
 
       begin
+         --  When the first subtype is private, retrieve the expression of the
+         --  Default_Value from the underlying type.
+
+         if Is_Private_Type (Subtyp) then
+            Subtyp := Full_View (Subtyp);
+         end if;
+
          --  Use the Sloc of the context node when constructing the initial
          --  value because the expression of Default_Value may come from a
          --  different unit. Updating the Sloc will result in accurate error
          --  diagnostics.
 
-         --  When the first subtype is private, retrieve the expression of the
-         --  Default_Value from the underlying type.
-
-         if Is_Private_Type (Subtyp) then
-            return
-              Unchecked_Convert_To
-                (Typ  => Typ,
-                 Expr =>
-                   New_Copy_Tree
-                     (Source   => Default_Aspect_Value (Full_View (Subtyp)),
-                      New_Sloc => Loc));
-
-         else
-            return
-              Convert_To
-                (Typ  => Typ,
-                 Expr =>
-                   New_Copy_Tree
-                     (Source   => Default_Aspect_Value (Subtyp),
-                      New_Sloc => Loc));
-         end if;
+         return
+           OK_Convert_To
+             (Typ  => Typ,
+              Expr =>
+                New_Copy_Tree
+                  (Source   => Default_Aspect_Value (Subtyp),
+                   New_Sloc => Loc));
       end Simple_Init_Defaulted_Type;
 
       -----------------------------------------

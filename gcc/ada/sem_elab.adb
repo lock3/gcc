@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1997-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1997-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -15121,7 +15121,7 @@ package body Sem_Elab is
          Inst_Rep : Scenario_Rep_Id;
          In_State : Processing_In_State);
       pragma Inline (Process_SPARK_Instantiation);
-      --  Verify that instanciation Inst does not precede the generic body it
+      --  Verify that instantiation Inst does not precede the generic body it
       --  instantiates (SPARK RM 7.7(6)). Inst_Rep is the representation of the
       --  instantiation. In_State is the current state of the Processing phase.
 

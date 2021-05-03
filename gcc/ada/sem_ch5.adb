@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -1456,7 +1456,7 @@ package body Sem_Ch5 is
          if Is_Entity_Name (Exp) then
             Ent := Entity (Exp);
 
-            if Is_Assignable (Ent) then
+            if Is_Object (Ent) then
                if List_Length (Choices) = 1
                  and then Nkind (First (Choices)) in N_Subexpr
                  and then Compile_Time_Known_Value (First (Choices))
@@ -1475,7 +1475,7 @@ package body Sem_Ch5 is
             end if;
          end if;
 
-         --  Case where expression is not an entity name of a variable
+         --  Case where expression is not an entity name of an object
 
          Analyze_Statements (Statements (Alternative));
       end Process_Statements;
@@ -1509,7 +1509,7 @@ package body Sem_Ch5 is
         and then Present (Full_View (Etype (Exp)))
         and then Is_Discrete_Type (Full_View (Etype (Exp)))
       then
-         Resolve (Exp, Etype (Exp));
+         Resolve (Exp);
          Exp_Type := Full_View (Etype (Exp));
 
       else
@@ -2037,8 +2037,8 @@ package body Sem_Ch5 is
             then
                null;
             else
-               Error_Msg_NE
-                 ("container type does not support reverse iteration", N, Typ);
+               Error_Msg_N
+                 ("container type does not support reverse iteration", N);
             end if;
          end if;
       end Check_Reverse_Iteration;
@@ -2360,7 +2360,7 @@ package body Sem_Ch5 is
          --  Domain of iteration is not overloaded
 
          else
-            Resolve (Iter_Name, Etype (Iter_Name));
+            Resolve (Iter_Name);
          end if;
 
          if not Of_Present (N) then
@@ -4337,8 +4337,8 @@ package body Sem_Ch5 is
                         Error_Msg_N
                           ("ambiguous bounds in range of iteration", R_Copy);
                         Error_Msg_N ("\possible interpretations:", R_Copy);
-                        Error_Msg_NE ("\\} ", R_Copy, Found);
-                        Error_Msg_NE ("\\} ", R_Copy, It.Typ);
+                        Error_Msg_NE ("\\}", R_Copy, Found);
+                        Error_Msg_NE ("\\}", R_Copy, It.Typ);
                         exit;
                      end if;
                   end if;

@@ -4147,6 +4147,8 @@ address;  but often a machine-dependent strategy can generate better code.
 
 @hook TARGET_LEGITIMATE_CONSTANT_P
 
+@hook TARGET_PRECOMPUTE_TLS_P
+
 @hook TARGET_DELEGITIMIZE_ADDRESS
 
 @hook TARGET_CONST_NOT_OK_FOR_DEBUG_P
@@ -4585,6 +4587,8 @@ If you don't define this, a reasonable default is used.
 @end defmac
 
 @hook TARGET_USE_BY_PIECES_INFRASTRUCTURE_P
+
+@hook TARGET_OVERLAP_OP_BY_PIECES_P
 
 @hook TARGET_COMPARE_BY_PIECES_BRANCH_RATIO
 
