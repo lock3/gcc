@@ -11711,7 +11711,11 @@ apply_late_template_attributes (tree *decl_p, tree attributes, int attr_flags,
 	q = &TREE_CHAIN (*q);
     }
 
-  cplus_decl_attributes (decl_p, late_attrs, attr_flags);
+  /* FIXME there are oddities when guarded templates unconditionally run
+     cplus_decl_attributes with an empty late_attrs list in previous decl
+     matching.  */
+  if (late_attrs)
+    cplus_decl_attributes (decl_p, late_attrs, attr_flags);
 
   return true;
 }
