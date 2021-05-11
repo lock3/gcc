@@ -29,25 +29,29 @@
 --  environment, and that in particular, no disallowed table expansion is
 --  allowed to occur.
 
-with Atree;    use Atree;
-with Casing;   use Casing;
-with Csets;    use Csets;
-with Debug;    use Debug;
-with Einfo;    use Einfo;
-with Erroutc;  use Erroutc;
-with Gnatvsn;  use Gnatvsn;
-with Lib;      use Lib;
-with Opt;      use Opt;
-with Nlists;   use Nlists;
-with Output;   use Output;
-with Scans;    use Scans;
-with Sem_Aux;  use Sem_Aux;
-with Sinput;   use Sinput;
-with Sinfo;    use Sinfo;
-with Snames;   use Snames;
-with Stand;    use Stand;
-with Stylesw;  use Stylesw;
-with Uname;    use Uname;
+with Atree;          use Atree;
+with Casing;         use Casing;
+with Csets;          use Csets;
+with Debug;          use Debug;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Erroutc;        use Erroutc;
+with Gnatvsn;        use Gnatvsn;
+with Lib;            use Lib;
+with Opt;            use Opt;
+with Nlists;         use Nlists;
+with Output;         use Output;
+with Scans;          use Scans;
+with Sem_Aux;        use Sem_Aux;
+with Sinput;         use Sinput;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Snames;         use Snames;
+with Stand;          use Stand;
+with Stylesw;        use Stylesw;
+with Uname;          use Uname;
 
 package body Errout is
 
@@ -952,6 +956,11 @@ package body Errout is
    --  Start of processing for Error_Msg_Internal
 
    begin
+      --  Detect common mistake of prefixing or suffing the message with a
+      --  space character.
+
+      pragma Assert (Msg (Msg'First) /= ' ' and then Msg (Msg'Last) /= ' ');
+
       if Raise_Exception_On_Error /= 0 then
          raise Error_Msg_Exception;
       end if;
@@ -1820,10 +1829,6 @@ package body Errout is
       F := First_Node (N);
       S := Sloc (F);
 
-      --  ??? Protect against inconsistency in locations, by returning S
-      --  immediately if not in the expected range, rather than failing with
-      --  a Constraint_Error when accessing Source_Text(SI)(S)
-
       if S not in SF .. SL then
          return S;
       end if;
@@ -1938,10 +1943,6 @@ package body Errout is
    begin
       F := Last_Node (N);
       S := Sloc (F);
-
-      --  ??? Protect against inconsistency in locations, by returning S
-      --  immediately if not in the expected range, rather than failing with
-      --  a Constraint_Error when accessing Source_Text(SI)(S)
 
       if S not in SF .. SL then
          return S;
@@ -4013,7 +4014,8 @@ package body Errout is
          --  other errors. The reason we eliminate unfrozen types is that
          --  messages issued before the freeze type are for sure OK.
 
-         elsif Is_Frozen (E)
+         elsif Nkind (N) in N_Entity
+           and then Is_Frozen (E)
            and then Serious_Errors_Detected > 0
            and then Nkind (N) /= N_Component_Clause
            and then Nkind (Parent (N)) /= N_Component_Clause

@@ -3490,7 +3490,11 @@ static bool
 ix86_use_mask_cmp_p (machine_mode mode, machine_mode cmp_mode,
 		     rtx op_true, rtx op_false)
 {
-  if (GET_MODE_SIZE (mode) == 64)
+  int vector_size = GET_MODE_SIZE (mode);
+
+  if (vector_size < 16)
+    return false;
+  else if (vector_size == 64)
     return true;
 
   /* When op_true is NULL, op_false must be NULL, or vice versa.  */
@@ -3696,6 +3700,21 @@ ix86_expand_sse_movcc (rtx dest, rtx cmp, rtx op_true, rtx op_false)
 	{
 	  gen = gen_sse4_1_blendvsd;
 	  op_true = force_reg (mode, op_true);
+	}
+      break;
+    case E_V8QImode:
+    case E_V4HImode:
+    case E_V2SImode:
+      if (TARGET_SSE4_1)
+	{
+	  op_true = force_reg (mode, op_true);
+
+	  gen = gen_mmx_pblendvb;
+	  if (mode != V8QImode)
+	    d = gen_reg_rtx (V8QImode);
+	  op_false = gen_lowpart (V8QImode, op_false);
+	  op_true = gen_lowpart (V8QImode, op_true);
+	  cmp = gen_lowpart (V8QImode, cmp);
 	}
       break;
     case E_V16QImode:
@@ -4204,15 +4223,31 @@ ix86_expand_int_sse_cmp (rtx dest, enum rtx_code code, rtx cop0, rtx cop1,
 	      else if (code == GT && TARGET_SSE4_1)
 		gen = gen_sminv16qi3;
 	      break;
+	    case E_V8QImode:
+	      if (code == GTU && TARGET_SSE2)
+		gen = gen_uminv8qi3;
+	      else if (code == GT && TARGET_SSE4_1)
+		gen = gen_sminv8qi3;
+	      break;
 	    case E_V8HImode:
 	      if (code == GTU && TARGET_SSE4_1)
 		gen = gen_uminv8hi3;
 	      else if (code == GT && TARGET_SSE2)
 		gen = gen_sminv8hi3;
 	      break;
+	    case E_V4HImode:
+	      if (code == GTU && TARGET_SSE4_1)
+		gen = gen_uminv4hi3;
+	      else if (code == GT && TARGET_SSE2)
+		gen = gen_sminv4hi3;
+	      break;
 	    case E_V4SImode:
 	      if (TARGET_SSE4_1)
 		gen = (code == GTU) ? gen_uminv4si3 : gen_sminv4si3;
+	      break;
+	    case E_V2SImode:
+	      if (TARGET_SSE4_1)
+		gen = (code == GTU) ? gen_uminv2si3 : gen_sminv2si3;
 	      break;
 	    case E_V2DImode:
 	      if (TARGET_AVX512VL)
@@ -4254,6 +4289,7 @@ ix86_expand_int_sse_cmp (rtx dest, enum rtx_code code, rtx cop0, rtx cop1,
 	    case E_V8SImode:
 	    case E_V4DImode:
 	    case E_V4SImode:
+	    case E_V2SImode:
 	    case E_V2DImode:
 		{
 		  rtx t1, t2, mask;
@@ -4278,7 +4314,9 @@ ix86_expand_int_sse_cmp (rtx dest, enum rtx_code code, rtx cop0, rtx cop1,
 	    case E_V32QImode:
 	    case E_V16HImode:
 	    case E_V16QImode:
+	    case E_V8QImode:
 	    case E_V8HImode:
+	    case E_V4HImode:
 	      /* Perform a parallel unsigned saturating subtraction.  */
 	      x = gen_reg_rtx (mode);
 	      emit_insn (gen_rtx_SET

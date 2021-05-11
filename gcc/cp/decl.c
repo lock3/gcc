@@ -1933,8 +1933,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 
 		  if (name[0] == '_'
 		      && name[1] == '_'
-		      && (strncmp (name + 2, "builtin_",
-				   strlen ("builtin_")) == 0
+		      && (startswith (name + 2, "builtin_")
 			  || (len = strlen (name)) <= strlen ("___chk")
 			  || memcmp (name + len - strlen ("_chk"),
 				     "_chk", strlen ("_chk") + 1) != 0))
@@ -5187,7 +5186,7 @@ cxx_builtin_function (tree decl)
     /* In the user's namespace, it must be declared before use.  */
     hiding = true;
   else if (IDENTIFIER_LENGTH (id) > strlen ("___chk")
-	   && 0 != strncmp (name + 2, "builtin_", strlen ("builtin_"))
+	   && !startswith (name + 2, "builtin_")
 	   && 0 == memcmp (name + IDENTIFIER_LENGTH (id) - strlen ("_chk"),
 			   "_chk", strlen ("_chk") + 1))
     /* Treat __*_chk fortification functions as anticipated as well,
@@ -7979,9 +7978,9 @@ omp_declare_variant_finalize_one (tree decl, tree attr)
 	  return true;
 	}
       if (fndecl_built_in_p (variant)
-	  && (strncmp (varname, "__builtin_", strlen ("__builtin_")) == 0
-	      || strncmp (varname, "__sync_", strlen ("__sync_")) == 0
-	      || strncmp (varname, "__atomic_", strlen ("__atomic_")) == 0))
+	  && (startswith (varname, "__builtin_")
+	      || startswith (varname, "__sync_")
+	      || startswith (varname, "__atomic_")))
 	{
 	  error_at (varid_loc, "variant %qD is a built-in", variant);
 	  return true;
@@ -10110,7 +10109,14 @@ grokfndecl (tree ctype,
 		      && (processing_template_decl
 			  > template_class_depth (ctx)));
       if (memtmpl)
-        tmpl_reqs = TEMPLATE_PARMS_CONSTRAINTS (current_template_parms);
+	{
+	  if (!current_template_parms)
+	    /* If there are no template parameters, something must have
+	       gone wrong.  */
+	    gcc_assert (seen_error ());
+	  else
+	    tmpl_reqs = TEMPLATE_PARMS_CONSTRAINTS (current_template_parms);
+	}
       tree ci = build_constraints (tmpl_reqs, decl_reqs);
       if (concept_p && ci)
         {
@@ -10247,8 +10253,8 @@ grokfndecl (tree ctype,
 	  || (IDENTIFIER_LENGTH (declarator) > 10
 	      && IDENTIFIER_POINTER (declarator)[0] == '_'
 	      && IDENTIFIER_POINTER (declarator)[1] == '_'
-	      && strncmp (IDENTIFIER_POINTER (declarator)+2,
-			  "builtin_", 8) == 0)
+	      && startswith (IDENTIFIER_POINTER (declarator) + 2,
+			     "builtin_"))
 	  || (targetcm.cxx_implicit_extern_c
 	      && (targetcm.cxx_implicit_extern_c
 		  (IDENTIFIER_POINTER (declarator))))))
@@ -12680,7 +12686,7 @@ grokdeclarator (const cp_declarator *declarator,
 	  int attr_flags;
 
 	  attr_flags = 0;
-	  if (declarator == NULL || declarator->kind == cdk_id)
+	  if (declarator->kind == cdk_id)
 	    attr_flags |= (int) ATTR_FLAG_DECL_NEXT;
 	  if (declarator->kind == cdk_function)
 	    attr_flags |= (int) ATTR_FLAG_FUNCTION_NEXT;

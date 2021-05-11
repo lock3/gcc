@@ -771,21 +771,26 @@ package body System.Fat_Gen is
          --  Check for overflow
 
          if Adjustment > IEEE_Emax - Exp then
-            XX := 0.0;
-            return (if Minus then -1.0 / XX else 1.0 / XX);
-            pragma Annotate
-              (CodePeer, Intentional, "overflow check", "Infinity produced");
-            pragma Annotate
-              (CodePeer, Intentional, "divide by zero", "Infinity produced");
+            --  Optionally raise Constraint_Error as per RM A.5.3(29)
+
+            if T'Machine_Overflows then
+               raise Constraint_Error with "Too large exponent";
+
+            else
+               XX := 0.0;
+               return (if Minus then -1.0 / XX else 1.0 / XX);
+               pragma Annotate (CodePeer, Intentional, "overflow check",
+                                "Infinity produced");
+               pragma Annotate (CodePeer, Intentional, "divide by zero",
+                                "Infinity produced");
+            end if;
 
          --  Check for underflow
 
          elsif Adjustment < IEEE_Emin - Exp then
-            --  Check for gradual underflow
+            --  Check for possibly gradual underflow (up to the hardware)
 
-            if T'Denorm
-              and then Adjustment >= IEEE_Emin - (Mantissa - 1) - Exp
-            then
+            if Adjustment >= IEEE_Emin - Mantissa - Exp then
                Expf := IEEE_Emin;
                Expi := Exp + Adjustment - Expf;
 
@@ -807,6 +812,16 @@ package body System.Fat_Gen is
                         Float_Word (IEEE_Ebias + Expf) * Exp_Factor;
 
          if Expi < 0 then
+            --  Given that Expi >= -Mantissa, only -64 is problematic
+
+            if Expi = -64 then
+               pragma Annotate
+                 (CodePeer, Intentional, "test always false",
+                  "test always false in some instantiations");
+               XX := XX / 2.0;
+               Expi := -63;
+            end if;
+
             XX := XX / T (UST.Long_Long_Unsigned (2) ** (-Expi));
          end if;
 
@@ -959,7 +974,19 @@ package body System.Fat_Gen is
       else pragma Assert (Exp = IEEE_Emin - 1);
          --  This is a denormalized number, valid if T'Denorm is True or 0.0
 
-         return T'Denorm or else X.all = 0.0;
+         if T'Denorm then
+            return True;
+
+         --  Note that we cannot do a direct comparison with 0.0 because the
+         --  hardware may evaluate it to True for all denormalized numbers.
+
+         else
+            --  First clear the sign bit (the exponent is already zero)
+
+            Rep (MSW) := Rep (MSW) and not Sign_Mask;
+
+            return (for all J in 0 .. Rep_Last => Rep (J) = 0);
+         end if;
       end if;
    end Valid;
 

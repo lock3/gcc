@@ -3113,7 +3113,7 @@ build_function_call_vec (location_t loc, vec<location_t> arg_loc,
 	orig_fundecl = fundecl;
       /* Atomic functions have type checking/casting already done.  They are 
 	 often rewritten and don't match the original parameter list.  */
-      if (name && !strncmp (IDENTIFIER_POINTER (name), "__atomic_", 9))
+      if (name && startswith (IDENTIFIER_POINTER (name), "__atomic_"))
         origtypes = NULL;
     }
   if (TREE_CODE (TREE_TYPE (function)) == FUNCTION_TYPE)
@@ -3199,7 +3199,7 @@ build_function_call_vec (location_t loc, vec<location_t> arg_loc,
 					    nargs, argarray, &arg_loc);
 
   if (name != NULL_TREE
-      && !strncmp (IDENTIFIER_POINTER (name), "__builtin_", 10))
+      && startswith (IDENTIFIER_POINTER (name), "__builtin_"))
     {
       if (require_constant_value)
 	result
@@ -4866,6 +4866,7 @@ build_unary_op (location_t location, enum tree_code code, tree xarg,
 	  if (TYPE_REVERSE_STORAGE_ORDER (TREE_TYPE (TREE_OPERAND (arg, 0))))
 	    {
 	      if (!AGGREGATE_TYPE_P (TREE_TYPE (arg))
+		  && !POINTER_TYPE_P (TREE_TYPE (arg))
 		  && !VECTOR_TYPE_P (TREE_TYPE (arg)))
 		{
 		  error_at (location, "cannot take address of scalar with "
@@ -14097,6 +14098,8 @@ c_finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 		case PLUS_EXPR:
 		case MULT_EXPR:
 		case MINUS_EXPR:
+		case TRUTH_ANDIF_EXPR:
+		case TRUTH_ORIF_EXPR:
 		  break;
 		case MIN_EXPR:
 		  if (TREE_CODE (type) == COMPLEX_TYPE)
@@ -14114,14 +14117,6 @@ c_finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 		  break;
 		case BIT_IOR_EXPR:
 		  r_name = "|";
-		  break;
-		case TRUTH_ANDIF_EXPR:
-		  if (FLOAT_TYPE_P (type))
-		    r_name = "&&";
-		  break;
-		case TRUTH_ORIF_EXPR:
-		  if (FLOAT_TYPE_P (type))
-		    r_name = "||";
 		  break;
 		default:
 		  gcc_unreachable ();

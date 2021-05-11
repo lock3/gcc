@@ -6994,7 +6994,7 @@ bool
 template_parm_object_p (const_tree t)
 {
   return (TREE_CODE (t) == VAR_DECL && DECL_ARTIFICIAL (t) && DECL_NAME (t)
-	  && !strncmp (IDENTIFIER_POINTER (DECL_NAME (t)), "_ZTA", 4));
+	  && startswith (IDENTIFIER_POINTER (DECL_NAME (t)), "_ZTA"));
 }
 
 /* Subroutine of convert_nontype_argument, to check whether EXPR, as an
@@ -13214,6 +13214,8 @@ tsubst_pack_expansion (tree t, tree args, tsubst_flags_t complain,
       else
 	result = tsubst (pattern, args, complain, in_decl);
       result = make_pack_expansion (result, complain);
+      PACK_EXPANSION_LOCAL_P (result) = PACK_EXPANSION_LOCAL_P (t);
+      PACK_EXPANSION_SIZEOF_P (result) = PACK_EXPANSION_SIZEOF_P (t);
       if (PACK_EXPANSION_AUTO_P (t))
 	{
 	  /* This is a fake auto... pack expansion created in add_capture with
@@ -20316,11 +20318,13 @@ tsubst_copy_and_build (tree t,
 	      /* Avoid error about taking the address of a constructor.  */
 	      function = TREE_OPERAND (function, 0);
 
-	    /* When KOENIG_P, we don't want to mark_used the callee before
-	       augmenting the overload set via ADL, so during this initial
-	       substitution we disable mark_used by setting tf_conv (68942).  */
-	    function = tsubst_copy_and_build (function, args,
-					      complain | (koenig_p * tf_conv),
+	    tsubst_flags_t subcomplain = complain;
+	    if (koenig_p && TREE_CODE (function) == FUNCTION_DECL)
+	      /* When KOENIG_P, we don't want to mark_used the callee before
+		 augmenting the overload set via ADL, so during this initial
+		 substitution we disable mark_used by setting tf_conv (68942).  */
+	      subcomplain |= tf_conv;
+	    function = tsubst_copy_and_build (function, args, subcomplain,
 					      in_decl,
 					      !qualified_p,
 					      integral_constant_expression_p);
@@ -28675,8 +28679,7 @@ dguide_name_p (tree name)
 {
   return (TREE_CODE (name) == IDENTIFIER_NODE
 	  && TREE_TYPE (name)
-	  && !strncmp (IDENTIFIER_POINTER (name), dguide_base,
-		       strlen (dguide_base)));
+	  && startswith (IDENTIFIER_POINTER (name), dguide_base));
 }
 
 /* True if FN is a deduction guide.  */

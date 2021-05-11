@@ -1,3 +1,887 @@
+2021-05-10  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* range-op.cc (get_bool_state): Adjust head comment.
+	(operator_not_equal::op1_range): Fix comment.
+	(operator_bitwise_xor::op1_range): Remove call to gcc_unreachable.
+
+2021-05-10  Martin Sebor  <msebor@redhat.com>
+
+	PR middle-end/100425
+	PR middle-end/100510
+	* gimple-ssa-warn-alloca.c (pass_walloca::firast_time_p): Rename...
+	(pass_walloca::xlimit_certain_p): ...to this.
+	(pass_walloca::gate): Execute for any kind of handled warning.
+	(pass_walloca::execute): Avoid issuing "maybe" and "unbounded"
+	warnings when xlimit_certain_p is set.
+
+2021-05-10  Pat Haugen  <pthaugen@linux.ibm.com>
+
+	* config/rs6000/rs6000.c (rs6000_ira_change_pseudo_allocno_class):
+	Return ALTIVEC_REGS if that is best_class.
+	(rs6000_compute_pressure_classes): Add ALTIVEC_REGS.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* config/arm/arm.h (CPP_SPEC): Remove error message about
+	-mfloat-abi.
+
+2021-05-10  Martin Jambor  <mjambor@suse.cz>
+
+	* ipa-prop.h (IPA_NODE_REF): Removed.
+	(IPA_NODE_REF_GET_CREATE): Likewise.
+	(IPA_EDGE_REF): Likewise.
+	(IPA_EDGE_REF_GET_CREATE): Likewise.
+	(IS_VALID_JUMP_FUNC_INDEX): Likewise.
+	* ipa-cp.c (print_all_lattices): Replaced IPA_NODE_REF with a direct
+	use of ipa_node_params_sum.
+	(ipcp_versionable_function_p): Likewise.
+	(push_node_to_stack): Likewise.
+	(pop_node_from_stack): Likewise.
+	(set_single_call_flag): Replaced two IPA_NODE_REF with one single
+	direct use of ipa_node_params_sum.
+	(initialize_node_lattices): Replaced IPA_NODE_REF with a direct use of
+	ipa_node_params_sum.
+	(ipa_context_from_jfunc): Replaced IPA_EDGE_REF with a direct use of
+	ipa_edge_args_sum.
+	(ipcp_verify_propagated_values): Replaced IPA_NODE_REF with a direct
+	use of ipa_node_params_sum.
+	(self_recursively_generated_p): Likewise.
+	(propagate_scalar_across_jump_function): Likewise.
+	(propagate_context_across_jump_function): Replaced IPA_EDGE_REF with a
+	direct use of ipa_edge_args_sum, moved the lookup after the early
+	exit.  Replaced IPA_NODE_REF with a direct use of ipa_node_params_sum.
+	(propagate_bits_across_jump_function): Replaced IPA_NODE_REF with
+	direct uses of ipa_node_params_sum.
+	(propagate_vr_across_jump_function): Likewise.
+	(propagate_aggregate_lattice): Likewise.
+	(propagate_aggs_across_jump_function): Likewise.
+	(propagate_constants_across_call): Likewise, also replaced
+	IPA_EDGE_REF with a direct use of ipa_edge_args_sum.
+	(good_cloning_opportunity_p): Replaced IPA_NODE_REF with a direct use
+	of ipa_node_params_sum.
+	(estimate_local_effects): Likewise.
+	(add_all_node_vals_to_toposort): Likewise.
+	(propagate_constants_topo): Likewise.
+	(ipcp_propagate_stage): Likewise.
+	(ipcp_discover_new_direct_edges): Likewise.
+	(calls_same_node_or_its_all_contexts_clone_p): Likewise.
+	(cgraph_edge_brings_value_p): Likewise (in both overloaded functions).
+	(get_info_about_necessary_edges): Likewise.
+	(want_remove_some_param_p): Likewise.
+	(create_specialized_node): Likewise.
+	(self_recursive_pass_through_p): Likewise.
+	(self_recursive_agg_pass_through_p): Likewise.
+	(find_more_scalar_values_for_callers_subset): Likewise and also
+	replaced IPA_EDGE_REF with direct uses of ipa_edge_args_sum, in one
+	case replacing two of those with a single query.
+	(find_more_contexts_for_caller_subset): Likewise for the
+	ipa_polymorphic_call_context overload.
+	(intersect_aggregates_with_edge): Replaced IPA_EDGE_REF with a direct
+	use of ipa_edge_args_sum.  Replaced IPA_NODE_REF with direct uses of
+	ipa_node_params_sum.
+	(find_aggregate_values_for_callers_subset): Likewise, also reusing
+	results of ipa_edge_args_sum->get.
+	(cgraph_edge_brings_all_scalars_for_node): Replaced IPA_NODE_REF with
+	direct uses of ipa_node_params_sum, replaced IPA_EDGE_REF with a
+	direct use of ipa_edge_args_sum.
+	(cgraph_edge_brings_all_agg_vals_for_node): Likewise, moved node
+	summary query after the early exit and reused the result later.
+	(decide_about_value): Replaced IPA_NODE_REF with a direct use of
+	ipa_node_params_sum.
+	(decide_whether_version_node): Likewise.  Removed re-querying for
+	summaries after cloning.
+	(spread_undeadness): Replaced IPA_NODE_REF with a direct use of
+	ipa_node_params_sum.
+	(has_undead_caller_from_outside_scc_p): Likewise, reusing results of
+	some queries.
+	(identify_dead_nodes): Likewise.
+	(ipcp_store_bits_results): Replaced IPA_NODE_REF with direct uses of
+	ipa_node_params_sum.
+	(ipcp_store_vr_results): Likewise.
+	* ipa-fnsummary.c (evaluate_properties_for_edge): Likewise.
+	(ipa_fn_summary_t::duplicate): Likewise.
+	(analyze_function_body): Likewise.
+	(estimate_calls_size_and_time): Likewise.
+	(ipa_cached_call_context::duplicate_from): Likewise.
+	(ipa_call_context::equal_to): Likewise.
+	(remap_edge_params): Likewise.
+	(ipa_merge_fn_summary_after_inlining): Likewise.
+	(inline_read_section): Likewise.
+	* ipa-icf.c (sem_function::param_used_p): Likewise.
+	* ipa-modref.c (compute_parm_map): Likewise.
+	(compute_parm_map): Replaced IPA_EDGE_REF with a direct use of
+	ipa_edge_args_sum.
+	(get_access_for_fnspec): Replaced IPA_NODE_REF with a direct use of
+	ipa_node_params_sum and replaced IPA_EDGE_REF with a direct use of
+	ipa_edge_args_sum.
+	* ipa-profile.c (check_argument_count): Likewise.
+	* ipa-prop.c (ipa_alloc_node_params): Replaced IPA_NODE_REF_GET_CREATE
+	with a direct use of ipa_node_params_sum.
+	(ipa_initialize_node_params): Likewise.
+	(ipa_print_node_jump_functions_for_edge): Replaced IPA_EDGE_REF with a
+	direct use of ipa_edge_args_sum and reused the query result.
+	(ipa_compute_jump_functions_for_edge): Replaced IPA_NODE_REF with a
+	direct use of ipa_node_params_sum and replaced IPA_EDGE_REF with a
+	direct use of ipa_edge_args_sum.
+	(ipa_note_param_call): Replaced IPA_NODE_REF with a direct use of
+	ipa_node_params_sum and reused the result of the query.
+	(ipa_analyze_node): Likewise.
+	(ipa_analyze_controlled_uses): Replaced IPA_NODE_REF with a direct use
+	of ipa_node_params_sum.
+	(update_jump_functions_after_inlining): Replaced IPA_EDGE_REF with
+	direct uses of ipa_edge_args_sum.
+	(update_indirect_edges_after_inlining): Replaced IPA_NODE_REF with
+	direct uses of ipa_node_params_sum and replaced IPA_EDGE_REF with a
+	direct use of ipa_edge_args_sum.  Removed superficial re-querying the
+	top edge summary.
+	(propagate_controlled_uses): Replaced IPA_NODE_REF with direct uses of
+	ipa_node_params_sum and replaced IPA_EDGE_REF with a direct use of
+	ipa_edge_args_sum.
+	(ipa_propagate_indirect_call_infos): Replaced IPA_EDGE_REF with a
+	direct use of ipa_edge_args_sum.
+	(ipa_edge_args_sum_t::duplicate): Replaced IPA_NODE_REF with a direct
+	use of ipa_node_params_sum.
+	(ipa_print_node_params): Likewise.
+	(ipa_write_node_info): Likewise and also replaced IPA_EDGE_REF with
+	direct uses of ipa_edge_args_sum.
+	(ipa_read_edge_info): Replaced IPA_EDGE_REF with a direct use of
+	ipa_edge_args_sum.
+	(ipa_read_node_info): Replaced IPA_NODE_REF with a direct use of
+	ipa_node_params_sum.
+	(ipa_prop_write_jump_functions): Likewise.  Move variable node to the
+	scopes where it is used.
+
+2021-05-10  Uroš Bizjak  <ubizjak@gmail.com>
+
+	* config/i386/i386-expand.c (ix86_expand_sse_movcc)
+	<case E_V2SImode>: Force op_true to register.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* config/arm/iterators.md (MVE_FP_COMPARISONS): New.
+	* config/arm/mve.md (mve_vcmp<mve_cmp_op>q_f<mode>)
+	(mve_vcmp<mve_cmp_op>q_n_f<mode>): New, merge all vcmp_*f*
+	patterns.
+	(mve_vcmpeqq_f<mode>, mve_vcmpeqq_n_f<mode>, mve_vcmpgeq_f<mode>)
+	(mve_vcmpgeq_n_f<mode>, mve_vcmpgtq_f<mode>)
+	(mve_vcmpgtq_n_f<mode>, mve_vcmpleq_f<mode>)
+	(mve_vcmpleq_n_f<mode>, mve_vcmpltq_f<mode>)
+	(mve_vcmpltq_n_f<mode>, mve_vcmpneq_f<mode>)
+	(mve_vcmpneq_n_f<mode>): Remove.
+	* config/arm/unspecs.md (VCMPEQQ_F, VCMPEQQ_N_F, VCMPGEQ_F)
+	(VCMPGEQ_N_F, VCMPGTQ_F, VCMPGTQ_N_F, VCMPLEQ_F, VCMPLEQ_N_F)
+	(VCMPLTQ_F, VCMPLTQ_N_F, VCMPNEQ_F, VCMPNEQ_N_F): Remove.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* config/arm/iterators.md (MVE_COMPARISONS): New.
+	(mve_cmp_op): New.
+	(mve_cmp_type): New.
+	* config/arm/mve.md (mve_vcmp<mve_cmp_op>q_<mode>): New, merge all
+	mve_vcmp patterns.
+	(mve_vcmpneq_<mode>, mve_vcmpcsq_n_<mode>, mve_vcmpcsq_<mode>)
+	(mve_vcmpeqq_n_<mode>, mve_vcmpeqq_<mode>, mve_vcmpgeq_n_<mode>)
+	(mve_vcmpgeq_<mode>, mve_vcmpgtq_n_<mode>, mve_vcmpgtq_<mode>)
+	(mve_vcmphiq_n_<mode>, mve_vcmphiq_<mode>, mve_vcmpleq_n_<mode>)
+	(mve_vcmpleq_<mode>, mve_vcmpltq_n_<mode>, mve_vcmpltq_<mode>)
+	(mve_vcmpneq_n_<mode>, mve_vcmpltq_n_<mode>, mve_vcmpltq_<mode>)
+	(mve_vcmpneq_n_<mode>): Remove.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* config/arm/arm_mve.h (__arm_vcmp*): Remove 's' suffix.
+	* config/arm/arm_mve_builtins.def (vcmp*): Remove 's' suffix.
+	* config/arm/mve.md (mve_vcmp*): Remove 's' suffix in pattern
+	names.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* config/arm/arm_mve_builtins.def (vcmpneq_u): Remove.
+	(vcmpneq_n_u): Likewise.
+	(vcmpeqq_u,): Likewise.
+	(vcmpeqq_n_u): Likewise.
+	* config/arm/iterators.md (supf): Remove VCMPNEQ_U, VCMPEQQ_U,
+	VCMPEQQ_N_U and VCMPNEQ_N_U.
+	* config/arm/mve.md (mve_vcmpneq): Remove <supf> iteration.
+	(mve_vcmpeqq_n): Likewise.
+	(mve_vcmpeqq): Likewise.
+	(mve_vcmpneq_n): Likewise.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* config/arm/arm_mve.h (__arm_vcmpeq*u*, __arm_vcmpne*u*): Call
+	the 's' version of the builtin.
+
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100492
+	* tree-loop-distribution.c (find_seed_stmts_for_distribution):
+	Find nothing when the loop contains an irreducible region.
+
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/100464
+	PR c++/100468
+	* gimple-fold.c (canonicalize_constructor_val): Do not set
+	TREE_ADDRESSABLE.
+
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100434
+	* tree-ssa-dse.c (initialize_ao_ref_for_dse): Handle
+	call LHS.
+	(dse_optimize_stmt): Handle call LHS by dropping the
+	LHS or the whole call if it doesn't have other
+	side-effects.
+	(pass_dse::execute): Adjust.
+
+2021-05-10  Martin Liska  <mliska@suse.cz>
+
+	* Makefile.in: Add missing genversion rule.
+
+2021-05-10  Alex Coplan  <alex.coplan@arm.com>
+
+	PR target/99960
+	* config/arm/mve.md (*mve_mov<mode>): Simplify output code. Use
+	vldrw.u32 and vstrw.32 for V2D[IF]mode loads and stores.
+
+2021-05-10  Martin Liska  <mliska@suse.cz>
+
+	* builtins.c (is_builtin_name): Use startswith
+	function instead of strncmp.
+	* collect2.c (main): Likewise.
+	(has_lto_section): Likewise.
+	(scan_libraries): Likewise.
+	* coverage.c (coverage_checksum_string): Likewise.
+	(coverage_init): Likewise.
+	* dwarf2out.c (is_cxx): Likewise.
+	(gen_compile_unit_die): Likewise.
+	* gcc-ar.c (main): Likewise.
+	* gcc.c (init_spec): Likewise.
+	(read_specs): Likewise.
+	(execute): Likewise.
+	(check_live_switch): Likewise.
+	* genattrtab.c (write_attr_case): Likewise.
+	(IS_ATTR_GROUP): Likewise.
+	* gencfn-macros.c (main): Likewise.
+	* gengtype.c (type_for_name): Likewise.
+	(gen_rtx_next): Likewise.
+	(get_file_langdir): Likewise.
+	(write_local): Likewise.
+	* genmatch.c (get_operator): Likewise.
+	(get_operand_type): Likewise.
+	(expr::gen_transform): Likewise.
+	* genoutput.c (validate_optab_operands): Likewise.
+	* incpath.c (add_sysroot_to_chain): Likewise.
+	* langhooks.c (lang_GNU_C): Likewise.
+	(lang_GNU_CXX): Likewise.
+	(lang_GNU_Fortran): Likewise.
+	(lang_GNU_OBJC): Likewise.
+	* lto-wrapper.c (run_gcc): Likewise.
+	* omp-general.c (omp_max_simt_vf): Likewise.
+	* omp-low.c (omp_runtime_api_call): Likewise.
+	* opts-common.c (parse_options_from_collect_gcc_options): Likewise.
+	* read-rtl-function.c (function_reader::read_rtx_operand_r): Likewise.
+	* real.c (real_from_string): Likewise.
+	* selftest.c (assert_str_startswith): Likewise.
+	* timevar.c (timer::validate_phases): Likewise.
+	* tree.c (get_file_function_name): Likewise.
+	* ubsan.c (ubsan_use_new_style_p): Likewise.
+	* varasm.c (default_function_rodata_section): Likewise.
+	(incorporeal_function_p): Likewise.
+	(default_section_type_flags): Likewise.
+	* system.h (startswith): Define startswith.
+
+2021-05-10  Martin Liska  <mliska@suse.cz>
+
+	* bitmap.h (class auto_bitmap): Remove
+	__cplusplus >= 201103.
+	* config/aarch64/aarch64.c: Likewise.
+	* gimple-ssa-store-merging.c (store_immediate_info::store_immediate_info):
+	Likewise.
+	* sbitmap.h: Likewise.
+
+2021-05-10  Martin Liska  <mliska@suse.cz>
+
+	* Makefile.in: Rename gcov-iov to genversion and depend
+	on version.h (instead of gcov-iov.h).
+	* gcov-io.h: Include version.h instread of gcov-iov.h.
+	* gengtype-state.c (read_state_version): Likewise.
+	* gcov-iov.c: Moved to...
+	* genversion.c: ...here.
+	* lto-streamer.h (LTO_major_version): Define it with
+	GCC_major_version.
+	* version.c: Removed.
+	* version.h: Removed.
+
+2021-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* config/arc/arc.md (UNSPEC_ARC_DMPYWH): Define.
+	* config/arc/simdext.md (VCT): Add predicates for iterator
+	elements.
+	(EMUVEC): Define.
+	(voptab): Likewise.
+	(vec_widen_<V_US>mult_hi_v4hi): Change pattern predicate.
+	(<voptab>v2si3): New patterns.
+	(neg): Likewise.
+	(reduc_plus_scal_v4hi): Likewise.
+	(reduc_plus_scal_v2si): Likewise.
+	(vec_duplicatev2si): Likewise.
+	(vec_duplicatev4hi): Likewise.
+
+2021-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* config/arc/simdext.md: Format and cleanup file.
+
+2021-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* config/arc/simdext.md (movmisalignv2hi): Allow misaligned access
+	only when munaligned-access option is on.
+	(movmisalign<mode>): Likewise.
+
+2021-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* common/config/arc/arc-common.c (arc_handle_option): Remove dot
+	from string.
+	* config/arc/arc.c (arc_reorg): Remove underscore from string.
+
+2021-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* config/arc/arc.h (CLZ_DEFINED_VALUE_AT_ZERO): Define.
+	(CTZ_DEFINED_VALUE_AT_ZERO): Likewise.
+	* config/arc/arc.md (clrsbsi2): Cleanup pattern.
+	(norm_f): Likewise.
+	(ffs): Likewise.
+	(ffs_f): Likewise.
+	(clzsi2): Use fls instruction when available.
+	(arc_clzsi2): Likewise.
+
+2021-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* config/arc/arc.h (ADDITIONAL_REGISTER_NAMES): Add r26 and r27.
+
+2021-05-10  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* doc/extend.texi (__builtin_arc_sr): Swap arguments.
+
+2021-05-10  Bernd Edlinger  <bernd.edlinger@hotmail.de>
+
+	PR middle-end/100467
+	* toplev.c (compile_file): Call insn_locations_init before
+	targetm.asm_out.code_end.
+
+2021-05-07  Andrew Stubbs  <ams@codesourcery.com>
+
+	Revert:
+	2021-05-07  Andrew Stubbs  <ams@codesourcery.com>
+
+	* config/gcn/gcn.c (gcn_scalar_mode_supported_p): Disable TImode.
+
+2021-05-07  Jakub Jelinek  <jakub@redhat.com>
+	    Andrew Stubbs  <amd@codesourcery.com>
+
+	PR target/100418
+	* builtins.c (try_store_by_multiple_pieces): Use force_operand for
+	emit_move_insn operands.
+
+2021-05-07  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* cfgexpand.c (expand_gimple_basic_block): Do not inherit a current
+	location for the outgoing edges of an empty block.
+	* dwarf2out.c (add_subscript_info): Retrieve the bounds and index
+	type by means of the get_array_descr_info langhook, if it is set and
+	returns true.  Remove obsolete code dealing with unnamed subtypes.
+
+2021-05-07  Andrew MacLeod  <amacleod@redhat.com>
+
+	* gimple-range-cache.cc (ssa_block_ranges): Virtualize.
+	(sbr_vector): Renamed from ssa_block_cache.
+	(sbr_vector::sbr_vector): Allocate from obstack abd initialize.
+	(ssa_block_ranges::~ssa_block_ranges): Remove.
+	(sbr_vector::set_bb_range): Use varying and undefined cached values.
+	(ssa_block_ranges::set_bb_varying): Remove.
+	(sbr_vector::get_bb_range): Adjust assert.
+	(sbr_vector::bb_range_p): Adjust assert.
+	(~block_range_cache): No freeing loop required.
+	(block_range_cache::get_block_ranges): Remove.
+	(block_range_cache::set_bb_range): Inline get_block_ranges.
+	(block_range_cache::set_bb_varying): Remove.
+	* gimple-range-cache.h (set_bb_varying): Remove prototype.
+	* value-range.h (irange_allocator::get_memory): New.
+
+2021-05-07  Andrew MacLeod  <amacleod@redhat.com>
+
+	* gimple-range-cache.cc (non_null_ref::non_null_deref_p): Search
+	dominator tree is available and requested.
+	(ranger_cache::ssa_range_in_bb): Don't search dom tree here.
+	(ranger_cache::fill_block_cache): Don't search dom tree here either.
+	* gimple-range-cache.h (non_null_deref_p): Add dom_search param.
+
+2021-05-07  Andrew MacLeod  <amacleod@redhat.com>
+
+	* gimple-range.cc (gimple_ranger::range_on_exit): Handle block with
+	only PHI nodes better.
+
+2021-05-07  Andrew MacLeod  <amacleod@redhat.com>
+
+	* gimple-range-edge.h (gimple_outgoing_range): Rename from
+	outgoing_range.
+	(gcond_edge_range): Export prototype.
+	* gimple-range-edge.cc (gcond_edge_range): New.
+	(gimple_outgoing_range::edge_range_p): Use gcond_edge_range.
+	* gimple-range-gori.h (gori_compute): Use gimple_outgoing_range.
+
+2021-05-07  Andrew MacLeod  <amacleod@redhat.com>
+
+	* gimple-range-edge.cc (outgoing_range::calc_switch_ranges): Compute
+	default range into a temp and allocate only what is needed.
+
+2021-05-07  Andrew MacLeod  <amacleod@redhat.com>
+
+	* range-op.cc (operator_trunc_mod::wi_fold): x % 0 is UNDEFINED.
+
+2021-05-07  Andrew MacLeod  <amacleod@redhat.com>
+
+	* gimple-range.h (gimple_range_global): Pick up parameter initial
+	values, and use-before defined locals are UNDEFINED.
+
+2021-05-07  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* doc/extend.texi (scalar_storage_order): Mention effect on pointer
+	and vector fields.
+	* tree.h (reverse_storage_order_for_component_p): Return false if
+	the type is a pointer.
+
+2021-05-07  Andrew Stubbs  <ams@codesourcery.com>
+
+	* config/gcn/gcn.c (gcn_scalar_mode_supported_p): Disable TImode.
+
+2021-05-07  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/98218
+	* config/i386/i386-expand.c (ix86_expand_sse_movcc):
+	Handle V8QI, V4HI and V2SI modes.
+	* config/i386/mmx.md (mmx_pblendvb): New insn pattern.
+	* config/i386/sse.md (unspec): Move UNSPEC_BLENDV ...
+	* config/i386/i386.md (unspec): ... here.
+
+2021-05-07  Tobias Burnus  <tobias@codesourcery.com>
+	    Tom de Vries  <tdevries@suse.de>
+
+	* omp-low.c (lower_rec_simd_input_clauses): Set max_vf = 1 if
+	a truth_value_p reduction variable is nonintegral.
+
+2021-05-07  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/100445
+	* config/i386/i386-expand.c (ix86_use_mask_cmp_p):
+	Return false for mode sizes < 16.
+
+2021-05-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/100445
+	* config/i386/mmx.md (*xop_pcmov_<mode>): New define_insn.
+
+2021-05-06  Martin Jambor  <mjambor@suse.cz>
+
+	* ipa-sra.c (ipa_sra_dump_all_summaries): Dump edge summaries even
+	when there is no function summary.
+	(ipa_sra_summarize_function): produce edge summaries even when
+	bailing out early.
+
+2021-05-06  Tom Tromey  <tom@tromey.com>
+
+	* godump.c (string_hash_eq): Remove.
+	(go_finish): Use htab_eq_string.
+
+2021-05-06  Tom Tromey  <tom@tromey.com>
+
+	* gengtype-state.c (read_state): Use htab_eq_string.
+	(string_eq): Remove.
+
+2021-05-06  Tom Tromey  <tom@tromey.com>
+
+	* gensupport.c (htab_eq_string): Remove.
+
+2021-05-06  Bernd Edlinger  <bernd.edlinger@hotmail.de>
+
+	PR ipa/97937
+	* debug.h (gcc_debug_hooks): Add set_ignored_loc function pointer.
+	* dwarf2out.h (dw_fde_node::ignored_debug): New data item.
+	* dbxout.c (dbx_debug_hooks, xcoff_debug_hooks): Add dummy
+	set_ignored_loc callbacks.
+	* debug.c (do_nothing_debug_hooks): Likewise.
+	* vmsdbgout.c (vmsdbg_debug_hooks): Likewise.
+	* dwarf2out.c (text_section_used, cold_text_section_used): Remove.
+	(in_text_section_p, last_text_label, last_cold_label,
+	switch_text_ranges, switch_cold_ranges): New data items.
+	(dwarf2out_note_section_used): Remove.
+	(dwarf2out_begin_prologue): Set fde->ignored_debug and
+	in_text_section_p.
+	(mark_ignored_debug_section): New helper function.
+	(dwarf2out_end_epilogue, dwarf2out_switch_text_section): Call
+	mark_ignored_debug_section.
+	(dwarf2_debug_hooks): Use dwarf2out_set_ignored_loc.
+	(dwarf2_lineno_debug_hooks): Use dummy for set_ignored_loc.
+	(size_of_aranges): Adjust formula for multi-part text ranges size.
+	(output_aranges): Output multi-part text ranges.
+	(dwarf2out_set_ignored_loc): New callback function.
+	(dwarf2out_finish): Output multi-part text ranges.
+	(dwarf2out_c_finalize): Clear new data items.
+	* final.c (final_start_function_1): Call set_ignored_loc callback.
+	(final_scan_insn_1): Likewise.
+	* ggc-page.c (gt_ggc_mx): New helper function.
+	* stringpool.c (gt_pch_nx): Likewise.
+
+2021-05-06  Richard Biener  <rguenther@suse.de>
+
+	* timevar.def (TV_TREE_INSERT_PHI_NODES): Remove.
+	(TV_TREE_SSA_REWRITE_BLOCKS): Likewise.
+	(TV_TREE_INTO_SSA): New.
+	* tree-into-ssa.c (insert_phi_nodes): Do not account separately.
+	(rewrite_blocks): Likewise.
+	(pass_data_build_ssa): Account to TV_TREE_INTO_SSA.
+
+2021-05-06  Jakub Jelinek  <jakub@redhat.com>
+
+	* tree-ssa-phiopt.c (value_replacement, minmax_replacement,
+	abs_replacement, xor_replacement,
+	cond_removal_in_popcount_clz_ctz_pattern,
+	replace_phi_edge_with_variable): Change type of phi argument from
+	gimple * to gphi *.
+
+2021-05-06  Richard Biener  <rguenther@suse.de>
+
+	* tree-ssa-loop-split.c (split_loop): Delay updating SSA form.
+	Output an opt-info message.
+	(do_split_loop_on_cond): Likewise.
+	(tree_ssa_split_loops): Update SSA form here.
+
+2021-05-06  Richard Biener  <rguenther@suse.de>
+
+	* tree-inline.c (tree_function_versioning): Fix DECL_BY_REFERENCE
+	return variable removal.
+
+2021-05-06  Marius Hillenbrand  <mhillen@linux.ibm.com>
+
+	* config/s390/s390-builtins.def (O_M5, O1_M5, ...): Remove unused macros.
+	(s390_vec_permi_s64, s390_vec_permi_b64, s390_vec_permi_u64)
+	(s390_vec_permi_dbl, s390_vpdi): Use the O3_U2 type for the immediate
+	operand.
+	* config/s390/s390.c (s390_const_operand_ok): Remove unused
+	values.
+
+2021-05-06  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/94589
+	* tree-ssa-phiopt.c (tree_ssa_phiopt_worker): Call
+	spaceship_replacement.
+	(cond_only_block_p, spaceship_replacement): New functions.
+
+2021-05-06  Richard Biener  <rguenther@suse.de>
+
+	PR ipa/100373
+	* tree-emutls.c (gen_emutls_addr): Pass in whether we're
+	dealing with a debug use and only query existing addresses
+	if so.
+	(lower_emutls_1): Avoid splitting out addresses for debug
+	stmts, reset the debug stmt when we fail to find existing
+	lowered addresses.
+	(lower_emutls_phi_arg): Set wi.stmt.
+
+2021-05-06  Christoph Muellner  <cmuellner@gcc.gnu.org>
+
+	PR target/100266
+	* config/riscv/riscv.c (riscv_block_move_loop): Use cbranch helper.
+	* config/riscv/riscv.md (cbranch<mode>4): Generate helpers.
+	(stack_protect_test): Use cbranch helper.
+
+2021-05-05  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR target/100402
+	* config/i386/i386.c (ix86_compute_frame_layout): For a SEH target,
+	always return the establisher frame for __builtin_frame_address (0).
+
+2021-05-05  Ivan Sorokin  <vanyacpp@gmail.com>
+
+	PR target/91400
+	* config/i386/i386-builtins.c (ix86_cpu_model_type_node): New.
+	(ix86_cpu_model_var): Likewise.
+	(ix86_cpu_features2_type_node): Likewise.
+	(ix86_cpu_features2_var): Likewise.
+	(fold_builtin_cpu): Cache __cpu_model and __cpu_features2 with
+	their types.
+
+2021-05-05  Martin Sebor  <msebor@redhat.com>
+
+	* passes.def (pass_warn_printf): Run after SSA.
+
+2021-05-05  Prathamesh Kulkarni  <prathamesh.kulkarni@linaro.org>
+
+	* config/arm/neon.md (neon_vtst_combine<mode>): New pattern.
+	* config/arm/predicates.md (minus_one_operand): New predicate.
+
+2021-05-05  Jeff Law  <jlaw@tachyum.com>
+
+	* config/avr/avr.md: Remove references to CC_STATUS_INIT.
+
+2021-05-05  Stefan Schulze Frielinghaus  <stefansf@linux.ibm.com>
+
+	PR rtl-optimization/100263
+	* postreload.c (move2add_valid_value_p): Ensure register can
+	change mode.
+
+2021-05-05  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR rtl-optimization/100411
+	* cfgcleanup.c (try_crossjump_to_edge): Also skip end of prologue
+	and beginning of function markers.
+
+2021-05-05  Jeff Law  <jlaw@tachyum.com>
+
+	* config/cr16/cr16.h (NOTICE_UPDATE_CC): Remove.
+	* config/cr16/cr16.c (notice_update_cc): Remove.
+	* config/cr16/cr16-protos.h (notice_update_cc): Remove.
+
+2021-05-05  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/98218
+	* config/i386/i386-expand.c (ix86_expand_int_sse_cmp):
+	Handle V8QI, V4HI and V2SI modes.
+	* config/i386/i386.c (ix86_build_const_vector): Handle V2SImode.
+	(ix86_build_signbit_mask): Ditto.
+	* config/i386/mmx.md (MMXMODE14): New mode iterator.
+	(<smaxmin:code><MMXMODE14:mode>3): New expander.
+	(*mmx_<smaxmin:code><MMXMODE14:mode>3): New insn pattern.
+	(<umaxmin:code><MMXMODE24:mode>3): New expander.
+	(*mmx_<umaxmin:code><MMXMODE24:mode>3): New insn pattern.
+	(vec_cmp<MMXMODEI:mode><MMXMODEI:mode>): New expander.
+	(vec_cmpu<MMXMODEI:mode><MMXMODEI:mode>): Ditto.
+	(vcond<MMXMODEI:mode><MMXMODEI:mode>): Ditto.
+	(vcondu<MMXMODEI:mode><MMXMODEI:mode>): Ditto.
+	(vcond_mask_<MMXMODEI:mode><MMXMODEI:mode>): Ditto.
+
+2021-05-05  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* dwarf2out.c (loc_list_from_tree_1) <DECL>: During early DWARF, do
+	not expand the VALUE_EXPR of variables put in the non-local frame.
+	* gimplify.c (gimplify_type_sizes) <RECORD_TYPE>: If the type is not
+	to be ignored for debug info, ensure its variable offsets are not.
+
+2021-05-05  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/79333
+	* tree-ssa-sccvn.c (eliminate_dom_walker::eliminate_stmt):
+	Fold stmt following SSA edges.
+
+2021-05-05  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/100394
+	* calls.c (expand_call): Preserve possibly throwing calls.
+	* cfgexpand.c (expand_call_stmt): When a call can throw signal
+	RTL expansion there are side-effects.
+	* tree-ssa-dce.c (mark_stmt_if_obviously_necessary): Simplify,
+	mark all possibly throwing stmts necessary unless we can elide
+	dead EH.
+	* tree-ssa-dse.c (pass_dse::execute): Preserve exceptions unless
+	-fdelete-dead-exceptions.
+	* tree.h (DECL_PURE_P): Add note about exceptions.
+
+2021-05-05  Alexandre Oliva  <oliva@adacore.com>
+
+	* config/i386/vxworks.h (DBX_REGISTER_NUMBER): Make it
+	unconditional.
+
+2021-05-04  David Edelsohn  <dje.gcc@gmail.com>
+
+	* config/rs6000/rs6000-call.c (rs6000_output_mi_thunk): Use
+	get_fnname_from_decl for name of thunk.
+	* config/rs6000/rs6000.c (rs6000_declare_alias): Use assemble_name
+	and ASM_OUTPUT_LABEL.
+	(rs6000_xcoff_declare_function_name): Use assemble_name and
+	ASM_OUTPUT_LABEL.
+	(rs6000_xcoff_declare_object_name): Use ASM_OUTPUT_LABEL.
+	(rs6000_xcoff_encode_section_info): Don't add mapping class
+	for aliases.  Always add [DS] mapping class to primary
+	FUNCTION_DECL.
+	(rs6000_asm_weaken_decl): Don't explicitly add [DS].
+
+2021-05-04  Martin Sebor  <msebor@redhat.com>
+
+	PR middle-end/100307
+	* builtins.c (compute_objsize_r): Clear base0 for pointers.
+
+2021-05-04  Jeff Law  <jlaw@tachyum.com>
+
+	* config/bfin/bfin.h (NOTICE_UPDATE_CC): Remove.
+
+2021-05-04  Segher Boessenkool  <segher@kernel.crashing.org>
+
+	* caller-save.c: Remove CC0.
+	* cfgcleanup.c: Remove CC0.
+	* cfgrtl.c: Remove CC0.
+	* combine.c: Remove CC0.
+	* compare-elim.c: Remove CC0.
+	* conditions.h: Remove CC0.
+	* config/h8300/h8300.h: Remove CC0.
+	* config/h8300/h8300-protos.h: Remove CC0.
+	* config/h8300/peepholes.md: Remove CC0.
+	* config/i386/x86-tune-sched.c: Remove CC0.
+	* config/m68k/m68k.c: Remove CC0.
+	* config/rl78/rl78.c: Remove CC0.
+	* config/sparc/sparc.c: Remove CC0.
+	* config/xtensa/xtensa.c: Remove CC0.
+	(gen_conditional_move):  Use pc_rtx instead of cc0_rtx in a piece of
+	RTL where that is used as a placeholder only.
+	* cprop.c: Remove CC0.
+	* cse.c: Remove CC0.
+	* cselib.c: Remove CC0.
+	* df-problems.c: Remove CC0.
+	* df-scan.c: Remove CC0.
+	* doc/md.texi: Remove CC0.  Adjust an example.
+	* doc/rtl.texi: Remove CC0.  Adjust an example.
+	* doc/tm.texi: Regenerate.
+	* doc/tm.texi.in: Remove CC0.
+	* emit-rtl.c: Remove CC0.
+	* final.c: Remove CC0.
+	* fwprop.c: Remove CC0.
+	* gcse-common.c: Remove CC0.
+	* gcse.c: Remove CC0.
+	* genattrtab.c: Remove CC0.
+	* genconfig.c: Remove CC0.
+	* genemit.c: Remove CC0.
+	* genextract.c: Remove CC0.
+	* gengenrtl.c: Remove CC0.
+	* genrecog.c: Remove CC0.
+	* haifa-sched.c: Remove CC0.
+	* ifcvt.c: Remove CC0.
+	* ira-costs.c: Remove CC0.
+	* ira.c: Remove CC0.
+	* jump.c: Remove CC0.
+	* loop-invariant.c: Remove CC0.
+	* lra-constraints.c: Remove CC0.
+	* lra-eliminations.c: Remove CC0.
+	* optabs.c: Remove CC0.
+	* postreload-gcse.c: Remove CC0.
+	* postreload.c: Remove CC0.
+	* print-rtl.c: Remove CC0.
+	* read-rtl-function.c: Remove CC0.
+	* reg-notes.def: Remove CC0.
+	* reg-stack.c: Remove CC0.
+	* reginfo.c: Remove CC0.
+	* regrename.c: Remove CC0.
+	* reload.c: Remove CC0.
+	* reload1.c: Remove CC0.
+	* reorg.c: Remove CC0.
+	* resource.c: Remove CC0.
+	* rtl.c: Remove CC0.
+	* rtl.def: Remove CC0.
+	* rtl.h: Remove CC0.
+	* rtlanal.c: Remove CC0.
+	* sched-deps.c: Remove CC0.
+	* sched-rgn.c: Remove CC0.
+	* shrink-wrap.c: Remove CC0.
+	* simplify-rtx.c: Remove CC0.
+	* system.h: Remove CC0.  Poison NOTICE_UPDATE_CC, CC_STATUS_MDEP_INIT,
+	CC_STATUS_MDEP, and CC_STATUS.
+	* target.def: Remove CC0.
+	* valtrack.c: Remove CC0.
+	* var-tracking.c: Remove CC0.
+
+2021-05-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100414
+	* tree-ssa-phiopt.c (get_non_trapping): Do not compute dominance
+	info here.
+	(tree_ssa_phiopt_worker): But unconditionally here.
+
+2021-05-04  Tobias Burnus  <tobias@codesourcery.com>
+
+	* omp-low.c (lower_rec_input_clauses, lower_reduction_clauses): Handle
+	&& and || with floating-point and complex arguments.
+
+2021-05-04  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* tree-inline.c (insert_debug_decl_map): Delete.
+	(copy_debug_stmt): Minor tweak.
+	(setup_one_parameter): Do not use a variable if the value is either
+	a read-only DECL or a non-addressable local variable in the caller.
+	In this case, insert the debug-only variable in the map manually.
+	(expand_call_inline): Do not generate a CLOBBER for these values.
+	* tree-inline.h (debug_map): Minor tweak.
+
+2021-05-04  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* builtins.c (builtin_with_linkage_p): Return true for stp[n]cpy.
+	* symtab.c (symtab_node::output_to_lto_symbol_table_p): Tidy up.
+
+2021-05-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100329
+	* tree-ssa-reassoc.c (can_reassociate_p): Do not reassociate
+	asm goto defs.
+	(insert_stmt_after): Assert we're not running into asm goto.
+
+2021-05-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100398
+	* tree-ssa-dse.c (pass_dse::execute): Preserve control
+	altering stmts.
+
+2021-05-04  Prathamesh Kulkarni  <prathamesh.kulkarni@linaro.org>
+
+	* builtins.c (try_store_by_multiple_pieces): Fix constfun's prototype.
+
+2021-05-04  Alexandre Oliva  <oliva@adacore.com>
+
+	* builtins.c (try_store_by_multiple_pieces): New.
+	(expand_builtin_memset_args): Use it.  If target_char_cast
+	fails, proceed as for non-constant val.  Pass len's ctz to...
+	* expr.c (clear_storage_hints): ... this.  Try store by
+	multiple pieces after setmem.
+	(clear_storage): Adjust.
+	* expr.h (clear_storage_hints): Likewise.
+	(try_store_by_multiple_pieces): Declare.
+	* passes.def: Replace the last copy_prop with ccp.
+
+2021-05-03  Tom de Vries  <tdevries@suse.de>
+
+	PR target/100321
+	* omp-low.c (lower_rec_input_clauses): Disable SIMT for user-defined
+	reduction.
+
+2021-05-03  Richard Biener  <rguenther@suse.de>
+
+	* tree-ssa-dse.c (dse_classify_store): Track two PHI defs.
+
+2021-05-03  Richard Biener  <rguenther@suse.de>
+
+	* tree-ssa-dse.c: Do not include domwalk.h but cfganal.h.
+	(dse_dom_walker): Remove.
+	(dse_dom_walker::dse_optimize_stmt): Rename...
+	(dse_optimize_stmt): ... to this, pass in live_bytes sbitmap.
+	(dse_dom_walker::before_dom_children): Inline ...
+	(pass_dse::execute): ... here.  Perform a reverse program
+	order walk.
+
+2021-05-03  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR bootstrap/99703
+	* configure: Regenerated.
+
+2021-05-03  Ilya Leoshkevich  <iii@linux.ibm.com>
+
+	PR target/100217
+	* config/s390/s390.c (s390_hard_fp_reg_p): New function.
+	(s390_md_asm_adjust): Handle hard registers.
+
+2021-05-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/100382
+	* tree-ssa-dse.c: Include tree-eh.h.
+	(dse_dom_walker::before_dom_children): Don't remove stmts if
+	stmt_unremovable_because_of_non_call_eh_p is true.
+
 2021-05-02  David Edelsohn  <dje.gcc@gmail.com>
 
 	* varasm.c (compute_reloc_for_var): Split out from...

@@ -18921,9 +18921,8 @@ cp_parser_simple_type_specifier (cp_parser* parser,
 	  decl_specs->int_n_idx = idx;
 	  /* Check if the alternate "__intN__" form has been used instead of
 	     "__intN".  */
-	  if (strncmp (IDENTIFIER_POINTER (token->u.value)
-			+ (IDENTIFIER_LENGTH (token->u.value) - 2),
-			"__", 2) == 0)
+	  if (startswith (IDENTIFIER_POINTER (token->u.value)
+			  + (IDENTIFIER_LENGTH (token->u.value) - 2), "__"))
 	    decl_specs->int_n_alt = true;
 	}
       type = int_n_trees [idx].signed_type;
@@ -23216,7 +23215,7 @@ cp_parser_tx_qualifier_opt (cp_parser *parser)
       tree name = token->u.value;
       const char *p = IDENTIFIER_POINTER (name);
       const int len = strlen ("transaction_safe");
-      if (!strncmp (p, "transaction_safe", len))
+      if (startswith (p, "transaction_safe"))
 	{
 	  p += len;
 	  if (*p == '\0'
@@ -25947,7 +25946,13 @@ cp_parser_class_head (cp_parser* parser,
      until the entire list has been seen, as per [class.access.general].  */
   push_deferring_access_checks (dk_deferred);
   if (cp_lexer_next_token_is (parser->lexer, CPP_COLON))
-    bases = cp_parser_base_clause (parser);
+    {
+      if (type)
+	pushclass (type);
+      bases = cp_parser_base_clause (parser);
+      if (type)
+	popclass ();
+    }
   else
     bases = NULL_TREE;
 

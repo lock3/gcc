@@ -23,11 +23,12 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Atree;   use Atree;
-with Debug;   use Debug;
-with Sinfo;   use Sinfo;
-with Sinput;  use Sinput;
-with Output;  use Output;
+with Atree;          use Atree;
+with Debug;          use Debug;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinput;         use Sinput;
+with Output;         use Output;
 
 package body Debug_A is
 
@@ -45,6 +46,12 @@ package body Debug_A is
    --  Current_Error_Node correctly. Note that if we have more than 200
    --  recursion levels, we just don't reset the right value on exit, which
    --  is not crucial, since this is only for debugging.
+
+   --  Note that Current_Error_Node must be maintained unconditionally (not
+   --  only when Debug_Flag_A is True), because we want to print a correct sloc
+   --  in bug boxes. Also, Current_Error_Node is not just used for printing bug
+   --  boxes. For example, an incorrect Current_Error_Node can cause some code
+   --  in Rtsfind to malfunction.
 
    -----------------------
    -- Local Subprograms --
@@ -75,8 +82,6 @@ package body Debug_A is
 
       --  Now push the new element
 
-      --  Why is this done unconditionally???
-
       Debug_A_Depth := Debug_A_Depth + 1;
 
       if Debug_A_Depth <= Max_Node_Ids then
@@ -102,8 +107,6 @@ package body Debug_A is
 
       --  We look down the stack to find something with a decent Sloc. (If
       --  we find nothing, just leave it unchanged which is not so terrible)
-
-      --  This seems nasty overhead for the normal case ???
 
       for J in reverse 1 .. Integer'Min (Max_Node_Ids, Debug_A_Depth) loop
          if Sloc (Node_Ids (J)) > No_Location then

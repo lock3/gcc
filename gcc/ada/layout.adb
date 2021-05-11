@@ -23,19 +23,23 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Atree;    use Atree;
-with Debug;    use Debug;
-with Einfo;    use Einfo;
-with Errout;   use Errout;
-with Opt;      use Opt;
-with Sem_Aux;  use Sem_Aux;
-with Sem_Ch13; use Sem_Ch13;
-with Sem_Eval; use Sem_Eval;
-with Sem_Util; use Sem_Util;
-with Sinfo;    use Sinfo;
-with Snames;   use Snames;
-with Ttypes;   use Ttypes;
-with Uintp;    use Uintp;
+with Atree;          use Atree;
+with Debug;          use Debug;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Errout;         use Errout;
+with Opt;            use Opt;
+with Sem_Aux;        use Sem_Aux;
+with Sem_Ch13;       use Sem_Ch13;
+with Sem_Eval;       use Sem_Eval;
+with Sem_Util;       use Sem_Util;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Snames;         use Snames;
+with Ttypes;         use Ttypes;
+with Uintp;          use Uintp;
 
 package body Layout is
 
@@ -235,8 +239,8 @@ package body Layout is
       Desig_Type : Entity_Id;
 
    begin
-      --  For string literal types, for now, kill the size always, this is
-      --  because gigi does not like or need the size to be set ???
+      --  For string literal types, kill the size always, because gigi does not
+      --  like or need the size to be set.
 
       if Ekind (E) = E_String_Literal_Subtype then
          Set_Esize (E, Uint_0);
@@ -448,7 +452,7 @@ package body Layout is
 
             begin
                --  For some reason, access types can cause trouble, So let's
-               --  just do this for scalar types ???
+               --  just do this for scalar types.
 
                if Present (CT)
                  and then Is_Scalar_Type (CT)

@@ -1,3 +1,360 @@
+2021-05-10  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/specs/opt5.ads: New test.
+	* gnat.dg/specs/opt5_pkg.ads: New helper.
+
+2021-05-10  Martin Sebor  <msebor@redhat.com>
+
+	PR middle-end/100425
+	PR middle-end/100510
+	* c-c++-common/Walloca-larger-than.C: New test.
+	* gcc.dg/Walloca-larger-than-4.c: New test.
+	* gcc.dg/Wvla-larger-than-5.c: New test.
+	* gcc.dg/pr79972.c: Remove unexpected warning directive.
+
+2021-05-10  Pat Haugen  <pthaugen@linux.ibm.com>
+
+	* gcc.target/powerpc/fold-vec-insert-float-p9.c: Adjust counts.
+	* gcc.target/powerpc/vec-rlmi-rlnm.c: Likewise.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* gcc.target/arm/simd/mve-vmul-scalar-1.c: New.
+
+2021-05-10  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* gcc.target/arm/simd/mve-vsub-scalar-1.c: New test.
+
+2021-05-10  H.J. Lu  <hjl.tools@gmail.com>
+
+	PR tree-optimization/42587
+	* gcc.dg/optimize-bswapsi-6.c: New test.
+
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR testsuite/100452
+	* g++.dg/vect/slp-pr99971.cc: Align data.
+
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100492
+	* gcc.dg/torture/pr100492.c: New testcase.
+
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/100464
+	PR c++/100468
+	* gcc.dg/pr100464.c: New testcase.
+	* g++.dg/tree-ssa/array-temp1.C: Adjust.
+
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100434
+	* gcc.dg/tree-ssa/ssa-dse-43.c: New testcase.
+
+2021-05-10  Alex Coplan  <alex.coplan@arm.com>
+
+	PR target/99960
+	* gcc.target/arm/mve/intrinsics/vldrdq_gather_base_wb_s64.c:
+	Update now that we're (correctly) using full 128-bit vector
+	loads/stores.
+	* gcc.target/arm/mve/intrinsics/vldrdq_gather_base_wb_u64.c:
+	Likewise.
+	* gcc.target/arm/mve/intrinsics/vldrdq_gather_base_wb_z_s64.c:
+	Likewise.
+	* gcc.target/arm/mve/intrinsics/vldrdq_gather_base_wb_z_u64.c:
+	Likewise.
+	* gcc.target/arm/mve/intrinsics/vuninitializedq_int.c: Likewise.
+	* gcc.target/arm/mve/intrinsics/vuninitializedq_int1.c:
+	Likewise.
+
+2021-05-08  Paul Thomas  <pault@gcc.gnu.org>
+
+	PR fortran/46991
+	* gfortran.dg/class_dummy_7.f90: Correct PR number.
+
+2021-05-08  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc.dg/sso-9.c: Delete.
+
+2021-05-07  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/debug18.adb: New test.
+
+2021-05-07  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc.dg/sso-12.c: New test.
+
+2021-05-07  Jason Merrill  <jason@redhat.com>
+
+	* g++.dg/coroutines/coro-bad-gro-00-class-gro-scalar-return.C:
+	Adjust diagnostic.
+
+2021-05-07  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	PR tree-optimization/79333
+	* gcc.dg/tree-ssa/ssa-fre-94.c: Require c99_runtime.
+
+2021-05-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/100450
+	* c-c++-common/gomp/pr100450.c: New test.
+
+2021-05-07  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/100445
+	* gcc.target/i386/pr100445-1.c: New test.
+
+2021-05-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/100445
+	* gcc.target/i386/pr100445.c: New test.
+
+2021-05-06  Joseph Myers  <joseph@codesourcery.com>
+
+	PR c++/83873
+	PR preprocessor/97604
+	* g++.dg/cpp1y/digit-sep-neg-2.C,
+	g++.dg/cpp1y/digit-sep-pp-number.C: New tests.
+	* g++.dg/cpp1y/digit-sep-line-neg.C, g++.dg/cpp1y/digit-sep-neg.C:
+	Adjust expected messages.
+
+2021-05-06  Martin Jambor  <mjambor@suse.cz>
+
+	* gcc.dg/ipa/ipa-sra-1.c (main): Revert change done by
+	05193687dde, make the argv again pointer to an array.
+
+2021-05-06  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/opt93.adb: Compile only for LP64 targets.
+
+2021-05-06  Robin Dapp  <rdapp@linux.ibm.com>
+
+	* lib/target-supports.exp: Add s390 checks for vect conversions.
+
+2021-05-06  Robin Dapp  <rdapp@linux.ibm.com>
+
+	* gcc.dg/vect/pr56541.c: Add vect_floatint_cvt.
+
+2021-05-06  Paul Thomas  <pault@gcc.gnu.org>
+
+	PR fortran/46991
+	PR fortran/99819
+	* gfortran.dg/class_dummy_6.f90: New test.
+	* gfortran.dg/class_dummy_7.f90: New test.
+
+2021-05-06  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	PR testsuite/100355
+	* gcc.c-torture/execute/ieee/cdivchkld.x: New.
+
+2021-05-06  Marius Hillenbrand  <mhillen@linux.ibm.com>
+
+	* gcc.target/s390/zvector/imm-range-error-1.c: Fix test for
+	__builtin_s390_vpdi.
+	* gcc.target/s390/zvector/vec-permi.c: New test for builtin
+	vec_permi.
+
+2021-05-06  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/94589
+	* gcc.dg/pr94589-1.c: New test.
+	* gcc.dg/pr94589-2.c: New test.
+	* gcc.dg/pr94589-3.c: New test.
+	* gcc.dg/pr94589-4.c: New test.
+	* g++.dg/opt/pr94589-1.C: New test.
+	* g++.dg/opt/pr94589-2.C: New test.
+	* g++.dg/opt/pr94589-3.C: New test.
+	* g++.dg/opt/pr94589-4.C: New test.
+
+2021-05-06  Richard Biener  <rguenther@suse.de>
+
+	PR ipa/100373
+	* gcc.dg/pr100373.c: New testcase.
+
+2021-05-05  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc.c-torture/execute/20210505-1.c: New test.
+
+2021-05-05  Ivan Sorokin  <vanyacpp@gmail.com>
+
+	PR target/91400
+	* gcc.target/i386/pr91400-1.c: New test.
+	* gcc.target/i386/pr91400-2.c: Likewise.
+
+2021-05-05  Martin Sebor  <msebor@redhat.com>
+
+	* gcc.dg/tree-ssa/builtin-sprintf-warn-26.c: New test.
+
+2021-05-05  Harald Anlauf  <anlauf@gmx.de>
+
+	PR fortran/100274
+	* gfortran.dg/argument_checking_25.f90: New test.
+
+2021-05-05  Uroš Bizjak  <ubizjak@gmail.com>
+
+	PR target/98218
+	* gcc.target/i386/pr98218-1.c: New test.
+	* gcc.target/i386/pr98218-1a.c: Ditto.
+	* gcc.target/i386/pr98218-2.c: Ditto.
+	* gcc.target/i386/pr98218-2a.c: Ditto.
+	* gcc.target/i386/pr98218-3.c: Ditto.
+	* gcc.target/i386/pr98218-3a.c: Ditto.
+	* gcc.dg/vect/vect-bool-cmp.c (dg-final):
+	Scan vect tree dump for "LOOP VECTORIZED", not VECTORIZED.
+
+2021-05-05  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/debug17.adb: Minor tweak.
+
+2021-05-05  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/debug8.adb: Minor tweak.
+	* gnat.dg/debug11.adb: Likewise.
+	* gnat.dg/debug16.adb: Likewise.
+	* gnat.dg/debug17.adb: New test.
+	* gnat.dg/specs/debug1.ads: Minor tweak.
+
+2021-05-05  Robin Dapp  <rdapp@linux.ibm.com>
+
+	* gcc.dg/vect/slp-21.c: Add s390.
+
+2021-05-05  Tobias Burnus  <tobias@codesourcery.com>
+
+	PR testsuite/100422
+	* g++.dg/gomp/clause-3.C: Use 'reduction(&:..)' instead of '...(&&:..)'.
+
+2021-05-05  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/79333
+	* gcc.dg/tree-ssa/ssa-fre-94.c: New testcase.
+	* gcc.dg/graphite/fuse-1.c: Adjust.
+	* gcc.dg/pr43864-4.c: Likewise.
+
+2021-05-05  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/100394
+	* g++.dg/torture/pr100382.C: New testcase.
+
+2021-05-04  Martin Sebor  <msebor@redhat.com>
+
+	PR middle-end/100307
+	* g++.dg/warn/Wplacement-new-size-9.C: New test.
+	* gcc.dg/tree-ssa/builtin-sprintf-warn-26.c: New test.
+
+2021-05-04  Martin Sebor  <msebor@redhat.com>
+
+	* gcc.dg/Wvla-parameter-3.c: Use unique strings in directive names.
+
+2021-05-04  Martin Sebor  <msebor@redhat.com>
+
+	* gcc.dg/Wvla-parameter-2.c: Use unique strings in directive names.
+
+2021-05-04  Robin Dapp  <rdapp@linux.ibm.com>
+
+	* gcc.target/s390/oscbreak-1.c: Compile with -O1
+	-fschedule-insns
+
+2021-05-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100414
+	* gcc.dg/pr100414.c: New testcase.
+
+2021-05-04  Tobias Burnus  <tobias@codesourcery.com>
+
+	* gcc.dg/gomp/clause-1.c: Use 'reduction(&:..)' instead of '...(&&:..)'.
+
+2021-05-04  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/opt94.adb: New file.
+	* gnat.dg/opt94_pkg.adb: New file.
+	* gnat.dg/opt94_pkg.ads: New file.
+
+2021-05-04  Richard Biener  <rguenther@suse.de>
+
+	* gcc.dg/tree-ssa/ssa-dse-26.c: Skip on !lp64 targets,
+	simplify dump scanning down to one case.
+
+2021-05-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100329
+	* gcc.dg/torture/pr100329.c: New testcase.
+
+2021-05-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/100398
+	* gcc.dg/torture/pr100398.c: New testcase.
+
+2021-05-03  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	* gcc.target/aarch64/advsimd-intrinsics/vmla_float_not_fused.c:
+	Fix dg directives order.
+	* gcc.target/aarch64/advsimd-intrinsics/vmls_float_not_fused.c:
+	Likewise.
+
+2021-05-03  Jeff Law  <jlaw@tachyum.com>
+
+	* gcc.dg/tree-ssa/ssa-dse-26.c: Fix expected output for nds32le
+	and m32r.
+
+2021-05-03  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/100362
+	* g++.dg/cpp1y/lambda-generic-100362.C: New test.
+
+2021-05-03  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/68942
+	PR c++/100344
+	* g++.dg/template/call8.C: New test.
+	* g++.dg/template/koenig12a.C: New test.
+
+2021-05-03  Jeff Law  <jlaw@tachyum.com>
+
+	* gcc.dg/tree-ssa/ssa-dse-26.c: Fix expected output for bfin and lm32.
+
+2021-05-03  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/100055
+	* g++.dg/concepts/diagnostic18.C: New test.
+
+2021-05-03  Marek Polacek  <polacek@redhat.com>
+
+	DR 1312
+	* g++.dg/cpp0x/constexpr-cast2.C: Remove XFAILs.
+
+2021-05-03  Jeff Law  <jlaw@tachyum.com>
+
+	* gcc.dg/tree-ssa/ssa-dse-26.c: Fix xstormy selector.
+
+2021-05-03  Jeff Law  <jlaw@tachyum.com>
+
+	* gcc.dg/tree-ssa/ssa-dse-26.c: Update expected output for rx too.
+
+2021-05-03  Jeff Law  <jlaw@tachyum.com>
+
+	* gcc.dg/tree-ssa/ssa-dse-26.c: Update expected output for or1k too.
+
+2021-05-03  Jeff Law  <jlaw@tachyum.com>
+
+	* gcc.dg/tree-ssa/ssa-dse-26.c: Update expected output for
+	cr16 and xstormy16 targets.
+
+2021-05-03  Richard Biener  <rguenther@suse.de>
+
+	* gcc.dg/tree-ssa/ssa-dse-42.c: New testcase.
+	* gcc.dg/pr81192.c: Disable DSE.
+
+2021-05-03  Richard Biener  <rguenther@suse.de>
+
+	* gcc.dg/tree-ssa/ssa-dse-41.c: New testcase.
+
+2021-05-03  Ilya Leoshkevich  <iii@linux.ibm.com>
+
+	PR target/100217
+	* gcc.target/s390/vector/long-double-asm-in-out-hard-fp-reg.c: New test.
+	* gcc.target/s390/vector/long-double-asm-inout-hard-fp-reg.c: New test.
+
 2021-05-02  David Edelsohn  <dje.gcc@gmail.com>
 
 	* g++.dg/ext/visibility/fvisibility-inlines-hidden-4.C: Expect [BS]

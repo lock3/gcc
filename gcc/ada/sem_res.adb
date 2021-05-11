@@ -23,65 +23,69 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Aspects;  use Aspects;
-with Atree;    use Atree;
-with Checks;   use Checks;
-with Debug;    use Debug;
-with Debug_A;  use Debug_A;
-with Einfo;    use Einfo;
-with Errout;   use Errout;
-with Expander; use Expander;
-with Exp_Ch6;  use Exp_Ch6;
-with Exp_Ch7;  use Exp_Ch7;
-with Exp_Disp; use Exp_Disp;
-with Exp_Tss;  use Exp_Tss;
-with Exp_Util; use Exp_Util;
-with Freeze;   use Freeze;
-with Ghost;    use Ghost;
-with Inline;   use Inline;
-with Itypes;   use Itypes;
-with Lib;      use Lib;
-with Lib.Xref; use Lib.Xref;
-with Namet;    use Namet;
-with Nmake;    use Nmake;
-with Nlists;   use Nlists;
-with Opt;      use Opt;
-with Output;   use Output;
-with Par_SCO;  use Par_SCO;
-with Restrict; use Restrict;
-with Rident;   use Rident;
-with Rtsfind;  use Rtsfind;
-with Sem;      use Sem;
-with Sem_Aggr; use Sem_Aggr;
-with Sem_Attr; use Sem_Attr;
-with Sem_Aux;  use Sem_Aux;
-with Sem_Cat;  use Sem_Cat;
-with Sem_Ch3;  use Sem_Ch3;
-with Sem_Ch4;  use Sem_Ch4;
-with Sem_Ch6;  use Sem_Ch6;
-with Sem_Ch8;  use Sem_Ch8;
-with Sem_Ch13; use Sem_Ch13;
-with Sem_Dim;  use Sem_Dim;
-with Sem_Disp; use Sem_Disp;
-with Sem_Dist; use Sem_Dist;
-with Sem_Elab; use Sem_Elab;
-with Sem_Elim; use Sem_Elim;
-with Sem_Eval; use Sem_Eval;
-with Sem_Intr; use Sem_Intr;
-with Sem_Mech; use Sem_Mech;
-with Sem_Type; use Sem_Type;
-with Sem_Util; use Sem_Util;
-with Sem_Warn; use Sem_Warn;
-with Sinfo;    use Sinfo;
-with Sinfo.CN; use Sinfo.CN;
-with Snames;   use Snames;
-with Stand;    use Stand;
-with Stringt;  use Stringt;
-with Style;    use Style;
-with Targparm; use Targparm;
-with Tbuild;   use Tbuild;
-with Uintp;    use Uintp;
-with Urealp;   use Urealp;
+with Aspects;        use Aspects;
+with Atree;          use Atree;
+with Checks;         use Checks;
+with Debug;          use Debug;
+with Debug_A;        use Debug_A;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Errout;         use Errout;
+with Expander;       use Expander;
+with Exp_Ch6;        use Exp_Ch6;
+with Exp_Ch7;        use Exp_Ch7;
+with Exp_Disp;       use Exp_Disp;
+with Exp_Tss;        use Exp_Tss;
+with Exp_Util;       use Exp_Util;
+with Freeze;         use Freeze;
+with Ghost;          use Ghost;
+with Inline;         use Inline;
+with Itypes;         use Itypes;
+with Lib;            use Lib;
+with Lib.Xref;       use Lib.Xref;
+with Namet;          use Namet;
+with Nmake;          use Nmake;
+with Nlists;         use Nlists;
+with Opt;            use Opt;
+with Output;         use Output;
+with Par_SCO;        use Par_SCO;
+with Restrict;       use Restrict;
+with Rident;         use Rident;
+with Rtsfind;        use Rtsfind;
+with Sem;            use Sem;
+with Sem_Aggr;       use Sem_Aggr;
+with Sem_Attr;       use Sem_Attr;
+with Sem_Aux;        use Sem_Aux;
+with Sem_Cat;        use Sem_Cat;
+with Sem_Ch3;        use Sem_Ch3;
+with Sem_Ch4;        use Sem_Ch4;
+with Sem_Ch6;        use Sem_Ch6;
+with Sem_Ch8;        use Sem_Ch8;
+with Sem_Ch13;       use Sem_Ch13;
+with Sem_Dim;        use Sem_Dim;
+with Sem_Disp;       use Sem_Disp;
+with Sem_Dist;       use Sem_Dist;
+with Sem_Elab;       use Sem_Elab;
+with Sem_Elim;       use Sem_Elim;
+with Sem_Eval;       use Sem_Eval;
+with Sem_Intr;       use Sem_Intr;
+with Sem_Mech;       use Sem_Mech;
+with Sem_Type;       use Sem_Type;
+with Sem_Util;       use Sem_Util;
+with Sem_Warn;       use Sem_Warn;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Sinfo.CN;       use Sinfo.CN;
+with Snames;         use Snames;
+with Stand;          use Stand;
+with Stringt;        use Stringt;
+with Style;          use Style;
+with Targparm;       use Targparm;
+with Tbuild;         use Tbuild;
+with Uintp;          use Uintp;
+with Urealp;         use Urealp;
 
 package body Sem_Res is
 
@@ -1285,8 +1289,10 @@ package body Sem_Res is
          Check_Parameterless_Call (Explicit_Actual_Parameter (N));
 
       elsif Nkind (N) = N_Operator_Symbol then
-         Change_Operator_Symbol_To_String_Literal (N);
+         Set_Etype (N, Empty);
+         Set_Entity (N, Empty);
          Set_Is_Overloaded (N, False);
+         Change_Operator_Symbol_To_String_Literal (N);
          Set_Etype (N, Any_String);
       end if;
    end Check_Parameterless_Call;
@@ -3748,24 +3754,43 @@ package body Sem_Res is
             Id : Entity_Id;
 
          begin
-            --  Do not consider nested function calls because they have already
-            --  been processed during their own resolution.
+            case Nkind (N) is
 
-            if Nkind (N) = N_Function_Call then
-               return Skip;
+               --  Do not consider object name appearing in the prefix of
+               --  attribute Address as a read.
 
-            elsif Is_Entity_Name (N) and then Present (Entity (N)) then
-               Id := Entity (N);
+               when N_Attribute_Reference =>
 
-               if Is_Object (Id)
-                 and then Is_Effectively_Volatile_For_Reading (Id)
-               then
-                  Error_Msg_N
-                    ("volatile object cannot appear in this context (SPARK "
-                     & "RM 7.1.3(10))", N);
+                  --  Prefix of attribute Address denotes an object, program
+                  --  unit, or label; none of them needs to be flagged here.
+
+                  if Attribute_Name (N) = Name_Address then
+                     return Skip;
+                  end if;
+
+               --  Do not consider nested function calls because they have
+               --  already been processed during their own resolution.
+
+               when N_Function_Call =>
                   return Skip;
-               end if;
-            end if;
+
+               when N_Identifier | N_Expanded_Name =>
+                  Id := Entity (N);
+
+                  if Present (Id)
+                    and then Is_Object (Id)
+                    and then Is_Effectively_Volatile_For_Reading (Id)
+                  then
+                     Error_Msg_N
+                       ("volatile object cannot appear in this context"
+                        & " (SPARK RM 7.1.3(10))", N);
+                  end if;
+
+                  return Skip;
+
+               when others =>
+                  null;
+            end case;
 
             return OK;
          end Flag_Object;
@@ -4785,7 +4810,7 @@ package body Sem_Res is
                   Error_Msg_N
                     ("\which is passed by reference (RM C.6(12))", A);
 
-               elsif Is_Volatile_Object (A)
+               elsif Is_Volatile_Object_Ref (A)
                  and then not Is_Volatile (Etype (F))
                then
                   Error_Msg_NE
@@ -4794,7 +4819,7 @@ package body Sem_Res is
                   Error_Msg_N
                     ("\which is passed by reference (RM C.6(12))", A);
 
-               elsif Is_Volatile_Full_Access_Object (A)
+               elsif Is_Volatile_Full_Access_Object_Ref (A)
                  and then not Is_Volatile_Full_Access (Etype (F))
                then
                   Error_Msg_NE
@@ -9095,6 +9120,16 @@ package body Sem_Res is
       --  that the context in general allows sliding, while a qualified
       --  expression forces equality of bounds.
 
+      Result_Type  : Entity_Id := Typ;
+      --  So in most cases the type of the If_Expression and of its
+      --  dependent expressions is that of the context. However, if
+      --  the expression is the index of an Indexed_Component, we must
+      --  ensure that a proper index check is applied, rather than a
+      --  range check on the index type (which might be discriminant
+      --  dependent). In this case we resolve with the base type of the
+      --  index type, and the index check is generated in the resolution
+      --  of the indexed_component above.
+
       -----------------
       -- Apply_Check --
       -----------------
@@ -9118,10 +9153,10 @@ package body Sem_Res is
          else
             Rewrite (Expr,
               Make_Qualified_Expression (Loc,
-                Subtype_Mark => New_Occurrence_Of (Typ, Loc),
+                Subtype_Mark => New_Occurrence_Of (Result_Type, Loc),
                 Expression   => Relocate_Node (Expr)));
 
-            Analyze_And_Resolve (Expr, Typ);
+            Analyze_And_Resolve (Expr, Result_Type);
          end if;
       end Apply_Check;
 
@@ -9140,6 +9175,12 @@ package body Sem_Res is
          return;
       end if;
 
+      if Nkind (Parent (N)) = N_Indexed_Component
+        or else Nkind (Parent (Parent (N))) = N_Indexed_Component
+      then
+         Result_Type := Base_Type (Typ);
+      end if;
+
       Then_Expr := Next (Condition);
 
       if No (Then_Expr) then
@@ -9149,7 +9190,7 @@ package body Sem_Res is
       Else_Expr := Next (Then_Expr);
 
       Resolve (Condition, Any_Boolean);
-      Resolve (Then_Expr, Typ);
+      Resolve (Then_Expr, Result_Type);
       Apply_Check (Then_Expr);
 
       --  If ELSE expression present, just resolve using the determined type
@@ -9163,7 +9204,7 @@ package body Sem_Res is
             Resolve (Else_Expr, Any_Real);
 
          else
-            Resolve (Else_Expr, Typ);
+            Resolve (Else_Expr, Result_Type);
          end if;
 
          Apply_Check (Else_Expr);
@@ -9187,7 +9228,7 @@ package body Sem_Res is
       elsif Root_Type (Typ) = Standard_Boolean then
          Else_Expr :=
            Convert_To (Typ, New_Occurrence_Of (Standard_True, Sloc (N)));
-         Analyze_And_Resolve (Else_Expr, Typ);
+         Analyze_And_Resolve (Else_Expr, Result_Type);
          Append_To (Expressions (N), Else_Expr);
 
       else
@@ -9195,7 +9236,7 @@ package body Sem_Res is
          Append_To (Expressions (N), Error);
       end if;
 
-      Set_Etype (N, Typ);
+      Set_Etype (N, Result_Type);
 
       if not Error_Posted (N) then
          Eval_If_Expression (N);
@@ -10526,12 +10567,9 @@ package body Sem_Res is
                PL : constant Node_Id := Prefix (Lorig);
                PH : constant Node_Id := Prefix (Horig);
             begin
-               if Is_Entity_Name (PL)
+               return Is_Entity_Name (PL)
                  and then Is_Entity_Name (PH)
-                 and then Entity (PL) = Entity (PH)
-               then
-                  return True;
-               end if;
+                 and then Entity (PL) = Entity (PH);
             end;
          end if;
 
@@ -10600,11 +10638,11 @@ package body Sem_Res is
 
       if Is_Discrete_Type (Typ) and then Expander_Active then
          if Is_OK_Static_Expression (L) then
-            Fold_Uint (L, Expr_Value (L), Is_OK_Static_Expression (L));
+            Fold_Uint (L, Expr_Value (L), Static => True);
          end if;
 
          if Is_OK_Static_Expression (H) then
-            Fold_Uint (H, Expr_Value (H), Is_OK_Static_Expression (H));
+            Fold_Uint (H, Expr_Value (H), Static => True);
          end if;
       end if;
    end Resolve_Range;
@@ -11555,14 +11593,14 @@ package body Sem_Res is
                Comp_Typ_Hi : constant Node_Id :=
                                Type_High_Bound (Component_Type (Typ));
 
-               Char_Val : Uint;
+               Char_Val : Int;
 
             begin
                if Compile_Time_Known_Value (Comp_Typ_Lo)
                  and then Compile_Time_Known_Value (Comp_Typ_Hi)
                then
                   for J in 1 .. Strlen loop
-                     Char_Val := UI_From_Int (Int (Get_String_Char (Str, J)));
+                     Char_Val := Int (Get_String_Char (Str, J));
 
                      if Char_Val < Expr_Value (Comp_Typ_Lo)
                        or else Char_Val > Expr_Value (Comp_Typ_Hi)
@@ -11587,7 +11625,7 @@ package body Sem_Res is
       --  heavy artillery for this situation, but it is hard work to avoid.
 
       declare
-         Lits : constant List_Id    := New_List;
+         Lits : constant List_Id := New_List;
          P    : Source_Ptr := Loc + 1;
          C    : Char_Code;
 
@@ -12076,6 +12114,28 @@ package body Sem_Res is
 
       Set_Etype (N, B_Typ);
       Resolve (R, B_Typ);
+
+      --  Generate warning for negative literal of a modular type, unless it is
+      --  enclosed directly in a type qualification or a type conversion, as it
+      --  is likely not what the user intended. We don't issue the warning for
+      --  the common use of -1 to denote OxFFFF_FFFF...
+
+      if Warn_On_Suspicious_Modulus_Value
+        and then Nkind (N) = N_Op_Minus
+        and then Nkind (R) = N_Integer_Literal
+        and then Is_Modular_Integer_Type (B_Typ)
+        and then Nkind (Parent (N)) not in N_Qualified_Expression
+                                         | N_Type_Conversion
+        and then Expr_Value (R) > Uint_1
+      then
+         Error_Msg_N
+           ("?M?negative literal of modular type is in fact positive", N);
+         Error_Msg_Uint_1 := (-Expr_Value (R)) mod Modulus (B_Typ);
+         Error_Msg_Uint_2 := Expr_Value (R);
+         Error_Msg_N ("\do you really mean^ when writing -^ '?", N);
+         Error_Msg_N
+           ("\if you do, use qualification to avoid this warning", N);
+      end if;
 
       --  Generate warning for expressions like abs (x mod 2)
 
@@ -13974,7 +14034,7 @@ package body Sem_Res is
       then
          Conversion_Error_N ("target type must be general access type!", N);
          Conversion_Error_NE -- CODEFIX
-            ("add ALL to }!", N, Target_Type);
+            ("\add ALL to }!", N, Target_Type);
          return False;
 
       --  Here we have a real conversion error

@@ -5235,6 +5235,11 @@ typedef struct _rs6000_cost_data
 {
   struct loop *loop_info;
   unsigned cost[3];
+  /* For each vectorized loop, this var holds TRUE iff a non-memory vector
+     instruction is needed by the vectorization.  */
+  bool vect_nonmem;
+  /* Indicates this is costing for the scalar version of a loop or block.  */
+  bool costing_for_scalar;
 } rs6000_cost_data;
 
 /* Test for likely overcommitment of vector hardware resources.  If a
@@ -5255,6 +5260,12 @@ rs6000_density_test (rs6000_cost_data *data)
   loop_vec_info loop_vinfo = loop_vec_info_for_loop (data->loop_info);
   int vec_cost = data->cost[vect_body], not_vec_cost = 0;
   int i, density_pct;
+
+  /* This density test only cares about the cost of vector version of the
+     loop, so immediately return if we are passed costing for the scalar
+     version (namely computing single scalar iteration cost).  */
+  if (data->costing_for_scalar)
+    return;
 
   for (i = 0; i < nbbs; i++)
     {
@@ -5292,19 +5303,16 @@ rs6000_density_test (rs6000_cost_data *data)
 
 /* Implement targetm.vectorize.init_cost.  */
 
-/* For each vectorized loop, this var holds TRUE iff a non-memory vector
-   instruction is needed by the vectorization.  */
-static bool rs6000_vect_nonmem;
-
 static void *
-rs6000_init_cost (struct loop *loop_info)
+rs6000_init_cost (struct loop *loop_info, bool costing_for_scalar)
 {
   rs6000_cost_data *data = XNEW (struct _rs6000_cost_data);
   data->loop_info = loop_info;
   data->cost[vect_prologue] = 0;
   data->cost[vect_body]     = 0;
   data->cost[vect_epilogue] = 0;
-  rs6000_vect_nonmem = false;
+  data->vect_nonmem = false;
+  data->costing_for_scalar = costing_for_scalar;
   return data;
 }
 
@@ -5364,7 +5372,7 @@ rs6000_add_stmt_cost (class vec_info *vinfo, void *data, int count,
 	   || kind == vec_promote_demote || kind == vec_construct
 	   || kind == scalar_to_vec)
 	  || (where == vect_body && kind == vector_stmt))
-	rs6000_vect_nonmem = true;
+	cost_data->vect_nonmem = true;
     }
 
   return retval;
@@ -5419,7 +5427,7 @@ rs6000_finish_cost (void *data, unsigned *prologue_cost,
   if (cost_data->loop_info)
     {
       loop_vec_info vec_info = loop_vec_info_for_loop (cost_data->loop_info);
-      if (!rs6000_vect_nonmem
+      if (!cost_data->vect_nonmem
 	  && LOOP_VINFO_VECT_FACTOR (vec_info) == 2
 	  && LOOP_REQUIRES_VERSIONING (vec_info))
 	cost_data->cost[vect_body] += 10000;
@@ -21468,7 +21476,7 @@ rs6000_declare_alias (struct symtab_node *n, void *d)
 	      putc ('\n', data->file);
 	    }
 	  fputs ("\t.globl ", data->file);
-	  RS6000_OUTPUT_BASENAME (data->file, buffer);
+	  assemble_name (data->file, buffer);
 	  putc ('\n', data->file);
 	}
 #ifdef ASM_WEAKEN_DECL
@@ -21491,13 +21499,12 @@ rs6000_declare_alias (struct symtab_node *n, void *d)
 	  putc ('\n', data->file);
 	}
       fputs ("\t.lglobl ", data->file);
-      RS6000_OUTPUT_BASENAME (data->file, buffer);
+      assemble_name (data->file, buffer);
       putc ('\n', data->file);
     }
   if (data->function_descriptor)
-    fputs (".", data->file);
-  RS6000_OUTPUT_BASENAME (data->file, buffer);
-  fputs (":\n", data->file);
+    putc ('.', data->file);
+  ASM_OUTPUT_LABEL (data->file, buffer);
   return false;
 }
 
@@ -21574,21 +21581,24 @@ rs6000_xcoff_declare_function_name (FILE *file, const char *name, tree decl)
       RS6000_OUTPUT_BASENAME (file, buffer);
       putc ('\n', file);
     }
+
   fputs ("\t.csect ", file);
-  RS6000_OUTPUT_BASENAME (file, buffer);
-  fputs (TARGET_32BIT ? "[DS]\n" : "[DS],3\n", file);
-  RS6000_OUTPUT_BASENAME (file, buffer);
-  fputs (":\n", file);
+  assemble_name (file, buffer);
+  fputs (TARGET_32BIT ? "\n" : ",3\n", file);
+
+  ASM_OUTPUT_LABEL (file, buffer);
+
   symtab_node::get (decl)->call_for_symbol_and_aliases (rs6000_declare_alias,
 							&data, true);
   fputs (TARGET_32BIT ? "\t.long ." : "\t.llong .", file);
   RS6000_OUTPUT_BASENAME (file, buffer);
   fputs (", TOC[tc0], 0\n", file);
+
   in_section = NULL;
   switch_to_section (function_section (decl));
   putc ('.', file);
-  RS6000_OUTPUT_BASENAME (file, buffer);
-  fputs (":\n", file);
+  ASM_OUTPUT_LABEL (file, buffer);
+
   data.function_descriptor = true;
   symtab_node::get (decl)->call_for_symbol_and_aliases (rs6000_declare_alias,
 							&data, true);
@@ -21683,8 +21693,7 @@ void
 rs6000_xcoff_declare_object_name (FILE *file, const char *name, tree decl)
 {
   struct declare_alias_data data = {file, false};
-  RS6000_OUTPUT_BASENAME (file, name);
-  fputs (":\n", file);
+  ASM_OUTPUT_LABEL (file, name);
   symtab_node::get_create (decl)->call_for_symbol_and_aliases (rs6000_declare_alias,
 							       &data, true);
 }
@@ -21740,20 +21749,19 @@ rs6000_xcoff_encode_section_info (tree decl, rtx rtl, int first)
 
   symname = XSTR (symbol, 0);
 
-  /* Append CSECT mapping class, unless the symbol already is qualified.  */
+  /* Append CSECT mapping class, unless the symbol already is qualified.
+     Aliases are implemented as labels, so the symbol name should not add
+     a mapping class.  */
   if (decl
       && DECL_P (decl)
       && VAR_OR_FUNCTION_DECL_P (decl)
-      && lookup_attribute ("alias", DECL_ATTRIBUTES (decl)) == NULL_TREE
+      && symtab_node::get (decl)->alias == 0
       && symname[strlen (symname) - 1] != ']')
     {
       const char *smclass = NULL;
 
       if (TREE_CODE (decl) == FUNCTION_DECL)
-	{
-	  if (DECL_EXTERNAL (decl))
-	    smclass = "[DS]";
-	}
+	smclass = "[DS]";
       else if (DECL_THREAD_LOCAL_P (decl))
 	{
 	  if (bss_initializer_p (decl))
@@ -21796,8 +21804,6 @@ rs6000_asm_weaken_decl (FILE *stream, tree decl,
   if (decl && TREE_CODE (decl) == FUNCTION_DECL
       && DEFAULT_ABI == ABI_AIX && DOT_SYMBOLS)
     {
-      if (TARGET_XCOFF && name[strlen (name) - 1] != ']')
-	fputs ("[DS]", stream);
 #if TARGET_XCOFF && HAVE_GAS_HIDDEN
       if (TARGET_XCOFF)
 	fputs (rs6000_xcoff_visibility (decl), stream);
@@ -21810,6 +21816,7 @@ rs6000_asm_weaken_decl (FILE *stream, tree decl,
     fputs (rs6000_xcoff_visibility (decl), stream);
 #endif
   fputc ('\n', stream);
+
   if (val)
     {
 #ifdef ASM_OUTPUT_DEF
@@ -22528,10 +22535,13 @@ rs6000_ira_change_pseudo_allocno_class (int regno ATTRIBUTE_UNUSED,
 	 of allocno class.  */
       if (best_class == BASE_REGS)
 	return GENERAL_REGS;
-      if (TARGET_VSX
-	  && (best_class == FLOAT_REGS || best_class == ALTIVEC_REGS))
+      if (TARGET_VSX && best_class == FLOAT_REGS)
 	return VSX_REGS;
       return best_class;
+
+    case VSX_REGS:
+      if (best_class == ALTIVEC_REGS)
+	return ALTIVEC_REGS;
 
     default:
       break;
@@ -23650,12 +23660,12 @@ rs6000_compute_pressure_classes (enum reg_class *pressure_classes)
 
   n = 0;
   pressure_classes[n++] = GENERAL_REGS;
+  if (TARGET_ALTIVEC)
+    pressure_classes[n++] = ALTIVEC_REGS;
   if (TARGET_VSX)
     pressure_classes[n++] = VSX_REGS;
   else
     {
-      if (TARGET_ALTIVEC)
-	pressure_classes[n++] = ALTIVEC_REGS;
       if (TARGET_HARD_FLOAT)
 	pressure_classes[n++] = FLOAT_REGS;
     }

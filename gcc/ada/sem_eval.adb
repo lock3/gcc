@@ -23,39 +23,43 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Aspects;  use Aspects;
-with Atree;    use Atree;
-with Checks;   use Checks;
-with Debug;    use Debug;
-with Einfo;    use Einfo;
-with Elists;   use Elists;
-with Errout;   use Errout;
-with Eval_Fat; use Eval_Fat;
-with Exp_Util; use Exp_Util;
-with Freeze;   use Freeze;
-with Lib;      use Lib;
-with Namet;    use Namet;
-with Nmake;    use Nmake;
-with Nlists;   use Nlists;
-with Opt;      use Opt;
-with Par_SCO;  use Par_SCO;
-with Rtsfind;  use Rtsfind;
-with Sem;      use Sem;
-with Sem_Aux;  use Sem_Aux;
-with Sem_Cat;  use Sem_Cat;
-with Sem_Ch3;  use Sem_Ch3;
-with Sem_Ch6;  use Sem_Ch6;
-with Sem_Ch8;  use Sem_Ch8;
-with Sem_Elab; use Sem_Elab;
-with Sem_Res;  use Sem_Res;
-with Sem_Util; use Sem_Util;
-with Sem_Type; use Sem_Type;
-with Sem_Warn; use Sem_Warn;
-with Sinfo;    use Sinfo;
-with Snames;   use Snames;
-with Stand;    use Stand;
-with Stringt;  use Stringt;
-with Tbuild;   use Tbuild;
+with Aspects;        use Aspects;
+with Atree;          use Atree;
+with Checks;         use Checks;
+with Debug;          use Debug;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Elists;         use Elists;
+with Errout;         use Errout;
+with Eval_Fat;       use Eval_Fat;
+with Exp_Util;       use Exp_Util;
+with Freeze;         use Freeze;
+with Lib;            use Lib;
+with Namet;          use Namet;
+with Nmake;          use Nmake;
+with Nlists;         use Nlists;
+with Opt;            use Opt;
+with Par_SCO;        use Par_SCO;
+with Rtsfind;        use Rtsfind;
+with Sem;            use Sem;
+with Sem_Aux;        use Sem_Aux;
+with Sem_Cat;        use Sem_Cat;
+with Sem_Ch3;        use Sem_Ch3;
+with Sem_Ch6;        use Sem_Ch6;
+with Sem_Ch8;        use Sem_Ch8;
+with Sem_Elab;       use Sem_Elab;
+with Sem_Res;        use Sem_Res;
+with Sem_Util;       use Sem_Util;
+with Sem_Type;       use Sem_Type;
+with Sem_Warn;       use Sem_Warn;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Snames;         use Snames;
+with Stand;          use Stand;
+with Stringt;        use Stringt;
+with Tbuild;         use Tbuild;
 
 package body Sem_Eval is
 
@@ -2124,7 +2128,6 @@ package body Sem_Eval is
                      Apply_Compile_Time_Constraint_Error
                        (N, "division by zero", CE_Divide_By_Zero,
                         Warn => not Stat or SPARK_Mode = On);
-                     Set_Raises_Constraint_Error (N);
                      return;
 
                   --  Otherwise we can do the division
@@ -4136,7 +4139,7 @@ package body Sem_Eval is
 
          Len := String_Length (Strval (N));
 
-         if UI_From_Int (Len) > String_Type_Len (Bas) then
+         if Len > String_Type_Len (Bas) then
 
             --  Issue message. Note that this message is a warning if the
             --  string literal is not marked as static (happens in some cases
@@ -4984,7 +4987,7 @@ package body Sem_Eval is
          end if;
       end Check_Elab_Call;
 
-      Modulus : Uint;
+      Modulus, Val : Uint;
 
    begin
       if Compile_Time_Known_Value (Left)
@@ -4995,23 +4998,25 @@ package body Sem_Eval is
          if Op = N_Op_Shift_Left then
             Check_Elab_Call;
 
-            declare
-               Modulus : Uint;
-            begin
-               if Is_Modular_Integer_Type (Typ) then
-                  Modulus := Einfo.Modulus (Typ);
-               else
-                  Modulus := Uint_2 ** RM_Size (Typ);
-               end if;
+            if Is_Modular_Integer_Type (Typ) then
+               Modulus := Einfo.Entities.Modulus (Typ);
+            else
+               Modulus := Uint_2 ** RM_Size (Typ);
+            end if;
 
-               --  Fold Shift_Left (X, Y) by computing (X * 2**Y) rem modulus
+            --  Fold Shift_Left (X, Y) by computing
+            --  (X * 2**Y) rem modulus [- Modulus]
 
-               Fold_Uint
-                 (N,
-                  (Expr_Value (Left) * (Uint_2 ** Expr_Value (Right)))
-                    rem Modulus,
-                  Static => Static);
-            end;
+            Val := (Expr_Value (Left) * (Uint_2 ** Expr_Value (Right)))
+                     rem Modulus;
+
+            if Is_Modular_Integer_Type (Typ)
+              or else Val < Modulus / Uint_2
+            then
+               Fold_Uint (N, Val, Static => Static);
+            else
+               Fold_Uint (N, Val - Modulus, Static => Static);
+            end if;
 
          elsif Op = N_Op_Shift_Right then
             Check_Elab_Call;
@@ -5022,7 +5027,7 @@ package body Sem_Eval is
                Fold_Uint (N, Expr_Value (Left), Static => Static);
             else
                if Is_Modular_Integer_Type (Typ) then
-                  Modulus := Einfo.Modulus (Typ);
+                  Modulus := Einfo.Entities.Modulus (Typ);
                else
                   Modulus := Uint_2 ** RM_Size (Typ);
                end if;
@@ -5043,10 +5048,10 @@ package body Sem_Eval is
             Check_Elab_Call;
 
             declare
-               Two_Y   : constant Uint := Uint_2 ** Expr_Value (Right);
+               Two_Y : constant Uint := Uint_2 ** Expr_Value (Right);
             begin
                if Is_Modular_Integer_Type (Typ) then
-                  Modulus := Einfo.Modulus (Typ);
+                  Modulus := Einfo.Entities.Modulus (Typ);
                else
                   Modulus := Uint_2 ** RM_Size (Typ);
                end if;
@@ -5550,23 +5555,16 @@ package body Sem_Eval is
          return False;
       end if;
 
-      Anc_Subt := Ancestor_Subtype (Typ);
+      --  Then, check if the subtype is strictly static. This takes care of
+      --  checking for generics and predicates.
 
-      if Anc_Subt = Empty then
-         Anc_Subt := Base_T;
+      if not Is_Static_Subtype (Typ) then
+         return False;
       end if;
-
-      if Is_Generic_Type (Root_Type (Base_T))
-        or else Is_Generic_Actual_Type (Base_T)
-      then
-         return False;
-
-      elsif Has_Dynamic_Predicate_Aspect (Typ) then
-         return False;
 
       --  String types
 
-      elsif Is_String_Type (Typ) then
+      if Is_String_Type (Typ) then
          return
            Ekind (Typ) = E_String_Literal_Subtype
              or else
@@ -5580,6 +5578,12 @@ package body Sem_Eval is
             return True;
 
          else
+            Anc_Subt := Ancestor_Subtype (Typ);
+
+            if No (Anc_Subt) then
+               Anc_Subt := Base_T;
+            end if;
+
             --  Scalar_Range (Typ) might be an N_Subtype_Indication, so use
             --  Get_Type_{Low,High}_Bound.
 

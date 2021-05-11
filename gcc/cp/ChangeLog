@@ -1,3 +1,80 @@
+2021-05-10  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/100464
+	PR c++/100468
+	* call.c (set_up_extended_ref_temp): Mark the temporary
+	addressable if the TARGET_EXPR was.
+
+2021-05-10  Martin Liska  <mliska@suse.cz>
+
+	* decl.c (duplicate_decls): Use startswith
+	function instead of strncmp.
+	(cxx_builtin_function): Likewise.
+	(omp_declare_variant_finalize_one): Likewise.
+	(grokfndecl): Likewise.
+	* error.c (dump_decl_name): Likewise.
+	* mangle.c (find_decomp_unqualified_name): Likewise.
+	(write_guarded_var_name): Likewise.
+	(decl_tls_wrapper_p): Likewise.
+	* parser.c (cp_parser_simple_type_specifier): Likewise.
+	(cp_parser_tx_qualifier_opt): Likewise.
+	* pt.c (template_parm_object_p): Likewise.
+	(dguide_name_p): Likewise.
+
+2021-05-10  Martin Liska  <mliska@suse.cz>
+
+	PR c++/99616
+	* decl.c (grokdeclarator): Remove redundant NULL check.
+
+2021-05-07  Jason Merrill  <jason@redhat.com>
+
+	* tree.c (rvalue): Assert expr is not a class lvalue.
+
+2021-05-07  Jason Merrill  <jason@redhat.com>
+
+	* cp-tree.h (build_stub_object): Declare.
+	* method.c (build_stub_object): No longer static.
+	* call.c (can_convert): Use it.
+	* tree.c (build_dummy_object): Adjust comment.
+	* typeck.c (cp_build_binary_op): Wrap SPACESHIP_EXPR in a
+	TARGET_EXPR.
+
+2021-05-07  Jason Merrill  <jason@redhat.com>
+
+	* coroutines.cc (build_co_await): Don't call 'rvalue'.
+	(flatten_await_stmt): Simplify initialization.
+	(morph_fn_to_coro): Change 'rvalue' to 'move'.  Simplify.
+
+2021-05-04  Tobias Burnus  <tobias@codesourcery.com>
+
+	* semantics.c (finish_omp_reduction_clause): Accept float + complex
+	for || and && reductions.
+
+2021-05-03  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/100362
+	* parser.c (cp_parser_class_head): Reinstate calls to pushclass
+	and popclass when parsing the base-clause that were removed in
+	r11-6815.
+
+2021-05-03  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/68942
+	PR c++/100344
+	* pt.c (tsubst_copy_and_build) <case CALL_EXPR>: Set tf_conv
+	only when the callee is a FUNCTION_DECL.
+
+2021-05-03  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/100055
+	* decl.c (grokfndecl): Check current_template_parms.
+
+2021-05-03  Marek Polacek  <polacek@redhat.com>
+
+	DR 1312
+	* constexpr.c (cxx_eval_constant_expression): Don't check
+	integer_zerop.
+
 2021-05-01  Jason Merrill  <jason@redhat.com>
 
 	* cp-tree.h (class ovl_iterator): Allow copying.  Add op==.

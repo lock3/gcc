@@ -12177,7 +12177,7 @@ can_convert (tree to, tree from, tsubst_flags_t complain)
   /* implicit_conversion only considers user-defined conversions
      if it has an expression for the call argument list.  */
   if (CLASS_TYPE_P (from) || CLASS_TYPE_P (to))
-    arg = build1 (CAST_EXPR, from, NULL_TREE);
+    arg = build_stub_object (from);
   return can_convert_arg (to, from, arg, LOOKUP_IMPLICIT, complain);
 }
 
@@ -12478,6 +12478,8 @@ set_up_extended_ref_temp (tree decl, tree expr, vec<tree, va_gc> **cleanups,
      VAR.  */
   if (TREE_CODE (expr) != TARGET_EXPR)
     expr = get_target_expr (expr);
+  else if (TREE_ADDRESSABLE (expr))
+    TREE_ADDRESSABLE (var) = 1;
 
   if (TREE_CODE (decl) == FIELD_DECL
       && extra_warnings && !TREE_NO_WARNING (decl))

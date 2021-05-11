@@ -221,9 +221,7 @@ public:
      predicate in each predicate argument register.  This means that
      we need at least 12 pieces.  */
   static const unsigned int MAX_PIECES = NUM_FP_ARG_REGS + NUM_PR_ARG_REGS;
-#if __cplusplus >= 201103L
   static_assert (MAX_PIECES >= 8, "Need to store at least 8 predicates");
-#endif
 
   /* Describes one piece of a PST.  Each piece is one of:
 
@@ -14390,7 +14388,7 @@ struct aarch64_vector_costs
 
 /* Implement TARGET_VECTORIZE_INIT_COST.  */
 void *
-aarch64_init_cost (class loop *)
+aarch64_init_cost (class loop *, bool)
 {
   return new aarch64_vector_costs;
 }
