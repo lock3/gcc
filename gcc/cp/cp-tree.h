@@ -1676,6 +1676,11 @@ check_constraint_info (tree t)
 #define CONSTRAINT_VAR_P(NODE) \
   DECL_LANG_FLAG_2 (TREE_CHECK (NODE, PARM_DECL))
 
+/* A tree list of atomic constraint expressions associated with a concept decl
+   (modules + fserialize-constraints)  */
+#define CONCEPT_ATOMIC_CONSTRAINTS(NODE) \
+  DECL_SIZE_UNIT (NODE)
+
 /* The concept constraining this constrained template-parameter.  */
 #define CONSTRAINED_PARM_CONCEPT(NODE) \
   DECL_SIZE_UNIT (TYPE_DECL_CHECK (NODE))
@@ -8170,6 +8175,52 @@ extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
 extern void note_failed_type_completion_for_satisfaction (tree);
+extern void save_atomic_constraint		(tree);
+extern void walk_atom_cache 			(bool (*) (tree, void *), void *);
+
+/* Elements of the satisfaction cache.  */
+
+struct GTY((for_user)) sat_entry
+{
+  /* The relevant ATOMIC_CONSTR.  */
+  tree atom;
+
+  /* The relevant template arguments.  */
+  tree args;
+
+  /* The result of satisfaction of ATOM+ARGS.
+     This is either boolean_true_node, boolean_false_node or error_mark_node,
+     where error_mark_node indicates ill-formed satisfaction.
+     It's set to NULL_TREE while computing satisfaction of ATOM+ARGS for
+     the first time.  */
+  tree result;
+
+  /* The value of input_location when satisfaction of ATOM+ARGS was first
+     performed.  */
+  location_t location;
+
+  /* The range of elements appended to the failed_type_completions vector
+     during computation of this satisfaction result, encoded as a begin/end
+     pair of offsets.  */
+  int ftc_begin, ftc_end;
+
+  /* True if we want to diagnose the above instability when it's detected.
+     We don't always want to do so, in order to avoid emitting duplicate
+     diagnostics in some cases.  */
+  bool diagnose_instability;
+
+  /* True if we're in the middle of computing this satisfaction result.
+     Used during both quiet and noisy satisfaction to detect self-recursive
+     satisfaction.  */
+  bool evaluating;
+
+  /* The uninstantiated cached (in atom_cache) source of this instantiated atom.
+     FIXME: union with args. */
+  tree cached_atom;
+};
+
+extern void walk_constraint_satisfactions (bool (*) (sat_entry *, void *), void *);
+extern void save_constraint_satisfaction (tree atom, tree args, tree result);
 
 /* A structural hasher for ATOMIC_CONSTRs.  */
 
