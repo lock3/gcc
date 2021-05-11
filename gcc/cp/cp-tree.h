@@ -8147,7 +8147,7 @@ extern hashval_t hash_atomic_constraint         (tree);
 extern void diagnose_constraints                (location_t, tree, tree);
 
 extern void note_failed_type_completion_for_satisfaction (tree);
-extern void save_atomic_constraint (tree);
+extern void save_atomic_constraint		(tree);
 extern void walk_atom_cache 			(bool (*) (tree, void *), void *);
 
 /* Elements of the satisfaction cache.  */
@@ -8186,7 +8186,7 @@ struct GTY((for_user)) sat_entry
      satisfaction.  */
   bool evaluating;
 
-  /* The uninstantiated cached (in atom_cache) source of this instantiated atom. 
+  /* The uninstantiated cached (in atom_cache) source of this instantiated atom.
      FIXME: union with args. */
   tree cached_atom;
 };
@@ -8208,7 +8208,6 @@ struct atom_hasher : default_hash_traits<tree>
     return atomic_constraints_identical_p (t1, t2);
   }
 };
-
 
 /* in logic.cc */
 extern bool subsumes                            (tree, tree);

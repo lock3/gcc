@@ -129,7 +129,8 @@ struct subst_info
 struct sat_info : subst_info
 {
   sat_info (tsubst_flags_t cmp, tree in, bool diag_unsat = false)
-    : subst_info (cmp, in), diagnose_unsatisfaction (diag_unsat), cached_result(NULL_TREE)
+    : subst_info (cmp, in), diagnose_unsatisfaction (diag_unsat),
+      cached_result (NULL_TREE)
   {
     if (diagnose_unsatisfaction_p ())
       gcc_checking_assert (noisy ());
@@ -631,10 +632,9 @@ parameter_mapping_equivalent_p (tree t1, tree t2)
   tree map2 = ATOMIC_CONSTR_MAP (t2);
   while (map1 && map2)
     {
-      // NOTE: If map1 or map2 were imported, then they will have 
-      // different pointer values. Better defer to cp_tree_equal.
-      //gcc_checking_assert (TREE_VALUE (map1) == TREE_VALUE (map2));
-      gcc_assert(cp_tree_equal(TREE_VALUE (map1), TREE_VALUE (map2)));
+      /* NOTE: If map1 or map2 were imported, then they will have
+	 different pointer values. Better defer to cp_tree_equal. */
+      gcc_assert (cp_tree_equal (TREE_VALUE (map1), TREE_VALUE (map2)));
       tree arg1 = TREE_PURPOSE (map1);
       tree arg2 = TREE_PURPOSE (map2);
       if (!template_args_equal (arg1, arg2))
@@ -778,10 +778,10 @@ static GTY(()) hash_table<atom_hasher> *atom_cache;
 
 /* Call CB for each atomic constraint in the cache.  */
 
-void 
-walk_atom_cache(bool (*cb) (tree, void *), void *ctx)
+void
+walk_atom_cache (bool (*cb)(tree, void *), void *ctx)
 {
-   if (!atom_cache) 
+   if (!atom_cache)
      return;
 
   hash_table<atom_hasher>::iterator end = atom_cache->end ();
@@ -795,37 +795,37 @@ walk_atom_cache(bool (*cb) (tree, void *), void *ctx)
 
 /* Called during module import to save serialized atomic constraints.  */
 
-void 
+void
 save_atomic_constraint (tree atom)
 {
   gcc_assert (atom && TREE_CODE (atom) == ATOMIC_CONSTR);
   if (!atom_cache)
     atom_cache = hash_table<atom_hasher>::create_ggc (31);
 
-  // FIXME: atom's constr_expr is serialized by value; that is 
-  // it'll never hash to the same value as it's associated concept 
-  // decl's constr_expr.
-  // we'll just override it with the concept decl's constraint expr.
-  // hopefully it exists :(
-  // It'd be better to actually make these things mergeable
-  tree decl = TREE_TYPE(TREE_TYPE(atom));
+  /* FIXME: atom's constr_expr is serialized by value; that is
+     it'll never hash to the same value as its associated concept decl's
+     constr_expr.
+     we'll just override it with the concept decl's constraint expr.
+     hopefully it exists :(
+     It'd be better to actually make these things mergeable.  */
+  tree decl = TREE_TYPE (TREE_TYPE (atom));
   decl = DECL_TEMPLATE_RESULT (decl);
-  ATOMIC_CONSTR_EXPR(atom) = DECL_INITIAL(decl);
+  ATOMIC_CONSTR_EXPR (atom) = DECL_INITIAL (decl);
 
   tree *slot = atom_cache->find_slot (atom, INSERT);
   /* Note: the constraint may have been satisfied beforehand.
      Because lazy loading in modules. */
-     
+
   if (!*slot)
     *slot = atom;
 }
 
-/* Returns the outer template decl for DECL. */
+/* Returns the outer template decl for DECL.  */
 
-static tree unpack_concept_decl(tree decl)
+static tree unpack_concept_decl (tree decl)
 {
-  // Nested requirements clauses within a concept definition.
-  if (!decl) 
+  /* Nested requirements clauses within a concept definition.  */
+  if (!decl)
     return NULL_TREE;
 
   if (TREE_CODE (decl) == OVERLOAD)
@@ -869,13 +869,13 @@ normalize_atom (tree t, tree args, norm_info &info)
 	atom_cache = hash_table<atom_hasher>::create_ggc (31);
 
       tree cdecl = NULL_TREE;
-      if (modules_p()) 
+      if (modules_p ())
 	{
-	  /* Check for pre-cached atomic constraints associated with 
+	  /* Check for pre-cached atomic constraints associated with
 	     the concept declaration. */
-	  cdecl = unpack_concept_decl(info.in_decl);
+	  cdecl = unpack_concept_decl (info.in_decl);
 	  if (cdecl)
-	    lazy_load_pendings(cdecl);
+	    lazy_load_pendings (cdecl);
 	}
 
       tree *slot = atom_cache->find_slot (atom, INSERT);
@@ -900,20 +900,22 @@ normalize_atom (tree t, tree args, norm_info &info)
 							info.initial_parms);
 	  TREE_TYPE (map) = target_parms;
 	}
-      
-      if (cdecl && flag_export_atoms) 
-	{
-	  /* Store the concept decl's template decl because 
-  	     That's what gets stored in the module's entity array/map. */
-  	  gcc_assert(!TREE_TYPE(TREE_TYPE(atom)));
-  	  TREE_TYPE(TREE_TYPE(atom)) = cdecl;
 
-	  /* Also assign the atom's in-order index for the purpose of 
-	     sorting during export. Note that the atom uses TREE_LANG_FLAG_0 
-             to indicate wether or not it's instantiated so I'll pack 
+      if (cdecl && flag_export_atoms)
+	{
+	  /* Store the concept decl's template decl because
+	     That's what gets stored in the module's entity array/map. */
+	  gcc_assert (!TREE_TYPE (TREE_TYPE (atom)));
+	  TREE_TYPE (TREE_TYPE (atom)) = cdecl;
+
+	  /* Also assign the atom's in-order index for the purpose of
+	     sorting during export. Note that the atom uses TREE_LANG_FLAG_0
+	     to indicate wether or not it's instantiated so I'll pack
 	     the index into the remaining bits using the TREE_VEC's length
-	     field. FIXME: use a macro or find a better set of bits or 
-	     use a macro to make this explicit. */
+	     field.
+
+	     FIXME: use a macro or find a better set of bits or use a macro to
+	     make this explicit. */
 	  atom->base.u.length |= (info.index << 1);
 	  info.index++;
 	}
@@ -2691,7 +2693,7 @@ satisfaction_cache
   elt.args = args;
   sat_entry **slot = sat_cache->find_slot (&elt, INSERT);
   if (*slot)
-      entry = *slot;
+    entry = *slot;
   else if (info.quiet ())
     {
       entry = ggc_alloc<sat_entry> ();
@@ -2807,13 +2809,14 @@ satisfaction_cache::save (tree result)
   return result;
 }
 
-/* Calls CB for each entry in the atomic constraint cache associated with 
+/* Calls CB for each entry in the atomic constraint cache associated with
    ATOM */
 
-void 
-walk_constraint_satisfactions (bool (*cb) (sat_entry *, void *), void *ctx)
+void
+walk_constraint_satisfactions (bool (*cb)(sat_entry *, void *), void *ctx)
 {
-  if (!sat_cache) return;
+  if (!sat_cache)
+    return;
 
   hash_table<sat_hasher>::iterator end = sat_cache->end ();
   for (hash_table<sat_hasher>::iterator i = sat_cache->begin (); i != end;
@@ -2826,8 +2829,8 @@ walk_constraint_satisfactions (bool (*cb) (sat_entry *, void *), void *ctx)
     }
 }
 
-/* Insert an atomic constraint into the table.  Only called from when a concept decl is  
-   imported from a module. */
+/* Insert an atomic constraint into the table.
+   Only called from when a concept decl is imported from a module.  */
 
 void
 save_constraint_satisfaction (tree atom, tree args, tree result)
@@ -2836,8 +2839,7 @@ save_constraint_satisfaction (tree atom, tree args, tree result)
   info.cached_result = result;
   satisfaction_cache cache (atom, args, info);
 
-  // Assuming that no degenerate situation were written into 
-  // the CMI...
+  /* Assuming that no degenerate situation were written into the CMI...  */
   if (!cache.get ())
     cache.save (result);
 }
@@ -3081,18 +3083,19 @@ satisfy_atom (tree t, tree args, sat_info info)
       return cache.save (r);
     }
 
-  if (info.quiet() && modules_p() && flag_export_satisfactions)
-  {
-    /* Link the uninstantiated atomic constraint to the instantiated atomic constraint. */
-    if (cache.entry) 
-      cache.entry->cached_atom = u;
-    if (inst_cache.entry) 
-      inst_cache.entry->cached_atom = u;
+  if (info.quiet () && modules_p () && flag_export_satisfactions)
+    {
+      /* Link the uninstantiated atomic constraint to the instantiated atomic
+	 constraint. */
+      if (cache.entry)
+	cache.entry->cached_atom = u;
+      if (inst_cache.entry)
+	inst_cache.entry->cached_atom = u;
 
-    /* We're importing a module with satisfied constraints. */
-    if (info.cached_result) 
-      return cache.save (inst_cache.save (info.cached_result));
-  }
+      /* We're importing a module with satisfied constraints. */
+      if (info.cached_result)
+	return cache.save (inst_cache.save (info.cached_result));
+    }
 
   /* Rebuild the argument vector from the parameter mapping.  */
   args = get_mapped_args (map);
@@ -3823,7 +3826,6 @@ diagnose_trait_expr (tree expr, tree args)
     case CPTK_IS_CONSTRUCTIBLE:
       inform(loc, "  %qT is not constructible from %qT", t1, t2);
       break;
-      
     default:
       gcc_unreachable ();
     }

@@ -2560,7 +2560,7 @@ public:
     void add_specializations (bool decl_p);
     void add_partial_entities (vec<tree, va_gc> *);
     void add_class_entities (vec<tree, va_gc> *);
-    void add_atoms();
+    void add_atoms ();
 
   public:    
     void find_dependencies (module_state *);
@@ -2610,7 +2610,7 @@ ek_name (depset::entity_kind ek)
   /* Same order as entity_kind.  */
   static const char *const names[] = 
     {"decl", "specialization", "partial", "atom", "using",
-     "namespace", "redirect", "binding", 
+     "namespace", "redirect", "binding",
      "for binding", "inner decl"}; // TY: - added the last two
   gcc_checking_assert (ek < sizeof (names) / sizeof(names[0]));
   return names[ek];
@@ -3442,10 +3442,10 @@ class GTY((chain_next ("%h.parent"), for_user)) module_state {
   unsigned extensions : SE_BITS;
   /* 14 bits used, 2 bits remain  */
 
-  /* which of the constraint caches were serialized into the CMI. */
-  unsigned cache_flags; 
-  bool has_atom_cache_p() const { return cache_flags & 1; }
-  bool has_constraint_cache_p() const { return cache_flags & 2; }
+  /* Which of the constraint caches were serialized into the CMI.  */
+  unsigned cache_flags;
+  bool has_atom_cache_p () const { return cache_flags & 1; }
+  bool has_constraint_cache_p () const { return cache_flags & 2; }
 
  public:
   module_state (tree name, module_state *, bool);
@@ -4668,7 +4668,7 @@ find_enum_member (tree ctx, tree name)
 
 /* Help for writing atomic constraints */
 
-struct constraint_satisfaction_context 
+struct constraint_satisfaction_context
 {
   tree atom;
   trees_out *out;
@@ -4678,33 +4678,36 @@ struct constraint_satisfaction_context
 extern void debug_parameter_mapping (tree map);
 extern void debug_argument_list (tree args);
 
+/* Write atomic constraint satisfactions.  */
+
 static bool
 write_constraint_satisfactions (sat_entry *entry, void *param)
 {
-  constraint_satisfaction_context *ctx = (constraint_satisfaction_context *)param;
+  constraint_satisfaction_context *ctx
+    = (constraint_satisfaction_context *)param;
 
-  if (entry->cached_atom == ctx->atom)
-    {
-      // Don't bother writing un-instantiated atoms. they'll be 
-      // re-computed during satisfaction.    
-      // FIXME: these shouln't need to be recomputed during 
-      // satisfaction, but it's not clear why they are.
-      if (!ATOMIC_CONSTR_MAP_INSTANTIATED_P(entry->atom)) 
-        return true;
+  if (entry->cached_atom != ctx->atom)
+    return true;
 
-      // Don't write the atom as is. Write it's constituent components 
-      // to prevent recursion.
-      tree ci = TREE_TYPE(entry->atom);
-      tree map = TREE_OPERAND(entry->atom, 0);
-      gcc_assert(ci);
-      ctx->out->tree_node(ci); // atomic expression
-      ctx->out->tree_node(map); // parameter map
-      if (ctx->out->streaming_p ())
-	ctx->out->u(ATOMIC_CONSTR_MAP_INSTANTIATED_P(entry->atom));
+  /* Don't bother writing un-instantiated atoms. they'll be re-computed during
+     satisfaction.  */
+  /* FIXME: these shouln't need to be recomputed during satisfaction, but it's
+     not clear why they are. */
+  if (!ATOMIC_CONSTR_MAP_INSTANTIATED_P (entry->atom))
+    return true;
 
-      ctx->out->tree_node(entry->args);
-      ctx->out->tree_node(entry->result);
-    }
+  /* Don't write the atom as is. Write it's constituent components to prevent
+     recursion.  */
+  tree ci = TREE_TYPE (entry->atom);
+  tree map = TREE_OPERAND (entry->atom, 0);
+  gcc_assert (ci);
+  ctx->out->tree_node (ci); /* atomic expression */
+  ctx->out->tree_node (map); /* parameter map */
+  if (ctx->out->streaming_p ())
+    ctx->out->u (ATOMIC_CONSTR_MAP_INSTANTIATED_P (entry->atom));
+
+  ctx->out->tree_node (entry->args);
+  ctx->out->tree_node (entry->result);
 
   return true;
 }
@@ -4819,7 +4822,8 @@ trees_out::unmark_trees ()
 void
 trees_out::mark_by_value (tree decl)
 {
-  gcc_checking_assert (DECL_P (decl) || TREE_CODE(decl) == ATOMIC_CONSTR
+  gcc_checking_assert (DECL_P (decl)
+		       || TREE_CODE(decl) == ATOMIC_CONSTR
 		       /* Enum consts are INTEGER_CSTS.  */
 		       || TREE_CODE (decl) == INTEGER_CST
 		       || TREE_CODE (decl) == TREE_BINFO);
@@ -7481,9 +7485,9 @@ trees_out::install_entity (tree decl, depset *dep)
   
   /* Write the entity index, so we can insert it as soon as we
      know this is new.  */
-  // TY: is this ok? 
   u (dep ? dep->cluster + 1 : 0);
-  if (CHECKING_P && dep && dep->get_entity_kind() != depset::EK_ATOM)
+  // TY: is this ok?
+  if (CHECKING_P && dep && dep->get_entity_kind () != depset::EK_ATOM)
     {
       /* Add it to the entity map, such that we can tell it is
 	 part of us.  */
@@ -7514,7 +7518,7 @@ trees_in::install_entity (tree decl)
   unsigned ident = state->entity_lwm + entity_index - 1;
   (*entity_ary)[ident] = decl;
 
-  if (TREE_CODE(decl) == ATOMIC_CONSTR) 
+  if (TREE_CODE (decl) == ATOMIC_CONSTR)
     return true;
 
   /* And into the entity map, if it's not already there.  */
@@ -7544,10 +7548,10 @@ void
 trees_out::decl_value (tree decl, depset *dep)
 {
   /* We should not be writing clones or template parms.  */
-  gcc_checking_assert ((TREE_CODE (decl) == ATOMIC_CONSTR) 
-  		       || (DECL_P (decl) 
-		           && !DECL_CLONED_FUNCTION_P (decl)
-		           && !DECL_TEMPLATE_PARM_P (decl)));
+  gcc_checking_assert ((TREE_CODE (decl) == ATOMIC_CONSTR)
+		       || (DECL_P (decl)
+			   && !DECL_CLONED_FUNCTION_P (decl)
+			   && !DECL_TEMPLATE_PARM_P (decl)));
 
   /* We should never be writing non-typedef ptrmemfuncs by value.  */
   gcc_checking_assert (TREE_CODE (decl) != TYPE_DECL
@@ -7556,7 +7560,7 @@ trees_out::decl_value (tree decl, depset *dep)
 
   merge_kind mk = get_merge_kind (decl, dep);
 
-  if (CHECKING_P && TREE_CODE(decl) != ATOMIC_CONSTR)
+  if (CHECKING_P && TREE_CODE (decl) != ATOMIC_CONSTR)
     {
       /* Never start in the middle of a template.  */
       int use_tpl = -1;
@@ -7735,32 +7739,33 @@ trees_out::decl_value (tree decl, depset *dep)
 	    }
 	}
 
-      if (TREE_CODE(decl) != ATOMIC_CONSTR)
-        tree_node (get_constraints (decl));
-      else 
-        {
+      if (TREE_CODE (decl) != ATOMIC_CONSTR)
+	tree_node (get_constraints (decl));
+      else
+	{
 	  if (flag_export_atoms && TREE_CODE(decl) == ATOMIC_CONSTR)
 	    {
 	      /* Write the any satisfaction results associated with this 
-	         atomic constraint. */
+		 atomic constraint. */
 	      //static int atom_recursion = 0;
 	      if (flag_export_satisfactions)
 		{
+		  // FIXME
 		  //if (!atom_recursion)
 		  //  {
 		  //    atom_recursion++;
-		
+		  //
 		      constraint_satisfaction_context ctx;
 		      ctx.atom = decl;
 		      ctx.out = this;
 		      ctx.state = state;
-		      walk_constraint_satisfactions (write_constraint_satisfactions,
-		                               &ctx);
+		      walk_constraint_satisfactions (
+			  write_constraint_satisfactions, &ctx);
 		      tree_node (NULL_TREE);
 		  //    atom_recursion--;
 		  //  }
 		}
-	    }		
+	    }
 	}
     }
 
@@ -7825,7 +7830,9 @@ trees_out::decl_value (tree decl, depset *dep)
 	}
     }
 
-  if (streaming_p () && (TREE_CODE(decl) != ATOMIC_CONSTR && DECL_MAYBE_IN_CHARGE_CDTOR_P (decl)))
+  if (streaming_p ()
+      && TREE_CODE (decl) != ATOMIC_CONSTR
+      && DECL_MAYBE_IN_CHARGE_CDTOR_P (decl))
     {
       bool cloned_p
 	= (DECL_CHAIN (decl) && DECL_CLONED_FUNCTION_P (DECL_CHAIN (decl)));
@@ -8065,22 +8072,23 @@ trees_in::decl_value ()
   /* Hold constraints on the spec field, for a short while.  */
 
   auto_vec<tree> sat_results;
-  if (TREE_CODE(decl) != ATOMIC_CONSTR)
+  if (TREE_CODE (decl) != ATOMIC_CONSTR)
     spec.spec = tree_node ();
-  else 
+  else
     {
-      if (state->has_constraint_cache_p())
+      if (state->has_constraint_cache_p ())
 	{
+	  // FIXME: what does this comment mean?
 	  // And any satisfaction results.
 	  tree ci;
-	  while ((ci = tree_node()) != NULL_TREE)
+	  while ((ci = tree_node ()) != NULL_TREE)
 	    {
-	      tree map = tree_node();
-	      tree atom = build1(ATOMIC_CONSTR, ci, map);
-	      ATOMIC_CONSTR_MAP_INSTANTIATED_P(atom) = u();
-	      sat_results.safe_push(atom);
-	      sat_results.safe_push(tree_node());  // args
-	      sat_results.safe_push(tree_node ()); // result
+	      tree map = tree_node ();
+	      tree atom = build1 (ATOMIC_CONSTR, ci, map);
+	      ATOMIC_CONSTR_MAP_INSTANTIATED_P (atom) = u ();
+	      sat_results.safe_push (atom);
+	      sat_results.safe_push (tree_node ()); // args
+	      sat_results.safe_push (tree_node ()); // result
 	    }
 	}
     }
@@ -8135,23 +8143,21 @@ trees_in::decl_value ()
 	   lookup_overrides relies on this optimization.  */
 	IDENTIFIER_VIRTUAL_P (DECL_NAME (decl)) = true;
 
-      if (installed && TREE_CODE(decl) != ATOMIC_CONSTR)
+      if (installed && TREE_CODE (decl) != ATOMIC_CONSTR)
 	{
 	  /* Mark the entity as imported.  */
 	  retrofit_lang_decl (inner);
 	  DECL_MODULE_IMPORT_P (inner) = true;
 	}
 
-      if (TREE_CODE(decl) != ATOMIC_CONSTR && spec.spec)
+      if (TREE_CODE (decl) != ATOMIC_CONSTR && spec.spec)
 	set_constraints (decl, spec.spec);
 
-      if (TREE_CODE(decl) == ATOMIC_CONSTR && state->has_atom_cache_p()) 
-        {
-          save_atomic_constraint(decl);
-	  for (tree *i = sat_results.begin(); i < sat_results.end(); i += 3)
-	  {
+      if (TREE_CODE (decl) == ATOMIC_CONSTR && state->has_atom_cache_p ())
+	{
+	  save_atomic_constraint (decl);
+	  for (tree *i = sat_results.begin (); i < sat_results.end (); i += 3)
 	    save_constraint_satisfaction (i[0], i[1], i[2]);
-	  }
 	}
 
       if (TREE_CODE (decl) == INTEGER_CST && !TREE_OVERFLOW (decl))
@@ -8199,20 +8205,20 @@ trees_in::decl_value ()
 	  && !(VAR_OR_FUNCTION_DECL_P (decl) && DECL_LOCAL_DECL_P (decl)))
 	add_module_namespace_decl (CP_DECL_CONTEXT (decl), decl);
 
-      if (TREE_CODE(decl) != ATOMIC_CONSTR)
-	if (DECL_ARTIFICIAL (decl)
-	    && TREE_CODE (decl) == FUNCTION_DECL
-	    && !DECL_TEMPLATE_INFO (decl)
-	    && DECL_CONTEXT (decl) && TYPE_P (DECL_CONTEXT (decl))
-	    && TYPE_SIZE (DECL_CONTEXT (decl))
-	    && !DECL_THUNK_P (decl))
-	    /* A new implicit member function, when the class is
-	       complete.  This means the importee declared it, and
-	       we must now add it to the class.  Note that implicit
-	       member fns of template instantiations do not themselves
-	       look like templates.  */
-	    if (!install_implicit_member (inner))
-	      set_overrun ();
+      if (TREE_CODE (decl) != ATOMIC_CONSTR
+	  && DECL_ARTIFICIAL (decl)
+	  && TREE_CODE (decl) == FUNCTION_DECL
+	  && !DECL_TEMPLATE_INFO (decl)
+	  && DECL_CONTEXT (decl) && TYPE_P (DECL_CONTEXT (decl))
+	  && TYPE_SIZE (DECL_CONTEXT (decl))
+	  && !DECL_THUNK_P (decl))
+	/* A new implicit member function, when the class is
+	   complete.  This means the importee declared it, and
+	   we must now add it to the class.  Note that implicit
+	   member fns of template instantiations do not themselves
+	   look like templates.  */
+	if (!install_implicit_member (inner))
+	  set_overrun ();
     }
   else
     {
@@ -8278,7 +8284,8 @@ trees_in::decl_value ()
 
   unused = saved_unused;
 
-  if (TREE_CODE(decl) != ATOMIC_CONSTR && DECL_MAYBE_IN_CHARGE_CDTOR_P (decl))
+  if (TREE_CODE (decl) != ATOMIC_CONSTR
+      && DECL_MAYBE_IN_CHARGE_CDTOR_P (decl))
     {
       unsigned flags = u ();
 
@@ -8358,8 +8365,8 @@ bool
 trees_out::decl_node (tree decl, walk_kind ref)
 {
   gcc_checking_assert ((DECL_P (decl) && !DECL_TEMPLATE_PARM_P (decl)
-		        && DECL_CONTEXT (decl))
-		       || TREE_CODE(decl) == ATOMIC_CONSTR);
+			 && DECL_CONTEXT (decl))
+		       || TREE_CODE (decl) == ATOMIC_CONSTR);
 
   if (ref == WK_value)
     {
@@ -9202,7 +9209,7 @@ trees_out::tree_node (tree t)
     }
 
  skip_normal:
-  if ((DECL_P (t) || TREE_CODE(t) == ATOMIC_CONSTR) && !decl_node (t, ref))
+  if ((DECL_P (t) || TREE_CODE (t) == ATOMIC_CONSTR) && !decl_node (t, ref))
     goto done;
 
   /* Otherwise by value */
@@ -10173,8 +10180,8 @@ trees_out::get_merge_kind (tree decl, depset *dep)
 	  if (DECL_LOCAL_DECL_P (decl))
 	    return MK_unique;
 	}
-      else if (TREE_CODE(decl) == ATOMIC_CONSTR) 
-        return MK_unique;  // TY: for now. Should merge by decl + index
+      else if (TREE_CODE (decl) == ATOMIC_CONSTR)
+	return MK_unique;  // TY: for now. Should merge by decl + index
 
       /* Either unique, or some member of a class that cannot have an
 	 out-of-class definition.  For instance a FIELD_DECL.  */
@@ -10381,7 +10388,7 @@ trees_out::decl_container (tree decl)
   tree_node (tpl);
 
   tree container = NULL_TREE;
-  if (TREE_CODE (decl) == ATOMIC_CONSTR) 
+  if (TREE_CODE (decl) == ATOMIC_CONSTR)
     decl = TREE_TYPE(TREE_TYPE(decl));
   if (TREE_CODE (decl) == TEMPLATE_DECL
       && DECL_UNINSTANTIATED_TEMPLATE_FRIEND_P (decl))
@@ -13137,27 +13144,32 @@ depset::hash::add_specializations (bool decl_p)
   data.release ();
 }
 
-static bool 
-atom_add(tree atom, void *ctx)
+/* Called through add_atoms; add a single ATOM as a dependency unless the
+   unless there is no associated declaration.  */
+
+static bool
+add_atom (tree atom, void *ctx)
 {
   depset::hash *table = (depset::hash *)ctx;
-  
-  /* Some atoms don't have associated declarations. 
+
+  /* Some atoms don't have associated declarations.
      We can ignore those, since they're not useful
      outside the TU they're generated for. */
-  tree decl = TREE_TYPE(TREE_TYPE(atom));
-  if (!decl) 
+  tree decl = TREE_TYPE (TREE_TYPE (atom));
+  if (!decl)
     return true;
 
-  table->make_dependency(atom, depset::EK_ATOM);
+  table->make_dependency (atom, depset::EK_ATOM);
 
   return true;
 }
 
+/* Add all atoms as dependencies.  */
+
 void
-depset::hash::add_atoms()
+depset::hash::add_atoms ()
 {
-  walk_atom_cache(atom_add, this);
+  walk_atom_cache (add_atom, this);
 }
 
 /* Add a depset into the mergeable hash.  */
@@ -13189,8 +13201,8 @@ depset::hash::add_mergeable (depset *mergeable)
 tree
 find_pending_key (tree decl, tree *decl_p = nullptr)
 {
-  if (TREE_CODE(decl) == ATOMIC_CONSTR) 
-    decl = TREE_TYPE(TREE_TYPE(decl));
+  if (TREE_CODE (decl) == ATOMIC_CONSTR)
+    decl = TREE_TYPE (TREE_TYPE (decl));
 
   tree ns = decl;
   do
@@ -13518,12 +13530,14 @@ depset_cmp (const void *a_, const void *b_)
     }
   else if (a_kind == depset::EK_ATOM)
     {
-      /* Defer to the concept decls */
+      /* Defer to the concept decls.  */
       tree a_atom = a_decl, b_atom = b_decl;
-      a_decl = TREE_TYPE(TREE_TYPE(a_decl));
-      b_decl = TREE_TYPE(TREE_TYPE(b_decl));
-      if (a_decl == b_decl) 
-        return (a_atom->base.u.length >> 1) < (b_atom->base.u.length >> 1) ? -1 : +1;
+      a_decl = TREE_TYPE (TREE_TYPE (a_decl));
+      b_decl = TREE_TYPE (TREE_TYPE (b_decl));
+      if (a_decl == b_decl)
+	return (a_atom->base.u.length >> 1) < (b_atom->base.u.length >> 1)
+	   ? -1
+	   : +1;
     }
 
   if (a_decl != b_decl)
@@ -14531,14 +14545,14 @@ struct module_state_config {
   unsigned ordinary_loc_align;
 
   unsigned has_atoms;
-  unsigned has_satisfactions; 
+  unsigned has_satisfactions;
 
 public:
   module_state_config ()
     :dialect_str (get_dialect ()),
      num_imports (0), num_partitions (0), num_entities (0),
      ordinary_locs (0), macro_locs (0), ordinary_loc_align (0),
-     has_atoms(0), has_satisfactions(0)
+     has_atoms (0), has_satisfactions (0)
   {
   }
 
@@ -15013,7 +15027,8 @@ module_state::read_cluster (unsigned snum)
 	  {
 	    tree atom = sec.tree_node ();
 	    // FIXME: ensure name
-	    dump () && dump ("Read atomic constraint of %N", TREE_TYPE(TREE_TYPE(atom)));
+	    dump () && dump ("Read atomic constraint of %N",
+		TREE_TYPE (TREE_TYPE (atom)));
 	  }
 	  break;
 
@@ -15556,7 +15571,7 @@ module_state::write_pendings (elf_out *to, vec<depset *> depsets,
 
       if (!(d->get_entity_kind () == depset::EK_SPECIALIZATION
 	    || d->get_entity_kind () == depset::EK_PARTIAL
-	    || (d->get_entity_kind () == depset::EK_DECL && d->is_member ()) 
+	    || (d->get_entity_kind () == depset::EK_DECL && d->is_member ())
 	    || (d->get_entity_kind() == depset::EK_ATOM)))
 	continue;
 
@@ -15601,9 +15616,10 @@ module_state::write_pendings (elf_out *to, vec<depset *> depsets,
 	}
       dump () && dump ("Pending %s %N entity:%u section:%u %skeyed to %P",
 		       d->get_entity_kind () == depset::EK_DECL
-		       ? "member" : d->get_entity_kind () == depset::EK_ATOM 
-		       ? "atomic constraint" : "specialization", d->get_entity (),
-		       d->cluster, cache_section, also, cache_ns, cache_id);
+		       ? "member" : d->get_entity_kind () == depset::EK_ATOM
+		       ? "atomic constraint" : "specialization",
+		       d->get_entity (), d->cluster, cache_section, also,
+		       cache_ns, cache_id);
       }
   sec.end (to, to->name (MOD_SNAME_PFX ".pnd"), crc_p);
   dump.outdent ();
@@ -17696,8 +17712,8 @@ module_state::read_config (module_state_config &config)
   config.macro_locs = cfg.u ();
   config.ordinary_loc_align = cfg.u ();
 
-  config.has_atoms = cfg.u();
-  config.has_satisfactions = cfg.u();
+  config.has_atoms = cfg.u ();
+  config.has_satisfactions = cfg.u ();
 
  done:
   return cfg.end (from ());
@@ -17736,8 +17752,6 @@ ool_cmp (const void *a_, const void *b_)
      MOD_SNAME_PFX.cnt      : counts
      MOD_SNAME_PFX.cfg      : config data
 */
-
-extern void debug_atom_cache();
 
 void
 module_state::write (elf_out *to, cpp_reader *reader)
@@ -17801,7 +17815,7 @@ module_state::write (elf_out *to, cpp_reader *reader)
       table.add_partial_entities (partial_specializations);
       partial_specializations = NULL;
     }
-  table.add_atoms(); 
+  table.add_atoms ();
   table.add_namespace_entities (global_namespace, partitions);
   if (class_members)
     {
@@ -18096,7 +18110,7 @@ module_state::read_initial (cpp_reader *reader)
   if (ok && have_locs && !read_macro_maps ())
     ok = false;
 
-  if (config.has_atoms) 
+  if (config.has_atoms)
     cache_flags |= 1;
   if (config.has_satisfactions)
     cache_flags |= 2;
