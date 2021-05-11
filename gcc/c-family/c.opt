@@ -1624,6 +1624,12 @@ fexec-charset=
 C ObjC C++ ObjC++ Joined RejectNegative
 -fexec-charset=<cset>	Convert all strings and character constants to character set <cset>.
 
+fexport-atoms
+C++ ObjC++ Var(flag_export_atoms) RejectNegative Integer Init(0)
+
+fexport-satisfactions
+C++ ObjC++ Var(flag_export_satisfactions) RejectNegative Integer Init(0)
+
 fextended-identifiers
 C ObjC C++ ObjC++
 Permit universal character names (\\u and \\U) in identifiers.
