@@ -1799,6 +1799,10 @@ finish_return_stmt (tree expr)
 				    /*koenig_p=*/false,
 				    /*complain=*/tf_warning_or_error);
       gcc_assert (call != error_mark_node);
+      /* We may not have actually built a CALL_EXPR; for instance if the
+	 return type is large (contracts-large-return.C).  */
+      if (TREE_CODE (call) == CALL_EXPR)
+	CALL_FROM_THUNK_P (call) = 1;
       pop_deferring_access_checks ();
 
       /* Replace returned expression with call to post function.  */

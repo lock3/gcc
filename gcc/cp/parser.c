@@ -11757,7 +11757,6 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
   token = cp_lexer_peek_token (parser->lexer);
 
   /* If we have contracts, check that they're valid in this context.  */
-  // FIXME: These aren't entirely correct.
   if (tree pre = lookup_attribute ("pre", contract_attrs))
     error_at (EXPR_LOCATION (TREE_VALUE (pre)),
 	      "preconditions cannot be statements");
@@ -11765,7 +11764,6 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
     error_at (EXPR_LOCATION (TREE_VALUE (post)),
 	      "postconditions cannot be statements");
 
-  /* FIXME: move fallthrough up here so it applies to decls/etc?  */
   /* Check that assertions are null statements.  */
   if (cp_contract_assertion_p (contract_attrs))
     if (token->type != CPP_SEMICOLON)
