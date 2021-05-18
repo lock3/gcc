@@ -1203,9 +1203,9 @@ cp_genericize_r (tree *stmt_p, int *walk_subtrees, void *data)
 	    return cp_genericize_r (stmt_p, walk_subtrees, data);
 	  }
 
-	/* If we didn't build a check, insert a NOP so we don't leak
-	   contracts into GENERIC.  */
-	*stmt_p = build1 (NOP_EXPR, void_type_node, integer_zero_node);
+	/* If we didn't build a check, replace it with void_node so we don't
+	   leak contracts into GENERIC.  */
+	*stmt_p = void_node;
 	*walk_subtrees = 0;
       }
       break;

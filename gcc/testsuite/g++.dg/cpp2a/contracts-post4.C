@@ -23,7 +23,7 @@ struct S
   }
 
   void f3()
-    [[post r: n]] // { dg-error "member function does not return a value" }
+    [[post r: n]] // { dg-error "does not return a value" }
   {
   }
 

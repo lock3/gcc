@@ -18,6 +18,122 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
+/* Design Notes
+
+   A function is called a "guarded" function if it has pre or post contract
+   attributes. A contract is considered an "active" contract if runtime code is
+   needed for the contract under the current contract configuration.
+
+   pre and post contract attributes are parsed and stored in DECL_ATTRIBUTES.
+   assert contracts are parsed and wrapped in statements. When genericizing, all
+   active and assumed contracts are transformed into an if block. An observed
+   contract:
+
+     [[ pre: v > 0 ]]
+
+   is transformed into:
+
+     if (!(v > 0)) {
+       __on_contract_violation (true, // continue_
+	 5, // line_number,
+	 "main.cpp", // file_name,
+	 "fun", // function_name,
+	 "v > 0", // comment,
+	 "default", // assertion_level,
+	 "default", // assertion_role,
+	 CCS_MAYBE, // continuation_mode
+	 );
+     }
+
+   Here, __on_contract_violation is a shim used to actually construct the
+   std::contract_violation and call the installed handler, finally terminating
+   if the contract should not continue on violation. This prevents requiring
+   including <contract> and simplifies building the call.
+
+   Assumed contracts have a similar transformation that results the body of the
+   if being __builtin_unreachable ();
+
+   Parsing of pre and post contract conditions need to be deferred when the
+   contracts are attached to a member function. The postcondition identifier
+   cannot be used before the deduced return type of an auto function is used,
+   except when used in a defining declaration in which case they conditions are
+   fully parsed once the body is finished (see cpp2a/contracts-deduced{1,2}.C).
+
+   A list of pre and post contracts can either be repeated in their entirety or
+   completely absent in subsequent declarations. If contract lists appear on two
+   matching declarations, their contracts have to be equivalent. In general this
+   means that anything before the colon have to be token equivalent and the
+   condition must be cp_tree_equal (primarily to allow for parameter renaming).
+
+   Contracts on overrides must match those present on (all of) the overridee(s).
+
+   Template specializations may have their own contracts. If no contracts are
+   specified on the initial specialization they're assumed to be the same as
+   the primary template. Specialization redeclarations must then match either
+   the primary template (if they were unspecified originally), or those
+   specified on the specialization.
+
+
+   For non-cdtors two functions are generated for ease of implementation and to
+   avoid some cases where code bloat may occurr. These are the DECL_PRE_FN and
+   DECL_POST_FN. Each handles checking either the set of pre or post contracts
+   of a guarded function.
+
+     int fun(int v)
+       [[ pre: v > 0 ]]
+       [[ post r: r < 0 ]]
+     {
+       return -v;
+     }
+
+   The original decl is left alone and instead calls are generated to pre/post
+   functions within the body:
+
+     void fun.pre(int v)
+     {
+       [[ assert: v > 0 ]];
+     }
+     int fun.post(int v, int __r)
+     {
+       [[ assert: __r < 0 ]];
+     }
+     int fun(int v)
+     {
+       fun.pre(v);
+       return fun.post(v, -v);
+     }
+
+   This sides steps a number of issues with having to rewrite the bodies or
+   rewrite the parsed conditions as the parameters to the original function
+   changes (as happens during redeclaration). The ultimate goal is to get
+   something that optimizes well along the lines of
+
+     int fun(int v)
+     {
+       [[ assert: v > 0 ]];
+       auto &&__r = -v;
+       goto out;
+     out:
+       [[ assert: __r < 0 ]];
+       return __r;
+     }
+
+   With the idea being that multiple return statements could collapse the
+   function epilogue after inlining the pre/post functions. clang is able
+   to collapse common function epilogues, while gcc needs -O3 -Os combined.
+   We're already doing this "manually" for cdtors due to the way they're already
+   implemented, forcing DECL_CDTOR_NEEDS_LABLED_EXIT_P to be true when the
+   cdtor has active contracts.
+
+   Directly laying the pre contracts down in the function body doesn't have
+   many issues. The post contracts may need to be repeated multiple times, once
+   for each return, or a goto epilogue would need generated similarly to cdtors.
+   For this initial implementation, generating function calls and letting
+   later optimizations decide whether to inline and duplicate the actual
+   checks or whether to collapse the shared epilogue was chosen.
+
+   */
+
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"

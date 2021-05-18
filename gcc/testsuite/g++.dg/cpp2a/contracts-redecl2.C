@@ -47,7 +47,7 @@ int G2::f(int a);
 
 
 int f0(int a) [[ pre: a > 0 ]];
-int f0(int a) [[ pre: a > 0 ]] [[ pre: a > 10 ]]; // { dg-error "more contracts" }
+int f0(int a) [[ pre: a > 0 ]] [[ pre: a > 10 ]]; // { dg-error "different number of contracts" }
 
 int f1(int a) [[ pre: a > 0 ]];
 int f1(int a) [[ pre: a < 0 ]]; // { dg-error "mismatched contract predicate" }

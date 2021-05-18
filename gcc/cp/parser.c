@@ -16026,11 +16026,7 @@ struct cp_contract_sentinel
 	/* Make sure we don't have named void results.  */
 	if (!result && POSTCONDITION_IDENTIFIER (contract))
 	  error_at (EXPR_LOCATION (POSTCONDITION_IDENTIFIER (contract)),
-		    "%s does not return a value",
-		    DECL_CONSTRUCTOR_P (fn) ? "constructor" :
-		    DECL_DESTRUCTOR_P (fn) ? "destructor" :
-		    DECL_FUNCTION_MEMBER_P (fn) ? "member function" :
-		      "function");
+		    "function does not return a value");
 	if (!result)
 	  return;
 
@@ -31595,10 +31591,6 @@ cp_parser_late_parsing_for_contract_kind (cp_parser *parser, tree function,
   /* Make sure that any template parameters are in scope.  */
   maybe_begin_member_template_processing (contract_fn);
 
-  /* Don't do access checking if it is a templated function.  */
-  if (processing_template_decl)
-    push_deferring_access_checks (dk_no_check);
-
   tree pushed_scope = NULL_TREE;
   if (DECL_FUNCTION_MEMBER_P (function))
     pushed_scope = push_scope (DECL_CONTEXT (contract_fn));
@@ -31619,9 +31611,6 @@ cp_parser_late_parsing_for_contract_kind (cp_parser *parser, tree function,
 
   if (pushed_scope)
     pop_scope (pushed_scope);
-
-  if (processing_template_decl)
-    pop_deferring_access_checks ();
 
   /* Remove any template parameters from the symbol table.  */
   maybe_end_member_template_processing ();

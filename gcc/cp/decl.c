@@ -951,8 +951,9 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
     {
       auto_diagnostic_group d;
       error_at (EXPR_LOCATION (new_contract),
-		"mismatched contract condition in %s",
-		ctx == cmc_declaration ? "declaration" : "override");
+		ctx == cmc_declaration
+		? "mismatched contract condition in declaration"
+		: "mismatched contract condition in override");
       inform (EXPR_LOCATION (old_contract), "previous contract here");
       return true;
     }
@@ -971,8 +972,9 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
     {
       auto_diagnostic_group d;
       error_at (EXPR_LOCATION (CONTRACT_CONDITION (new_contract)),
-		"mismatched contract predicate in %s",
-		ctx == cmc_declaration ? "declaration" : "override");
+		ctx == cmc_declaration
+		? "mismatched contract predicate in declaration"
+		: "mismatched contract predicate in override");
       inform (EXPR_LOCATION (CONTRACT_CONDITION (old_contract)),
 	      "previous predicate here");
       return true;
@@ -1026,10 +1028,15 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
     {
       auto_diagnostic_group d;
       error_at (newloc,
-		"%s has %s contracts than previously declared",
-		ctx == cmc_declaration ? "declaration" : "override",
-		new_attrs ? "more" : "fewer");
-      inform (oldloc, "original declaration here");
+		ctx == cmc_declaration
+		? "declaration has a different number of contracts than "
+		  "previously declared"
+		: "override has a different number of contracts than "
+		  "previously declared");
+      inform (oldloc,
+	      new_attrs
+	      ? "original declaration with fewer contracts here"
+	      : "original declaration with more contracts here");
       return false;
     }
 
@@ -2457,14 +2464,11 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
-      set_contract_functions (newdecl,
-			      DECL_PRE_FN (olddecl),
-			      DECL_POST_FN (olddecl));
       /* Save new argument names for use in contracts parsing.  */
-      if (DECL_PRE_FN (newdecl))
-	copy_argument_names (newdecl, DECL_PRE_FN (newdecl));
-      if (DECL_POST_FN (newdecl))
-	copy_argument_names (newdecl, DECL_POST_FN (newdecl));
+      if (DECL_PRE_FN (olddecl))
+	copy_argument_names (newdecl, DECL_PRE_FN (olddecl));
+      if (DECL_POST_FN (olddecl))
+	copy_argument_names (newdecl, DECL_POST_FN (olddecl));
 
       /* Optionally warn about more than one declaration for the same
 	 name, but don't warn about a function declaration followed by a
@@ -3362,10 +3366,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 
   /* Remove the associated contracts and unchecked result, if any.  */
   if (flag_contracts && TREE_CODE (newdecl) == FUNCTION_DECL)
-    {
-      remove_contract_attributes (newdecl);
-      set_contract_functions (newdecl, NULL_TREE, NULL_TREE);
-    }
+    set_contract_functions (newdecl, NULL_TREE, NULL_TREE);
 
   ggc_free (newdecl);
 
@@ -5936,18 +5937,17 @@ start_decl (const cp_declarator *declarator,
 
       if (DECL_EXTERNAL (decl) && ! DECL_TEMPLATE_SPECIALIZATION (decl)
 	  /* Aliases are definitions. */
-	  && !alias
-	  && (DECL_VIRTUAL_P (decl) || !flag_contracts))
-	permerror (declarator->id_loc,
-		   "declaration of %q#D outside of class is not definition",
-		   decl);
-      else if (DECL_EXTERNAL (decl) && ! DECL_TEMPLATE_SPECIALIZATION (decl)
-	  /* Aliases are definitions. */
-	  && !alias
-	  && flag_contract_strict_declarations)
-	warning_at (declarator->id_loc, OPT_fcontract_strict_declarations_,
-		    "declaration of %q#D outside of class is not definition",
-		    decl);
+	  && !alias)
+	{
+	  if (DECL_VIRTUAL_P (decl) || !flag_contracts)
+	    permerror (declarator->id_loc,
+		       "declaration of %q#D outside of class is not definition",
+		       decl);
+	  else if (flag_contract_strict_declarations)
+	    warning_at (declarator->id_loc, OPT_fcontract_strict_declarations_,
+			"declaration of %q#D outside of class is not definition",
+			decl);
+	}
     }
 
   /* Create a DECL_LANG_SPECIFIC so that DECL_DECOMPOSITION_P works.  */
