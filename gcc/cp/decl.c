@@ -1168,6 +1168,8 @@ merge_contracts (tree decl, const cp_declarator *fn)
     set_decl_contracts (decl, fn->contracts);
   else if (contract_any_deferred_p (fn->contracts))
     defer_guarded_contract_match (decl, NULL_TREE, fn->contracts);
+  else
+    set_decl_contracts (decl, fn->contracts);
 }
 
 /* Map from FUNCTION_DECL to a tree list of contracts that have not
@@ -2460,7 +2462,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 
       /* Ensure contracts, if any, are present on the newdecl so they're saved
 	 when olddecl is overwritten later.  */
-      if (DECL_CONTRACTS (olddecl))
+      if (DECL_CONTRACTS (olddecl) && !DECL_CONTRACTS (newdecl))
 	set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
@@ -18086,7 +18088,10 @@ finish_function_contracts (tree fndecl)
       start_preparsed_function (DECL_PRE_FN (fndecl),
 				DECL_ATTRIBUTES (DECL_PRE_FN (fndecl)),
 				flags);
-      emit_preconditions (DECL_CONTRACTS (DECL_PRE_FN (fndecl)));
+      for (tree attr = DECL_CONTRACTS (fndecl); attr; attr = CONTRACT_CHAIN (attr))
+	if (TREE_CODE (CONTRACT_STATEMENT (attr)) == PRECONDITION_STMT)
+	  remap_contract (fndecl, DECL_PRE_FN (fndecl), CONTRACT_STATEMENT (attr));
+      emit_preconditions (DECL_CONTRACTS (fndecl));
       finished_pre = finish_function (false);
       expand_or_defer_fn (finished_pre);
     }

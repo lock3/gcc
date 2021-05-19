@@ -14277,6 +14277,7 @@ tsubst_function_decl (tree t, tree args, tsubst_flags_t complain,
 				      DECL_ATTRIBUTES (r)))
       omp_declare_variant_finalize (r, attr);
 
+#if 0
   if (DECL_PRE_FN (t))
     {
       tree r_pre = tsubst_decl (DECL_PRE_FN (t), args,
@@ -14285,6 +14286,7 @@ tsubst_function_decl (tree t, tree args, tsubst_flags_t complain,
 				 tf_warning_or_error);
       set_contract_functions (r, r_pre, r_post);
     }
+#endif
   return r;
 }
 
@@ -21191,7 +21193,8 @@ tsubst_contract_conditions (tree t, tree args, tsubst_flags_t complain,
 
   /* If we're not a cdtor then the contracts are actually parsed in terms of
      the pre and post function arguments, not our own.  */
-  if (DECL_CONSTRUCTOR_P (t) || DECL_DESTRUCTOR_P (t))
+  //if (DECL_CONSTRUCTOR_P (t) || DECL_DESTRUCTOR_P (t))
+  if (true)
     {
       register_parameter_specializations (in_decl, t);
       tsubst_contract_conditions_1 (t, args, complain, in_decl);

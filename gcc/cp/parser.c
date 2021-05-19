@@ -31519,9 +31519,6 @@ cp_parser_late_parsing_for_contract (cp_parser *parser, tree checked,
     return;
 
   bool pre = TREE_CODE (contract) == PRECONDITION_STMT ? true : false;
-  tree contract_fn = pre ? DECL_PRE_FN (checked) : DECL_POST_FN (checked);
-  if (DECL_CONSTRUCTOR_P (checked) || DECL_DESTRUCTOR_P (checked))
-    contract_fn = checked;
 
   /* We must rename the return capture parameter to match what the
      postcondition expects.  */
@@ -31537,7 +31534,7 @@ cp_parser_late_parsing_for_contract (cp_parser *parser, tree checked,
   /* FIXME we can do this a lot more efficiently? Once per function for all of
    * its pre contracts, and then once per post contract? Is there an
    * appreciable difference? Or a way to simply rename the post ret val parm? */
-  begin_contract_scope (contract_fn);
+  begin_contract_scope (checked);
 
   cp_token_cache *tokens = DEFPARSE_TOKENS (CONTRACT_CONDITION (contract));
   cp_parser_push_lexer_for_tokens (parser, tokens);
@@ -31575,27 +31572,19 @@ static void
 cp_parser_late_parsing_for_contract_kind (cp_parser *parser, tree function,
 					  tree_code kind)
 {
+  if (function == error_mark_node)
+    return;
   temp_override<tree> saved_ccp(current_class_ptr);
   temp_override<tree> saved_ccr(current_class_ref);
 
-  tree contract_fn =
-    kind == PRECONDITION_STMT
-      ? DECL_PRE_FN (function)
-      : DECL_POST_FN (function);
-  if (DECL_CONSTRUCTOR_P (function) || DECL_DESTRUCTOR_P (function))
-    contract_fn = function;
-
-  if (contract_fn == error_mark_node)
-    return;
-
   /* Make sure that any template parameters are in scope.  */
-  maybe_begin_member_template_processing (contract_fn);
+  maybe_begin_member_template_processing (function);
 
   tree pushed_scope = NULL_TREE;
   if (DECL_FUNCTION_MEMBER_P (function))
-    pushed_scope = push_scope (DECL_CONTEXT (contract_fn));
+    pushed_scope = push_scope (DECL_CONTEXT (function));
 
-  temp_override<tree> cfdo(current_function_decl, contract_fn);
+  temp_override<tree> cfdo(current_function_decl, function);
 
   /* Ensure all current contract conditions are actually parsed.  */
   cp_parser_late_parsing_for_contract_attrs (parser, function,
@@ -31641,7 +31630,7 @@ cp_parser_late_parsing_for_contracts (cp_parser *parser, tree function)
   if (current_class_type && TYPE_BEING_DEFINED (current_class_type))
     return;
 
-  build_contract_function_decls (function);
+  //build_contract_function_decls (function);
 
   cp_parser_late_parsing_for_contract_kind (parser, function,
 					    PRECONDITION_STMT);
