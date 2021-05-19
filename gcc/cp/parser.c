@@ -2598,12 +2598,6 @@ static tree cp_parser_type_requirement
 static tree cp_parser_nested_requirement
   (cp_parser *);
 
-/* Contracts Extensions */
-static tree cp_parser_cache_contract_condition
-  (cp_parser *);
-static void cp_parser_late_parsing_for_contracts
-  (cp_parser *, tree);
-
 /* Transactional Memory Extensions */
 
 static tree cp_parser_transaction
@@ -30543,9 +30537,6 @@ cp_parser_function_definition_after_declarator (cp_parser* parser,
       (parser, /*in_function_try_block=*/false);
 
   fn = current_function_decl;
-  /* Ensure all outstanding contracts are fully parsed.  */
-  if (DECL_HAS_CONTRACTS_P (fn))
-    cp_parser_late_parsing_for_contracts (parser, fn);
 
   /* Finish the function.  */
   fn = finish_function (inline_p);
@@ -31391,81 +31382,14 @@ cp_parser_enclosed_template_argument_list (cp_parser* parser)
   return arguments;
 }
 
-/* If CONTRACT's condition is deferred, parse it now.  */
-
-static void
-cp_parser_late_parsing_for_contract (cp_parser *parser, tree checked,
-				     tree contract)
-{
-  gcc_unreachable ();
-#if 0
-  if (!CONTRACT_CONDITION_DEFERRED_P (contract))
-    return;
-  /* Further defer parsing if we reference an undeduced return type.  */
-  if (undeduced_auto_decl (checked)
-      && TREE_CODE (contract) == POSTCONDITION_STMT
-      && POSTCONDITION_IDENTIFIER (contract)
-      && !DECL_TEMPLATE_INFO (checked))
-    return;
-
-  bool pre = TREE_CODE (contract) == PRECONDITION_STMT ? true : false;
-
-  /* We must rename the return capture parameter to match what the
-     postcondition expects.  */
-  tree return_var = DECL_UNCHECKED_RESULT (checked);
-  if (!pre && POSTCONDITION_IDENTIFIER (contract) && return_var)
-    {
-      tree name
-        = STRIP_ANY_LOCATION_WRAPPER (POSTCONDITION_IDENTIFIER (contract));
-      gcc_assert (name);
-      DECL_NAME (return_var) = name;
-    }
-
-  /* FIXME we can do this a lot more efficiently? Once per function for all of
-   * its pre contracts, and then once per post contract? Is there an
-   * appreciable difference? Or a way to simply rename the post ret val parm? */
-  begin_contract_scope (checked);
-
-  cp_token_cache *tokens = DEFPARSE_TOKENS (CONTRACT_CONDITION (contract));
-  cp_parser_push_lexer_for_tokens (parser, tokens);
-  cp_parser_contract_condition (parser, contract, checked);
-  cp_parser_pop_lexer (parser);
-
-  pop_injected_parms ();
-
-  /* Restore the original name and context for the captured return value.  */
-  if (return_var)
-    {
-      DECL_NAME (return_var) = get_identifier ("__r");
-      DECL_CONTEXT (return_var) = DECL_POST_FN (checked);
-    }
-#endif
-}
-
-/* Parse all KIND (precondition or postcondition) contracts in CONTRACT_ATTRS
-   for the FUNCTION_DECL FUNCTION.  */
-
-static void
-cp_parser_late_parsing_for_contract_attrs (cp_parser *parser,
-					   tree function,
-					   tree contract_attrs,
-					   tree_code kind)
-{
-  gcc_unreachable ();
-#if 0
-  for (; contract_attrs; contract_attrs = CONTRACT_CHAIN (contract_attrs))
-    if (TREE_CODE (CONTRACT_STATEMENT (contract_attrs)) == kind)
-      cp_parser_late_parsing_for_contract (parser, function,
-					   CONTRACT_STATEMENT (contract_attrs));
-#endif
-}
-
 /* Parse any outstanding contract conditions of tree code KIND on FUNCTION.  */
 
 static void
 cp_parser_late_parsing_for_contract_kind (cp_parser *parser, tree function,
 					  tree_code kind)
 {
+  // FIXME: This should go away.
+#if 0
   if (function == error_mark_node)
     return;
   temp_override<tree> saved_ccp(current_class_ptr);
@@ -31497,6 +31421,7 @@ cp_parser_late_parsing_for_contract_kind (cp_parser *parser, tree function,
 
   /* Remove any template parameters from the symbol table.  */
   maybe_end_member_template_processing ();
+#endif
 }
 
 /* Parse any outstanding contract conditions on FUNCTION, if any.  */

@@ -56,6 +56,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "context.h"  /* For 'g'.  */
 #include "omp-general.h"
 #include "omp-offload.h"  /* For offload_vars.  */
+#include "print-tree.h"
 
 /* Possible cases of bad specifiers type used by bad_specifiers. */
 enum bad_spec_place {
@@ -1085,7 +1086,13 @@ match_contracts (tree olddecl, location_t newloc, tree new_attrs)
    and diagnose issues or save the contracts for deferred checking if they're
    not entirely parsed.
 
-   Otherwise, simply save the contracts.  */
+   Otherwise, simply save the contracts.
+   
+   FIXME: This is only ever called from grokdeclarator. The DECL should probably
+   not have any contracts unless duplicate_decls has already been called.
+   
+   Rewrite this so that it just instantiates postconditions and ensures that
+   DECL_CONTRACTS returns the right thing.  */
 
 void
 merge_contracts (tree decl, const cp_declarator *fn)
@@ -11724,6 +11731,8 @@ grokdeclarator (const cp_declarator *declarator,
   bool array_parameter_p = false;
   tree reqs = NULL_TREE;
 
+  const cp_declarator *fn_declarator = NULL;
+
   signed_p = decl_spec_seq_has_spec_p (declspecs, ds_signed);
   unsigned_p = decl_spec_seq_has_spec_p (declspecs, ds_unsigned);
   short_p = decl_spec_seq_has_spec_p (declspecs, ds_short);
@@ -11781,6 +11790,10 @@ grokdeclarator (const cp_declarator *declarator,
 	      if (sfk == sfk_destructor)
 		flags = DTOR_FLAG;
 	    }
+
+	  if (!fn_declarator)
+   	    fn_declarator = id_declarator;
+
 	  break;
 
 	case cdk_id:
@@ -14081,6 +14094,9 @@ grokdeclarator (const cp_declarator *declarator,
 
 	    if (declspecs->explicit_specifier)
 	      store_explicit_specifier (decl, declspecs->explicit_specifier);
+
+ 	    gcc_assert (fn_declarator);
+	    merge_contracts (decl, fn_declarator);
 	  }
 	else if (!staticp
 		 && ((current_class_type
@@ -14408,6 +14424,9 @@ grokdeclarator (const cp_declarator *declarator,
 		storage_class = sc_none;
 	      }
 	  }
+
+	  gcc_assert (fn_declarator);
+	  merge_contracts (decl, fn_declarator);
       }
     else
       {
@@ -17335,13 +17354,6 @@ start_function (cp_decl_specifier_seq *declspecs,
        (and issued a diagnostic) if the user got it wrong.  */
     gcc_assert (same_type_p (TREE_TYPE (TREE_TYPE (decl1)),
 			     integer_type_node));
-
-  if (flag_contracts)
-    {
-      const cp_declarator *fndecl
-	= find_innermost_function_declarator (declarator);
-      merge_contracts (decl1, fndecl);
-    }
 
   return start_preparsed_function (decl1, attrs, /*flags=*/SF_DEFAULT);
 }
