@@ -7741,13 +7741,13 @@ trees_out::decl_value (tree decl, depset *dep)
 		 atomic constraint. */
 	      if (flag_export_satisfactions)
 		{
-		      constraint_satisfaction_context ctx;
-		      ctx.atom = decl;
-		      ctx.out = this;
-		      ctx.state = state;
-		      walk_constraint_satisfactions (
-			  write_constraint_satisfactions, &ctx);
-		      tree_node (NULL_TREE);
+		  constraint_satisfaction_context ctx;
+		  ctx.atom = decl;
+		  ctx.out = this;
+		  ctx.state = state;
+		  walk_constraint_satisfactions (
+		    write_constraint_satisfactions, &ctx);
+		  tree_node (NULL_TREE);
 		}
 	    }
 	}

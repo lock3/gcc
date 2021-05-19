@@ -1676,6 +1676,11 @@ check_constraint_info (tree t)
 #define CONSTRAINT_VAR_P(NODE) \
   DECL_LANG_FLAG_2 (TREE_CHECK (NODE, PARM_DECL))
 
+/* A tree list of atomic constraint expressions associated with a concept decl
+   (modules + fserialize-constraints)  */
+#define CONCEPT_ATOMIC_CONSTRAINTS(NODE) \
+  DECL_SIZE_UNIT (NODE)
+
 /* The concept constraining this constrained template-parameter.  */
 #define CONSTRAINED_PARM_CONCEPT(NODE) \
   DECL_SIZE_UNIT (TYPE_DECL_CHECK (NODE))
