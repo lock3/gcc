@@ -7554,6 +7554,8 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 
 /* Contracts */
 extern tree make_postcondition_variable		(tree, location_t loc);
+extern tree grok_contract			(tree, tree, tree, cp_expr, location_t);
+extern tree finish_contract_condition		(cp_expr);
 extern void remove_contract_attributes		(tree);
 extern bool contract_active_p			(tree);
 extern bool contract_any_active_p		(tree);
@@ -7563,8 +7565,6 @@ extern void set_contract_functions		(tree, tree, tree);
 extern void set_contracts_original_fn		(tree, tree);
 extern tree start_postcondition_statement	();
 extern void finish_postcondition_statement	(tree);
-extern tree start_contract			(location_t, tree, tree, tree);
-extern tree finish_contract			(tree, tree, tree);
 extern tree build_contract_check		(tree);
 extern vec<tree, va_gc> *build_arg_list		(tree);
 extern tree get_unchecked_result		(tree);

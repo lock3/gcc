@@ -876,66 +876,6 @@ copy_fn_decl (tree idecl)
   return decl;
 }
 
-/* Convert a contract CONFIG into a contract_mode.  */
-
-static contract_mode
-contract_config_to_mode (tree config)
-{
-  if (config == NULL_TREE)
-    return contract_mode (CONTRACT_DEFAULT, get_default_contract_role ());
-
-  /* TREE_LIST has TREE_VALUE is a level and TREE_PURPOSE is role.  */
-  if (TREE_CODE (config) == TREE_LIST)
-    {
-      contract_role *role = NULL;
-      if (TREE_PURPOSE (config))
-	role = get_contract_role (IDENTIFIER_POINTER (TREE_PURPOSE (config)));
-      if (!role)
-	role = get_default_contract_role ();
-
-      contract_level level =
-	map_contract_level (IDENTIFIER_POINTER (TREE_VALUE (config)));
-      return contract_mode (level, role);
-    }
-
-  /* Literal semantic.  */
-  gcc_assert (TREE_CODE (config) == IDENTIFIER_NODE);
-  contract_semantic semantic =
-    map_contract_semantic (IDENTIFIER_POINTER (config));
-  return contract_mode (semantic);
-}
-
-/* Convert a contract's config into a concrete semantic using the current
-   contract semantic mapping.  */
-
-static contract_semantic
-compute_contract_concrete_semantic (tree contract)
-{
-  contract_mode mode = contract_config_to_mode (CONTRACT_MODE (contract));
-  /* Compute the concrete semantic for the contract.  */
-  if (!flag_contract_mode)
-    /* If contracts are off, treat all contracts as ignore.  */
-    return CCS_IGNORE;
-  else if (mode.kind == contract_mode::cm_invalid)
-    return CCS_INVALID;
-  else if (mode.kind == contract_mode::cm_explicit)
-    return mode.get_semantic ();
-  else
-    {
-      gcc_assert (mode.get_role ());
-      gcc_assert (mode.get_level () != CONTRACT_INVALID);
-      contract_level level = mode.get_level ();
-      contract_role *role = mode.get_role ();
-      if (level == CONTRACT_DEFAULT)
-	return role->default_semantic;
-      else if (level == CONTRACT_AUDIT)
-	return role->audit_semantic;
-      else if (level == CONTRACT_AXIOM)
-	return role->axiom_semantic;
-    }
-  gcc_assert (false);
-}
-
 /* Build a declaration for the PRE_FN or POST_FN of a guarded FNDECL.  */
 
 static tree
@@ -1265,50 +1205,25 @@ emit_postconditions (tree contracts)
   return emit_contract_conditions (contracts, POSTCONDITION_STMT);
 }
 
-/* Setup an initial contract node. This determines the concrete semantics
-   of the contract.  IDENTIFIER is only non-null for postconditions.  */
+/* Converts a contract condition to bool and ensures it has a locaiton.  */
 
 tree
-start_contract (location_t loc,
-		tree attr,
-		tree config,
-		tree id)
+finish_contract_condition (cp_expr condition)
 {
-  tree_code code;
-  if (is_attribute_p ("assert", attr))
-    code = ASSERTION_STMT;
-  else if (is_attribute_p ("pre", attr))
-    code = PRECONDITION_STMT;
-  else if (is_attribute_p ("post", attr))
-    code = POSTCONDITION_STMT;
-  else
-    gcc_unreachable ();
+  /* Ensure we have the condition location saved in case we later need to
+     emit a conversion error during template instantiation and wouldn't
+     otherwise have it.  */
+  if (!CAN_HAVE_LOCATION_P (condition) || EXCEPTIONAL_CLASS_P (condition))
+    {
+      condition = build1_loc (condition.get_location (), VIEW_CONVERT_EXPR,
+			      TREE_TYPE (condition), condition);
+      EXPR_LOCATION_WRAPPER_P (condition) = 1;
+    }
 
-  /* Build the contract. The condition is added later.  */
-  tree contract;
-  if (code != POSTCONDITION_STMT)
-    contract = build3_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE);
-  else
-    contract = build4_loc (loc, code, void_type_node, config, NULL_TREE, NULL_TREE, id);
+  if (condition == error_mark_node || type_dependent_expression_p (condition))
+    return condition;
 
-  set_contract_semantic (contract, compute_contract_concrete_semantic (contract));
-  return contract;
-}
-
-/* Attach the condition to the contract, build the comment, and the code
-   to execute when the contract is checked (if checked).  */
-
-tree
-finish_contract (tree contract, tree condition, tree comment)
-{
-  /* The condition is converted to bool.  */
-  if (condition != error_mark_node && !type_dependent_expression_p (condition))
-    condition = maybe_convert_cond (condition);
-  CONTRACT_CONDITION (contract) = condition;
-
-  if (comment)
-    CONTRACT_COMMENT (contract) = comment;
-  return contract;
+  return maybe_convert_cond (condition);
 }
 
 /* Begin a conditional that might contain a declaration.  When generating

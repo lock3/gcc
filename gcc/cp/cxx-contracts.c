@@ -136,11 +136,13 @@ along with GCC; see the file COPYING3.  If not see
 #include "system.h"
 #include "coretypes.h"
 #include "cp-tree.h"
+#include "stringpool.h"
 #include "diagnostic.h"
 #include "options.h"
 #include "cxx-contracts.h"
 #include "tree.h"
 #include "tree-inline.h"
+#include "attribs.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
@@ -486,6 +488,66 @@ handle_OPT_fcontract_semantic_ (const char *arg)
   validate_contract_role (role);
 }
 
+/* Convert a contract CONFIG into a contract_mode.  */
+
+static contract_mode
+contract_config_to_mode (tree config)
+{
+  if (config == NULL_TREE)
+    return contract_mode (CONTRACT_DEFAULT, get_default_contract_role ());
+
+  /* TREE_LIST has TREE_VALUE is a level and TREE_PURPOSE is role.  */
+  if (TREE_CODE (config) == TREE_LIST)
+    {
+      contract_role *role = NULL;
+      if (TREE_PURPOSE (config))
+	role = get_contract_role (IDENTIFIER_POINTER (TREE_PURPOSE (config)));
+      if (!role)
+	role = get_default_contract_role ();
+
+      contract_level level =
+	map_contract_level (IDENTIFIER_POINTER (TREE_VALUE (config)));
+      return contract_mode (level, role);
+    }
+
+  /* Literal semantic.  */
+  gcc_assert (TREE_CODE (config) == IDENTIFIER_NODE);
+  contract_semantic semantic =
+    map_contract_semantic (IDENTIFIER_POINTER (config));
+  return contract_mode (semantic);
+}
+
+/* Convert a contract's config into a concrete semantic using the current
+   contract semantic mapping.  */
+
+static contract_semantic
+compute_concrete_semantic (tree contract)
+{
+  contract_mode mode = contract_config_to_mode (CONTRACT_MODE (contract));
+  /* Compute the concrete semantic for the contract.  */
+  if (!flag_contract_mode)
+    /* If contracts are off, treat all contracts as ignore.  */
+    return CCS_IGNORE;
+  else if (mode.kind == contract_mode::cm_invalid)
+    return CCS_INVALID;
+  else if (mode.kind == contract_mode::cm_explicit)
+    return mode.get_semantic ();
+  else
+    {
+      gcc_assert (mode.get_role ());
+      gcc_assert (mode.get_level () != CONTRACT_INVALID);
+      contract_level level = mode.get_level ();
+      contract_role *role = mode.get_role ();
+      if (level == CONTRACT_DEFAULT)
+	return role->default_semantic;
+      else if (level == CONTRACT_AUDIT)
+	return role->audit_semantic;
+      else if (level == CONTRACT_AXIOM)
+	return role->axiom_semantic;
+    }
+  gcc_assert (false);
+}
+
 /* Returns an invented variable declration of the form `auto x`, which is
    used a placeholder for the eventual return value of a function.  */
 
@@ -500,6 +562,61 @@ make_postcondition_variable (tree identifier, location_t loc)
   DECL_SOURCE_LOCATION (decl) = loc;
   push_binding (identifier, decl, current_binding_level);
   return decl;
+}
+
+/* Build a contract.  */
+
+tree
+grok_contract (tree attribute, tree mode, tree result, cp_expr condition,
+	       location_t loc)
+{
+  tree_code code;
+  if (is_attribute_p ("assert", attribute))
+    code = ASSERTION_STMT;
+  else if (is_attribute_p ("pre", attribute))
+    code = PRECONDITION_STMT;
+  else if (is_attribute_p ("post", attribute))
+    code = POSTCONDITION_STMT;
+  else
+    gcc_unreachable ();
+
+  /* Build the contract. The condition is added later.  */
+  tree contract;
+  tree type = void_type_node;
+  if (code != POSTCONDITION_STMT)
+    contract = build3_loc (loc, code, type, mode, NULL_TREE, NULL_TREE);
+  else
+    contract = build4_loc (loc, code, type, mode, NULL_TREE, NULL_TREE, result);
+
+  /* Determine the concrete semantic.  */
+  set_contract_semantic (contract, compute_concrete_semantic (contract));
+
+  /* The condition is converted to bool.  */
+  condition = finish_contract_condition (condition);
+  CONTRACT_CONDITION (contract) = condition;
+
+  /* Try to get the actual source text for the condition; if that fails pretty
+     print the resulting tree.  */
+  char *comment_str =
+    get_source (condition.get_start (), condition.get_finish ());
+  if (comment_str)
+    {
+      CONTRACT_COMMENT (contract)
+	= build_string_literal (strlen (comment_str) + 1, comment_str);
+      free (comment_str);
+    }
+  else
+    {
+      /* FIXME cases where we end up here
+	 #line macro usage (oof)
+	 contracts10.C
+	 contracts11.C  */
+      const char *comment_str = expr_to_string (condition);
+      CONTRACT_COMMENT (contract)
+      	= build_string_literal (strlen (comment_str) + 1, comment_str);
+    }
+
+  return contract;
 }
 
 /* Return TRUE iff ATTR has been parsed by the front-end as a c++2a contract
