@@ -130,9 +130,7 @@ along with GCC; see the file COPYING3.  If not see
    for each return, or a goto epilogue would need generated similarly to cdtors.
    For this initial implementation, generating function calls and letting
    later optimizations decide whether to inline and duplicate the actual
-   checks or whether to collapse the shared epilogue was chosen.
-
-   */
+   checks or whether to collapse the shared epilogue was chosen.  */
 
 #include "config.h"
 #include "system.h"
@@ -486,6 +484,22 @@ handle_OPT_fcontract_semantic_ (const char *arg)
   else
     error ("-fcontract-semantic= level must be default, audit, or axiom");
   validate_contract_role (role);
+}
+
+/* Returns an invented variable declration of the form `auto x`, which is
+   used a placeholder for the eventual return value of a function.  */
+
+tree
+make_postcondition_variable (tree identifier, location_t loc)
+{
+  if (identifier == error_mark_node)
+    return identifier;
+
+  tree decl = build_lang_decl (VAR_DECL, identifier, make_auto ());
+  DECL_ARTIFICIAL (decl) = true;
+  DECL_SOURCE_LOCATION (decl) = loc;
+  push_binding (identifier, decl, current_binding_level);
+  return decl;
 }
 
 /* Return TRUE iff ATTR has been parsed by the front-end as a c++2a contract

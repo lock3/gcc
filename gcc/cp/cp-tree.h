@@ -7552,6 +7552,8 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 						 tsubst_flags_t,
 						 access_failure_info *afi = NULL);
 
+/* Contracts */
+extern tree make_postcondition_variable		(tree, location_t loc);
 extern void remove_contract_attributes		(tree);
 extern bool contract_active_p			(tree);
 extern bool contract_any_active_p		(tree);

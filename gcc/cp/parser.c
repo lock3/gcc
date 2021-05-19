@@ -28510,6 +28510,39 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
   /* Parse the optional mode.  */
   tree config = cp_parser_contract_mode_opt (parser, postcondition_p);
 
+  /* Check for postcondition identifiers. Synthesize a placeholder variable
+     for the purpose lookup in the contract attribute.  */
+  tree result = NULL_TREE;
+  if (postcondition_p)
+    {
+      if (cp_lexer_next_token_is (parser->lexer, CPP_NAME))
+	{
+	  location_t loc = input_location;
+	  begin_scope (sk_block, NULL_TREE);
+	  result = cp_parser_identifier (parser);
+	  if (result == error_mark_node)
+	    leave_scope ();
+	  result = make_postcondition_variable (result, loc);
+	  ++processing_template_decl;
+	}
+    }
+
+  cp_parser_require (parser, CPP_COLON, RT_COLON);
+
+  /* Parse the condition, ensuring that parameters or the return variable
+     aren't flagged for use outside the body of a function.  */
+  ++cp_contract_operand;
+  cp_parser_conditional_expression (parser);
+  --cp_contract_operand;
+
+  /* Leave our temporary scope for the postcondition result.  */
+  if (postcondition_p && result)
+    {
+      --processing_template_decl;
+      pop_bindings_and_leave_scope ();
+    }
+
+#if 0
   /* For postconditions, parse the optional identifier.  */
   tree identifier = NULL_TREE;
   location_t identifier_loc = cp_lexer_peek_token (parser->lexer)->location;
@@ -28543,6 +28576,8 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attr)
 
   return build_tree_list (build_tree_list (NULL_TREE, attr),
                           build_tree_list (NULL_TREE, contract));
+  #endif
+  return NULL_TREE;
 }
 
 /* Parse a standard C++-11 attribute specifier.
@@ -28702,11 +28737,7 @@ cp_parser_std_attribute_spec (cp_parser *parser)
 /* Parse a standard C++-11 attribute-specifier-seq.
 
    attribute-specifier-seq:
-     attribute-specifier-seq [opt] attribute-specifier
-
-   The DECLARATOR provides information needed to parse contract conditions
-   of function declarations. This is only non-null when parsing a function
-   declarator.  */
+     attribute-specifier-seq [opt] attribute-specifier  */
 
 static tree
 cp_parser_std_attribute_spec_seq (cp_parser *parser)
