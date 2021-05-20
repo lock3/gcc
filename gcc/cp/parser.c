@@ -1467,31 +1467,6 @@ cp_contract_assertion_p (const_tree attr)
     && TREE_CODE (CONTRACT_STATEMENT (attr)) == ASSERTION_STMT;
 }
 
-/* Remove contracts from the list of standard attributes, building
-   CONTRACTS as a TREE_LIST.  */
-
-static void
-cp_separate_contracts (tree &attributes, tree &contracts,
-		       bool (*pred)(const_tree))
-{
-//   tree attr = attributes;
-//   contracts = (contracts == NULL_TREE ? NULL_TREE : nreverse (contracts));
-//   attributes = NULL_TREE;
-//   while (attr)
-//     {
-//       tree next = TREE_CHAIN (attr);
-//       TREE_CHAIN (attr) = NULL_TREE;
-//       if (pred (attr))
-// 	contracts = chainon (attr, contracts);
-//       else
-// 	attributes = chainon (attr, attributes);
-//       attr = next;
-//     }
-//   contracts = nreverse (contracts);
-//   attributes = nreverse (attributes);
-}
-
-
 /* Decl-specifiers.  */
 
 /* Set *DECL_SPECS to represent an empty decl-specifier-seq.  */
@@ -1722,11 +1697,7 @@ make_call_declarator (cp_declarator *target,
   else
     declarator->parameter_pack_p = false;
 
-  /* Split contracts out of the attribute list.  */
   declarator->std_attributes = std_attrs;
-  cp_separate_contracts (declarator->std_attributes,
-			 declarator->contracts,
-			 cxx_contract_attribute_p);
 
   return declarator;
 }
@@ -11739,25 +11710,25 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	std_attrs = NULL_TREE;
     }
 
-  /* Extract contracts from the attributes.  */
-  tree contract_attrs = NULL_TREE;
-  cp_separate_contracts (std_attrs, contract_attrs, cp_contract_assertion_p);
-
   /* Peek at the next token.  */
   token = cp_lexer_peek_token (parser->lexer);
 
+  /* FIXME: Reimplement the semantics for assertions. Also move the pre/post
+     checks into contract.cc.  */
+#if 0
   /* If we have contracts, check that they're valid in this context.  */
-  if (tree pre = lookup_attribute ("pre", contract_attrs))
+  if (tree pre = lookup_attribute ("pre", std_attrs)))
     error_at (EXPR_LOCATION (TREE_VALUE (pre)),
 	      "preconditions cannot be statements");
-  else if (tree post = lookup_attribute ("post", contract_attrs))
+  else if (tree post = lookup_attribute ("post", std_attrs)))
     error_at (EXPR_LOCATION (TREE_VALUE (post)),
 	      "postconditions cannot be statements");
 
   /* Check that assertions are null statements.  */
-  if (cp_contract_assertion_p (contract_attrs))
+  if (cp_contract_assertion_p (std_attrs))
     if (token->type != CPP_SEMICOLON)
       error_at (token->location, "assertions must be followed by %<;%>");
+#endif
 
   /* Remember the location of the first token in the statement.  */
   cp_token *statement_token = token;
@@ -11941,6 +11912,8 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	  std_attrs = NULL_TREE;
 	}
 
+      /* FIXME: Re-enable this.  */
+#if 0
       /* Handle [[assert: ...]];  */
       if (cp_contract_assertion_p (contract_attrs))
 	{
@@ -11948,6 +11921,7 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	  gcc_assert (!statement || statement == error_mark_node);
 	  emit_assertion (contract_attrs);
 	}
+#endif
     }
 
   /* Set the line number for the statement.  */
@@ -26456,11 +26430,6 @@ cp_parser_member_declaration (cp_parser* parser)
 	      asm_specification = cp_parser_asm_specification_opt (parser);
 	      /* Look for attributes that apply to the declaration.  */
 	      attributes = cp_parser_attributes_opt (parser);
-	      /* Move additional contracts post virt-specifier into the
-		 declarator's contract list.  */
-	      cp_separate_contracts (attributes,
-				     declarator->contracts,
-				     cxx_contract_attribute_p);
 	      /* Remember which attributes are prefix attributes and
 		 which are not.  */
 	      first_attribute = attributes;
