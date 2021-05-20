@@ -11713,8 +11713,6 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
   /* Peek at the next token.  */
   token = cp_lexer_peek_token (parser->lexer);
 
-  /* FIXME: Reimplement the semantics for assertions. Also move the pre/post
-     checks into contract.cc.  */
   /* If we have contracts, check that they're valid in this context.  */
   if (tree pre = lookup_attribute ("pre", std_attrs))
     error_at (EXPR_LOCATION (TREE_VALUE (pre)),
@@ -11910,13 +11908,13 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	  std_attrs = NULL_TREE;
 	}
 
-      /* FIXME: Re-enable this.  */
       /* Handle [[assert: ...]];  */
       if (cp_contract_assertion_p (std_attrs))
 	{
 	  /* Add the assertion as a statement in the current block.  */
 	  gcc_assert (!statement || statement == error_mark_node);
 	  emit_assertion (std_attrs);
+	  std_attrs = NULL_TREE;
 	}
     }
 
