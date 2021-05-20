@@ -552,19 +552,19 @@ compute_concrete_semantic (tree contract)
    used a placeholder for the eventual return value of a function.  */
 
 tree
-make_postcondition_variable (tree identifier, location_t loc)
+make_postcondition_variable (cp_expr identifier)
 {
   if (identifier == error_mark_node)
     return identifier;
 
   tree decl = build_lang_decl (VAR_DECL, identifier, make_auto ());
   DECL_ARTIFICIAL (decl) = true;
-  DECL_SOURCE_LOCATION (decl) = loc;
+  DECL_SOURCE_LOCATION (decl) = identifier.get_location ();
   push_binding (identifier, decl, current_binding_level);
   return decl;
 }
 
-/* Build a contract.  */
+/* Build a contract statement.  */
 
 tree
 grok_contract (tree attribute, tree mode, tree result, cp_expr condition,
@@ -580,7 +580,9 @@ grok_contract (tree attribute, tree mode, tree result, cp_expr condition,
   else
     gcc_unreachable ();
 
-  /* Build the contract. The condition is added later.  */
+  /* Build the contract. The condition is added later.  In the case that
+     the contract is deferred, result an plain identifier, not a result
+     variable.  */
   tree contract;
   tree type = void_type_node;
   if (code != POSTCONDITION_STMT)
@@ -590,6 +592,13 @@ grok_contract (tree attribute, tree mode, tree result, cp_expr condition,
 
   /* Determine the concrete semantic.  */
   set_contract_semantic (contract, compute_concrete_semantic (contract));
+
+  /* If the contract is deferred, don't do anything with the condition.  */
+  if (TREE_CODE (condition) == DEFERRED_PARSE)
+    {
+      CONTRACT_CONDITION (contract) = condition;
+      return contract;
+    }
 
   /* The condition is converted to bool.  */
   condition = finish_contract_condition (condition);

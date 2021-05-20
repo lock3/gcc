@@ -7553,7 +7553,7 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 						 access_failure_info *afi = NULL);
 
 /* Contracts */
-extern tree make_postcondition_variable		(tree, location_t loc);
+extern tree make_postcondition_variable		(cp_expr);
 extern tree grok_contract			(tree, tree, tree, cp_expr, location_t);
 extern tree finish_contract_condition		(cp_expr);
 extern void remove_contract_attributes		(tree);
