@@ -11715,12 +11715,11 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 
   /* FIXME: Reimplement the semantics for assertions. Also move the pre/post
      checks into contract.cc.  */
-#if 0
   /* If we have contracts, check that they're valid in this context.  */
-  if (tree pre = lookup_attribute ("pre", std_attrs)))
+  if (tree pre = lookup_attribute ("pre", std_attrs))
     error_at (EXPR_LOCATION (TREE_VALUE (pre)),
 	      "preconditions cannot be statements");
-  else if (tree post = lookup_attribute ("post", std_attrs)))
+  else if (tree post = lookup_attribute ("post", std_attrs))
     error_at (EXPR_LOCATION (TREE_VALUE (post)),
 	      "postconditions cannot be statements");
 
@@ -11728,7 +11727,6 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
   if (cp_contract_assertion_p (std_attrs))
     if (token->type != CPP_SEMICOLON)
       error_at (token->location, "assertions must be followed by %<;%>");
-#endif
 
   /* Remember the location of the first token in the statement.  */
   cp_token *statement_token = token;
@@ -11913,15 +11911,13 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
 	}
 
       /* FIXME: Re-enable this.  */
-#if 0
       /* Handle [[assert: ...]];  */
-      if (cp_contract_assertion_p (contract_attrs))
+      if (cp_contract_assertion_p (std_attrs))
 	{
 	  /* Add the assertion as a statement in the current block.  */
 	  gcc_assert (!statement || statement == error_mark_node);
-	  emit_assertion (contract_attrs);
+	  emit_assertion (std_attrs);
 	}
-#endif
     }
 
   /* Set the line number for the statement.  */
