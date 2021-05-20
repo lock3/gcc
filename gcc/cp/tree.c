@@ -4884,8 +4884,7 @@ const struct attribute_spec std_attribute_table[] =
   { "noreturn", 0, 0, true, false, false, false,
     handle_noreturn_attribute, attr_noreturn_exclusions },
   { "pre", 0, -1, false, false, false, false, handle_contract_attribute, NULL },
-  { "post", 0, -1, false, false, false, false,
-    handle_contract_attribute, NULL },
+  { "post", 0, -1, false, false, false, false, handle_contract_attribute, NULL },
   { NULL, 0, 0, false, false, false, false, NULL, NULL }
 };
 
@@ -5134,14 +5133,14 @@ handle_abi_tag_attribute (tree* node, tree name, tree args,
   return NULL_TREE;
 }
 
-/* Handle a pre or post contract attribute.  */
+/* Perform checking for contract attributes.  */
 
 tree
 handle_contract_attribute (tree *ARG_UNUSED (node), tree ARG_UNUSED (name),
 			   tree ARG_UNUSED (args), int ARG_UNUSED (flags),
 			   bool *no_add_attrs)
 {
-  *no_add_attrs = true;
+  /* TODO: Is there any checking we could do here?  */
   return NULL_TREE;
 }
 

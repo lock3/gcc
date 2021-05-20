@@ -10075,6 +10075,7 @@ grokfndecl (tree ctype,
 	    tree orig_declarator,
 	    const cp_decl_specifier_seq *declspecs,
 	    tree decl_reqs,
+	    tree contracts,
 	    int virtualp,
 	    enum overload_flags flags,
 	    cp_cv_quals quals,
@@ -11730,8 +11731,7 @@ grokdeclarator (const cp_declarator *declarator,
   bool late_return_type_p = false;
   bool array_parameter_p = false;
   tree reqs = NULL_TREE;
-
-  const cp_declarator *fn_declarator = NULL;
+  tree contracts = NULL_TREE;
 
   signed_p = decl_spec_seq_has_spec_p (declspecs, ds_signed);
   unsigned_p = decl_spec_seq_has_spec_p (declspecs, ds_unsigned);
@@ -11790,10 +11790,6 @@ grokdeclarator (const cp_declarator *declarator,
 	      if (sfk == sfk_destructor)
 		flags = DTOR_FLAG;
 	    }
-
-	  if (!fn_declarator)
-   	    fn_declarator = id_declarator;
-
 	  break;
 
 	case cdk_id:
@@ -12727,6 +12723,7 @@ grokdeclarator (const cp_declarator *declarator,
 
       inner_declarator = declarator->declarator;
 
+      /* FIXME: This needs to be updated or removed.  */
       tree contract_attr = declarator->contracts;
       if (!contract_attr)
 	contract_attr = find_contract (declarator->std_attributes);
@@ -13137,12 +13134,27 @@ grokdeclarator (const cp_declarator *declarator,
 		else
 		  returned_attrs = chainon (returned_attrs, att);
 	      }
-	    if (attrs)
-	      /* [dcl.fct]/2:
 
-		 The optional attribute-specifier-seq appertains to
-		 the function type.  */
-	      cplus_decl_attributes (&type, attrs, 0);
+	    /* Contract attributes appertain to the declaration.  */
+            for (tree a = attrs; a; )
+	      {
+		tree p = TREE_CHAIN (a);
+		TREE_CHAIN (a) = NULL_TREE;
+		if (cxx_contract_attribute_p (a))
+		  returned_attrs = chainon (returned_attrs, a);
+		else
+		  attrs = chainon (attrs, a);
+		a = p;
+	      }
+
+	    if (attrs)
+	      {
+	        /* [dcl.fct]/2:
+
+		   The optional attribute-specifier-seq appertains to
+		   the function type.  */
+	        cplus_decl_attributes (&type, attrs, 0);
+	      }
 
 	    if (raises)
 	      type = build_exception_variant (type, raises);
@@ -14065,6 +14077,7 @@ grokdeclarator (const cp_declarator *declarator,
 			       unqualified_id,
 			       declspecs,
 			       reqs,
+			       contracts,
 			       virtualp, flags, memfn_quals, rqual, raises,
 			       friendp ? -1 : 0, friendp, publicp,
 			       inlinep | (2 * constexpr_p) | (4 * concept_p)
@@ -14094,9 +14107,6 @@ grokdeclarator (const cp_declarator *declarator,
 
 	    if (declspecs->explicit_specifier)
 	      store_explicit_specifier (decl, declspecs->explicit_specifier);
-
- 	    gcc_assert (fn_declarator);
-	    merge_contracts (decl, fn_declarator);
 	  }
 	else if (!staticp
 		 && ((current_class_type
@@ -14381,7 +14391,8 @@ grokdeclarator (const cp_declarator *declarator,
 
 	decl = grokfndecl (ctype, type, original_name, parms, unqualified_id,
 			   declspecs,
-                           reqs, virtualp, flags, memfn_quals, rqual, raises,
+                           reqs, contracts, virtualp, flags, memfn_quals,
+			   rqual, raises,
 			   1, friendp,
 			   publicp,
 			   inlinep | (2 * constexpr_p) | (4 * concept_p)
@@ -14424,9 +14435,6 @@ grokdeclarator (const cp_declarator *declarator,
 		storage_class = sc_none;
 	      }
 	  }
-
-	  if (flag_contracts && fn_declarator)
-	    merge_contracts (decl, fn_declarator);
       }
     else
       {

@@ -1474,21 +1474,21 @@ static void
 cp_separate_contracts (tree &attributes, tree &contracts,
 		       bool (*pred)(const_tree))
 {
-  tree attr = attributes;
-  contracts = (contracts == NULL_TREE ? NULL_TREE : nreverse (contracts));
-  attributes = NULL_TREE;
-  while (attr)
-    {
-      tree next = TREE_CHAIN (attr);
-      TREE_CHAIN (attr) = NULL_TREE;
-      if (pred (attr))
-	contracts = chainon (attr, contracts);
-      else
-	attributes = chainon (attr, attributes);
-      attr = next;
-    }
-  contracts = nreverse (contracts);
-  attributes = nreverse (attributes);
+//   tree attr = attributes;
+//   contracts = (contracts == NULL_TREE ? NULL_TREE : nreverse (contracts));
+//   attributes = NULL_TREE;
+//   while (attr)
+//     {
+//       tree next = TREE_CHAIN (attr);
+//       TREE_CHAIN (attr) = NULL_TREE;
+//       if (pred (attr))
+// 	contracts = chainon (attr, contracts);
+//       else
+// 	attributes = chainon (attr, attributes);
+//       attr = next;
+//     }
+//   contracts = nreverse (contracts);
+//   attributes = nreverse (attributes);
 }
 
 
