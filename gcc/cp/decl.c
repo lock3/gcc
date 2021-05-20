@@ -14425,8 +14425,8 @@ grokdeclarator (const cp_declarator *declarator,
 	      }
 	  }
 
-	  gcc_assert (fn_declarator);
-	  merge_contracts (decl, fn_declarator);
+	  if (flag_contracts && fn_declarator)
+	    merge_contracts (decl, fn_declarator);
       }
     else
       {
