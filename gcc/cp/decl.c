@@ -1168,8 +1168,6 @@ merge_contracts (tree decl, const cp_declarator *fn)
     set_decl_contracts (decl, fn->contracts);
   else if (contract_any_deferred_p (fn->contracts))
     defer_guarded_contract_match (decl, NULL_TREE, fn->contracts);
-  else
-    set_decl_contracts (decl, fn->contracts);
 }
 
 /* Map from FUNCTION_DECL to a tree list of contracts that have not
@@ -2462,15 +2460,10 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 
       /* Ensure contracts, if any, are present on the newdecl so they're saved
 	 when olddecl is overwritten later.  */
-      if (DECL_CONTRACTS (olddecl) && !DECL_CONTRACTS (newdecl))
+      if (DECL_CONTRACTS (olddecl))
 	set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
-      /* Save new argument names for use in contracts parsing.  */
-      if (DECL_PRE_FN (olddecl))
-	copy_argument_names (newdecl, DECL_PRE_FN (olddecl));
-      if (DECL_POST_FN (olddecl))
-	copy_argument_names (newdecl, DECL_POST_FN (olddecl));
 
       /* Optionally warn about more than one declaration for the same
 	 name, but don't warn about a function declaration followed by a
@@ -3051,6 +3044,10 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	}
       if (! types_match || new_defines_function)
 	{
+	  /* These are the final DECL_ARGUMENTS that will be used within the
+	     body; update any references to old DECL_ARGUMENTS in the
+	     contracts, if present.  */
+	  remap_contracts (olddecl, newdecl, DECL_CONTRACTS (olddecl));
 	  /* These need to be copied so that the names are available.
 	     Note that if the types do match, we'll preserve inline
 	     info and other bits, but if not, we won't.  */

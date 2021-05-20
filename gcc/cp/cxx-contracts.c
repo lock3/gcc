@@ -568,3 +568,14 @@ remap_contract (tree src, tree dst, tree contract)
   walk_tree (&CONTRACT_CONDITION (contract), copy_tree_body_r, &id, NULL);
 }
 
+/* Rewrite any references to SRC's PARM_DECLs to the corresponding PARM_DECL
+   in DST in all of the contract attributes in CONTRACTS by calling
+   remap_contract on each.  */
+
+void
+remap_contracts (tree src, tree dst, tree contracts)
+{
+  for (tree attr = contracts; attr; attr = CONTRACT_CHAIN (attr))
+    remap_contract (src, dst, CONTRACT_STATEMENT (attr));
+}
+
