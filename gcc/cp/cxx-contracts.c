@@ -549,23 +549,31 @@ compute_concrete_semantic (tree contract)
   gcc_assert (false);
 }
 
-/* Returns an invented parameter declration of the form `auto x`, which is
-   used a placeholder for the eventual return value of a function.
+/* Returns an invented parameter declration of the form 'TYPE ID' for the
+   purpose of parsing the postcondition.
    
    We use a PARM_DECL instead of a VAR_DECL so that tsubst forces a lookup
    in local specializations when we instantiate these things later.  */
 
 tree
-make_postcondition_variable (cp_expr identifier)
+make_postcondition_variable (cp_expr id, tree type)
 {
-  if (identifier == error_mark_node)
-    return identifier;
+  if (id == error_mark_node)
+    return id;
 
-  tree decl = build_lang_decl (PARM_DECL, identifier, make_auto ());
+  tree decl = build_lang_decl (PARM_DECL, id, type);
   DECL_ARTIFICIAL (decl) = true;
-  DECL_SOURCE_LOCATION (decl) = identifier.get_location ();
-  push_binding (identifier, decl, current_binding_level);
+  DECL_SOURCE_LOCATION (decl) = id.get_location ();
+  push_binding (id, decl, current_binding_level);
   return decl;
+}
+
+/* As above, except that the type is unknown.  */
+
+tree
+make_postcondition_variable (cp_expr id)
+{
+  return make_postcondition_variable (id, make_auto ());
 }
 
 /* Instantiate each postcondition with the return type to finalize the
@@ -587,6 +595,12 @@ rebuild_postconditions (tree decl, tree type)
       tree contract = TREE_VALUE (TREE_VALUE (attributes));
       if (TREE_CODE (contract) != POSTCONDITION_STMT)
 	continue;
+      tree condition = CONTRACT_CONDITION (contract);
+      /* If any conditions are deferred, they're all deferred.  Note that
+	 we don't have to instantiate postconditions in that case because
+	 the type is available through the declaration.  */
+      if (TREE_CODE (condition) == DEFERRED_PARSE)
+	return;
       tree oldvar = POSTCONDITION_IDENTIFIER (contract);
       if (!oldvar)
 	continue;
@@ -597,9 +611,8 @@ rebuild_postconditions (tree decl, tree type)
 
       local_specialization_stack stack (lss_copy);
       register_local_specialization (newvar, oldvar);
-      tree condition = tsubst_expr (CONTRACT_CONDITION (contract),
-				    make_tree_vec (1), tf_warning_or_error,
-				    decl, false);
+      condition = tsubst_expr (condition, make_tree_vec (0),
+			       tf_warning_or_error, decl, false);
 
       /* Update the contract condition and result.  */
       POSTCONDITION_IDENTIFIER (contract) = newvar;

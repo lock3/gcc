@@ -2590,7 +2590,7 @@ static tree cp_parser_yield_expression
 /* Contracts */
 
 static void cp_parser_late_contract_condition
-  (cp_parser *, tree);
+  (cp_parser *, tree, tree);
 
 enum pragma_context {
   pragma_external,
@@ -25379,7 +25379,7 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 	  for (tree a = DECL_ATTRIBUTES (decl); a; a = TREE_CHAIN (a))
 	    {
 	      if (cxx_contract_attribute_p (a))
-	        cp_parser_late_contract_condition (parser, a);
+		cp_parser_late_contract_condition (parser, decl, a);
 	    }
 
 	  /* Restore the state of local_variables_forbidden_p.  */
@@ -28513,10 +28513,14 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 			  build_tree_list (NULL_TREE, contract));
 }
 
-void cp_parser_late_contract_condition (cp_parser *parser, tree attribute)
+/* Parse a contract condition for a deferred contract.  */
+
+void cp_parser_late_contract_condition (cp_parser *parser,
+					tree fn, 
+					tree attribute)
 {
   tree contract = TREE_VALUE (TREE_VALUE (attribute));
-  
+
   tree identifier = NULL_TREE;
   if (TREE_CODE (contract) == POSTCONDITION_STMT)
     identifier = POSTCONDITION_IDENTIFIER (contract);
@@ -28526,7 +28530,8 @@ void cp_parser_late_contract_condition (cp_parser *parser, tree attribute)
   if (identifier)
     {
       begin_scope (sk_block, NULL_TREE);
-      result = make_postcondition_variable (identifier);
+      tree type = TREE_TYPE (TREE_TYPE (fn));
+      result = make_postcondition_variable (identifier, type);
       ++processing_template_decl;
     }
 

@@ -7554,6 +7554,7 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 
 /* Contracts */
 extern tree make_postcondition_variable		(cp_expr);
+extern tree make_postcondition_variable		(cp_expr, tree);
 extern void rebuild_postconditions		(tree, tree);
 extern tree grok_contract			(tree, tree, tree, cp_expr, location_t);
 extern void update_late_contract		(tree, tree, tree);
