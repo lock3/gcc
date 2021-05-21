@@ -2462,6 +2462,15 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	 when olddecl is overwritten later.  */
       if (DECL_CONTRACTS (olddecl))
 	set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
+      /* Otherwise, rewrite references to newdecl's parms in its contracts, if
+	 any. Unless this is a defining declaration newdecl's DECL_ARGUMENTS
+	 will be thrown away.
+
+	 TODO: we may be able to keep newdecl's DECL_ARGUMENTs instead, though
+	 there are some sharp corners, see note about
+	 modules/contracts-tpl-friend-1 further down for instance.  */
+      else if (DECL_CONTRACTS (newdecl))
+	remap_contracts (newdecl, olddecl, DECL_CONTRACTS (newdecl));
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
 
