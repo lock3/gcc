@@ -25382,6 +25382,9 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 	        cp_parser_late_contract_condition (parser, a);
 	    }
 
+	  /* Restore the state of local_variables_forbidden_p.  */
+	  parser->local_variables_forbidden_p = local_variables_forbidden_p;
+
 	  /* Remove any member-function parameters from the symbol table.  */
 	  pop_injected_parms ();
 
@@ -28549,15 +28552,12 @@ void cp_parser_late_contract_condition (cp_parser *parser, tree attribute)
   /* Restore the queue.  */
   pop_unparsed_function_queues (parser);
 
-  /* Save the newly parsed condition.  */
-  CONTRACT_CONDITION (contract) = condition;
+  /* Commit to changes.  */
+  update_late_contract (contract, result, condition);
 
   /* Leave our temporary scope for the postcondition result.  */
   if (result)
     {
-      /* Save the new postcondition variable.  */
-      POSTCONDITION_IDENTIFIER (result) = condition;
-
       --processing_template_decl;
       pop_bindings_and_leave_scope ();
     }

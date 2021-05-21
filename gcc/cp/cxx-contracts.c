@@ -143,6 +143,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree.h"
 #include "tree-inline.h"
 #include "attribs.h"
+#include "print-tree.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
@@ -564,6 +565,48 @@ make_postcondition_variable (cp_expr identifier)
   return decl;
 }
 
+/* Instantiate each postcondition with the return type to finalize the
+   attribute.  */
+
+void
+rebuild_postconditions (tree attributes, tree type)
+{
+  /* If the return type is undeduced, defer until later.  */
+  if (TREE_CODE (type) == TEMPLATE_TYPE_PARM)
+    return;
+  
+  for (; attributes ; attributes = TREE_CHAIN (attributes))
+    {
+      tree contract = TREE_VALUE (TREE_VALUE (attributes));
+      if (TREE_CODE (contract) != POSTCONDITION_STMT)
+	continue;
+//       debug_tree (contract);
+      tree var = POSTCONDITION_IDENTIFIER (contract);
+//       debug_tree (var);
+    }
+}
+
+static tree
+build_comment (cp_expr condition)
+{
+  /* Try to get the actual source text for the condition; if that fails pretty
+     print the resulting tree.  */
+  char *str = get_source (condition.get_start (), condition.get_finish ());
+  if (!str)
+    {
+      /* FIXME cases where we end up here
+	 #line macro usage (oof)
+	 contracts10.C
+	 contracts11.C  */
+      const char *str = expr_to_string (condition);
+      return build_string_literal (strlen (str) + 1, str);
+    }
+
+  tree t = build_string_literal (strlen (str) + 1, str);
+  free (str);
+  return t;
+}
+
 /* Build a contract statement.  */
 
 tree
@@ -600,32 +643,30 @@ grok_contract (tree attribute, tree mode, tree result, cp_expr condition,
       return contract;
     }
 
+  /* Generate the comment from the original condition.  */
+  CONTRACT_COMMENT (contract) = build_comment (condition);
+
   /* The condition is converted to bool.  */
   condition = finish_contract_condition (condition);
   CONTRACT_CONDITION (contract) = condition;
-
-  /* Try to get the actual source text for the condition; if that fails pretty
-     print the resulting tree.  */
-  char *comment_str =
-    get_source (condition.get_start (), condition.get_finish ());
-  if (comment_str)
-    {
-      CONTRACT_COMMENT (contract)
-	= build_string_literal (strlen (comment_str) + 1, comment_str);
-      free (comment_str);
-    }
-  else
-    {
-      /* FIXME cases where we end up here
-	 #line macro usage (oof)
-	 contracts10.C
-	 contracts11.C  */
-      const char *comment_str = expr_to_string (condition);
-      CONTRACT_COMMENT (contract)
-      	= build_string_literal (strlen (comment_str) + 1, comment_str);
-    }
-
   return contract;
+}
+
+/* Update condition of a late-parsed contract and postcondition variable,
+   if any.  */
+
+void
+update_late_contract (tree contract, tree result, tree condition)
+{
+  if (TREE_CODE (contract) == POSTCONDITION_STMT)
+    POSTCONDITION_IDENTIFIER (contract) = result;
+
+  /* Generate the comment from the original condition.  */
+  CONTRACT_COMMENT (contract) = build_comment (condition);
+
+  /* The condition is converted to bool.  */
+  condition = finish_contract_condition (condition);
+  CONTRACT_CONDITION (contract) = condition;
 }
 
 /* Return TRUE iff ATTR has been parsed by the front-end as a c++2a contract

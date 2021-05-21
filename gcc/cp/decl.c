@@ -10075,7 +10075,6 @@ grokfndecl (tree ctype,
 	    tree orig_declarator,
 	    const cp_decl_specifier_seq *declspecs,
 	    tree decl_reqs,
-	    tree contracts,
 	    int virtualp,
 	    enum overload_flags flags,
 	    cp_cv_quals quals,
@@ -10522,6 +10521,9 @@ grokfndecl (tree ctype,
       cplus_decl_attributes (&decl, *attrlist, 0);
       *attrlist = NULL_TREE;
     }
+
+  if (tree contracts = DECL_CONTRACTS (decl))
+    rebuild_postconditions (contracts, TREE_TYPE (type));
 
   /* Check main's type after attributes have been applied.  */
   if (ctype == NULL_TREE && DECL_MAIN_P (decl))
@@ -14077,7 +14079,6 @@ grokdeclarator (const cp_declarator *declarator,
 			       unqualified_id,
 			       declspecs,
 			       reqs,
-			       contracts,
 			       virtualp, flags, memfn_quals, rqual, raises,
 			       friendp ? -1 : 0, friendp, publicp,
 			       inlinep | (2 * constexpr_p) | (4 * concept_p)
@@ -14391,8 +14392,7 @@ grokdeclarator (const cp_declarator *declarator,
 
 	decl = grokfndecl (ctype, type, original_name, parms, unqualified_id,
 			   declspecs,
-                           reqs, contracts, virtualp, flags, memfn_quals,
-			   rqual, raises,
+                           reqs, virtualp, flags, memfn_quals, rqual, raises,
 			   1, friendp,
 			   publicp,
 			   inlinep | (2 * constexpr_p) | (4 * concept_p)
