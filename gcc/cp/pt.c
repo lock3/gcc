@@ -2004,6 +2004,16 @@ register_local_specialization (tree spec, tree tmpl)
   local_specializations->put (tmpl, spec);
 }
 
+/* Registers T as a specialization of itself.  This is used to preserve
+   the references to already-parsed parameters when instantiating
+   postconditions.  */
+
+void
+register_local_identity (tree t)
+{
+  local_specializations->put (t, t);
+}
+
 /* TYPE is a class type.  Returns true if TYPE is an explicitly
    specialized class.  */
 
@@ -26064,6 +26074,8 @@ instantiate_body (tree pattern, tree args, tree d, bool nested_p)
       /* Create substitution entries for the parameters.  */
       register_parameter_specializations (code_pattern, d);
 
+      /* FIXME: Probably don't do this.  */
+#if 0
       /* Instantiate pending dependent contract conditions.  For constructors
 	 that will have the conditions inserted while substituting the
 	 initializer list, this must be done before substituting the body.
@@ -26071,6 +26083,7 @@ instantiate_body (tree pattern, tree args, tree d, bool nested_p)
 	 substituting the body so we have the deduced return type. */
       if (DECL_CONSTRUCTOR_P (d))
 	tsubst_contract_conditions (d, args, tf_warning_or_error, code_pattern);
+#endif
 
       /* Substitute into the body of the function.  */
       if (DECL_OMP_DECLARE_REDUCTION_P (code_pattern))

@@ -46,6 +46,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "predict.h"
 #include "memmodel.h"
 #include "cxx-contracts.h"
+#include "print-tree.h"
 
 /* There routines provide a modular interface to perform many parsing
    operations.  They may therefore be used during actual parsing, or
@@ -11293,6 +11294,12 @@ apply_deduced_return_type (tree fco, tree return_type)
     DECL_NAME (fco) = make_conv_op_name (return_type);
 
   TREE_TYPE (fco) = change_return_type (return_type, TREE_TYPE (fco));
+
+  /* Update any postconditions that depend on the deduced return type.  */
+  if (DECL_HAS_CONTRACTS_P (fco))
+    rebuild_postconditions (fco, return_type);
+
+  /* Apply the type to the result object.  */
 
   result = DECL_RESULT (fco);
   if (result == NULL_TREE)

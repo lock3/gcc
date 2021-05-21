@@ -28431,7 +28431,18 @@ cp_parser_contract_mode_opt (cp_parser *parser,
   contract-attribute-specifier:
     [ [ assert contract-level [opt] : conditional-expression ] ]
     [ [ pre contract-level [opt] : conditional-expression ] ]
-    [ [ post contract-level [opt] identifier [opt] : conditional-expression ] ]  */
+    [ [ post contract-level [opt] identifier [opt] : conditional-expression ] ] 
+    
+   For free functions, we cannot determine the type of the postcondition
+   identifier because the we haven't called grokdeclarator yet. In those
+   cases we parse the postcondition as if the identifier was declared as
+   'auto <identifier>'. We then instantiate the postcondition once the
+   return type is known.
+
+   For member functions, contracts are in the complete-class context, so the
+   parse is deferred. We also have the return type avaialable (unless it's
+   deduced), so we don't need to parse the postcondition in terms of a
+   placeholder.  */
 
 static tree
 cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
