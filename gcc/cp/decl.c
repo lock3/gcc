@@ -10524,7 +10524,6 @@ grokfndecl (tree ctype,
 
   if (DECL_HAS_CONTRACTS_P (decl))
     rebuild_postconditions (decl, TREE_TYPE (type));
-  debug_tree (DECL_CONTRACTS (decl));
 
   /* Check main's type after attributes have been applied.  */
   if (ctype == NULL_TREE && DECL_MAIN_P (decl))
