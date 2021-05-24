@@ -28517,11 +28517,7 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 	}
     }
   
-  if (contract == error_mark_node)
-    return error_mark_node;
-
-  return build_tree_list (build_tree_list (NULL_TREE, attribute),
-			  build_tree_list (NULL_TREE, contract));
+  return finish_contract_attribute (attribute, contract);
 }
 
 /* Parse a contract condition for a deferred contract.  */

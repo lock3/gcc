@@ -689,8 +689,33 @@ grok_contract (tree attribute, tree mode, tree result, cp_expr condition,
   /* The condition is converted to bool.  */
   condition = finish_contract_condition (condition);
   CONTRACT_CONDITION (contract) = condition;
+
   return contract;
 }
+
+/* Build the contract attribute specifier where IDENTIFIER is one of 'pre',
+   'post' or 'assert' and CONTRACT is the underlying statement.  */
+tree
+finish_contract_attribute (tree identifier, tree contract)
+{
+  if (contract == error_mark_node)
+    return error_mark_node;
+    
+  tree attribute = build_tree_list (build_tree_list (NULL_TREE, identifier),
+				    build_tree_list (NULL_TREE, contract));
+
+
+  /* Mark the attribute as dependent if the condition is dependent.
+
+     TODO: I'm not sure this is strictly necessary. It's going to be marked as
+     such by a subroutine of cplus_decl_attributes. */
+  tree condition = CONTRACT_CONDITION (contract);
+  if (value_dependent_expression_p (condition))
+    ATTR_IS_DEPENDENT (attribute) = true;
+
+  return attribute;
+}
+
 
 /* Update condition of a late-parsed contract and postcondition variable,
    if any.  */
