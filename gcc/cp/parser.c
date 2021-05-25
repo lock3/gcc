@@ -28465,8 +28465,9 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 
   cp_parser_require (parser, CPP_COLON, RT_COLON);
 
+  /* Defer the parse for pre- and post-conditions, but never assertions.  */
   tree contract;
-  if (current_class_type)
+  if (current_class_type && !current_function_decl)
     {
       /* Skip until we reach an unenclose ']'. If we ran into an unnested ']'
          that doesn't close the attribute, return an error and let the attribute
@@ -33206,34 +33207,6 @@ cp_parser_pre_parsed_nested_name_specifier (cp_parser *parser)
   parser->scope = saved_checks_value (check_value);
   parser->qualifying_scope = check_value->qualifying_scope;
   parser->object_scope = NULL_TREE;
-}
-
-/* Consume tokens up to, but not including the end of the current attribute.
-   Returns the first unnested ] token if no end is found.  */
-
-static tree
-cp_parser_cache_contract_condition (cp_parser *parser)
-{
-  cp_token *first_token = cp_lexer_peek_token (parser->lexer);
-  cp_parser_skip_to_closing_parenthesis_1 (parser,
-					   /*recovering=*/false,
-					   CPP_CLOSE_SQUARE,
-					   /*consume_paren=*/false);
-
-  /* If we ran into an unnested ] that doesn't close the attribute, return an
-     error and let the attribute handling code emit an error for missing ]].  */
-  if (cp_lexer_peek_token (parser->lexer)->type != CPP_CLOSE_SQUARE
-      || cp_lexer_peek_nth_token (parser->lexer, 2)->type != CPP_CLOSE_SQUARE)
-    return error_mark_node;
-
-  cp_token *token = cp_lexer_peek_token (parser->lexer);
-
-  tree contract_condition = make_node (DEFERRED_PARSE);
-  DEFPARSE_TOKENS (contract_condition)
-    = cp_token_cache_new (first_token, token);
-  DEFPARSE_INSTANTIATIONS (contract_condition) = NULL;
-
-  return contract_condition;
 }
 
 /* Consume tokens up through a non-nested END token.  Returns TRUE if we

@@ -11481,6 +11481,7 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
   /* Rebuild the return variable identifier.  */
   if (TREE_CODE (t) == POSTCONDITION_STMT && POSTCONDITION_IDENTIFIER (t))
     {
+      gcc_assert (decl);
       tree oldvar = POSTCONDITION_IDENTIFIER (t);
       tree newvar = copy_node(oldvar);
       TREE_TYPE (oldvar) = TREE_TYPE (TREE_TYPE (decl));
@@ -11492,11 +11493,13 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
 
   /* Instantiate the condition.  */
   ++cp_contract_operand;
-  tree oldcon = CONTRACT_CONDITION (t);
-  tree newcon = tsubst_expr (oldcon, args, complain, in_decl, false);
+  CONTRACT_CONDITION(r)
+      = tsubst_expr (CONTRACT_CONDITION (t), args, complain, in_decl, false);
   --cp_contract_operand;
 
-  CONTRACT_CONDITION (r) = newcon;
+  /* And the comment.  */
+  CONTRACT_COMMENT (r)
+      = tsubst_expr (CONTRACT_COMMENT (r), args, complain, in_decl, false);
 
   return r;
 }
@@ -18374,13 +18377,14 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
 
     case PRECONDITION_STMT:
     case POSTCONDITION_STMT:
+      gcc_unreachable ();
+    
     case ASSERTION_STMT:
       {
-	gcc_unreachable ();
-	// r = tsubst_contract (t, args, complain, in_decl);
-	// if (r != error_mark_node)
-	//   add_stmt (r);
-	// RETURN (r);
+	r = tsubst_contract (NULL_TREE, t, args, complain, in_decl);
+	if (r != error_mark_node)
+	  add_stmt (r);
+	RETURN (r);
       }
       break;
 
