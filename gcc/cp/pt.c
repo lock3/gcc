@@ -11741,6 +11741,12 @@ apply_late_template_attributes (tree *decl_p, tree attributes, int attr_flags,
       /* DECL_ATTRIBUTES comes from copy_node in tsubst_decl, and is identical
          to our attributes parameter.  */
       gcc_assert (*p == attributes);
+
+      /* operator bindings may end up before depedent attributes, resplice so
+	 that the dependent are always at the front.  */
+      tree late = splice_template_attributes (&attributes, *decl_p);
+      DECL_ATTRIBUTES (*decl_p) = chainon (late, attributes);
+      attributes = DECL_ATTRIBUTES (*decl_p);
     }
   else
     {
@@ -25620,28 +25626,26 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	  tree *p = &DECL_ARGUMENTS (decl);
 	  for (int skip = num_artificial_parms_for (decl); skip; --skip)
 	    p = &DECL_CHAIN (*p);
+	  tree orig_parms = *p;
 	  *p = tsubst_decl (pattern_parm, args, tf_error);
 	  for (tree t = *p; t; t = DECL_CHAIN (t))
 	    DECL_CONTEXT (t) = decl;
+
+	  /* Replace references to old parameters in contracts, if any.  */
+	  local_specialization_stack lss;
+	  for (tree op = orig_parms, np = *p; op && np;
+	      op = DECL_CHAIN (op), np = DECL_CHAIN (np))
+	    register_local_specialization (np, op);
+	  for (tree ca = DECL_CONTRACTS (decl); ca; ca = CONTRACT_CHAIN (ca))
+	    CONTRACT_STATEMENT (ca)
+	      = tsubst_contract (decl, CONTRACT_STATEMENT (ca), args,
+				 tf_warning_or_error, code_pattern);
 	}
 
       /* Merge additional specifiers from the CODE_PATTERN.  */
       if (DECL_DECLARED_INLINE_P (code_pattern)
 	  && !DECL_DECLARED_INLINE_P (decl))
 	DECL_DECLARED_INLINE_P (decl) = 1;
-
-      set_decl_contracts (decl, DECL_CONTRACTS (code_pattern));
-      /* If a specialiaztion removed contracts, ensure we're not generating
-       * calls to pre/post functions that will never be generated.  */
-      if (!DECL_PRE_FN (code_pattern))
-	set_contract_functions (decl, NULL_TREE, NULL_TREE);
-      else
-	{
-	  set_decl_contracts (DECL_PRE_FN (decl),
-			      DECL_CONTRACTS (DECL_PRE_FN (code_pattern)));
-	  set_decl_contracts (DECL_POST_FN (decl),
-			      DECL_CONTRACTS (DECL_POST_FN (code_pattern)));
-	}
 
       maybe_instantiate_noexcept (decl, tf_error);
     }

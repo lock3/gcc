@@ -709,8 +709,12 @@ finish_contract_attribute (tree identifier, tree contract)
 
      TODO: I'm not sure this is strictly necessary. It's going to be marked as
      such by a subroutine of cplus_decl_attributes. */
+  // FIXME because these are spliced out of order later, we may have to mark
+  // _all_ contracts as dependent instead or we may not be able to match decls
+  // properly
   tree condition = CONTRACT_CONDITION (contract);
-  if (value_dependent_expression_p (condition))
+  if (TREE_CODE (condition) == DEFERRED_PARSE
+      || value_dependent_expression_p (condition))
     ATTR_IS_DEPENDENT (attribute) = true;
 
   return attribute;
