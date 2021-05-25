@@ -1192,22 +1192,21 @@ cp_genericize_r (tree *stmt_p, int *walk_subtrees, void *data)
     case PRECONDITION_STMT:
     case POSTCONDITION_STMT:
       {
-	gcc_unreachable ();
-	// if (tree check = build_contract_check (stmt))
-	//   {
-	//     /* Mark the current function as possibly throwing exceptions
-	//        (through invocation of the contract violation handler).  */
-	//     current_function_returns_abnormally = 1;
-	//     TREE_NOTHROW (current_function_decl) = 0;
+	if (tree check = build_contract_check (stmt))
+	  {
+	    /* Mark the current function as possibly throwing exceptions
+	       (through invocation of the contract violation handler).  */
+	    current_function_returns_abnormally = 1;
+	    TREE_NOTHROW (current_function_decl) = 0;
 
-	//     *stmt_p = check;
-	//     return cp_genericize_r (stmt_p, walk_subtrees, data);
-	//   }
+	    *stmt_p = check;
+	    return cp_genericize_r (stmt_p, walk_subtrees, data);
+	  }
 
-	// /* If we didn't build a check, replace it with void_node so we don't
-	//    leak contracts into GENERIC.  */
-	// *stmt_p = void_node;
-	// *walk_subtrees = 0;
+	/* If we didn't build a check, replace it with void_node so we don't
+	   leak contracts into GENERIC.  */
+	*stmt_p = void_node;
+	*walk_subtrees = 0;
       }
       break;
 
