@@ -28451,6 +28451,7 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
   cp_token *token = cp_lexer_consume_token (parser->lexer);
   location_t loc = token->location;
 
+  bool assertion_p = is_attribute_p ("assert", attribute);
   bool postcondition_p = is_attribute_p ("post", attribute);
 
   /* Parse the optional mode.  */
@@ -28465,9 +28466,11 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 
   cp_parser_require (parser, CPP_COLON, RT_COLON);
 
-  /* Defer the parse for pre- and post-conditions, but never assertions.  */
+  /* Defer the parsing of pre/post contracts inside class definitions.  */
   tree contract;
-  if (current_class_type && !current_function_decl)
+  if (!assertion_p &&
+      current_class_type &&
+      TYPE_BEING_DEFINED (current_class_type))
     {
       /* Skip until we reach an unenclose ']'. If we ran into an unnested ']'
          that doesn't close the attribute, return an error and let the attribute
