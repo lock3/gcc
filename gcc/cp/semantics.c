@@ -1003,6 +1003,22 @@ build_contract_functor_declaration (tree fndecl, bool pre)
   DECL_DISREGARD_INLINE_LIMITS (fn) = true;
   TREE_NO_WARNING (fn) = 1;
 
+  /* Set the .pre/.post function's comdat group to be the same as the original
+     function.  */
+  DECL_VISIBILITY (fn) = VISIBILITY_HIDDEN;
+  if (!DECL_TEMPLATE_INFO (fn))
+    TREE_PUBLIC (fn) = false;
+  DECL_COMDAT (fn) = true;
+
+  /* Ensure the original function is in its own comdat group.  */
+  struct symtab_node *oldsym = cgraph_node::get_create (fndecl);
+  if (!oldsym->get_comdat_group ())
+    oldsym->set_comdat_group (fndecl);
+
+  /* Link the .pre/.post function into the original function's group.  */
+  struct symtab_node *newsym = symtab_node::get_create (fn);
+  newsym->add_to_same_comdat_group (oldsym);
+
   if (!DECL_TEMPLATE_INFO (fn))
     return fn;
 

@@ -2082,6 +2082,10 @@ vague_linkage_p (tree decl)
 	  && DECL_CLONED_FUNCTION_P (DECL_CHAIN (decl)))
 	return vague_linkage_p (DECL_CHAIN (decl));
 
+      /* .pre/.post functions do not have vague linkage.  */
+      if (DECL_ORIGINAL_FN (decl))
+	return false;
+
       gcc_checking_assert (!DECL_COMDAT (decl));
       return false;
     }
