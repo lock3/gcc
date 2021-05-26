@@ -11536,6 +11536,10 @@ tsubst_attribute (tree t, tree *decl_p, tree args,
   if (cxx_contract_attribute_p (t))
     {
       gcc_assert (*decl_p);
+      /* Defer contract attribute instantion on members since they may
+	 reference class members which are processed after us.  */
+      if (DECL_FUNCTION_MEMBER_P (in_decl))
+	return t;
       return tsubst_contract_attribute (*decl_p, t, args, complain, in_decl);
     }
 
@@ -16755,8 +16759,11 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 
 	  /* This can happen for a parameter name used later in a function
 	     declaration (such as in a late-specified return type).  Just
-	     make a dummy decl, since it's only used for its type.  */
-	  gcc_assert (cp_unevaluated_operand);
+	     make a dummy decl, since it's only used for its type.
+
+	    Contracts may reference this, but all dummies references are
+	    replaced just before building the contract check. */
+	  gcc_assert (cp_unevaluated_operand || cp_contract_operand);
 	  r = tsubst_decl (t, args, complain);
 	  /* Give it the template pattern as its context; its true context
 	     hasn't been instantiated yet and this is good enough for
@@ -25630,6 +25637,7 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 							  specs);
 	  }
 
+      tree orig_parms = DECL_ARGUMENTS (decl);
       /* Merge parameter declarations.  */
       if (tree pattern_parm
 	  = skip_artificial_parms_for (code_pattern,
@@ -25638,20 +25646,28 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	  tree *p = &DECL_ARGUMENTS (decl);
 	  for (int skip = num_artificial_parms_for (decl); skip; --skip)
 	    p = &DECL_CHAIN (*p);
-	  tree orig_parms = *p;
 	  *p = tsubst_decl (pattern_parm, args, tf_error);
 	  for (tree t = *p; t; t = DECL_CHAIN (t))
 	    DECL_CONTEXT (t) = decl;
+	}
 
-	  /* Replace references to old parameters in contracts, if any.  */
-	  local_specialization_stack lss;
-	  for (tree op = orig_parms, np = *p; op && np;
+      if (DECL_CONTRACTS (decl))
+	{
+	  /* Instantiate any pending contracts and replace references to
+	     orig_parms to their current value.  */
+	  local_specialization_stack lss (lss_copy);
+	  for (tree op = orig_parms, np = DECL_ARGUMENTS (decl); op && np;
 	      op = DECL_CHAIN (op), np = DECL_CHAIN (np))
-	    register_local_specialization (np, op);
+	    if (op != np)
+	      register_local_specialization (np, op);
+	  DECL_ATTRIBUTES (decl) = copy_list (DECL_ATTRIBUTES (decl));
 	  for (tree ca = DECL_CONTRACTS (decl); ca; ca = CONTRACT_CHAIN (ca))
-	    CONTRACT_STATEMENT (ca)
-	      = tsubst_contract (decl, CONTRACT_STATEMENT (ca), args,
-				 tf_warning_or_error, code_pattern);
+	    {
+	      tree res = tsubst_contract_attribute (decl, ca, args,
+						    tf_warning_or_error,
+						    code_pattern);
+	      TREE_VALUE (ca) = TREE_VALUE (res);
+	    }
 	}
 
       /* Merge additional specifiers from the CODE_PATTERN.  */

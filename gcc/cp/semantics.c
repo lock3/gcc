@@ -1100,13 +1100,14 @@ build_contract_check (tree contract)
   if (semantic == CCS_INVALID)
     return NULL_TREE;
 
-  tree condition = CONTRACT_CONDITION (contract);
-  if (condition == error_mark_node)
-    return NULL_TREE;
-
   /* Ignored contracts are never checked or assumed.  */
   if (semantic == CCS_IGNORE)
     return build1 (NOP_EXPR, void_type_node, integer_zero_node);
+
+  remap_dummy_this (current_function_decl, &CONTRACT_CONDITION (contract));
+  tree condition = CONTRACT_CONDITION (contract);
+  if (condition == error_mark_node)
+    return NULL_TREE;
 
   /* If an assumed contract condition is not fully defined, the current method
      of turning it into a compile time assumption fails and emits run time

@@ -829,3 +829,25 @@ remap_contracts (tree src, tree dst, tree contracts)
     remap_contract (src, dst, CONTRACT_STATEMENT (attr));
 }
 
+/* Helper to replace references to dummy this parameters with references to
+   the first argument of the FUNCTION_DECL DATA.  */
+
+static tree
+remap_dummy_this_1 (tree *tp, int *, void *data)
+{
+  if (!is_this_parameter (*tp))
+    return NULL_TREE;
+  tree fn = (tree)data;
+  *tp = DECL_ARGUMENTS (fn);
+  return NULL_TREE;
+}
+
+/* Replace all references to dummy this parameters in EXPR with references to
+   the first argument of the FUNCTION_DECL FN.  */
+
+void
+remap_dummy_this (tree fn, tree *expr)
+{
+  walk_tree (expr, remap_dummy_this_1, fn, NULL);
+}
+
