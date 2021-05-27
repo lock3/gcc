@@ -826,7 +826,11 @@ void
 remap_contracts (tree src, tree dst, tree contracts)
 {
   for (tree attr = contracts; attr; attr = CONTRACT_CHAIN (attr))
-    remap_contract (src, dst, CONTRACT_STATEMENT (attr));
+    {
+      tree contract = CONTRACT_STATEMENT (attr);
+      if (TREE_CODE (CONTRACT_CONDITION (contract)) != DEFERRED_PARSE)
+	remap_contract (src, dst, CONTRACT_STATEMENT (attr));
+    }
 }
 
 /* Helper to replace references to dummy this parameters with references to
