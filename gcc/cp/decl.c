@@ -1095,15 +1095,16 @@ match_contracts (tree olddecl, location_t newloc, tree new_attrs)
    DECL_CONTRACTS returns the right thing.  */
 
 void
-merge_contracts (tree decl, const cp_declarator *fn)
+merge_contracts (tree decl, tree newdecl)
 {
-  if (!fn) return;
+  if (!newdecl) return;
   if (decl == error_mark_node || !DECL_LANG_SPECIFIC (decl)
       || TREE_CODE (decl) != FUNCTION_DECL)
     return;
 
   tree orig = NULL_TREE;
-  if (DECL_HAS_CONTRACTS_P (decl))
+  if (DECL_HAS_CONTRACTS_P (decl)
+      && CONTRACT_SOURCE_LOCATION_WRAPPER (DECL_CONTRACTS (decl)))
     orig = CONTRACT_ORIGINAL_DECL (DECL_CONTRACTS (decl));
 
   /* If we already have contracts from a more general template but we're a
@@ -1121,34 +1122,35 @@ merge_contracts (tree decl, const cp_declarator *fn)
       }
     }
 
-  if (!fn->contracts)
+  if (!DECL_HAS_CONTRACTS_P (decl))
     {
       /* Mark the function as having been seen without contracts so we can
 	 emit an optional warning later if we see contracts.  */
       DECL_SEEN_WITHOUT_CONTRACTS_P (decl) = true;
-      return;
+      DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl) = true;
     }
 
-  if (fn->contracts == DECL_CONTRACTS (decl))
+  if (DECL_CONTRACTS (newdecl) == DECL_CONTRACTS (decl))
     return;
 
   bool any_uses_return = false;
-  for (tree ca = fn->contracts; ca; ca = TREE_CHAIN (ca))
+  for (tree ca = DECL_CONTRACTS (newdecl); ca; ca = TREE_CHAIN (ca))
     if (TREE_CODE (CONTRACT_STATEMENT (ca)) == POSTCONDITION_STMT
 	&& POSTCONDITION_IDENTIFIER (CONTRACT_STATEMENT (ca)))
       any_uses_return = true;
   if (any_uses_return && undeduced_auto_decl (decl) && !decl_defined_p (decl)
       && !DECL_TEMPLATE_INFO (decl))
     {
-      error_at (fn->id_loc,
+      error_at (DECL_SOURCE_LOCATION (newdecl),
 		"non-defining declaration %q#D cannot use the optional "
 		"postcondition identifier in post contracts", decl);
       return;
     }
 
   /* If there are attributes to merge, make sure they can be merged.  */
-  if ((!contract_any_deferred_p (fn->contracts) || !DECL_CONTRACTS (decl))
-      && !match_contracts (decl, fn->id_loc, fn->contracts))
+  if ((!contract_any_deferred_p (DECL_CONTRACTS (newdecl))
+	|| !DECL_CONTRACTS (decl))
+      && !match_contracts (decl, DECL_SOURCE_LOCATION (newdecl), DECL_CONTRACTS (newdecl)))
     {
       /* If the contracts do not match, we've already emitted an error.
 	 Throw away the conditions to prevent spurious errors later.  */
@@ -1160,8 +1162,8 @@ merge_contracts (tree decl, const cp_declarator *fn)
 				  decl);
   EXPR_LOCATION_WRAPPER_P (original_loc) = 1;
 
-  /* Mark the owner of fn's contracts as decl.  */
-  for (tree contract_attr = fn->contracts;
+  /* Mark the owner of newdecl's contracts as decl.  */
+  for (tree contract_attr = DECL_CONTRACTS (newdecl);
       contract_attr;
       contract_attr = TREE_CHAIN (contract_attr))
     {
@@ -1172,9 +1174,9 @@ merge_contracts (tree decl, const cp_declarator *fn)
   /* If there are not yet contracts or we need to defer checking, save the
      contracts.  */
   if (!DECL_HAS_CONTRACTS_P (decl))
-    set_decl_contracts (decl, fn->contracts);
-  else if (contract_any_deferred_p (fn->contracts))
-    defer_guarded_contract_match (decl, NULL_TREE, fn->contracts);
+    set_decl_contracts (decl, DECL_CONTRACTS (newdecl));
+  else if (contract_any_deferred_p (DECL_CONTRACTS (newdecl)))
+    defer_guarded_contract_match (decl, NULL_TREE, DECL_CONTRACTS (newdecl));
 }
 
 /* Map from FUNCTION_DECL to a tree list of contracts that have not
@@ -2465,6 +2467,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  = DECL_OVERLOADED_OPERATOR_CODE_RAW (olddecl);
       new_defines_function = DECL_INITIAL (newdecl) != NULL_TREE;
 
+      merge_contracts (olddecl, newdecl);
       /* Ensure contracts, if any, are present on the newdecl so they're saved
 	 when olddecl is overwritten later.  */
       if (DECL_CONTRACTS (olddecl))
@@ -2476,7 +2479,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	 TODO: we may be able to keep newdecl's DECL_ARGUMENTs instead, though
 	 there are some sharp corners, see note about
 	 modules/contracts-tpl-friend-1 further down for instance.  */
-      else if (DECL_CONTRACTS (newdecl))
+      if (DECL_CONTRACTS (newdecl))
 	remap_contracts (newdecl, olddecl, DECL_CONTRACTS (newdecl));
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
@@ -3063,7 +3066,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  /* These are the final DECL_ARGUMENTS that will be used within the
 	     body; update any references to old DECL_ARGUMENTS in the
 	     contracts, if present.  */
-	  remap_contracts (olddecl, newdecl, DECL_CONTRACTS (olddecl));
+	  remap_contracts (olddecl, newdecl, DECL_CONTRACTS (newdecl));
 	  /* These need to be copied so that the names are available.
 	     Note that if the types do match, we'll preserve inline
 	     info and other bits, but if not, we won't.  */
