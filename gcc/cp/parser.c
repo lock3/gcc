@@ -28520,7 +28520,13 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 	  pop_bindings_and_leave_scope ();
 	}
     }
-  
+
+  if (!flag_contracts)
+    {
+      error_at (loc, "contracts are only available with %<-fcontracts%>");
+      return error_mark_node;
+    }
+
   return finish_contract_attribute (attribute, contract);
 }
 
