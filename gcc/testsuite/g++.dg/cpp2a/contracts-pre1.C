@@ -15,12 +15,14 @@ void finvalid(int x) [[ pre invalid: x >= 0 ]] { } // { dg-error "expected contr
 void fundeclared() [[ pre: x >= 0 ]] { } // { dg-error ".x. was not declared in this scope" }
 void fmissingcolon(int x) [[ pre default x == 0]] { } // { dg-error "expected .:. before .x." }
 
-void (*fp1)(int x) [[ pre: x > 0 ]]; // { dg-error "contracts must appertain" }
-void (*fp2 [[ pre: x > 0 ]])(int x); // { dg-error "contracts must appertain" }
-typedef void (*fp3)(int x) [[ pre: x > 0 ]]; // { dg-error "contracts must appertain" }
-typedef void (*fp4 [[ pre: x > 0 ]])(int x); // { dg-error "contracts must appertain" }
+int Z;
+void (*fp1)(int x) [[ pre: Z > 0 ]]; // { dg-error "contracts must appertain" }
+void (*fp2 [[ pre: Z > 0 ]])(int x); // { dg-error "contracts must appertain" }
+typedef void (*fp3)(int x) [[ pre: Z > 0 ]]; // { dg-error "contracts must appertain" }
+typedef void (*fp4 [[ pre: Z > 0 ]])(int x); // { dg-error "contracts must appertain" }
 fp3 fn5(int a) [[ pre: a > 0 ]]; // { dg-bogus "contracts must appertain" }
 
+int xyz;
 [[ pre: xyz ]] struct Bar; // { dg-error "contracts must appertain" }
 // { dg-warning "attribute ignored" "" { target *-*-* } .-1 }
 struct [[ pre: xyz ]] Bar; // { dg-error "contracts must appertain" }
