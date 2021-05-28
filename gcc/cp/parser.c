@@ -25382,6 +25382,14 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 		cp_parser_late_contract_condition (parser, decl, a);
 	    }
 
+	  /* Ensure all contracts on pending matches are also parsed.  */
+	  if (pending_guarded_decls.get (decl))
+	    for (tree pending = *pending_guarded_decls.get (decl);
+		pending;
+		pending = TREE_CHAIN (pending))
+	      for (tree a = TREE_VALUE (pending); a; a = CONTRACT_CHAIN (a))
+		cp_parser_late_contract_condition (parser, decl, a);
+
 	  /* Restore the state of local_variables_forbidden_p.  */
 	  parser->local_variables_forbidden_p = local_variables_forbidden_p;
 
@@ -25389,7 +25397,10 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 	  pop_injected_parms ();
 
 	  /* Remove any template parameters from the symbol table.  */
-	  maybe_end_member_template_processing ();		
+	  maybe_end_member_template_processing ();
+
+	  /* Perform any deferred contract matching.  */
+	  match_deferred_contracts (decl);
 	}
       vec_safe_truncate (unparsed_contracts, 0);
 
