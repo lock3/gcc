@@ -11519,8 +11519,13 @@ tsubst_contract_attribute (tree decl, tree t, tree args,
 
   /* Instantiate the contract.  */
   tree contract = TREE_VALUE (TREE_VALUE (t));
-  contract = tsubst_contract (decl, contract, args, complain, in_decl);
 
+  /* Use the complete set of template arguments for instantiation. The
+     contract may not have been instantiated and still refer to out levels
+     of template parameters.  */
+  args = DECL_TI_ARGS (decl);
+
+  contract = tsubst_contract (decl, contract, args, complain, in_decl);
   return finish_contract_attribute (attribute, contract);
 }
 
