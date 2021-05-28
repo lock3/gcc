@@ -1936,19 +1936,6 @@ remap_overrider_contracts (tree overrider, tree basefn)
 					copy_node (CONTRACT_STATEMENT (c)));
       tree src = basefn;
       tree dst = overrider;
-#if 0
-      if (DECL_PRE_FN (basefn))
-	{
-	  src = DECL_PRE_FN (basefn);
-	  dst = DECL_PRE_FN (overrider);
-	}
-      if (DECL_POST_FN (basefn)
-	  && TREE_CODE (TREE_VALUE (c)) == POSTCONDITION_STMT)
-	{
-	  src = DECL_POST_FN (basefn);
-	  dst = DECL_POST_FN (overrider);
-	}
-#endif
       remap_contract (src, dst, CONTRACT_STATEMENT (c));
       CONTRACT_COMMENT (CONTRACT_STATEMENT (c)) =
 	copy_node (CONTRACT_COMMENT (CONTRACT_STATEMENT (c)));
@@ -2137,10 +2124,7 @@ check_final_overrider (tree overrider, tree basefn)
 	 to collapse these ourselves.  */
       /* We're inheriting basefn's contracts; create a copy of them but
 	 replace references to their parms to our parms.  */
-      //if(!DECL_PRE_FN (overrider)) build_contract_function_decls (overrider);
       remap_overrider_contracts (overrider, basefn);
-      //remap_overrider_contracts (DECL_PRE_FN (overrider), DECL_PRE_FN (basefn));
-      //remap_overrider_contracts (DECL_POST_FN (overrider), DECL_POST_FN (basefn));
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {
