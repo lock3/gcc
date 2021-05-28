@@ -13141,12 +13141,14 @@ grokdeclarator (const cp_declarator *declarator,
 	      }
 
 	    /* Contract attributes appertain to the declaration.  */
-            for (tree a = attrs; a; )
+	    for (tree a = attrs; a; )
 	      {
 		tree p = TREE_CHAIN (a);
 		TREE_CHAIN (a) = NULL_TREE;
+		/* Intentially reverse order of contracts so they're reversed
+		   back into their lexical order.  */
 		if (cxx_contract_attribute_p (a))
-		  returned_attrs = chainon (returned_attrs, a);
+		  returned_attrs = chainon (a, returned_attrs);
 		else
 		  attrs = chainon (attrs, a);
 		a = p;
