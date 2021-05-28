@@ -25361,6 +25361,8 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 	      pushed_scope = push_scope (class_type);
 	    }
 
+	  temp_override<tree> cfd(current_function_decl, decl);
+
 	  /* Make sure that any template parameters are in scope.  */
 	  maybe_begin_member_template_processing (decl);
 
@@ -28548,6 +28550,10 @@ void cp_parser_late_contract_condition (cp_parser *parser,
 					tree attribute)
 {
   tree contract = TREE_VALUE (TREE_VALUE (attribute));
+  /* Make sure we've gotten something that hasn't been parsed yet.  */
+  tree condition = CONTRACT_CONDITION (contract);
+  if (TREE_CODE (condition) != DEFERRED_PARSE)
+    return;
 
   tree identifier = NULL_TREE;
   if (TREE_CODE (contract) == POSTCONDITION_STMT)
@@ -28562,10 +28568,6 @@ void cp_parser_late_contract_condition (cp_parser *parser,
       result = make_postcondition_variable (identifier, type);
       ++processing_template_decl;
     }
-
-  /* Make sure we've gotten something that hasn't been parsed yet.  */
-  tree condition = CONTRACT_CONDITION (contract);
-  gcc_assert (TREE_CODE (condition) == DEFERRED_PARSE);
 
   push_unparsed_function_queues (parser);
 
