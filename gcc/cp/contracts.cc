@@ -806,6 +806,18 @@ remap_contract (tree src, tree dst, tree contract)
   for (tree sp = src, dp = dst; sp || dp;
       sp = DECL_CHAIN (sp), dp = DECL_CHAIN (dp))
     {
+      if (!sp && dp
+	  && TREE_CODE (contract) == POSTCONDITION_STMT
+	  && DECL_CHAIN (dp) == NULL_TREE)
+	{
+	  if (POSTCONDITION_IDENTIFIER (contract))
+	    {
+	      gcc_assert (DECL_P (POSTCONDITION_IDENTIFIER (contract)));
+	      insert_decl_map (&id, POSTCONDITION_IDENTIFIER (contract), dp);
+	      do_remap = true;
+	    }
+	  break;
+	}
       gcc_assert (sp && dp);
 
       if (sp == dp) continue;
