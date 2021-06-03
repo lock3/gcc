@@ -13149,8 +13149,6 @@ grokdeclarator (const cp_declarator *declarator,
 		   back into their lexical order.  */
 		if (cxx_contract_attribute_p (a))
 		  returned_attrs = chainon (a, returned_attrs);
-		else
-		  attrs = chainon (attrs, a);
 		a = p;
 	      }
 

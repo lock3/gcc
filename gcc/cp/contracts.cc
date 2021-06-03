@@ -1025,6 +1025,12 @@ void debug_function (tree t)
       header h ("contracts");
       debug_contracts (contracts);
     }
+
+  if (tree c = find_contract (TYPE_ATTRIBUTES (TREE_TYPE (t))))
+    {
+      header h ("invalid attribution");
+      debug_contracts (c);
+    }
 }
 
 void debug_type_declaration (tree t)
@@ -1102,11 +1108,19 @@ void debug_contracts (tree t)
 
 void debug_contract (tree t)
 {
-  /* See through attributes.  */
+  if (!t)
+    return;
+
+  if (t == error_mark_node)
+    {
+      node_info info (t);
+      verbatim ("%s%s", tab(), info.str ());
+      return;
+    }
+
+  /* See through attributes by recursively invoking this function.  */
   if (TREE_CODE (t) == TREE_LIST)
-    t = TREE_VALUE (t);
-  if (TREE_CODE (t) == TREE_LIST)
-    t = TREE_VALUE (t);
+    return debug_contract (TREE_VALUE (t));
   
   tree condition = CONTRACT_CONDITION (t);
   

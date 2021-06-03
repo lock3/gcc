@@ -1147,15 +1147,6 @@ grokbitfield (const cp_declarator *declarator,
 static bool
 is_late_template_attribute (tree attr, tree decl)
 {
-  /* Contract attributes always apply to the instantiation.
-
-     TODO: We check for contract attribuets here because lookup_attribute_spec
-     is failing. The culprit seems to be that the lookup redirects the search
-     into the gnu namespace, while pre/post are declared in a namespace with
-     no name.  */
-  if (cxx_contract_attribute_p (attr))
-    return true;
-
   tree name = get_attribute_name (attr);
   tree args = TREE_VALUE (attr);
   const struct attribute_spec *spec = lookup_attribute_spec (name);

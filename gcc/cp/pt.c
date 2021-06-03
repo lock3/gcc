@@ -11483,8 +11483,8 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
     {
       gcc_assert (decl);
       tree oldvar = POSTCONDITION_IDENTIFIER (t);
-      tree newvar = copy_node(oldvar);
-      TREE_TYPE (oldvar) = TREE_TYPE (TREE_TYPE (decl));
+      tree newvar = copy_node (oldvar);
+      TREE_TYPE (newvar) = TREE_TYPE (TREE_TYPE (decl));
       POSTCONDITION_IDENTIFIER (r) = newvar;
 
       /* Make the variable available for lookup.  */
@@ -11493,7 +11493,7 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
 
   /* Instantiate the condition.  */
   ++cp_contract_operand;
-  CONTRACT_CONDITION(r)
+  CONTRACT_CONDITION (r)
       = tsubst_expr (CONTRACT_CONDITION (t), args, complain, in_decl, false);
   --cp_contract_operand;
 
@@ -11510,9 +11510,10 @@ static tree
 tsubst_contract_attribute (tree decl, tree t, tree args,
 			   tsubst_flags_t complain, tree in_decl)
 {
-  /* Make local variables available for instantiating contracts.  However,
-     the parameters being made available are those of the most general
-     template because we never (seem to) instantiate contract attributes.  */
+  /* Adjust the current declaration to the most general version of in_decl.
+     Because we defer the instantiation of contracts as long as possible, they
+     are still written in terms of the parameters (and return type) of the
+     most general template.  */
   in_decl = DECL_TEMPLATE_RESULT (most_general_template (in_decl));
   local_specialization_stack specs (lss_copy);
   register_parameter_specializations (in_decl, decl);
@@ -11541,15 +11542,9 @@ tsubst_attribute (tree t, tree *decl_p, tree args,
 {
   gcc_assert (ATTR_IS_DEPENDENT (t));
 
-  if (cxx_contract_attribute_p (t))
-    {
-      gcc_assert (*decl_p);
-      /* Defer contract attribute instantion on members since they may
-	 reference class members which are processed after us.  */
-      if (DECL_FUNCTION_MEMBER_P (in_decl))
-	return t;
-      return tsubst_contract_attribute (*decl_p, t, args, complain, in_decl);
-    }
+  /* Note that contract attributes are never substituted from this function.
+     Their instantiation is triggered by regenerate_from_template_decl when
+     we instantiate the body of the function.  */
 
   tree val = TREE_VALUE (t);
   if (val == NULL_TREE)
@@ -11800,9 +11795,6 @@ apply_late_template_attributes (tree *decl_p, tree attributes, int attr_flags,
 	q = &TREE_CHAIN (*q);
     }
 
-  /* FIXME there are oddities when guarded templates unconditionally run
-     cplus_decl_attributes with an empty late_attrs list in previous decl
-     matching.  */
   if (late_attrs)
     cplus_decl_attributes (decl_p, late_attrs, attr_flags);
 
@@ -26064,17 +26056,6 @@ instantiate_body (tree pattern, tree args, tree d, bool nested_p)
       /* Create substitution entries for the parameters.  */
       register_parameter_specializations (code_pattern, d);
 
-      /* FIXME: Probably don't do this.  */
-#if 0
-      /* Instantiate pending dependent contract conditions.  For constructors
-	 that will have the conditions inserted while substituting the
-	 initializer list, this must be done before substituting the body.
-	 For templates with deduced return types this must be done *after*
-	 substituting the body so we have the deduced return type. */
-      if (DECL_CONSTRUCTOR_P (d))
-	tsubst_contract_conditions (d, args, tf_warning_or_error, code_pattern);
-#endif
-
       /* Substitute into the body of the function.  */
       if (DECL_OMP_DECLARE_REDUCTION_P (code_pattern))
 	tsubst_omp_udr (DECL_SAVED_TREE (code_pattern), args,
@@ -26094,14 +26075,6 @@ instantiate_body (tree pattern, tree args, tree d, bool nested_p)
 	  current_function_infinite_loop
 	    = DECL_STRUCT_FUNCTION (code_pattern)->language->infinite_loop;
 	}
-
-/* FIXME: Don't do this either.  */
-#if 0
-      /* Instantiate pending dependent contract conditions if we didn't
-	 already.  */
-      if (!DECL_CONSTRUCTOR_P (d))
-	tsubst_contract_conditions (d, args, tf_warning_or_error, code_pattern);
-#endif
 
       /* Finish the function.  */
       if (nested_p)
