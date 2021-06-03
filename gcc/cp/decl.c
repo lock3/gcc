@@ -18111,9 +18111,7 @@ finish_function_contracts (tree fndecl)
   tree finished_pre = NULL_TREE, finished_post = NULL_TREE;
 
   /* Create a copy of the contracts with refreences to fndecl's args replaced
-     with references to either the args of DECL_PRE_FN or DECL_POST_FN.
-
-     TODO: we need to fixup the postcondition identifier here too.  */
+     with references to either the args of DECL_PRE_FN or DECL_POST_FN.  */
   tree contracts = copy_list (DECL_CONTRACTS (fndecl));
   for (tree attr = contracts; attr; attr = CONTRACT_CHAIN (attr))
     {
@@ -18121,10 +18119,7 @@ finish_function_contracts (tree fndecl)
       if (TREE_CODE (contract) == PRECONDITION_STMT)
 	remap_contract (fndecl, DECL_PRE_FN (fndecl), contract);
       else if (TREE_CODE (contract) == POSTCONDITION_STMT)
-	{
-	  // FIXME: postcon identifier?
-	  //remap_contract (fndecl, DECL_POST_FN (fndecl), contract);
-	}
+	remap_contract (fndecl, DECL_POST_FN (fndecl), contract);
       TREE_VALUE (attr) = build_tree_list (NULL_TREE, contract);
     }
 
