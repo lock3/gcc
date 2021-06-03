@@ -2084,7 +2084,8 @@ cp_parser_context_new (cp_parser_context* next)
 static void
 push_unparsed_function_queues (cp_parser *parser)
 {
-  cp_unparsed_functions_entry e = { NULL, make_tree_vector (), NULL, NULL };
+  cp_unparsed_functions_entry e
+      = { NULL, make_tree_vector (), NULL, NULL, NULL };
   vec_safe_push (parser->unparsed_queues, e);
 }
 
@@ -28643,8 +28644,9 @@ cp_parser_std_attribute_spec (cp_parser *parser)
       /* Handle contract-attribute-specs specially.  */
       if (attr_name && contract_attribute_p (attr_name))
 	{
-	  attributes
-	    = cp_parser_contract_attribute_spec (parser, attr_name);
+	  tree attrs = cp_parser_contract_attribute_spec (parser, attr_name);
+	  if (attrs != error_mark_node)
+	    attributes = attrs;
 	  goto finish_attrs;
 	}
 
