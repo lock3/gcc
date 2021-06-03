@@ -855,3 +855,281 @@ remap_dummy_this (tree fn, tree *expr)
   walk_tree (expr, remap_dummy_this_1, fn, NULL);
 }
 
+static int depth;
+static const char* tabstr = "";
+
+struct indentation
+{
+  indentation()
+  {
+    saved_depth = depth;
+    ++depth;
+    saved_tabstr = tabstr;
+    tabstr = make_tab();
+  }
+
+  indentation(int d)
+  {
+    saved_depth = depth;
+    depth = d;
+    saved_tabstr = tabstr;
+    tabstr = make_tab();
+  }
+
+  ~indentation()
+  {
+    if (depth != 0)
+      free (const_cast<char*>(tabstr));
+    tabstr = saved_tabstr;
+    depth = saved_depth;
+  }
+
+  char const* make_tab()
+  {
+    if (depth == 0)
+      return "";
+    int len = 2 * depth;
+    char* str = (char*)xmalloc(len + 1);
+    memset(str, ' ', len);
+    str[len] = 0;
+    return str;
+  }
+
+  int saved_depth;
+  char const* saved_tabstr;
+};
+
+static const char* tab()
+{
+  return tabstr;
+}
+
+void* node_id(tree t)
+{
+  return (void*)t;
+}
+
+struct node_info
+{
+  node_info (tree t)
+  {
+    make_string (t);
+  }
+
+  /* Creates node information for a node with a "fake name".  */
+  node_info (tree t, const char* name)
+  {
+    make_string (t, name);
+  }
+
+  void make_string (tree t, const char* name)
+  {
+    if (!t)
+      return build_string ("31", "null");
+   
+    void* ptr = t;
+    if (t == error_mark_node)
+      return build_string ("31", name, ptr);
+    
+    if (DECL_P (t))
+      return build_string ("33", name, ptr);
+    
+    if (TYPE_P (t))
+      return build_string ("34", name, ptr);
+
+    // Expressions, statements, lists, etc.
+    build_string ("32", name, ptr);
+  }
+
+  void make_string (tree t)
+  {
+    if (!t)
+      return build_string ("31", "null");
+
+    const char* name = get_tree_code_name (TREE_CODE (t));
+    return make_string (t, name);
+  }
+
+  void build_string (const char* color, const char* name)
+  {
+    snprintf (buf, buflen, "\033[01;%sm%s\033[0m", color, name);
+  }
+
+  void build_string (const char* color, const char* name, void* ptr)
+  {
+    snprintf (buf, buflen, "\033[01;%sm%s\033[0m (\033[36m%p\033[0m)", color, name, ptr);
+  }
+
+  const char* str ()
+  {
+    return buf;
+  }
+
+  static constexpr int buflen = 128;
+  char buf[buflen];
+};
+
+// Prints a bolded header name.
+struct header
+{
+  header (const char* name)
+  {
+    sprintf (buf, "\033[01m%s\033[0m", name);
+    verbatim ("%s%s", tab(), buf);
+  }
+
+  char buf[32];
+};
+
+void debug_type (tree t)
+{
+  node_info info (t);
+  if (!t)
+    verbatim ("%s%s type", tab(), info.str ());
+  else
+    verbatim ("%s%s %qT", tab(), info.str (), t);
+}
+
+void debug_expression (tree t)
+{
+  node_info info (t);
+  verbatim ("%s%s %qE", tab(), info.str (), t);
+
+  indentation indent;
+  debug_type (TREE_TYPE (t));
+
+  if (DECL_P (t))
+    return;
+
+  for (int i = 0; i < TREE_OPERAND_LENGTH (t); ++i)
+    debug_expression (TREE_OPERAND (t, i));
+}
+
+void debug_function (tree t)
+{
+  node_info info (t);
+  verbatim ("%s%s %qE", tab(), info.str (), t);
+
+  indentation indent;
+
+  debug_type (TREE_TYPE (t));
+
+//   if (tree ti = DECL_TEMPLATE_INFO (t))
+//     ; // FIXME: Print information about templates and arguments?
+
+  header h ("parameters");
+  debug_parameters (DECL_ARGUMENTS (t));
+
+  if (tree contracts = DECL_CONTRACTS (t))
+    {
+      header h ("contracts");
+      debug_contracts (contracts);
+    }
+}
+
+void debug_type_declaration (tree t)
+{
+  node_info info (t);
+  verbatim ("%s%s %qE", tab(), info.str (), t);
+  indentation indent;
+  debug_type (TREE_TYPE (t));
+}
+
+void debug_template_parameter (tree t)
+{
+  /* T is a pair combining the parameter with the default argument?  */
+  debug_declaration (TREE_VALUE (t));
+
+}
+
+void debug_template_parameters (tree t)
+{
+  /* TODO: What should we do with the index? Is it superfluous?  */
+  tree parms = TREE_VALUE (t);
+  for (int i = 0; i < TREE_VEC_LENGTH (parms); ++i)
+    debug_template_parameter (TREE_VEC_ELT (parms, i));
+}
+
+void debug_template (tree t)
+{
+  node_info info (t);
+  verbatim ("%s%s %q#D", tab(), info.str (), t);
+
+  indentation indent;
+
+  header parms("template parameters");
+  debug_template_parameters (DECL_TEMPLATE_PARMS (t));
+
+  header result("result");
+  debug_declaration (DECL_TEMPLATE_RESULT (t));
+}
+
+void debug_declaration (tree t)
+{
+  switch (TREE_CODE (t))
+    {
+    case TEMPLATE_DECL:
+      return debug_template (t);
+    case FUNCTION_DECL:
+      return debug_function (t);
+    case TYPE_DECL:
+      return debug_type_declaration (t);
+    default:
+      debug_tree (t);
+      gcc_unreachable ();
+    }
+}
+
+void debug_parameters (tree t)
+{
+  for (; t; t = TREE_CHAIN (t))
+    debug_parameter (t);
+}
+
+void debug_parameter (tree t)
+{
+  node_info info (t);
+  verbatim ("%s%s %q#D", tab(), info.str (), t);
+  indentation indent;
+  debug_type (TREE_TYPE (t));
+}
+
+void debug_contracts (tree t)
+{
+  for (; t; t = TREE_CHAIN (t))
+    debug_contract (t);
+}
+
+void debug_contract (tree t)
+{
+  /* See through attributes.  */
+  if (TREE_CODE (t) == TREE_LIST)
+    t = TREE_VALUE (t);
+  if (TREE_CODE (t) == TREE_LIST)
+    t = TREE_VALUE (t);
+  
+  tree condition = CONTRACT_CONDITION (t);
+  
+  node_info info (t);
+  verbatim ("%s%s %qE", tab(), info.str (), condition);
+  indentation indent;
+  debug_expression (condition);
+}
+
+void debug_template_arguments (tree args)
+{
+  if (TMPL_ARGS_HAVE_MULTIPLE_LEVELS (args))
+    gcc_unreachable ();
+
+  node_info info (args, "template_argument_list");
+  verbatim ("%s%s", tab(), info.str ());
+
+  indentation indent;
+
+  for (int i = 0; i < TREE_VEC_LENGTH (args); ++i)
+    {
+      tree arg = TREE_VEC_ELT (args, 0);
+      node_info arg_info (arg);
+      verbatim("%s%s index=%d", tab(), arg_info.str (), i);
+    }
+}

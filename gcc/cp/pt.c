@@ -11510,7 +11510,10 @@ static tree
 tsubst_contract_attribute (tree decl, tree t, tree args,
 			   tsubst_flags_t complain, tree in_decl)
 {
-  /* Make local variables available for instantiating contracts.  */
+  /* Make local variables available for instantiating contracts.  However,
+     the parameters being made available are those of the most general
+     template because we never (seem to) instantiate contract attributes.  */
+  in_decl = DECL_TEMPLATE_RESULT (most_general_template (in_decl));
   local_specialization_stack specs (lss_copy);
   register_parameter_specializations (in_decl, decl);
 
@@ -12108,12 +12111,6 @@ instantiate_class_template_1 (tree type)
 	      if (TREE_CODE (r) == FUNCTION_DECL
 		  && DECL_OMP_DECLARE_REDUCTION_P (r))
 		cp_check_omp_declare_reduction (r);
-
-	      /* FIXME when we instatiate a template class with guarded
-	       * members, particularly guarded template members, the resulting
-	       * pre/post functions end up being inaccessible because their
-	       * template info's context is the original uninstantiated class.
-	       * */
 	    }
 	  else if ((DECL_CLASS_TEMPLATE_P (t) || DECL_IMPLICIT_TYPEDEF_P (t))
 		   && LAMBDA_TYPE_P (TREE_TYPE (t)))
@@ -16768,7 +16765,7 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 
 	    Contracts may reference this, but all dummies references are
 	    replaced just before building the contract check. */
-	  gcc_assert (cp_unevaluated_operand || cp_contract_operand);
+	  gcc_assert (cp_unevaluated_operand);
 	  r = tsubst_decl (t, args, complain);
 	  /* Give it the template pattern as its context; its true context
 	     hasn't been instantiated yet and this is good enough for
@@ -25642,7 +25639,6 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 							  specs);
 	  }
 
-      tree orig_parms = DECL_ARGUMENTS (decl);
       /* Merge parameter declarations.  */
       if (tree pattern_parm
 	  = skip_artificial_parms_for (code_pattern,
@@ -25660,11 +25656,11 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	{
 	  /* Instantiate any pending contracts and replace references to
 	     orig_parms to their current value.  */
-	  local_specialization_stack lss (lss_copy);
-	  for (tree op = orig_parms, np = DECL_ARGUMENTS (decl); op && np;
-	      op = DECL_CHAIN (op), np = DECL_CHAIN (np))
-	    if (op != np)
-	      register_local_specialization (np, op);
+	//   local_specialization_stack lss (lss_copy);
+	//   for (tree op = orig_parms, np = DECL_ARGUMENTS (decl); op && np;
+	//       op = DECL_CHAIN (op), np = DECL_CHAIN (np))
+	//     if (op != np)
+	//       register_local_specialization (np, op);
 	  DECL_ATTRIBUTES (decl) = copy_list (DECL_ATTRIBUTES (decl));
 	  for (tree ca = DECL_CONTRACTS (decl); ca; ca = CONTRACT_CHAIN (ca))
 	    {

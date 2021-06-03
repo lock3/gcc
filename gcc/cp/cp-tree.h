@@ -7581,6 +7581,18 @@ extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);
 extern void emit_postconditions			(tree);
 
+/* FIXME: Remove these */
+void debug_type (tree);
+void debug_expression (tree);
+void debug_declaration (tree);
+void debug_function (tree);
+void debug_parameters (tree);
+void debug_parameter (tree);
+void debug_contracts (tree);
+void debug_contract (tree);
+
+void debug_template_arguments (tree);
+
 inline void
 set_decl_contracts (tree decl, tree contract_attrs)
 {
