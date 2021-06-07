@@ -3322,7 +3322,7 @@ check_explicit_specialization (tree declarator,
 
 	  /* If this is an explicit specialization, remove any contracts
 	     that may have been inherited from the template.  */
-	  if (decl != error_mark_node && tsk == tsk_expl_spec)
+	  if (decl != error_mark_node && DECL_TEMPLATE_SPECIALIZATION (decl))
 	    {
 	      tree p = NULL_TREE;
 	      for (tree a = DECL_ATTRIBUTES (decl); a; a = TREE_CHAIN (a))

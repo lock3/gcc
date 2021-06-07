@@ -1006,6 +1006,8 @@ void debug_expression (tree t)
 {
   node_info info (t);
   verbatim ("%s%s %qE", tab(), info.str (), t);
+  if (!t)
+    return;
 
   indentation indent;
   debug_type (TREE_TYPE (t));
@@ -1013,7 +1015,7 @@ void debug_expression (tree t)
   if (DECL_P (t))
     return;
 
-  for (int i = 0; i < TREE_OPERAND_LENGTH (t); ++i)
+  for (int i = 0; i < cp_tree_operand_length (t); ++i)
     debug_expression (TREE_OPERAND (t, i));
 }
 
