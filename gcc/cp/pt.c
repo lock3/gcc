@@ -1602,8 +1602,7 @@ register_specialization (tree spec, tree tmpl, tree args, bool is_friend,
     {
       if (DECL_TEMPLATE_INSTANTIATION (fn))
 	{
-	  if (DECL_ODR_USED (fn)
-	      || DECL_EXPLICIT_INSTANTIATION (fn))
+	  if (DECL_ODR_USED (fn) || DECL_EXPLICIT_INSTANTIATION (fn))
 	    {
 	      error ("specialization of %qD after instantiation",
 		     fn);
@@ -1637,6 +1636,7 @@ register_specialization (tree spec, tree tmpl, tree args, bool is_friend,
 		 there were no definition, and vice versa.  */
 	      DECL_INITIAL (fn) = NULL_TREE;
 	      duplicate_decls (spec, fn, /*hiding=*/is_friend);
+
 	      /* The call to duplicate_decls will have applied
 		 [temp.expl.spec]:
 
@@ -3320,6 +3320,19 @@ check_explicit_specialization (tree declarator,
 					      is_friend, 0);
 	    }
 
+	  /* If this is an explicit specialization, remove any contracts
+	     that may have been inherited from the template.  */
+	  if (tsk == tsk_expl_spec)
+	    {
+	      tree p = NULL_TREE;
+	      for (tree a = DECL_ATTRIBUTES (decl); a; a = TREE_CHAIN (a))
+		{
+		  if (!cxx_contract_attribute_p (a))
+		    p = tree_cons (TREE_PURPOSE (a), TREE_VALUE (a), p);
+		}
+	      nreverse (p);
+	      DECL_ATTRIBUTES (decl) = p;
+	    }
 
 	  /* A 'structor should already have clones.  */
 	  gcc_assert (decl == error_mark_node

@@ -10452,6 +10452,7 @@ expand_expr_real_1 (tree exp, rtx target, machine_mode tmode,
 	 been lowered by this point.  */
       if (exp)
 	context = decl_function_context (exp);
+
       gcc_assert (!exp
 		  || SCOPE_FILE_SCOPE_P (context)
 		  || context == current_function_decl

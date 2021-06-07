@@ -1094,7 +1094,6 @@ void debug_declaration (tree t)
       return debug_type_declaration (t);
     default:
       debug_tree (t);
-      gcc_unreachable ();
     }
 }
 
