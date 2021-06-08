@@ -26,7 +26,7 @@ struct Child : Base
   int fun()
     [[ pre: pub > 0 ]]
     [[ pre: pro > 0 ]]
-    [[ pre: pri > 0 ]]
+    [[ pre: pri > 0 ]] // { dg-error "private" }
   {
     return pub * pro;
   }
@@ -35,9 +35,9 @@ struct Child : Base
 struct VChild : Base
 {
   int b()
-    [[ pre: pub > 0 ]] // { dg-error "mismatched contract predicate in override" }
-    [[ pre: pro > 0 ]]
-    [[ pre: pri > 0 ]]
+    [[ pre: pub > 0 ]]
+    [[ pre: pro > 0 ]] // FIXME: Diagnostic arising from base conversions.
+    [[ pre: pri > 0 ]] // { dg-error "private" }
   {
     return pub * pro;
   }
@@ -49,7 +49,7 @@ struct TChild : B
   int fun()
     [[ pre: B::pub > 0 ]]
     [[ pre: B::pro > 0 ]]
-    [[ pre: B::pri > 0 ]]
+    [[ pre: B::pri > 0 ]] // { dg-error "private" }
   {
     return B::pub * B::pro;
   }

@@ -11542,7 +11542,21 @@ tsubst_contract_attribute (tree decl, tree t, tree args,
      of template parameters.  */
   args = DECL_TI_ARGS (decl);
 
+  /* For member functions, make this available for semantic analysis.  */
+  tree save_ccp = current_class_ptr;
+  tree save_ccr = current_class_ref;
+  if (DECL_NONSTATIC_MEMBER_FUNCTION_P (decl))
+    {
+      tree arg_types = TYPE_ARG_TYPES (TREE_TYPE (decl));
+      tree this_type = TREE_TYPE (TREE_VALUE (arg_types));
+      inject_this_parameter (this_type, cp_type_quals (this_type));
+    }
+
   contract = tsubst_contract (decl, contract, args, complain, in_decl);
+
+  current_class_ptr = save_ccp;
+  current_class_ref = save_ccr;
+
   return finish_contract_attribute (attribute, contract);
 }
 
