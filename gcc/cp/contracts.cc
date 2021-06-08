@@ -799,9 +799,11 @@ remap_contract (tree src, tree dst, tree contract)
 
   bool do_remap = false;
 
-  /* Insert paramater remappings.  */
-  if (TREE_CODE (src) == FUNCTION_DECL) src = DECL_ARGUMENTS (src);
-  if (TREE_CODE (dst) == FUNCTION_DECL) dst = DECL_ARGUMENTS (dst);
+  /* Insert parameter remappings.  */
+  if (TREE_CODE (src) == FUNCTION_DECL)
+    src = DECL_ARGUMENTS (src);
+  if (TREE_CODE (dst) == FUNCTION_DECL)
+    dst = DECL_ARGUMENTS (dst);
 
   for (tree sp = src, dp = dst; sp || dp;
       sp = DECL_CHAIN (sp), dp = DECL_CHAIN (dp))
@@ -820,7 +822,9 @@ remap_contract (tree src, tree dst, tree contract)
 	}
       gcc_assert (sp && dp);
 
-      if (sp == dp) continue;
+      if (sp == dp)
+	continue;
+
       insert_decl_map (&id, sp, dp);
       do_remap = true;
     }

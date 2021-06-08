@@ -2472,6 +2472,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	 when olddecl is overwritten later.  */
       if (DECL_CONTRACTS (olddecl))
 	set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
+
       /* Otherwise, rewrite references to newdecl's parms in its contracts, if
 	 any. Unless this is a defining declaration newdecl's DECL_ARGUMENTS
 	 will be thrown away.
@@ -2625,13 +2626,18 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  DECL_INITIAL (old_result) = DECL_INITIAL (new_result);
 	  if (DECL_FUNCTION_TEMPLATE_P (newdecl))
 	    {
+	      /* Remap contracts in the old declaration so they refer to their
+		 new parameters.  */
+	      if (DECL_CONTRACTS (old_result))
+		remap_contracts (old_result, new_result, DECL_CONTRACTS (old_result));
+
 	      tree parm;
-	      DECL_ARGUMENTS (old_result)
-		= DECL_ARGUMENTS (new_result);
+	      DECL_ARGUMENTS (old_result) = DECL_ARGUMENTS (new_result);
 	      for (parm = DECL_ARGUMENTS (old_result); parm;
 		   parm = DECL_CHAIN (parm))
 		DECL_CONTEXT (parm) = old_result;
 	    }
+
 	}
 
       return olddecl;
@@ -11736,7 +11742,6 @@ grokdeclarator (const cp_declarator *declarator,
   bool late_return_type_p = false;
   bool array_parameter_p = false;
   tree reqs = NULL_TREE;
-  tree contracts = NULL_TREE;
 
   signed_p = decl_spec_seq_has_spec_p (declspecs, ds_signed);
   unsigned_p = decl_spec_seq_has_spec_p (declspecs, ds_unsigned);

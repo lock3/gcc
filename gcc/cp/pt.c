@@ -25661,11 +25661,6 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	{
 	  /* Instantiate any pending contracts and replace references to
 	     orig_parms to their current value.  */
-	//   local_specialization_stack lss (lss_copy);
-	//   for (tree op = orig_parms, np = DECL_ARGUMENTS (decl); op && np;
-	//       op = DECL_CHAIN (op), np = DECL_CHAIN (np))
-	//     if (op != np)
-	//       register_local_specialization (np, op);
 	  DECL_ATTRIBUTES (decl) = copy_list (DECL_ATTRIBUTES (decl));
 	  for (tree ca = DECL_CONTRACTS (decl); ca; ca = CONTRACT_CHAIN (ca))
 	    {
