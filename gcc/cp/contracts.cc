@@ -143,6 +143,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree.h"
 #include "tree-inline.h"
 #include "attribs.h"
+#include "tree-iterator.h"
 #include "print-tree.h"
 
 const int max_custom_roles = 32;
@@ -564,6 +565,7 @@ make_postcondition_variable (cp_expr id, tree type)
   tree decl = build_lang_decl (PARM_DECL, id, type);
   DECL_ARTIFICIAL (decl) = true;
   DECL_SOURCE_LOCATION (decl) = id.get_location ();
+
   push_binding (id, decl, current_binding_level);
   return decl;
 }
@@ -605,9 +607,12 @@ rebuild_postconditions (tree decl, tree type)
       if (!oldvar)
 	continue;
 
-      /* "Instantiate" the result variable using the known type.  */
+      /* "Instantiate" the result variable using the known type.  Also update
+	  the context so the inliner will actually remap this the parameter when
+	  generating contract checks.  */
       tree newvar = copy_node (oldvar);
       TREE_TYPE (newvar) = type;
+      DECL_CONTEXT (newvar) = decl;
 
       /* Make parameters and result available for substitution.  */
       local_specialization_stack stack (lss_copy);
@@ -760,6 +765,25 @@ cxx_contract_attribute_p (const_tree attr)
       || TREE_CODE (TREE_VALUE (TREE_VALUE (attr))) == ASSERTION_STMT);
 }
 
+/* Remove all c++2a style contract attributes from the DECL_ATTRIBUTEs of the
+   FUNCTION_DECL FNDECL.  */
+
+void
+remove_contract_attributes (tree fndecl)
+{
+  tree list = DECL_ATTRIBUTES (fndecl);
+  tree *p;
+  for (p = &list; *p;)
+    {
+      tree l = *p;
+      if (cxx_contract_attribute_p (l))
+	*p = TREE_CHAIN (l);
+      else
+	p = &TREE_CHAIN (l);
+    }
+  DECL_ATTRIBUTES (fndecl) = list;
+}
+
 /* Replace any references in CONTRACT's CONDITION to SRC's parameters with
    references to DST's parameters.
 
@@ -812,10 +836,10 @@ remap_contract (tree src, tree dst, tree contract)
 	  && TREE_CODE (contract) == POSTCONDITION_STMT
 	  && DECL_CHAIN (dp) == NULL_TREE)
 	{
-	  if (POSTCONDITION_IDENTIFIER (contract))
+	  if (tree result = POSTCONDITION_IDENTIFIER (contract))
 	    {
-	      gcc_assert (DECL_P (POSTCONDITION_IDENTIFIER (contract)));
-	      insert_decl_map (&id, POSTCONDITION_IDENTIFIER (contract), dp);
+	      gcc_assert (DECL_P (result));
+	      insert_decl_map (&id, result, dp);
 	      do_remap = true;
 	    }
 	  break;
@@ -1013,6 +1037,14 @@ void debug_expression (tree t)
   if (!t)
     return;
 
+  if (TREE_CODE (t) == STATEMENT_LIST)
+    {
+      indentation indent;
+      for (tree_stmt_iterator i = tsi_start (t); !tsi_end_p (i); tsi_next (&i))
+	debug_expression (tsi_stmt (i));
+      return;
+    }
+
   indentation indent;
   debug_type (TREE_TYPE (t));
 
@@ -1044,10 +1076,18 @@ void debug_function (tree t)
       debug_contracts (contracts);
     }
 
+  /* Contracts shouldn't live in the attributes of the function type.
+     This is indicates an error, but benign since we never use these.  */
   if (tree c = find_contract (TYPE_ATTRIBUTES (TREE_TYPE (t))))
     {
       header h ("invalid attribution");
       debug_contracts (c);
+    }
+
+  if (tree body = DECL_SAVED_TREE (t))
+    {
+      header h ("body");
+      debug_expression (body);
     }
 }
 
@@ -1063,7 +1103,6 @@ void debug_template_parameter (tree t)
 {
   /* T is a pair combining the parameter with the default argument?  */
   debug_declaration (TREE_VALUE (t));
-
 }
 
 void debug_template_parameters (tree t)
@@ -1088,6 +1127,16 @@ void debug_template (tree t)
   debug_declaration (DECL_TEMPLATE_RESULT (t));
 }
 
+void debug_variable_decl (tree t)
+{
+  node_info info (t);
+  verbatim ("%s%s %qE", tab(), info.str (), t);
+
+  indentation indent;
+
+  debug_type (TREE_TYPE (t));
+}
+
 void debug_declaration (tree t)
 {
   switch (TREE_CODE (t))
@@ -1098,6 +1147,9 @@ void debug_declaration (tree t)
       return debug_function (t);
     case TYPE_DECL:
       return debug_type_declaration (t);
+    case PARM_DECL:
+    case VAR_DECL:
+      return debug_variable_decl (t);
     default:
       debug_tree (t);
     }

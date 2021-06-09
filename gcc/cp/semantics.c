@@ -742,28 +742,6 @@ build_arg_list (tree fn)
   return args;
 }
 
-/* Remove all c++2a style contract attributes from the DECL_ATTRIBUTEs of the
-   FUNCTION_DECL FNDECL.  */
-
-void
-remove_contract_attributes (tree fndecl)
-{
-  tree list = DECL_ATTRIBUTES (fndecl);
-  tree *p;
-
-  for (p = &list; *p;)
-    {
-      tree l = *p;
-
-      if (cxx_contract_attribute_p (l))
-	*p = TREE_CHAIN (l);
-      else
-	p = &TREE_CHAIN (l);
-    }
-
-  DECL_ATTRIBUTES (fndecl) = list;
-}
-
 /* Map from FUNCTION_DECL to a FUNCTION_DECL for either the PRE_FN or POST_FN.
    These are used to parse contract conditions and are called inside the body
    of the guarded function.  */
@@ -888,10 +866,14 @@ build_contract_functor_declaration (tree fndecl, bool pre)
       && !TYPE_METHOD_BASETYPE (TREE_TYPE (fndecl)))
     return error_mark_node;
 
-  /* Create and rename unchecked function and give an internal name.  */
+  /* Create and rename the unchecked function and give an internal name.  */
   tree fn = copy_fn_decl (fndecl);
   DECL_RESULT (fn) = NULL_TREE;
   tree value_type = pre ? void_type_node : TREE_TYPE (TREE_TYPE (fn));
+
+  /* Don't propagate declaration attributes to the checking function,
+     including the original contracts.  */
+  DECL_ATTRIBUTES (fn) = NULL_TREE;
 
   tree arg_types = NULL_TREE;
   tree *last = &arg_types;
@@ -928,7 +910,6 @@ build_contract_functor_declaration (tree fndecl, bool pre)
     }
 
   TREE_TYPE (fn) = build_function_type (value_type, arg_types);
-
   if (DECL_NONSTATIC_MEMBER_FUNCTION_P (fndecl))
     TREE_TYPE (fn) = build_method_type (class_type, TREE_TYPE (fn));
 

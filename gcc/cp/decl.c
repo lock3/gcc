@@ -13146,26 +13146,21 @@ grokdeclarator (const cp_declarator *declarator,
 	      }
 
 	    /* Contract attributes appertain to the declaration.  */
-	    for (tree a = attrs, q = NULL_TREE; a; )
+	    tree *p;
+	    for (p = &attrs; *p;)
 	      {
-		tree p = TREE_CHAIN (a);
-
-		/* Intentially reverse order of contracts so they're reversed
-		   back into their lexical order.  */
-		if (cxx_contract_attribute_p (a))
+		tree l = *p;
+		if (cxx_contract_attribute_p (l))
 		  {
-		    /* Unlink a to avoid cycles in the list.  */
-		    TREE_CHAIN (a) = NULL_TREE;
-		    /* Splice a out of the list of attributes. */
-		    if (q)
-		      TREE_CHAIN (q) = p;
-		    else if (a == attrs)
-		      attrs = p;
-		    returned_attrs = chainon (a, returned_attrs);
+		    *p = TREE_CHAIN (l);
+		    /* Intentially reverse order of contracts so they're
+		       reversed back into their lexical order.  */
+		    TREE_CHAIN (l) = NULL_TREE;
+		    returned_attrs = chainon (l, returned_attrs);
 		  }
-		q = a;
-		a = p;
-	      }
+		else
+		  p = &TREE_CHAIN (l);
+	     }
 
 	    if (attrs)
 	      {
@@ -18107,7 +18102,7 @@ finish_function (bool inline_p)
   return fndecl;
 }
 
-/* Finish up a the pre & post function declarations for a guarded FNDECL,
+/* Finish up the pre & post function definitions for a guarded FNDECL,
    and compile those functions all the way to assembler language output.  */
 
 static void
