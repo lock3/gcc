@@ -11495,9 +11495,18 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
   if (TREE_CODE (t) == POSTCONDITION_STMT && POSTCONDITION_IDENTIFIER (t))
     {
       gcc_assert (decl);
+
       tree oldvar = POSTCONDITION_IDENTIFIER (t);
+
+      /* Make sure the postcondition is valid.  */
+      location_t loc = DECL_SOURCE_LOCATION (oldvar);
+      tree type = TREE_TYPE (TREE_TYPE (decl));
+      if (!check_postcondition_result (decl, type, loc))
+	return invalidate_contract (r);
+        
+
       tree newvar = copy_node (oldvar);
-      TREE_TYPE (newvar) = TREE_TYPE (TREE_TYPE (decl));
+      TREE_TYPE (newvar) = type;
       DECL_CONTEXT (newvar) = decl;
       POSTCONDITION_IDENTIFIER (r) = newvar;
 

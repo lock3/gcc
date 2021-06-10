@@ -27,7 +27,6 @@ struct F2
     [[ post r: false ]] // { dg-error "does not return a value" }
   {
   }
-
   void f()
     [[ post r: false ]] // { dg-error "does not return a value" }
   {

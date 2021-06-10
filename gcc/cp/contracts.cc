@@ -550,6 +550,18 @@ compute_concrete_semantic (tree contract)
   gcc_assert (false);
 }
 
+/* Mark most of a contract as being invalid.  */
+
+tree
+invalidate_contract (tree t)
+{
+  if (TREE_CODE (t) == POSTCONDITION_STMT && POSTCONDITION_IDENTIFIER (t))
+    POSTCONDITION_IDENTIFIER (t) = error_mark_node;
+  CONTRACT_CONDITION (t) = error_mark_node;
+  CONTRACT_COMMENT (t) = error_mark_node;
+  return t;
+}
+
 /* Returns an invented parameter declration of the form 'TYPE ID' for the
    purpose of parsing the postcondition.
    
@@ -576,6 +588,29 @@ tree
 make_postcondition_variable (cp_expr id)
 {
   return make_postcondition_variable (id, make_auto ());
+}
+
+/* Check that the TYPE is valid for a named postcondition variable. Emit a
+   diagnostic if it is not.  Returns TRUE if the result is OK and false
+   otherwise.  */
+
+bool
+check_postcondition_result (tree decl, tree type, location_t loc)
+{
+  if (VOID_TYPE_P (type))
+  {
+    const char* what;
+    if (DECL_CONSTRUCTOR_P (decl))
+      what = "constructor";
+    else if (DECL_DESTRUCTOR_P (decl))
+      what  = "destructor";
+    else
+      what = "function";
+    error_at (loc, "%s does not return a value to test", what);
+    return false;
+  }
+
+  return true;
 }
 
 /* Instantiate each postcondition with the return type to finalize the
@@ -606,6 +641,14 @@ rebuild_postconditions (tree decl, tree type)
       tree oldvar = POSTCONDITION_IDENTIFIER (contract);
       if (!oldvar)
 	continue;
+
+      /* Check the postcondition variable.  */
+      location_t loc = DECL_SOURCE_LOCATION (oldvar);
+      if (!check_postcondition_result (decl, type, loc))
+	{
+	  invalidate_contract (contract);
+	  continue;
+	}
 
       /* "Instantiate" the result variable using the known type.  Also update
 	  the context so the inliner will actually remap this the parameter when

@@ -28564,8 +28564,16 @@ void cp_parser_late_contract_condition (cp_parser *parser,
   tree result = NULL_TREE;
   if (identifier)
     {
-      begin_scope (sk_block, NULL_TREE);
+      /* TODO: Can we guarantee that the identifier has a location? */
+      location_t loc = cp_expr_location (contract);
       tree type = TREE_TYPE (TREE_TYPE (fn));
+      if (!check_postcondition_result (fn, type, loc))
+	{
+	  invalidate_contract (contract);
+	  return;
+	}
+
+      begin_scope (sk_block, NULL_TREE);
       result = make_postcondition_variable (identifier, type);
       ++processing_template_decl;
     }
