@@ -11498,6 +11498,7 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
       tree oldvar = POSTCONDITION_IDENTIFIER (t);
       tree newvar = copy_node (oldvar);
       TREE_TYPE (newvar) = TREE_TYPE (TREE_TYPE (decl));
+      DECL_CONTEXT (newvar) = decl;
       POSTCONDITION_IDENTIFIER (r) = newvar;
 
       /* Make the variable available for lookup.  */
