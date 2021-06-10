@@ -2,7 +2,7 @@
 // { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
 
 struct BaseA {
-  virtual int fun(int n) [[ pre: n > 0 ]] { return -n; }
+  virtual int fun(int n) [[ pre: n > 0 ]] { return -n; } // { dg-message "previous predicate" }
 };
 
 struct BaseB {
@@ -19,8 +19,6 @@ struct Child2 : public BaseA, BaseB {
 
 struct Child3 : public BaseA, BaseB {
   int fun(int n) { return -n; }
-  // FIXME this diagnostic is in a weird spot
-  // { dg-error "mismatched" "" { target *-*-* } 5 }
 };
 
 struct Child4 : public BaseA {

@@ -3,9 +3,9 @@
 // { dg-do compile }
 // { dg-options "-std=c++2a -fcontracts" }
 
-auto un(int z)
+auto undeduced(int z)
 {
-  if (!(sizeof(decltype(un(5))) > 4)) // { dg-error "before deduction" }
+  if (!(sizeof(decltype(undeduced(5))) > 4)) // { dg-error "before deduction" }
     return 5;
   return 4;
 }
@@ -25,7 +25,7 @@ int g1(int n) [[ post s: s == n ]]
 }
 
 int g2(int z)
-  [[ pre: sizeof(decltype(g2(5))) > 4 ]];
+  [[ pre: sizeof(decltype(g2(5))) > 4 ]]; // { dg-error "not declared" }
 
 int g3(int z)
   [[ pre: sizeof(decltype(g2(5))) > 4 ]]
@@ -87,17 +87,17 @@ auto g8(T t) [[ pre: g8(t) ]] { return t; }
 
 // non defining pre, bad
 auto f0(int z)
-  [[ pre: sizeof(decltype(f0(5))) > 4 ]]; // { dg-error "before deduction" }
+  [[ pre: sizeof(decltype(f0(5))) > 4 ]]; // { dg-error "not declared" }
 
 // defining pre, still ill formed
 auto f1(int z)
-  [[ pre: sizeof(decltype(f1(5))) > 4 ]] // { dg-error "before deduction" }
+  [[ pre: sizeof(decltype(f1(5))) > 4 ]] // { dg-error "not declared" }
 {
   return '5';
 }
 
-// undeduced using postcon, bad
-auto f2(int m) [[ post r: r == m ]]; // { dg-error "cannot use.*postcondition identifier" }
+// undeduced using postcon, OK
+auto f2(int m) [[ post r: r == m ]];
 
 auto f2(int n) [[ post s: s == n ]]
 {
