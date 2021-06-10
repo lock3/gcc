@@ -6,7 +6,7 @@
 
 template<typename T>
 void fn()
-  [[ pre: T{} ]] // { dg-error "could not convert" }
+  [[ pre: T{} ]] // { dg-error "no match" }
 {
 }
 
