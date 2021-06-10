@@ -12,8 +12,8 @@ struct F0
 
 struct F1
 {
-  F1() [[ pre: this->x > 0 ]]; // { dg-error "invalid use of .this." }
-  ~F1() [[ post: this->x > 0 ]]; // { dg-error "invalid use of .this." }
+  F1() [[ pre: this->x > 0 ]]; // { dg-error "may not be used" }
+  ~F1() [[ post: this->x > 0 ]]; // { dg-error "may not be used" }
   int x{-1};
 };
 

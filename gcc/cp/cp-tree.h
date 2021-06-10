@@ -1356,6 +1356,14 @@ struct GTY (()) tree_static_assert {
   (TREE_CODE (NODE) == PRECONDITION_STMT	\
    || TREE_CODE (NODE) == POSTCONDITION_STMT)
 
+/* True if NODE is a precondition.  */
+#define PRECONDITION_P(NODE)           \
+  (TREE_CODE (NODE) == PRECONDITION_STMT)
+
+/* True if NODE is a postcondition.  */
+#define POSTCONDITION_P(NODE)          \
+  (TREE_CODE (NODE) == POSTCONDITION_STMT)
+
 #define CONTRACT_CHECK(NODE) \
   (TREE_CHECK3 (NODE, ASSERTION_STMT, PRECONDITION_STMT, POSTCONDITION_STMT))
 

@@ -28570,6 +28570,16 @@ void cp_parser_late_contract_condition (cp_parser *parser,
       ++processing_template_decl;
     }
 
+  /* 'this' is not allowed in preconditions of constructors or in
+     postconditions of destructors.  Note that the previous value
+     of this variable is cached by the calling function.  */
+  if ((DECL_CONSTRUCTOR_P (fn) && PRECONDITION_P (contract)) ||
+       (DECL_DESTRUCTOR_P (fn) && POSTCONDITION_P (contract)))
+    {
+      current_class_ref = current_class_ptr = NULL_TREE;
+      parser->local_variables_forbidden_p |= THIS_FORBIDDEN;
+    }
+
   push_unparsed_function_queues (parser);
 
   /* Push the saved tokens onto the parser's lexer stack.  */
