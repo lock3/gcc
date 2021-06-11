@@ -10,18 +10,18 @@ struct Outer {
   };
 
   void fn(int m) [[ pre: m > 1 ]];
-  friend void Inner::fn(int n) [[ pre: n > 0 && bob > 1 ]]; // { dg-error "non-defining friend" }
-  friend void Inner::fn2(int n) [[ pre: n > 0 && bob > 1 ]] {}; // { dg-error "cannot define" }
+  friend void Inner::fn(int n) [[ pre: n > 0 && bob > 1 ]]; // { dg-error "not declared" }
 
-  friend void gfn(int p) [[ pre: p > 0 ]]; // { dg-error "non-defining friend" }
-  friend void gfn(int q) [[ pre: q > 1 ]]; // { dg-error "non-defining friend" }
+  // FIXME: These functions are merged together with no diagnostic. We get an
+  // error about 'p' not being declared because the contracts haven't been
+  // unified or remapped.
+  friend void gfn(int p) [[ pre: p > 0 ]];
+  friend void gfn(int q) [[ pre: q > 1 ]]; // { dg-error "mismatched contracts" }
 
+  // This should be okay.
   friend void gfn2(int q);
-  friend void gfn2(int p) [[ pre: p > 0 ]] { } // { dg-bogus "non-defining friend" }
-
-  friend void gfn3(int n); //{ dg-bogus "non-defining friend" }
+  friend void gfn2(int p) [[ pre: p > 0 ]] { }
 
   static int bob;
 };
 int Outer::bob{-1};
-
