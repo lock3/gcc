@@ -1,5 +1,5 @@
 // tests to ensure pre contracts work on member functions
-// { dg-do run }
+// { dg-do compile }
 // { dg-options "-std=c++2a -fcontracts -fcontract-continuation-mode=on" }
 #include <cstdio>
 
@@ -210,7 +210,7 @@ namespace virt
     virtual int fun(int m, int n)
       [[ pre: m > 0 ]]
       [[ pre: n > 0 ]]
-      [[ pre: v > 0 ]] // { dg-error "mismatched contract predicate in override" }
+      [[ pre: v > 0 ]] // { dg-error "mismatched contract" }
       override
     {
       printf("T3::fun::m: %d, T3::fun::n: %d, T3::v: %d\n", m, n, v);
@@ -223,7 +223,7 @@ namespace virt
     virtual int fun(int m, int n)
       [[ pre: m > 0 ]]
       [[ pre: n > 0 ]]
-      [[ pre: v > 0 ]] // { dg-error "mismatched contract predicate in override" }
+      [[ pre: v > 0 ]] // { dg-error "mismatched contract" }
       override;
 
     int p(int a)
@@ -287,7 +287,7 @@ namespace virt
     int fun(int m, int n)
       [[ pre: m > 0 ]]
       [[ pre: n > 0 ]]
-      [[ pre: v > 0 ]] // { dg-error "mismatched contract predicate in override" }
+      [[ pre: v > 0 ]] // { dg-error "mismatched contract" }
     {
       printf("T3c::fun::m: %d, T3c::fun::n: %d, T3c::v: %d\n", m, n, v);
       return m * n * v;

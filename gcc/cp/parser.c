@@ -28551,7 +28551,9 @@ void cp_parser_late_contract_condition (cp_parser *parser,
 					tree attribute)
 {
   tree contract = TREE_VALUE (TREE_VALUE (attribute));
-  /* Make sure we've gotten something that hasn't been parsed yet.  */
+
+  /* Make sure we've gotten something that hasn't been parsed yet or that
+     we're not parsing an invalid contract.  */
   tree condition = CONTRACT_CONDITION (contract);
   if (TREE_CODE (condition) != DEFERRED_PARSE)
     return;

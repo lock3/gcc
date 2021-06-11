@@ -32,8 +32,12 @@ struct Bar : Foo {
   int f8(int n = 0 [[ pre: n > -8 ]]) override { return -n; }
   // { dg-error "shall only introduce an attribute" "" { target *-*-* } .-1 }
   int f9(int n = 0) [[ pre: n > -9 ]] override { return -n; } // { dg-error "mismatched contract" }
-  int f10(int n = 0) override [[ pre: n > -10 ]] { return -n; } // { dg-error "mismatched contract" }
-  int f11(int n) [[ pre: n > 1 ]] override [[ pre: n > 0 ]] { return -n; } // { dg-error "mismatched contract" }
-  int f12(int n) [[ pre: n > 0 ]] override [[ pre: n > 1 ]] { return -n; } // { dg-bogus "mismatched contract" }
+
+  // The grammar doesn't appear to permit contracts after the virt-specifiers
+  // but the parser will happily add these to an attribute list that is not
+  // owned by the function declarator.
+  int f10(int n = 0) override [[ pre: n > -10 ]] { return -n; } // { dg-error "contracts must appertain" }
+  int f11(int n) [[ pre: n > 1 ]] override [[ pre: n > 0 ]] { return -n; } // { dg-error "contracts must appertain" }
+  int f12(int n) [[ pre: n > 0 ]] override [[ pre: n > 1 ]] { return -n; } // { dg-error "contracts must appertain" }
 };
 

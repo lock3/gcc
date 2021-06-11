@@ -1077,7 +1077,10 @@ void debug_expression (tree t)
 {
   node_info info (t);
   verbatim ("%s%s %qE", tab(), info.str (), t);
-  if (!t)
+  if (!t || t == error_mark_node)
+    return;
+
+  if (TREE_CODE (t) == DEFERRED_PARSE)
     return;
 
   if (TREE_CODE (t) == STATEMENT_LIST)

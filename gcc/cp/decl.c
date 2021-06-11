@@ -937,6 +937,30 @@ determine_local_discriminator (tree decl)
   timevar_cond_stop (TV_NAME_LOOKUP, subtime);
 }
 
+/* Create a copy of T that contains no location wrappers.
+
+   This is a hack for comparing dependent expressions that get parsed
+   a little differently. Sometimes location wrappers appear in the tree,
+   other times they don't.  */
+
+static tree
+copy_without_location_wrappers (tree t)
+{
+  if (!t)
+    return t;
+
+  if (DECL_P (t))
+    return t;
+
+  t = tree_strip_any_location_wrapper (t);
+
+  tree r = copy_node (t);
+  for (int i = 0; i < cp_tree_operand_length (t); ++i)
+    TREE_OPERAND (r, i) = copy_without_location_wrappers (TREE_OPERAND (t, i));
+
+  return r;
+}
+
 /* Compare the contract conditions of OLD_ATTR and NEW_ATTR. Returns false
    if the conditions are equivalent, and true otherwise.  */
 
@@ -953,8 +977,8 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
       auto_diagnostic_group d;
       error_at (EXPR_LOCATION (new_contract),
 		ctx == cmc_declaration
-		? "mismatched contract condition in declaration"
-		: "mismatched contract condition in override");
+		? "mismatched contract attribute in declaration"
+		: "mismatched contract attribute in override");
       inform (EXPR_LOCATION (old_contract), "previous contract here");
       return true;
     }
@@ -967,17 +991,19 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
   /* Compare the conditions of the contracts.  We fold immediately to avoid
      issues comparing contracts on overrides that use parameters -- see
      contracts-pre3.  */
-  tree old_cond = cp_fully_fold_init (CONTRACT_CONDITION (old_contract));
-  tree new_cond = cp_fully_fold_init (CONTRACT_CONDITION (new_contract));
-  if (!cp_tree_equal (old_cond, new_cond))
+  tree t1 = copy_without_location_wrappers (CONTRACT_CONDITION (old_contract));
+  tree t2 = copy_without_location_wrappers (CONTRACT_CONDITION (new_contract));
+  t1 = cp_fully_fold_init (t1);
+  t2 = cp_fully_fold_init (t2);
+  if (!cp_tree_equal (t1, t2))
     {
       auto_diagnostic_group d;
       error_at (EXPR_LOCATION (CONTRACT_CONDITION (new_contract)),
 		ctx == cmc_declaration
-		? "mismatched contract predicate in declaration"
-		: "mismatched contract predicate in override");
+		? "mismatched contract condition in declaration"
+		: "mismatched contract condition in override");
       inform (EXPR_LOCATION (CONTRACT_CONDITION (old_contract)),
-	      "previous predicate here");
+	      "previous contract here");
       return true;
     }
 
@@ -1003,6 +1029,22 @@ diagnose_contracts_after_definition (tree olddecl, location_t newloc)
   return false;
 }
 
+/* True if the contract is valid.  */
+
+static bool
+contract_valid_p (tree contract)
+{
+  return CONTRACT_CONDITION (contract) != error_mark_node;
+}
+
+/* True if the contract attribute is valid.  */
+
+static bool
+contract_attribute_valid_p (tree attribute)
+{
+  return contract_valid_p (TREE_VALUE (TREE_VALUE (attribute)));
+}
+
 /* Compare the contract attributes of OLDDECL and NEWDECL. Returns true
    if the contracts match, and false if they differ.  */
 
@@ -1018,6 +1060,12 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
   /* Compare each contract in turn.  */
   while (old_attrs && new_attrs)
     {
+      /* If either contract is ill-formed, skip the rest of the comparison,
+	 since we've already diagnosed an error.  */
+      if (!contract_attribute_valid_p (new_attrs)
+	  || !contract_attribute_valid_p (old_attrs))
+	return false;
+
       if (diagnose_mismatched_contracts (old_attrs, new_attrs, ctx))
 	return false;
       old_attrs = CONTRACT_CHAIN (old_attrs);
@@ -1258,6 +1306,10 @@ diagnose_misapplied_contracts (tree attributes)
 
   error_at (EXPR_LOCATION (CONTRACT_STATEMENT (contract_attr)),
 	    "contracts must appertain to a function type");
+
+  /* Invalidate the contract so we don't treat it as valid later on.  */
+  invalidate_contract (TREE_VALUE (TREE_VALUE (contract_attr)));
+
   return true;
 }
 
