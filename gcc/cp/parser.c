@@ -2800,6 +2800,8 @@ static bool cp_parser_array_designator_p
   (cp_parser *);
 static bool cp_parser_init_statement_p
   (cp_parser *);
+static bool cp_parser_skip_up_to_closing_square_bracket
+  (cp_parser *);
 static bool cp_parser_skip_to_closing_square_bracket
   (cp_parser *);
 static size_t cp_parser_skip_balanced_tokens (cp_parser *, size_t);
@@ -24468,11 +24470,11 @@ cp_parser_braced_list (cp_parser* parser, bool* non_constant_p)
   return result;
 }
 
-/* Consume tokens up to, and including, the next non-nested closing `]'.
+/* Consume tokens up to, but not including, the next non-nested closing `]'.
    Returns true iff we found a closing `]'.  */
 
 static bool
-cp_parser_skip_to_closing_square_bracket (cp_parser *parser)
+cp_parser_skip_up_to_closing_square_bracket (cp_parser *parser)
 {
   unsigned square_depth = 0;
 
@@ -24486,6 +24488,7 @@ cp_parser_skip_to_closing_square_bracket (cp_parser *parser)
 	  if (!parser->lexer->in_pragma)
 	    break;
 	  /* FALLTHRU */
+
 	case CPP_EOF:
 	  /* If we've run out of tokens, then there is no closing `]'.  */
 	  return false;
@@ -24496,19 +24499,28 @@ cp_parser_skip_to_closing_square_bracket (cp_parser *parser)
 
         case CPP_CLOSE_SQUARE:
 	  if (!square_depth--)
-	    {
-	      cp_lexer_consume_token (parser->lexer);
-	      return true;
-	    }
+	    return true;
 	  break;
 
 	default:
 	  break;
 	}
 
-      /* Consume the token.  */
+      /* Consume the current token, skipping it.  */
       cp_lexer_consume_token (parser->lexer);
     }
+}
+
+/* Consume tokens up to, and including, the next non-nested closing `]'.
+   Returns true iff we found a closing `]'.  */
+
+static bool
+cp_parser_skip_to_closing_square_bracket (cp_parser *parser)
+{
+  bool found = cp_parser_skip_up_to_closing_square_bracket (parser);
+  if (found)
+    cp_lexer_consume_token (parser->lexer);
+  return found;
 }
 
 /* Return true if we are looking at an array-designator, false otherwise.  */
@@ -28440,6 +28452,20 @@ cp_parser_contract_mode_opt (cp_parser *parser,
   return build_tree_list (NULL_TREE, config_id);
 }
 
+static tree
+find_error (tree *tp, int *, void *)
+{
+  if (*tp == error_mark_node)
+    return *tp;
+  return NULL_TREE;
+}
+
+static bool
+contains_error_p (tree t)
+{
+  return walk_tree (&t, find_error, NULL, NULL);
+}
+
 /* Parse a standard C++20 contract attribute specifier.
 
   contract-attribute-specifier:
@@ -28509,6 +28535,9 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
     }
   else
     {
+      /* Enable location wrappers when parsing contracts.  */
+      auto suppression = make_temp_override (suppress_location_wrappers, 0);
+
       /* Build a fake variable for the result identifier.  */
       tree result = NULL_TREE;
       if (identifier)
@@ -28523,6 +28552,12 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
       ++cp_contract_operand;
       cp_expr condition = cp_parser_conditional_expression (parser);
       --cp_contract_operand;
+
+      /* Try to recover from errors by scanning up to the end of the
+	 attribute.  Sometimes we get partially parsed expressions, so
+	 we need to search the condition for errors.  */
+      if (contains_error_p (condition))
+	cp_parser_skip_up_to_closing_square_bracket (parser);
 
       /* Build the contract.  */
       contract = grok_contract (attribute, mode, result, condition, loc);

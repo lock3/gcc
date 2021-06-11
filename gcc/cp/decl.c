@@ -937,30 +937,6 @@ determine_local_discriminator (tree decl)
   timevar_cond_stop (TV_NAME_LOOKUP, subtime);
 }
 
-/* Create a copy of T that contains no location wrappers.
-
-   This is a hack for comparing dependent expressions that get parsed
-   a little differently. Sometimes location wrappers appear in the tree,
-   other times they don't.  */
-
-static tree
-copy_without_location_wrappers (tree t)
-{
-  if (!t)
-    return t;
-
-  if (DECL_P (t))
-    return t;
-
-  t = tree_strip_any_location_wrapper (t);
-
-  tree r = copy_node (t);
-  for (int i = 0; i < cp_tree_operand_length (t); ++i)
-    TREE_OPERAND (r, i) = copy_without_location_wrappers (TREE_OPERAND (t, i));
-
-  return r;
-}
-
 /* Compare the contract conditions of OLD_ATTR and NEW_ATTR. Returns false
    if the conditions are equivalent, and true otherwise.  */
 
@@ -991,10 +967,8 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
   /* Compare the conditions of the contracts.  We fold immediately to avoid
      issues comparing contracts on overrides that use parameters -- see
      contracts-pre3.  */
-  tree t1 = copy_without_location_wrappers (CONTRACT_CONDITION (old_contract));
-  tree t2 = copy_without_location_wrappers (CONTRACT_CONDITION (new_contract));
-  t1 = cp_fully_fold_init (t1);
-  t2 = cp_fully_fold_init (t2);
+  tree t1 = cp_fully_fold_init (CONTRACT_CONDITION (old_contract));
+  tree t2 = cp_fully_fold_init (CONTRACT_CONDITION (new_contract));
   if (!cp_tree_equal (t1, t2))
     {
       auto_diagnostic_group d;
