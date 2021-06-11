@@ -57,7 +57,7 @@ int f1(int a) [[ pre: a > 0 ]] [[ pre: a > 10 ]];
 int f1(int a) [[ pre: a > 0 ]]; // { dg-error "different number of contracts" }
 
 int f2(int a) [[ pre: a > 0 ]];
-int f2(int a) [[ pre: a < 0 ]]; // { dg-error "mismatched contract predicate" }
+int f2(int a) [[ pre: a < 0 ]]; // { dg-error "mismatched contract" }
 
 int f3(int a) { return a; }
 int f3(int a) [[ pre: a < 0 ]]; // { dg-error "cannot add contracts" }
@@ -69,7 +69,7 @@ struct Base
 
 struct Child : Base
 {
-  int f(int a) [[ pre: a < 0 ]]; // { dg-error "mismatched contract predicate" }
+  int f(int a) [[ pre: a < 0 ]]; // { dg-error "mismatched contract" }
 };
 
 struct S1
