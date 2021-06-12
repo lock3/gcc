@@ -1155,20 +1155,6 @@ merge_contracts (tree decl, tree newdecl)
   if (DECL_CONTRACTS (newdecl) == DECL_CONTRACTS (decl))
     return;
 
-  bool any_uses_return = false;
-  for (tree ca = DECL_CONTRACTS (newdecl); ca; ca = TREE_CHAIN (ca))
-    if (TREE_CODE (CONTRACT_STATEMENT (ca)) == POSTCONDITION_STMT
-	&& POSTCONDITION_IDENTIFIER (CONTRACT_STATEMENT (ca)))
-      any_uses_return = true;
-  if (any_uses_return && undeduced_auto_decl (decl) && !decl_defined_p (decl)
-      && !DECL_TEMPLATE_INFO (decl))
-    {
-      error_at (DECL_SOURCE_LOCATION (newdecl),
-		"non-defining declaration %q#D cannot use the optional "
-		"postcondition identifier in post contracts", decl);
-      return;
-    }
-
   /* If there are attributes to merge, make sure they can be merged.  */
   if ((!contract_any_deferred_p (DECL_CONTRACTS (newdecl))
 	|| !DECL_CONTRACTS (decl))
