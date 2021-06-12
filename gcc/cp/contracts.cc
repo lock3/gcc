@@ -578,7 +578,7 @@ make_postcondition_variable (cp_expr id, tree type)
   DECL_ARTIFICIAL (decl) = true;
   DECL_SOURCE_LOCATION (decl) = id.get_location ();
 
-  push_binding (id, decl, current_binding_level);
+  pushdecl (decl);
   return decl;
 }
 
@@ -948,7 +948,7 @@ struct indentation
     saved_depth = depth;
     ++depth;
     saved_tabstr = tabstr;
-    tabstr = make_tab();
+    tabstr = make_tab ();
   }
 
   indentation(int d)
@@ -956,7 +956,7 @@ struct indentation
     saved_depth = depth;
     depth = d;
     saved_tabstr = tabstr;
-    tabstr = make_tab();
+    tabstr = make_tab ();
   }
 
   ~indentation()
@@ -967,7 +967,7 @@ struct indentation
     depth = saved_depth;
   }
 
-  char const* make_tab()
+  char const* make_tab ()
   {
     if (depth == 0)
       return "";
@@ -982,7 +982,7 @@ struct indentation
   char const* saved_tabstr;
 };
 
-static const char* tab()
+static const char* tab ()
 {
   return tabstr;
 }
@@ -1058,7 +1058,7 @@ struct header
   header (const char* name)
   {
     sprintf (buf, "\033[01m%s\033[0m", name);
-    verbatim ("%s%s", tab(), buf);
+    verbatim ("%s%s", tab (), buf);
   }
 
   char buf[32];
@@ -1068,15 +1068,15 @@ void debug_type (tree t)
 {
   node_info info (t);
   if (!t)
-    verbatim ("%s%s type", tab(), info.str ());
+    verbatim ("%s%s type", tab (), info.str ());
   else
-    verbatim ("%s%s %qT", tab(), info.str (), t);
+    verbatim ("%s%s %qT", tab (), info.str (), t);
 }
 
 void debug_expression (tree t)
 {
   node_info info (t);
-  verbatim ("%s%s %qE", tab(), info.str (), t);
+  verbatim ("%s%s %qE", tab (), info.str (), t);
   if (!t || t == error_mark_node)
     return;
 
@@ -1104,7 +1104,7 @@ void debug_expression (tree t)
 void debug_function (tree t)
 {
   node_info info (t);
-  verbatim ("%s%s %qE", tab(), info.str (), t);
+  verbatim ("%s%s %qE context=%p", tab (), info.str (), t, (void*)DECL_CONTEXT (t));
 
   indentation indent;
 
@@ -1140,7 +1140,7 @@ void debug_function (tree t)
 void debug_type_declaration (tree t)
 {
   node_info info (t);
-  verbatim ("%s%s %qE", tab(), info.str (), t);
+  verbatim ("%s%s %qE", tab (), info.str (), t);
   indentation indent;
   debug_type (TREE_TYPE (t));
 }
@@ -1162,21 +1162,21 @@ void debug_template_parameters (tree t)
 void debug_template (tree t)
 {
   node_info info (t);
-  verbatim ("%s%s %q#D", tab(), info.str (), t);
+  verbatim ("%s%s %q#D", tab (), info.str (), t);
 
   indentation indent;
 
-  header parms("template parameters");
+  header parms ("template parameters");
   debug_template_parameters (DECL_TEMPLATE_PARMS (t));
 
-  header result("result");
+  header result ("result");
   debug_declaration (DECL_TEMPLATE_RESULT (t));
 }
 
 void debug_variable_decl (tree t)
 {
   node_info info (t);
-  verbatim ("%s%s %qE", tab(), info.str (), t);
+  verbatim ("%s%s %qE context=%p", tab (), info.str (), t, (void*)DECL_CONTEXT (t));
 
   indentation indent;
 
@@ -1210,7 +1210,7 @@ void debug_parameters (tree t)
 void debug_parameter (tree t)
 {
   node_info info (t);
-  verbatim ("%s%s %q#D", tab(), info.str (), t);
+  verbatim ("%s%s %q#D", tab (), info.str (), t);
   indentation indent;
   debug_type (TREE_TYPE (t));
 }
@@ -1229,7 +1229,7 @@ void debug_contract (tree t)
   if (t == error_mark_node)
     {
       node_info info (t);
-      verbatim ("%s%s", tab(), info.str ());
+      verbatim ("%s%s", tab (), info.str ());
       return;
     }
 
@@ -1240,7 +1240,7 @@ void debug_contract (tree t)
   tree condition = CONTRACT_CONDITION (t);
   
   node_info info (t);
-  verbatim ("%s%s %qE", tab(), info.str (), condition);
+  verbatim ("%s%s %qE", tab (), info.str (), condition);
   indentation indent;
   debug_expression (condition);
 }
@@ -1251,7 +1251,7 @@ void debug_template_arguments (tree args)
     gcc_unreachable ();
 
   node_info info (args, "template_argument_list");
-  verbatim ("%s%s", tab(), info.str ());
+  verbatim ("%s%s", tab (), info.str ());
 
   indentation indent;
 
@@ -1259,6 +1259,6 @@ void debug_template_arguments (tree args)
     {
       tree arg = TREE_VEC_ELT (args, 0);
       node_info arg_info (arg);
-      verbatim("%s%s index=%d", tab(), arg_info.str (), i);
+      verbatim("%s%s index=%d", tab (), arg_info.str (), i);
     }
 }
