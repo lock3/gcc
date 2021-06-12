@@ -11491,6 +11491,8 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
 {
   tree r = copy_node (t);
 
+  tree type = decl ? TREE_TYPE (TREE_TYPE (decl)) : NULL_TREE;
+
   /* Rebuild the return variable identifier.  */
   if (TREE_CODE (t) == POSTCONDITION_STMT && POSTCONDITION_IDENTIFIER (t))
     {
@@ -11500,10 +11502,8 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
 
       /* Make sure the postcondition is valid.  */
       location_t loc = DECL_SOURCE_LOCATION (oldvar);
-      tree type = TREE_TYPE (TREE_TYPE (decl));
       if (!check_postcondition_result (decl, type, loc))
 	return invalidate_contract (r);
-        
 
       tree newvar = copy_node (oldvar);
       TREE_TYPE (newvar) = type;
@@ -11513,6 +11513,13 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
       /* Make the variable available for lookup.  */
       register_local_specialization (newvar, oldvar);
     }
+
+  /* If the template has a deduced return type, we end up instantiating
+     postconditions before instantiating the body and deducing the result. We
+     still perform the substitution to remap parameter bindings, but don't emit
+     any errors.  */
+  if (type && is_auto (type))
+    complain = tf_none;
 
   /* Instantiate the condition.  */
   ++cp_contract_operand;
