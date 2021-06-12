@@ -63,8 +63,10 @@ S g7(S s) [[ post q: q == s ]]
 template<typename T>
 auto g8(T t) [[ post r: r == t && sizeof(decltype(::g8(t))) > 2 ]]; // { dg-error "has not been declared" }
 
+// Unlike the g8 above, g8 has been declared at this point in the program,
+// even if the original contract is invalid.
 template<typename S>
-auto g8(S s) [[ post q: q == s && sizeof(decltype(::g8(s))) > 2 ]] // { dg-error "has not been declared" }
+auto g8(S s) [[ post q: q == s && sizeof(decltype(::g8(s))) > 2 ]]
 {
   return -s;
 }
