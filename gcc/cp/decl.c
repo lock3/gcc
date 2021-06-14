@@ -1212,13 +1212,39 @@ defer_guarded_contract_match (tree fndecl, tree fn, tree contracts)
     }
 }
 
+/* Register a late parse for the ATTRIBUTES list of FNDECL.  For friends that
+   match existing declarations, duplicate_decls() will copy attributes from the
+   existing declaration to the "unfinished" friend declaration before calling
+   cplus_decl_attributes().  We need to register a deferred comparison for the
+   copied attributes to the late-parsed attributes of the new declaration.
+   For example:
+
+      void f(int n) [[pre: n != 0]];
+	struct s {
+	friend void f(int n) [[pre: n < 0]]; // #1
+      };
+
+   The precondition at #1 is parsed in the complete class context, so the
+   attribute node is a deferred parse when grokdeclarator() is called.  When
+   do_friend() is called and finds the previous declaration, duplicate_decls()
+   simply copies its attribute list onto the declaration of `f`.  At this
+   point, we need to register the late parse and comparison.  */
+
+static void
+defer_guarded_contract_match_for_friend (tree fndecl, tree attributes)
+{
+  gcc_assert (find_contract (attributes));
+  defer_guarded_contract_match (fndecl, NULL_TREE, attributes);
+}
+
 /* If the FUNCTION_DECL DECL has any contracts that had their matching
    deferred earlier, do that checking now.  */
 
 void
 match_deferred_contracts (tree decl)
 {
-  if (!pending_guarded_decls.get (decl))
+  tree *tp = pending_guarded_decls.get (decl);
+  if (!tp)
     return;
 
   /* If we're still deferring, defer even more.  */
@@ -1226,24 +1252,21 @@ match_deferred_contracts (tree decl)
     return;
 
   tree old_contracts = DECL_CONTRACTS (decl);
-  location_t oldloc = CONTRACT_SOURCE_LOCATION (old_contracts);
+  location_t old_loc = CONTRACT_SOURCE_LOCATION (old_contracts);
 
   /* Do late contract matching.  */
-  for (tree pending = *pending_guarded_decls.get (decl);
-      pending;
-      pending = TREE_CHAIN (pending))
+  for (tree pending = *tp; pending; pending = TREE_CHAIN (pending))
     {
       tree base = TREE_PURPOSE (pending);
-      tree contracts = TREE_VALUE (pending);
+      tree new_contracts = TREE_VALUE (pending);
+      location_t new_loc = CONTRACT_SOURCE_LOCATION (new_contracts);
       if (base)
-	match_contract_conditions (CONTRACT_SOURCE_LOCATION (contracts),
-				   contracts,
-				   oldloc, old_contracts,
+	match_contract_conditions (new_loc, new_contracts,
+				   old_loc, old_contracts,
 				   cmc_override);
       else
-	match_contract_conditions (oldloc, old_contracts,
-				   CONTRACT_SOURCE_LOCATION (contracts),
-				   contracts,
+	match_contract_conditions (old_loc, old_contracts,
+				   new_loc, new_contracts,
 				   cmc_declaration);
     }
 
@@ -14213,6 +14236,18 @@ grokdeclarator (const cp_declarator *declarator,
 
 		decl = do_friend (ctype, unqualified_id, decl,
 				  flags, funcdef_flag);
+
+		/* If do_friend calls duplicate_decl(), attributes will either
+		   be merged or copied, so we shouldn't need to process this
+		   list any further.  However, contracts in the list will
+		   still need to be parsed and then checked against the
+		   contracts inherited by do_friend.  */
+		if (DECL_CONTRACTS (decl) && find_contract (*attrlist))
+		  {
+		    defer_guarded_contract_match_for_friend (decl, *attrlist);
+		    *attrlist = NULL_TREE;
+		  }
+
 		return decl;
 	      }
 	    else
