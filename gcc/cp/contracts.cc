@@ -757,9 +757,6 @@ finish_contract_attribute (tree identifier, tree contract)
 
      TODO: I'm not sure this is strictly necessary. It's going to be marked as
      such by a subroutine of cplus_decl_attributes. */
-  // FIXME because these are spliced out of order later, we may have to mark
-  // _all_ contracts as dependent instead or we may not be able to match decls
-  // properly
   tree condition = CONTRACT_CONDITION (contract);
   if (TREE_CODE (condition) == DEFERRED_PARSE
       || value_dependent_expression_p (condition))
@@ -827,12 +824,27 @@ remove_contract_attributes (tree fndecl)
   DECL_ATTRIBUTES (fndecl) = list;
 }
 
-/* Replace any references in CONTRACT's CONDITION to SRC's parameters with
-   references to DST's parameters.
+/* Copy contract attributes from PREV onto the attribute list of FNDECL.  */
+void copy_contract_attributes (tree fndecl, tree prev)
+{
+  tree attrs = NULL_TREE;
+  for (tree c = DECL_CONTRACTS (prev); c; c = TREE_CHAIN (c))
+    {
+      if (!cxx_contract_attribute_p (c))
+	continue;
+      attrs = tree_cons (TREE_PURPOSE (c), TREE_VALUE (c), attrs);
+    }
+  attrs = chainon (DECL_ATTRIBUTES (fndecl), nreverse (attrs));
+  DECL_ATTRIBUTES (fndecl) = attrs;
+}
 
-   This is useful when the DECL_PARMs used to parse a contract aren't the
-   final parms used for the function definition.  For example when an initial
-   declaration has contracts listed but the definition does not.
+/* Rewrite the condition of contract in place, so that references to SRC's
+   parameters are updated to refer to DST's parameters. The postcondition
+   result variable is left unchanged.
+
+   This, along with remap_contracts(), are subroutines of duplicate_decls().
+   When declarations are merged, we sometimes need to update contracts to
+   refer to new parameters.
 
    This is also used to reuse a parent type's contracts on virtual methods.  */
 
@@ -910,9 +922,11 @@ remap_contracts (tree src, tree dst, tree contracts)
 {
   for (tree attr = contracts; attr; attr = CONTRACT_CHAIN (attr))
     {
+      if (!cxx_contract_attribute_p (attr))
+	continue;
       tree contract = CONTRACT_STATEMENT (attr);
       if (TREE_CODE (CONTRACT_CONDITION (contract)) != DEFERRED_PARSE)
-	remap_contract (src, dst, CONTRACT_STATEMENT (attr));
+	remap_contract (src, dst, contract);
     }
 }
 
@@ -1083,6 +1097,9 @@ void debug_expression (tree t)
   if (TREE_CODE (t) == DEFERRED_PARSE)
     return;
 
+  if (TREE_CODE (t) == BLOCK)
+    return;
+
   if (TREE_CODE (t) == STATEMENT_LIST)
     {
       indentation indent;
@@ -1238,27 +1255,52 @@ void debug_contract (tree t)
     return debug_contract (TREE_VALUE (t));
   
   tree condition = CONTRACT_CONDITION (t);
+  tree comment = CONTRACT_COMMENT (t);
   
   node_info info (t);
   verbatim ("%s%s %qE", tab (), info.str (), condition);
   indentation indent;
+  header h1("condition");
   debug_expression (condition);
+  header h2("comment");
+  debug_expression (comment);
+}
+
+static void
+debug_template_argument (tree t)
+{
+  if (TYPE_P (t))
+    debug_type(t);
+  else
+    debug_expression (t);
+}
+
+static void
+debug_single_template_argument_list (tree t, int level)
+{
+  node_info info (t);
+  verbatim("%s%s <template argument list> level=%d", tab (), info.str (), level);
+
+  indentation indent;
+  for (int i = 0; i < TREE_VEC_LENGTH (t); ++i)
+    debug_template_argument (TREE_VEC_ELT (t, i));
+}
+
+static void
+debug_multiple_template_argument_lists (tree t)
+{
+  node_info info (t);
+  verbatim("%s%s <template argument lists>", tab (), info.str ());
+
+  indentation indent;
+  for (int i = 1; i <= TMPL_ARGS_DEPTH (t); ++i)
+    debug_single_template_argument_list (TMPL_ARGS_LEVEL (t, i), i);
 }
 
 void debug_template_arguments (tree args)
 {
   if (TMPL_ARGS_HAVE_MULTIPLE_LEVELS (args))
-    gcc_unreachable ();
-
-  node_info info (args, "template_argument_list");
-  verbatim ("%s%s", tab (), info.str ());
-
-  indentation indent;
-
-  for (int i = 0; i < TREE_VEC_LENGTH (args); ++i)
-    {
-      tree arg = TREE_VEC_ELT (args, 0);
-      node_info arg_info (arg);
-      verbatim("%s%s index=%d", tab (), arg_info.str (), i);
-    }
+    debug_multiple_template_argument_lists (args);
+  else
+    debug_single_template_argument_list (args, 1);
 }

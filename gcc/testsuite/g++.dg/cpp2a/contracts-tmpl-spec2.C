@@ -240,10 +240,10 @@ struct G5<char, S>
 
 template<>
 template<typename R>
-void G5<double, double>::f(double t, double s, R r)
-  [[ pre: t > 2 ]]
-  [[ pre: s > 2 ]]
-  [[ pre: r > 2 ]]
+void G5<double, double>::f(double a, double b, R c)
+  [[ pre: a > 2 ]]
+  [[ pre: b > 2 ]]
+  [[ pre: c > 2 ]]
 {
   printf ("G5 full double double, f gen R\n");
 }

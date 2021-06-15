@@ -28615,9 +28615,11 @@ void cp_parser_late_contract_condition (cp_parser *parser,
       ++processing_template_decl;
     }
 
-  /* 'this' is not allowed in preconditions of constructors or in
-     postconditions of destructors.  Note that the previous value
-     of this variable is cached by the calling function.  */
+  /* 'this' is not allowed in preconditions of constructors or in postconditions
+     of destructors.  Note that the previous value of this variable is
+     established by the calling function, so we need to save it here.  */
+  tree saved_ccr = current_class_ref;
+  tree saved_ccp = current_class_ptr;
   if ((DECL_CONSTRUCTOR_P (fn) && PRECONDITION_P (contract)) ||
        (DECL_DESTRUCTOR_P (fn) && POSTCONDITION_P (contract)))
     {
@@ -28642,6 +28644,9 @@ void cp_parser_late_contract_condition (cp_parser *parser,
 
   /* Restore the queue.  */
   pop_unparsed_function_queues (parser);
+
+  current_class_ref = saved_ccr;
+  current_class_ptr = saved_ccp;
 
   /* Commit to changes.  */
   update_late_contract (contract, result, condition);

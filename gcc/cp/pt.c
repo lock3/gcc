@@ -219,7 +219,6 @@ static tree get_underlying_template (tree);
 static tree tsubst_attributes (tree, tree, tsubst_flags_t, tree);
 static tree canonicalize_expr_argument (tree, tsubst_flags_t);
 static tree make_argument_pack (tree);
-static void register_parameter_specializations (tree, tree);
 static tree enclosing_instantiation_of (tree tctx);
 static void instantiate_body (tree pattern, tree args, tree d, bool nested);
 
@@ -2805,6 +2804,31 @@ warn_spec_missing_attributes (tree tmpl, tree spec, tree attrlist)
 	    pp_formatted_text (&str));
 }
 
+/* Splice contracts out of the attribute list of DECL.
+
+   Register specialization has a tendency to copy attributes from the
+   template being specialized. However, declared specializations can have
+   contracts unrelated to the more general template.  */
+
+static void
+remove_contracts_from_specialization (tree decl)
+{
+  if (decl == error_mark_node)
+    return;
+
+  if (TREE_CODE (decl) == TEMPLATE_DECL)
+    decl = DECL_TEMPLATE_RESULT (decl);
+
+  tree p = NULL_TREE;
+  for (tree a = DECL_ATTRIBUTES (decl); a; a = TREE_CHAIN (a))
+    {
+      if (!cxx_contract_attribute_p (a))
+	p = tree_cons (TREE_PURPOSE (a), TREE_VALUE (a), p);
+    }
+  nreverse (p);
+  DECL_ATTRIBUTES (decl) = p;
+}
+
 /* Check to see if the function just declared, as indicated in
    DECLARATOR, and in DECL, is a specialization of a function
    template.  We may also discover that the declaration is an explicit
@@ -3219,8 +3243,10 @@ check_explicit_specialization (tree declarator,
 		       parm = DECL_CHAIN (parm))
 		    DECL_CONTEXT (parm) = result;
 		}
-	      return register_specialization (tmpl, gen_tmpl, targs,
+	      decl = register_specialization (tmpl, gen_tmpl, targs,
 					      is_friend, 0);
+	      remove_contracts_from_specialization (decl);
+	      return decl;
 	    }
 
 	  /* Set up the DECL_TEMPLATE_INFO for DECL.  */
@@ -3320,19 +3346,10 @@ check_explicit_specialization (tree declarator,
 					      is_friend, 0);
 	    }
 
-	  /* If this is an explicit specialization, remove any contracts
-	     that may have been inherited from the template.  */
+	  /* If this is a specialization, splice any contracts that may have
+	     been inherited from the template, removing them.  */
 	  if (decl != error_mark_node && DECL_TEMPLATE_SPECIALIZATION (decl))
-	    {
-	      tree p = NULL_TREE;
-	      for (tree a = DECL_ATTRIBUTES (decl); a; a = TREE_CHAIN (a))
-		{
-		  if (!cxx_contract_attribute_p (a))
-		    p = tree_cons (TREE_PURPOSE (a), TREE_VALUE (a), p);
-		}
-	      nreverse (p);
-	      DECL_ATTRIBUTES (decl) = p;
-	    }
+	    remove_contracts_from_specialization (decl);
 
 	  /* A 'structor should already have clones.  */
 	  gcc_assert (decl == error_mark_node
@@ -11540,11 +11557,13 @@ static tree
 tsubst_contract_attribute (tree decl, tree t, tree args,
 			   tsubst_flags_t complain, tree in_decl)
 {
-  /* Adjust the current declaration to the most general version of in_decl.
-     Because we defer the instantiation of contracts as long as possible, they
-     are still written in terms of the parameters (and return type) of the
-     most general template.  */
-  in_decl = DECL_TEMPLATE_RESULT (most_general_template (in_decl));
+  /* For non-specializations, adjust the current declaration to the most general
+     version of in_decl. Because we defer the instantiation of contracts as long
+     as possible, they are still written in terms of the parameters (and return
+     type) of the most general template.  */
+  tree tmpl = DECL_TI_TEMPLATE (in_decl);
+  if (!DECL_TEMPLATE_SPECIALIZATION (tmpl))
+    in_decl = DECL_TEMPLATE_RESULT (most_general_template (in_decl));
   local_specialization_stack specs (lss_copy);
   register_parameter_specializations (in_decl, decl);
 
@@ -11555,7 +11574,7 @@ tsubst_contract_attribute (tree decl, tree t, tree args,
   tree contract = TREE_VALUE (TREE_VALUE (t));
 
   /* Use the complete set of template arguments for instantiation. The
-     contract may not have been instantiated and still refer to out levels
+     contract may not have been instantiated and still refer to outer levels
      of template parameters.  */
   args = DECL_TI_ARGS (decl);
 
@@ -25690,15 +25709,28 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 
       if (DECL_CONTRACTS (decl))
 	{
+	  /* If we're regenerating a specialization, the contracts will have
+	     been copied from the most general template. Strip those out of
+	     DECL and replace them with those from the more tightly matching
+	     specialization.  */
+	  tree tmpl = DECL_TI_TEMPLATE (decl);
+	  if (DECL_TEMPLATE_SPECIALIZATION (tmpl))
+	    {
+	      remove_contract_attributes (decl);
+	      copy_contract_attributes (decl, code_pattern);
+	    }
+
 	  /* Instantiate any pending contracts and replace references to
 	     orig_parms to their current value.  */
 	  DECL_ATTRIBUTES (decl) = copy_list (DECL_ATTRIBUTES (decl));
-	  for (tree ca = DECL_CONTRACTS (decl); ca; ca = CONTRACT_CHAIN (ca))
+	  for (tree a = DECL_ATTRIBUTES (decl); a; a = CONTRACT_CHAIN (a))
 	    {
-	      tree res = tsubst_contract_attribute (decl, ca, args,
-						    tf_warning_or_error,
-						    code_pattern);
-	      TREE_VALUE (ca) = TREE_VALUE (res);
+	      if (!cxx_contract_attribute_p (a))
+		continue;
+	      tree r = tsubst_contract_attribute (decl, a, args,
+						  tf_warning_or_error,
+						  code_pattern);
+	      TREE_VALUE (a) = TREE_VALUE (r);
 	    }
 	}
 
@@ -25953,7 +25985,7 @@ maybe_instantiate_noexcept (tree fn, tsubst_flags_t complain)
 /* We're starting to process the function INST, an instantiation of PATTERN;
    add their parameters to local_specializations.  */
 
-static void
+void
 register_parameter_specializations (tree pattern, tree inst)
 {
   tree tmpl_parm = DECL_ARGUMENTS (pattern);
