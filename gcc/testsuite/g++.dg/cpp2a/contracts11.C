@@ -16,13 +16,13 @@ void fun()
 template<typename T>
 void fun2(T a)
 {
-  [[assert: fun()]]; // { dg-error "could not convert" }
+  [[assert: fun()]]; // { dg-error "could not convert|in argument" }
 }
 
 template<typename T>
 void fun3(T a)
 {
-  [[assert: fun()]]; // { dg-error "could not convert" }
+  [[assert: fun()]]; // { dg-error "could not convert|in argument" }
 }
 
 template<typename T>
