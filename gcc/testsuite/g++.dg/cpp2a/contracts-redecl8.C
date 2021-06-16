@@ -6,8 +6,6 @@ struct T;
 
 int both(int x, T *t) [[ pre: x > 0 ]] { return 0; }
 int both2(int x, T *t) [[ pre: x > 0 ]];
-int both3(int x, T *t) [[ pre: x > 0 ]];
-int both4(int x, T *t) [[ pre: x > 0 ]];
 
 template<typename Z>
 int fn(int x, Z *z) [[ pre: x > 0 ]];
@@ -27,6 +25,7 @@ struct T
   {
     return 0;
   }
+
   friend int hidden(int x, T *t)
     [[ pre: x > 1 ]] [[ pre: t->pri > 0 ]]
   {
@@ -60,13 +59,6 @@ struct T
     int pri{-10};
 };
 
-int both3(int x, T *t)
-  [[ pre: x > 1 ]] [[ pre: t->pri > 0 ]] // { dg-error "mismatched" }
-{
-  return 0;
-}
-int both4(int x, T *t)
-  [[ pre: x > 1 ]] [[ pre: t->pri > 0 ]]; // { dg-error "mismatched" }
 int hidden(int x, T *t)
   [[ pre: x > 0 ]] [[ pre: t->pri > 1 ]]; // { dg-error "mismatched" }
 
