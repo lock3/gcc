@@ -1137,11 +1137,12 @@ merge_contracts (tree decl, tree newdecl)
       if (TREE_CODE (orig) == TEMPLATE_DECL)
 	orig = DECL_TEMPLATE_RESULT (orig);
       if (DECL_TEMPLATE_INFO (decl)
-	  && DECL_USE_TEMPLATE (decl) && !DECL_USE_TEMPLATE (orig))
-      {
-	remove_contract_attributes (decl);
-	set_contract_functions (decl, NULL_TREE, NULL_TREE);
-      }
+	  && DECL_USE_TEMPLATE (decl)
+	  && !DECL_USE_TEMPLATE (orig))
+	{
+	  remove_contract_attributes (decl);
+	  set_contract_functions (decl, NULL_TREE, NULL_TREE);
+	}
     }
 
   if (!DECL_HAS_CONTRACTS_P (decl))

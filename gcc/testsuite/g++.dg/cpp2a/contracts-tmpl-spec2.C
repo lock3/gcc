@@ -215,8 +215,8 @@ G4<double, char>::G4(double a, char b)
 template<typename T, typename S>
 struct G5
 {
-  template<typename R>
-  void f(T t, S s, R r)
+  template<typename P>
+  void f(T t, S s, P r)
     [[ pre: t > 0 ]]
     [[ pre: s > 0 ]]
     [[ pre: r > 0 ]]
@@ -229,18 +229,18 @@ template<typename S>
 struct G5<char, S>
 {
   template<typename R>
-  void f(char t, S s, R r)
-    [[ pre: t > 'z' ]]
-    [[ pre: s > 1 ]]
-    [[ pre: r > 1 ]]
+  void f(char x, S y, R z)
+    [[ pre: x > 'z' ]]
+    [[ pre: y > 1 ]]
+    [[ pre: z > 1 ]]
   {
     printf ("G5 partial char S, f gen R\n");
   }
 };
 
 template<>
-template<typename R>
-void G5<double, double>::f(double a, double b, R c)
+template<typename Q>
+void G5<double, double>::f(double a, double b, Q c)
   [[ pre: a > 2 ]]
   [[ pre: b > 2 ]]
   [[ pre: c > 2 ]]

@@ -16,7 +16,7 @@ struct G5
 // specializations can remove contracts
 template<>
 template<typename R>
-void G5<double, double>::f(double t, double s, R r)
+void G5<double, double>::f(double a, double b, R c)
 {
   printf ("G5 full double double, f gen R\n");
 }

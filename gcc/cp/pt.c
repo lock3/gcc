@@ -2804,11 +2804,11 @@ warn_spec_missing_attributes (tree tmpl, tree spec, tree attrlist)
 	    pp_formatted_text (&str));
 }
 
-/* Splice contracts out of the attribute list of DECL.
+/* Rebuild the attribute list for DECL so that it excludes contracts.
 
-   Register specialization has a tendency to copy attributes from the
-   template being specialized. However, declared specializations can have
-   contracts unrelated to the more general template.  */
+   The function register_specialization() has a tendency to copy attributes
+   from the template being specialized. However, declared specializations can
+   have contracts unrelated to the more general template.  */
 
 static void
 remove_contracts_from_specialization (tree decl)
@@ -21437,6 +21437,7 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
 	}
       return error_mark_node;
     }
+
   return fndecl;
 }
 
@@ -25659,12 +25660,9 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 {
   /* The arguments used to instantiate DECL, from the most general
      template.  */
-  tree code_pattern;
+  tree code_pattern = DECL_TEMPLATE_RESULT (tmpl);
 
-  code_pattern = DECL_TEMPLATE_RESULT (tmpl);
-
-  /* Make sure that we can see identifiers, and compute access
-     correctly.  */
+  /* Make sure that we can see identifiers, and compute access correctly.  */
   push_access_scope (decl);
 
   if (TREE_CODE (decl) == FUNCTION_DECL)
@@ -25710,13 +25708,12 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
       if (DECL_CONTRACTS (decl))
 	{
 	  /* If we're regenerating a specialization, the contracts will have
-	     been copied from the most general template. Strip those out of
-	     DECL and replace them with those from the more tightly matching
-	     specialization.  */
+	     been copied from the most general template. Replace those with
+	     the ones from the actual specialization.  */
 	  tree tmpl = DECL_TI_TEMPLATE (decl);
 	  if (DECL_TEMPLATE_SPECIALIZATION (tmpl))
 	    {
-	      remove_contract_attributes (decl);
+	      remove_contracts_from_specialization (decl);
 	      copy_contract_attributes (decl, code_pattern);
 	    }
 

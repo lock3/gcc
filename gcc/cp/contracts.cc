@@ -825,6 +825,7 @@ remove_contract_attributes (tree fndecl)
 }
 
 /* Copy contract attributes from PREV onto the attribute list of FNDECL.  */
+
 void copy_contract_attributes (tree fndecl, tree prev)
 {
   tree attrs = NULL_TREE;
@@ -1126,9 +1127,6 @@ void debug_function (tree t)
   indentation indent;
 
   debug_type (TREE_TYPE (t));
-
-//   if (tree ti = DECL_TEMPLATE_INFO (t))
-//     ; // FIXME: Print information about templates and arguments?
 
   header h ("parameters");
   debug_parameters (DECL_ARGUMENTS (t));
