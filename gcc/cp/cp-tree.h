@@ -5652,6 +5652,11 @@ extern int comparing_specializations;
    FIXME we should always do this except during deduction/ordering.  */
 extern int comparing_dependent_aliases;
 
+/* Nonzero if we want to consider different member expressions to compare
+   equal if they designate the same entity. This is set when comparing
+   contract conditions of overrides.  */
+extern bool comparing_override_contracts;
+
 /* In parser.c.  */
 
 /* Nonzero if we are parsing an unevaluated operand: an operand to

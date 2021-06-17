@@ -15,9 +15,6 @@ int g1(int n) [[ post s: s == n ]]
 }
 
 int g2(int z)
-  [[ pre: sizeof(decltype(g2(5))) > 4 ]]; // { dg-error not declared }
-
-int g2(int z)
 {
   return -z;
 }
@@ -60,17 +57,6 @@ S g7(S s) [[ post q: q == s ]]
   return -s;
 }
 
-template<typename T>
-auto g8(T t) [[ post r: r == t && sizeof(decltype(::g8(t))) > 2 ]]; // { dg-error "has not been declared" }
-
-// Unlike the g8 above, g8 has been declared at this point in the program,
-// even if the original contract is invalid.
-template<typename S>
-auto g8(S s) [[ post q: q == s && sizeof(decltype(::g8(s))) > 2 ]]
-{
-  return -s;
-}
-
 int main(int, char**) {
   g0(5);
   g1(6);
@@ -82,8 +68,6 @@ int main(int, char**) {
   g6(5.5);
   g7(5);
   g7(6.6);
-  g8(7);
-  g8('a');
   return 0;
 }
 

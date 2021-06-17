@@ -17,7 +17,6 @@ struct Base
 
   protected:
     int pro{-1};
-  private:
     int pri{-1};
 };
 
@@ -26,7 +25,7 @@ struct Child : Base
   int fun()
     [[ pre: pub > 0 ]]
     [[ pre: pro > 0 ]]
-    [[ pre: pri > 0 ]] // { dg-error "private" }
+    [[ pre: pri > 0 ]]
   {
     return pub * pro;
   }
@@ -36,8 +35,8 @@ struct VChild : Base
 {
   int b()
     [[ pre: pub > 0 ]]
-    [[ pre: pro > 0 ]] // FIXME: Diagnostic arising from base conversions.
-    [[ pre: pri > 0 ]] // { dg-error "private" }
+    [[ pre: pro > 0 ]]
+    [[ pre: pri > 0 ]]
   {
     return pub * pro;
   }
@@ -49,7 +48,7 @@ struct TChild : B
   int fun()
     [[ pre: B::pub > 0 ]]
     [[ pre: B::pro > 0 ]]
-    [[ pre: B::pri > 0 ]] // { dg-error "private" }
+    [[ pre: B::pri > 0 ]]
   {
     return B::pub * B::pro;
   }
@@ -111,19 +110,19 @@ int main()
 // { dg-output "default std::handle_contract_violation called: .*.C 11 Base::b .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 12 Base::b .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 13 Base::b .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 26 Child::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 27 Child::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 28 Child::fun .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 29 Child::fun .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 37 VChild::b .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 38 VChild::b .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 39 VChild::b .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 40 VChild::b .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 49 TChild<Base>::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 50 TChild<Base>::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 51 TChild<Base>::fun .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 52 TChild<Base>::fun .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 67 PubChild::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 68 PubChild::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 69 PubChild::fun .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 70 PubChild::fun .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 79 TPubChild<PubBase>::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 80 TPubChild<PubBase>::fun .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 81 TPubChild<PubBase>::fun .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 82 TPubChild<PubBase>::fun .*(\n|\r\n|\r)*" }
 

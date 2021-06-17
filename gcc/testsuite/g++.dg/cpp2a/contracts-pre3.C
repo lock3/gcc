@@ -210,7 +210,7 @@ namespace virt
     virtual int fun(int m, int n)
       [[ pre: m > 0 ]]
       [[ pre: n > 0 ]]
-      [[ pre: v > 0 ]] // { dg-error "mismatched contract" }
+      [[ pre: v > 0 ]]
       override
     {
       printf("T3::fun::m: %d, T3::fun::n: %d, T3::v: %d\n", m, n, v);
@@ -223,7 +223,7 @@ namespace virt
     virtual int fun(int m, int n)
       [[ pre: m > 0 ]]
       [[ pre: n > 0 ]]
-      [[ pre: v > 0 ]] // { dg-error "mismatched contract" }
+      [[ pre: v > 0 ]]
       override;
 
     int p(int a)
@@ -287,7 +287,7 @@ namespace virt
     int fun(int m, int n)
       [[ pre: m > 0 ]]
       [[ pre: n > 0 ]]
-      [[ pre: v > 0 ]] // { dg-error "mismatched contract" }
+      [[ pre: v > 0 ]]
     {
       printf("T3c::fun::m: %d, T3c::fun::n: %d, T3c::v: %d\n", m, n, v);
       return m * n * v;

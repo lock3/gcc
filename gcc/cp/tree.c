@@ -3763,6 +3763,50 @@ called_fns_equal (tree t1, tree t2)
     return cp_tree_equal (t1, t2);
 }
 
+bool comparing_override_contracts;
+
+/* In a component reference, return the innermost object of
+   the postfix-expression.  */
+
+static tree
+get_innermost_component (tree t)
+{
+  gcc_assert (TREE_CODE (t) == COMPONENT_REF);
+  while (TREE_CODE (t) == COMPONENT_REF)
+    t = TREE_OPERAND (t, 0);
+  return t;
+}
+
+/* Returns true if T is a possibly converted 'this' or '*this' expression.  */
+
+static bool
+is_this_expression (tree t)
+{
+  t = get_innermost_component (t);
+  /* See through deferences and no-op conversions.  */
+  if (TREE_CODE (t) == INDIRECT_REF)
+    t = TREE_OPERAND (t, 0);
+  if (TREE_CODE (t) == NOP_EXPR)
+    t = TREE_OPERAND (t, 0);
+  return is_this_parameter (t);
+}
+
+static bool
+comparing_this_references (tree t1, tree t2)
+{
+  return is_this_expression (t1) && is_this_expression (t2);
+}
+
+static bool
+equivalent_member_references (tree t1, tree t2)
+{
+  if (!comparing_this_references (t1, t2))
+    return false;
+  t1 = TREE_OPERAND (t1, 1);
+  t2 = TREE_OPERAND (t2, 1);
+  return t1 == t2;
+}
+
 /* Return truthvalue of whether T1 is the same tree structure as T2.
    Return 1 if they are the same. Return 0 if they are different.  */
 
@@ -4096,6 +4140,13 @@ cp_tree_equal (tree t1, tree t2)
 			       PACK_EXPANSION_EXTRA_ARGS (t2)))
 	return false;
       return true;
+
+    case COMPONENT_REF:
+      /* If we're comparing contract conditions of overrides, member references
+	 compare equal if they designate the same member.  */
+      if (comparing_override_contracts)
+	return equivalent_member_references (t1, t2);
+      break;
 
     default:
       break;

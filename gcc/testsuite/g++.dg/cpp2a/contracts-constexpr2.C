@@ -1,5 +1,5 @@
 // ensure that failing pre/post can fail at constexpr time
-// { dg-do run }
+// { dg-do compile }
 // { dg-options "-std=c++20 -fcontracts -fcontract-continuation-mode=on" }
 
 constexpr int ffun(int a)

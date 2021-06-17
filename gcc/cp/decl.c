@@ -969,7 +969,17 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
      contracts-pre3.  */
   tree t1 = cp_fully_fold_init (CONTRACT_CONDITION (old_contract));
   tree t2 = cp_fully_fold_init (CONTRACT_CONDITION (new_contract));
-  if (!cp_tree_equal (t1, t2))
+
+  /* Compare the contracts. The fold doesn't eliminate conversions to members.
+     Set the comparing_override_contrarcts flag to ensure that references
+     through 'this' are equal if they designate the same member, regardless of
+     base class conversions.  */
+  bool saved_comparing_contracts = comparing_override_contracts;
+  comparing_override_contracts = (ctx == cmc_override);
+  bool matching_p = cp_tree_equal (t1, t2);
+  comparing_override_contracts = saved_comparing_contracts;
+
+  if (!matching_p)
     {
       auto_diagnostic_group d;
       error_at (EXPR_LOCATION (CONTRACT_CONDITION (new_contract)),
