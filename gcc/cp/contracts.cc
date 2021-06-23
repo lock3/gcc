@@ -621,10 +621,6 @@ rebuild_postconditions (tree decl, tree type)
 {
   tree attributes = DECL_CONTRACTS (decl);
 
-  /* If the return type is undeduced, defer until later.  */
-  if (TREE_CODE (type) == TEMPLATE_TYPE_PARM)
-    return;
-  
   for (; attributes ; attributes = TREE_CHAIN (attributes))
     {
       if (!cxx_contract_attribute_p (attributes))
@@ -633,14 +629,24 @@ rebuild_postconditions (tree decl, tree type)
       if (TREE_CODE (contract) != POSTCONDITION_STMT)
 	continue;
       tree condition = CONTRACT_CONDITION (contract);
+
       /* If any conditions are deferred, they're all deferred.  Note that
 	 we don't have to instantiate postconditions in that case because
 	 the type is available through the declaration.  */
       if (TREE_CODE (condition) == DEFERRED_PARSE)
 	return;
+
       tree oldvar = POSTCONDITION_IDENTIFIER (contract);
       if (!oldvar)
 	continue;
+
+      /* Always update the context of the result variable so that it can
+         be remapped by remap_contracts.  */
+      DECL_CONTEXT (oldvar) = decl;
+
+      /* If the return type is undeduced, defer until later.  */
+      if (TREE_CODE (type) == TEMPLATE_TYPE_PARM)
+	return;
 
       /* Check the postcondition variable.  */
       location_t loc = DECL_SOURCE_LOCATION (oldvar);
@@ -655,7 +661,6 @@ rebuild_postconditions (tree decl, tree type)
 	  generating contract checks.  */
       tree newvar = copy_node (oldvar);
       TREE_TYPE (newvar) = type;
-      DECL_CONTEXT (newvar) = decl;
 
       /* Make parameters and result available for substitution.  */
       local_specialization_stack stack (lss_copy);
@@ -765,7 +770,6 @@ finish_contract_attribute (tree identifier, tree contract)
   return attribute;
 }
 
-
 /* Update condition of a late-parsed contract and postcondition variable,
    if any.  */
 
@@ -811,46 +815,110 @@ cxx_contract_attribute_p (const_tree attr)
 void
 remove_contract_attributes (tree fndecl)
 {
-  tree list = DECL_ATTRIBUTES (fndecl);
-  tree *p;
-  for (p = &list; *p;)
-    {
-      tree l = *p;
-      if (cxx_contract_attribute_p (l))
-	*p = TREE_CHAIN (l);
-      else
-	p = &TREE_CHAIN (l);
-    }
-  DECL_ATTRIBUTES (fndecl) = list;
+  tree list = NULL_TREE;
+  for (tree p = DECL_ATTRIBUTES (fndecl); p; p = TREE_CHAIN (p))
+    if (!cxx_contract_attribute_p (p))
+      list = tree_cons (TREE_PURPOSE (p), TREE_VALUE (p), NULL_TREE);
+  DECL_ATTRIBUTES (fndecl) = nreverse (list);
 }
 
-/* Copy contract attributes from PREV onto the attribute list of FNDECL.  */
+static tree find_first_non_contract (tree attributes)
+{
+  tree head = attributes;
+  tree p = find_contract (attributes);
 
-void copy_contract_attributes (tree fndecl, tree prev)
+  /* There are no contracts.  */
+  if (!p)
+    return head;
+
+  /* There are leading contracts.  */
+  if (p == head)
+    {
+      while (cxx_contract_attribute_p (p))
+        p = TREE_CHAIN (p);
+      head = p;
+    }
+
+  return head;
+}
+
+/* Remove contracts from ATTRIBUTES.  */
+
+tree splice_out_contracts (tree attributes)
+{
+  tree head = find_first_non_contract (attributes);
+  if (!head)
+    return NULL_TREE;
+
+  /* Splice out remaining contracts.  */
+  tree p = TREE_CHAIN (head);
+  tree q = head;
+  while (p)
+    {
+      if (cxx_contract_attribute_p (p))
+	{
+	  /* Skip a sequence of contracts and then link q to the next
+	     non-contract attribute.  */
+	  do
+	    p = TREE_CHAIN (p);
+	  while (cxx_contract_attribute_p (p));
+	  TREE_CHAIN (q) = p;
+	}
+      else
+	p = TREE_CHAIN (p);
+    }
+  
+  return head;
+}
+
+/* Copy contract attributes from NEWDECL onto the attribute list of OLDDECL.  */
+
+void copy_contract_attributes (tree newdecl, tree olddecl)
 {
   tree attrs = NULL_TREE;
-  for (tree c = DECL_CONTRACTS (prev); c; c = TREE_CHAIN (c))
+  for (tree c = DECL_CONTRACTS (olddecl); c; c = TREE_CHAIN (c))
     {
       if (!cxx_contract_attribute_p (c))
 	continue;
       attrs = tree_cons (TREE_PURPOSE (c), TREE_VALUE (c), attrs);
     }
-  attrs = chainon (DECL_ATTRIBUTES (fndecl), nreverse (attrs));
-  DECL_ATTRIBUTES (fndecl) = attrs;
+  attrs = chainon (DECL_ATTRIBUTES (newdecl), nreverse (attrs));
+  DECL_ATTRIBUTES (newdecl) = attrs;
+}
+
+/* For use with the tree inliner. This preserves non-mapped local variables,
+   such as postcondition result variables, during remapping.  */
+
+static tree
+retain_decl (tree decl, copy_body_data *)
+{
+  return decl;
 }
 
 /* Rewrite the condition of contract in place, so that references to SRC's
    parameters are updated to refer to DST's parameters. The postcondition
    result variable is left unchanged.
 
-   This, along with remap_contracts(), are subroutines of duplicate_decls().
+   This, along with remap_contracts, are subroutines of duplicate_decls.
    When declarations are merged, we sometimes need to update contracts to
    refer to new parameters.
+
+   If DUPLICATE_P is true, this is called by duplicate_decls to rewrite contacts
+   in terms of a new set of parameters. In this case, we can retain local
+   variables appearing in the contract because the contract is not being
+   prepared for insertion into a new function. Importantly, this preserves the
+   references to postcondition results, which are not replaced during merging.
+
+   If false, we're preparing to emit the contract condition into the body
+   of a new function, so we need to make copies of all local variables
+   appearing in the contract (e.g., if it includes a lambda expression). Note
+   that in this case, postcondition results are mapped to the last parameter
+   of DST.
 
    This is also used to reuse a parent type's contracts on virtual methods.  */
 
 void
-remap_contract (tree src, tree dst, tree contract)
+remap_contract (tree src, tree dst, tree contract, bool duplicate_p)
 {
   copy_body_data id;
   hash_map<tree, tree> decl_map;
@@ -861,7 +929,9 @@ remap_contract (tree src, tree dst, tree contract)
   id.src_cfun = DECL_STRUCT_FUNCTION (src);
   id.decl_map = &decl_map;
 
-  id.copy_decl = copy_decl_no_change;
+  /* If we're merging contracts, don't copy local variables.  */
+  id.copy_decl = duplicate_p ? retain_decl : copy_decl_no_change;
+
   id.transform_call_graph_edges = CB_CGE_DUPLICATE;
   id.transform_new_cfg = false;
   id.transform_return_to_modify = false;
@@ -885,13 +955,15 @@ remap_contract (tree src, tree dst, tree contract)
   if (TREE_CODE (dst) == FUNCTION_DECL)
     dst = DECL_ARGUMENTS (dst);
 
-  for (tree sp = src, dp = dst; sp || dp;
-      sp = DECL_CHAIN (sp), dp = DECL_CHAIN (dp))
+  for (tree sp = src, dp = dst;
+       sp || dp;
+       sp = DECL_CHAIN (sp), dp = DECL_CHAIN (dp))
     {
       if (!sp && dp
 	  && TREE_CODE (contract) == POSTCONDITION_STMT
 	  && DECL_CHAIN (dp) == NULL_TREE)
 	{
+	  gcc_assert (!duplicate_p);
 	  if (tree result = POSTCONDITION_IDENTIFIER (contract))
 	    {
 	      gcc_assert (DECL_P (result));
@@ -914,12 +986,18 @@ remap_contract (tree src, tree dst, tree contract)
   walk_tree (&CONTRACT_CONDITION (contract), copy_tree_body_r, &id, NULL);
 }
 
-/* Rewrite any references to SRC's PARM_DECLs to the corresponding PARM_DECL
-   in DST in all of the contract attributes in CONTRACTS by calling
-   remap_contract on each.  */
+/* Rewrite any references to SRC's PARM_DECLs to the corresponding PARM_DECL in
+   DST in all of the contract attributes in CONTRACTS by calling remap_contract
+   on each.
+
+   This is used for two purposes: to rewrite contract attributes during
+   duplicate_decls, and to prepare contracts for emission into a function's
+   respective precondition and postcondition functions. DUPLICATE_P is used
+   to determine the context in which this function is called. See above for
+   the behavior described by this flag.  */
 
 void
-remap_contracts (tree src, tree dst, tree contracts)
+remap_contracts (tree src, tree dst, tree contracts, bool duplicate_p)
 {
   for (tree attr = contracts; attr; attr = CONTRACT_CHAIN (attr))
     {
@@ -927,7 +1005,7 @@ remap_contracts (tree src, tree dst, tree contracts)
 	continue;
       tree contract = CONTRACT_STATEMENT (attr);
       if (TREE_CODE (CONTRACT_CONDITION (contract)) != DEFERRED_PARSE)
-	remap_contract (src, dst, contract);
+	remap_contract (src, dst, contract, duplicate_p);
     }
 }
 
@@ -952,6 +1030,8 @@ remap_dummy_this (tree fn, tree *expr)
 {
   walk_tree (expr, remap_dummy_this_1, fn, NULL);
 }
+
+/* Debugging stuff.  */
 
 static int depth;
 static const char* tabstr = "";
@@ -1083,7 +1163,7 @@ void debug_type (tree t)
 {
   node_info info (t);
   if (!t)
-    verbatim ("%s%s type", tab (), info.str ());
+    verbatim ("%s%s <type>", tab (), info.str ());
   else
     verbatim ("%s%s %qT", tab (), info.str (), t);
 }
@@ -1125,6 +1205,16 @@ void debug_function (tree t)
   verbatim ("%s%s %qE context=%p", tab (), info.str (), t, (void*)DECL_CONTEXT (t));
 
   indentation indent;
+
+  if (tree orig = DECL_ORIGINAL_FN (t))
+    {
+      if (t == DECL_PRE_FN (orig))
+        verbatim ("%sprecondition function for %q#D", tab(), orig);
+      else if (t == DECL_POST_FN (orig))
+        verbatim ("%spostcondition function for %q#D", tab(), orig);
+      else
+        gcc_unreachable ();
+    }
 
   debug_type (TREE_TYPE (t));
 
@@ -1200,6 +1290,13 @@ void debug_variable_decl (tree t)
 
 void debug_declaration (tree t)
 {
+  if (!t)
+    {
+      node_info info (t);
+      verbatim ("%s%s <declaration>", tab (), info.str ());
+      return;
+    }
+
   switch (TREE_CODE (t))
     {
     case TEMPLATE_DECL:
@@ -1251,13 +1348,18 @@ void debug_contract (tree t)
   /* See through attributes by recursively invoking this function.  */
   if (TREE_CODE (t) == TREE_LIST)
     return debug_contract (TREE_VALUE (t));
-  
+
   tree condition = CONTRACT_CONDITION (t);
   tree comment = CONTRACT_COMMENT (t);
   
   node_info info (t);
   verbatim ("%s%s %qE", tab (), info.str (), condition);
   indentation indent;
+  if (POSTCONDITION_P (t))
+    {
+      header result("result");
+      debug_declaration (POSTCONDITION_IDENTIFIER (t));
+    }
   header h1("condition");
   debug_expression (condition);
   header h2("comment");

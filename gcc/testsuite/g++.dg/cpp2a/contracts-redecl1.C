@@ -74,10 +74,10 @@ struct Child : Base
 
 struct S1
 {
-  virtual int f(int a);
+  virtual int f(int a); // contracts are inherited at the point of declarations
 };
 
-int S1::f(int a) [[ pre: a > 0 ]] // { dg-error "cannot add contracts to virtual members" }
+int S1::f(int a) [[ pre: a > 0 ]] // { dg-error "cannot add" }
 {
   return -a;
 }

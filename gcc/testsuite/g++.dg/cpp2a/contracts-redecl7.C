@@ -59,6 +59,6 @@ int main(int, char**)
 // { dg-output "S::now: a: -10, t->pri: -10(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 15 now .*(\n|\r\n|\r)*" }
 // { dg-output "now: a: -20, t->pri: -10(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 17 both .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 22 both .*(\n|\r\n|\r)*" }
 // { dg-output "both: a: -22, t->pri: -10(\n|\r\n|\r)*" }
 

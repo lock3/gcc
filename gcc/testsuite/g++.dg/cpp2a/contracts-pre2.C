@@ -179,7 +179,7 @@ namespace nonnullary
 // { dg-output "default std::handle_contract_violation called: .*.C 18 nullary::fun2 .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 19 nullary::fun2 .*(\n|\r\n|\r)*" }
 // { dg-output "fun2::x: 10 fun2::y: 10(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 25 nullary::funend .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 146 nullary::funend .*(\n|\r\n|\r)*" }
 // { dg-output "funend::x: 10(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 39 nonvoid::vfun .*(\n|\r\n|\r)*" }
 // { dg-output "vfun::x: 10(\n|\r\n|\r)*" }
@@ -190,7 +190,7 @@ namespace nonnullary
 // { dg-output "default std::handle_contract_violation called: .*.C 53 nonvoid::fun2 .*(\n|\r\n|\r)*" }
 // { dg-output "fun2::x: 10 fun2::y: 10.500000(\n|\r\n|\r)*" }
 // { dg-output "main::d: 10.500000(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 60 nonvoid::funend .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 155 nonvoid::funend .*(\n|\r\n|\r)*" }
 // { dg-output "funend::x: 10(\n|\r\n|\r)*" }
 // { dg-output "main::s.z: 1(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 74 nonnullary::vfun .*(\n|\r\n|\r)*" }
@@ -205,8 +205,8 @@ namespace nonnullary
 // { dg-output "default std::handle_contract_violation called: .*.C 91 nonnullary::fun2 .*(\n|\r\n|\r)*" }
 // { dg-output "fun2::x: 10 fun2::y: 10.500000(\n|\r\n|\r)*" }
 // { dg-output "main::d: 10.500000(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 98 nonnullary::funend .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 99 nonnullary::funend .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 167 nonnullary::funend .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 168 nonnullary::funend .*(\n|\r\n|\r)*" }
 // { dg-output "funend::x: 10(\n|\r\n|\r)*" }
 // { dg-output "main::s.z: 1(\n|\r\n|\r)*" }
 

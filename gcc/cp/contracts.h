@@ -162,14 +162,4 @@ extern void handle_OPT_fcontract_continuation_mode_ (const char *);
 extern void handle_OPT_fcontract_role_ (const char *);
 extern void handle_OPT_fcontract_semantic_ (const char *);
 
-/* Replace any references in CONTRACT's CONDITION to SRC's parameters with
-   references to DST's parameters.  */
-extern void remap_contract (tree src, tree dst, tree contract);
-/* Replace any references in CONTRACTS's conditions to SRC's parameters with
-   references to DST's parameters.  */
-extern void remap_contracts (tree src, tree dst, tree contracts);
-/* Replace all references to dummy this parameters in EXPR with references to
-   the first argument of the FUNCTION_DECL FN.  */
-extern void remap_dummy_this (tree fn, tree *expr);
-
 #endif /* ! GCC_CP_CONTRACT_H */

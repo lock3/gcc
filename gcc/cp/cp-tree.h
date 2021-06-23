@@ -3715,12 +3715,12 @@ find_contract (tree attrs)
 /* For a FUNCTION_DECL of a guarded function, this holds the function decl
    where pre contract checks are emitted.  */
 #define DECL_PRE_FN(NODE) \
-  (get_pre_fn ((NODE)))
+  (get_precondition_function ((NODE)))
 
 /* For a FUNCTION_DECL of a guarded function, this holds the function decl
    where post contract checks are emitted.  */
 #define DECL_POST_FN(NODE) \
-  (get_post_fn ((NODE)))
+  (get_postcondition_function ((NODE)))
 
 /* For a FUNCTION_DECL of a pre/post function, this points back to the
    original guarded function.  */
@@ -7567,7 +7567,7 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 						 tsubst_flags_t,
 						 access_failure_info *afi = NULL);
 
-/* Contracts */
+/* contracts.cc */
 extern tree invalidate_contract			(tree);
 extern tree make_postcondition_variable		(cp_expr);
 extern tree make_postcondition_variable		(cp_expr, tree);
@@ -7579,6 +7579,10 @@ extern void update_late_contract		(tree, tree, tree);
 extern tree finish_contract_condition		(cp_expr);
 extern void remove_contract_attributes		(tree);
 extern void copy_contract_attributes		(tree, tree);
+extern tree splice_out_contracts		(tree);
+extern void remap_contract			(tree, tree, tree, bool);
+extern void remap_contracts			(tree, tree, tree, bool);
+extern void remap_dummy_this			(tree, tree *);
 extern bool contract_active_p			(tree);
 extern bool contract_any_active_p		(tree);
 extern bool contract_any_deferred_p		(tree);
@@ -7590,8 +7594,8 @@ extern void finish_postcondition_statement	(tree);
 extern tree build_contract_check		(tree);
 extern vec<tree, va_gc> *build_arg_list		(tree);
 extern tree get_unchecked_result		(tree);
-extern tree get_pre_fn				(tree);
-extern tree get_post_fn				(tree);
+extern tree get_precondition_function		(tree);
+extern tree get_postcondition_function		(tree);
 extern tree get_contracts_original_fn		(tree);
 
 extern void emit_assertion			(tree);

@@ -25410,7 +25410,7 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 		for (tree a = TREE_VALUE (pending); a; a = CONTRACT_CHAIN (a))
 		  cp_parser_late_contract_condition (parser, decl, a);
 	    }
-
+	
 	  /* Restore the state of local_variables_forbidden_p.  */
 	  parser->local_variables_forbidden_p = local_variables_forbidden_p;
 

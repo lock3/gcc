@@ -749,74 +749,106 @@ static GTY(()) hash_map<tree, tree> *decl_pre_fn;
 static GTY(()) hash_map<tree, tree> *decl_post_fn;
 static GTY(()) hash_map<tree, tree> *decl_original_fn;
 
-/* Lookup and return the PRE_FN of FNDECL, or NULL_TREE if it does not exist.  */
+/* Returns the precondition funtion for D, or null if not set.  */
 
 tree
-get_pre_fn (tree fndecl)
+get_precondition_function (tree d)
 {
   hash_map_maybe_create<hm_ggc> (decl_pre_fn);
-  tree *result = decl_pre_fn->get (fndecl);
+  tree *result = decl_pre_fn->get (d);
   return result ? *result : NULL_TREE;
 }
 
-/* Lookup and return the POST_FN of FNDECL, or NULL_TREE if it does not exist.  */
+/* Returns the postcondition funtion for D, or null if not set.  */
 
 tree
-get_post_fn (tree fndecl)
+get_postcondition_function (tree d)
 {
   hash_map_maybe_create<hm_ggc> (decl_post_fn);
-  tree *result = decl_post_fn->get (fndecl);
+  tree *result = decl_post_fn->get (d);
   return result ? *result : NULL_TREE;
 }
 
-/* Set the PRE_FN and POST_FN for FNDECL.  */
+/* Makes PRE the precondition function for D.  */
 
 void
-set_contract_functions (tree fndecl, tree pre_fn, tree post_fn)
+set_precondition_function (tree d, tree pre)
 {
-  hash_map_maybe_create<hm_ggc> (decl_pre_fn)->remove (fndecl);
-  if (pre_fn)
-    decl_pre_fn->put (fndecl, pre_fn);
-  hash_map_maybe_create<hm_ggc> (decl_post_fn)->remove (fndecl);
-  if (post_fn)
-    decl_post_fn->put (fndecl, post_fn);
+  gcc_assert (pre);
+  hash_map_maybe_create<hm_ggc> (decl_pre_fn);
+  gcc_assert (!decl_pre_fn->get (d));
+  decl_pre_fn->put (d, pre);
 }
 
-/* Lookup and return the original guarded function of a contract function
-   FNDECL, or NULL_TREE if it does not exist.  */
+/* Makes POST the postcondition function for D.  */
+
+void
+set_postcondition_function (tree d, tree post)
+{
+  gcc_assert (post);
+  hash_map_maybe_create<hm_ggc> (decl_post_fn);
+  gcc_assert (!decl_post_fn->get (d));
+  decl_post_fn->put (d, post);
+}
+
+/* Set the PRE and POST functions for D.  Note that PRE and POST can be
+   null in this case. If so the functions are not recorded.  */
+
+void
+set_contract_functions (tree d, tree pre, tree post)
+{
+  if (pre)
+    set_precondition_function (d, pre);
+  if (post)
+    set_postcondition_function (d, post);
+}
+
+/* Returns the original guarded function of a precondition or postcondition
+   function D, or null if it does not exist.  */
 
 tree
-get_contracts_original_fn (tree fndecl)
+get_contracts_original_fn (tree d)
 {
   hash_map_maybe_create<hm_ggc> (decl_original_fn);
-  tree *result = decl_original_fn->get (fndecl);
+  tree *result = decl_original_fn->get (d);
   return result ? *result : NULL_TREE;
 }
 
-/* Set the original fn for a contract function FNDECL.  */
+
+/* Set the original fn for a contract function D.  */
 
 void
-set_contracts_original_fn (tree fndecl, tree original_fn)
+set_contracts_original_fn (tree d, tree orig)
 {
-  hash_map_maybe_create<hm_ggc> (decl_original_fn)->remove (fndecl);
-  if (original_fn)
-    decl_original_fn->put (fndecl, original_fn);
+  gcc_assert (orig);
+  hash_map_maybe_create<hm_ggc> (decl_original_fn);
+
+  /* FIXME: Why are we resetting the contract function? This is called
+     from finish_function, but seems to just re-assert that the original
+     function is the same.  */
+  if (tree p = get_contracts_original_fn (d))
+    gcc_assert (p == orig);
+
+  decl_original_fn->put (d, orig);
 }
 
-/* Lookup and return the unchecked result of the guarded FUNCTION_DECL FNDECL,
-   or NULL_TREE if it doesn't (yet) exist.  */
+/* Returns the unchecked result of the guarded FUNCTION_DECL D, or null if it
+   doesn't (yet) exist.  */
 
 tree
-get_unchecked_result (tree fndecl)
+get_unchecked_result (tree d)
 {
-  if (!fndecl || fndecl == error_mark_node) return NULL_TREE;
-  if (VOID_TYPE_P (TREE_TYPE (TREE_TYPE (fndecl))))
+  if (!d || d == error_mark_node)
     return NULL_TREE;
-  if (!DECL_POST_FN (fndecl) || DECL_POST_FN (fndecl) == error_mark_node)
+
+  if (VOID_TYPE_P (TREE_TYPE (TREE_TYPE (d))))
     return NULL_TREE;
-  for (tree arg = DECL_ARGUMENTS (DECL_POST_FN (fndecl));
-      arg;
-      arg = TREE_CHAIN (arg))
+
+  tree post = DECL_POST_FN (d);
+  if (!post || post == error_mark_node)
+    return NULL_TREE;
+
+  for (tree arg = DECL_ARGUMENTS (post); arg; arg = TREE_CHAIN (arg))
     if (!TREE_CHAIN (arg))
       return arg;
 
@@ -855,10 +887,10 @@ copy_fn_decl (tree idecl)
   return decl;
 }
 
-/* Build a declaration for the PRE_FN or POST_FN of a guarded FNDECL.  */
+/* Build a declaration for the pre- or postcondition of a guarded FNDECL.  */
 
 static tree
-build_contract_functor_declaration (tree fndecl, bool pre)
+build_contract_condition_function (tree fndecl, bool pre)
 {
   if (TREE_TYPE (fndecl) == error_mark_node)
     return error_mark_node;
@@ -877,6 +909,7 @@ build_contract_functor_declaration (tree fndecl, bool pre)
 
   tree arg_types = NULL_TREE;
   tree *last = &arg_types;
+
   /* FIXME will later optimizations delete unused args to prevent extra arg
    * passing? do we care? */
   tree class_type = NULL_TREE;
@@ -938,22 +971,70 @@ build_contract_functor_declaration (tree fndecl, bool pre)
   return fn;
 }
 
+static bool has_active_contract_condition (tree d, tree_code c)
+{
+  for (tree as = DECL_CONTRACTS (d) ; as != NULL_TREE; as = TREE_CHAIN (as))
+    {
+      tree contract = TREE_VALUE (TREE_VALUE (as));
+      if (TREE_CODE (contract) == c && contract_active_p (contract))
+	return true;
+    }
+  return false;
+}
+
+/* True if `d` has any checked or assumed preconditions.  */
+
+static bool has_active_preconditions (tree d)
+{
+  return has_active_contract_condition (d, PRECONDITION_STMT);
+}
+
+/* True if `d` has any checked or assumed postconditions.  */
+
+static bool has_active_postconditions (tree d)
+{
+  return has_active_contract_condition (d, POSTCONDITION_STMT);
+}
+
+/* Build the precondition checking function for `d`.  */
+
+static tree
+build_precondition_function (tree d)
+{
+  if (!has_active_preconditions (d))
+    return NULL_TREE;
+
+  return build_contract_condition_function (d, /*pre=*/true);
+}
+
+/* Build the postcondition checking function for `d`. If the return
+   type is undeduced, don't build the function yet. We do that in
+   apply_deduced_return_type.  */
+
+static tree
+build_postcondition_function (tree d)
+{
+  if (!has_active_postconditions (d))
+    return NULL_TREE;
+
+  tree type = TREE_TYPE (TREE_TYPE (d));
+  if (is_auto (type))
+    return NULL_TREE;
+
+  return build_contract_condition_function (d, /*pre=*/false);
+}
+
 void
-build_contract_function_decls (tree fndecl)
+build_contract_function_decls (tree d)
 {
   /* Constructors and destructors have their contracts inserted inline.  */
-  if (DECL_CONSTRUCTOR_P (fndecl) || DECL_DESTRUCTOR_P (fndecl))
+  if (DECL_CONSTRUCTOR_P (d) || DECL_DESTRUCTOR_P (d))
     return;
 
-  if (DECL_PRE_FN (fndecl))
-    return;
-  /* We parse contracts using this new function's args, so we don't need to
-     remap them later.
-
-     We build the actual definition after finishing the guarded function.  */
-  set_contract_functions (fndecl,
-			  build_contract_functor_declaration (fndecl, /*pre=*/true),
-			  build_contract_functor_declaration (fndecl, /*pre=*/false));
+  /* Build the pre/post functions (or not).  */
+  tree pre = build_precondition_function (d);
+  tree post = build_postcondition_function (d);
+  set_contract_functions (d, pre, post);
 }
 
 /* Begin a new scope for the postcondition.  */
@@ -1045,7 +1126,7 @@ build_contract_handler_fn (tree contract,
 bool
 contract_active_p (tree contract)
 {
-  return get_contract_semantic (CONTRACT_STATEMENT (contract)) != CCS_IGNORE;
+  return get_contract_semantic (contract) != CCS_IGNORE;
 }
 
 /* Return true if any contract in the CONTRACT list is checked or assumed
@@ -1055,7 +1136,7 @@ bool
 contract_any_active_p (tree contract)
 {
   for (; contract != NULL_TREE; contract = CONTRACT_CHAIN (contract))
-    if (contract_active_p (contract))
+    if (contract_active_p (TREE_VALUE (TREE_VALUE (contract))))
       return true;
   return false;
 }
@@ -1617,43 +1698,6 @@ finish_do_stmt (tree cond, tree do_stmt, bool ivdep, unsigned short unroll)
   DO_COND (do_stmt) = cond;
 }
 
-/* Rewrite the post function decl of FNDECL, replacing the original undeduced
-   return type with RETURN_TYPE.  */
-
-static void
-apply_post_deduced_return_type (tree fndecl, tree return_type)
-{
-  tree post_fn = DECL_POST_FN (fndecl);
-  tree fntype = TREE_TYPE (post_fn);
-
-  /* Replace the type of the final parameter (the result of FNDECL) with the
-     actual type.  */
-  tree arg_types = TYPE_ARG_TYPES (TREE_TYPE (post_fn));
-  for (tree arg_type = arg_types; arg_type; arg_type = TREE_CHAIN (arg_type))
-    if (TREE_CHAIN (arg_type) == void_list_node)
-      TREE_VALUE (arg_type) = return_type;
-
-  tree newtype;
-  if (TREE_CODE (fntype) == FUNCTION_TYPE)
-    {
-      newtype = build_function_type (return_type, arg_types);
-      newtype = apply_memfn_quals (newtype,
-				   type_memfn_quals (fntype));
-    }
-  else
-    newtype = build_method_type_directly
-      (class_of_this_parm (fntype), return_type, TREE_CHAIN (arg_types));
-
-  if (tree attrs = TYPE_ATTRIBUTES (fntype))
-    newtype = cp_build_type_attribute_variant (newtype, attrs);
-  newtype = cxx_copy_lang_qualifiers (newtype, fntype);
-
-  TREE_TYPE (post_fn) = newtype;
-
-  /* Fix return value parameter type.  */
-  TREE_TYPE (DECL_UNCHECKED_RESULT (fndecl)) = return_type;
-}
-
 /* Finish a return-statement.  The EXPRESSION returned, if any, is as
    indicated.  */
 
@@ -1662,50 +1706,6 @@ finish_return_stmt (tree expr)
 {
   tree r;
   bool no_warning;
-
-  /* If we're in a function that needs a call to its contract's post function,
-     ensure the post function exists and replace the returned expression with
-     said call.  */
-  bool needs_post = !processing_template_decl
-      && DECL_ORIGINAL_FN (current_function_decl) == NULL_TREE
-      && !DECL_CONSTRUCTOR_P (current_function_decl)
-      && !DECL_DESTRUCTOR_P (current_function_decl)
-      && contract_any_active_p (DECL_CONTRACTS (current_function_decl));
-  /* We should not wrap the returned value in a call to the post fn if
-     there's no value (or an error) when we expect a value, or if there's a
-     value when we expect none.  */
-  if (DECL_UNCHECKED_RESULT (current_function_decl))
-    needs_post &= (expr != NULL_TREE)
-	&& (expr != error_mark_node)
-	&& (TREE_TYPE (expr) != error_mark_node);
-  else
-    needs_post &= (expr == NULL_TREE);
-
-  if (needs_post && DECL_POST_FN (current_function_decl) != error_mark_node)
-    {
-      vec<tree, va_gc> *args = build_arg_list (current_function_decl);
-      if (DECL_UNCHECKED_RESULT (current_function_decl))
-	vec_safe_push (args, expr); // FIXME do we need forward_parm or similar?
-
-      if (undeduced_auto_decl (DECL_POST_FN (current_function_decl)))
-	apply_post_deduced_return_type (current_function_decl,
-					TREE_TYPE (expr));
-
-      push_deferring_access_checks (dk_no_check);
-      tree call = finish_call_expr (DECL_POST_FN (current_function_decl), &args,
-				    /*disallow_virtual=*/true,
-				    /*koenig_p=*/false,
-				    /*complain=*/tf_warning_or_error);
-      gcc_assert (call != error_mark_node);
-      /* We may not have actually built a CALL_EXPR; for instance if the
-	 return type is large (contracts-large-return.C).  */
-      if (TREE_CODE (call) == CALL_EXPR)
-	CALL_FROM_THUNK_P (call) = 1;
-      pop_deferring_access_checks ();
-
-      /* Replace returned expression with call to post function.  */
-      expr = call;
-    }
 
   expr = check_return_expr (expr, &no_warning);
 
@@ -11277,9 +11277,15 @@ apply_deduced_return_type (tree fco, tree return_type)
 
   TREE_TYPE (fco) = change_return_type (return_type, TREE_TYPE (fco));
 
-  /* Update any postconditions that depend on the deduced return type.  */
-  if (DECL_HAS_CONTRACTS_P (fco))
-    rebuild_postconditions (fco, return_type);
+  /* Update any postconditions and the postcondition checking function
+     as needed.  If there are postconditions, we'll use those to rewrite
+     return statements to check postconditions.  */
+  if (has_active_postconditions (fco))
+    {
+      rebuild_postconditions (fco, return_type);
+      tree post = build_postcondition_function (fco);
+      set_postcondition_function (fco, post);
+    }
 
   /* Apply the type to the result object.  */
 

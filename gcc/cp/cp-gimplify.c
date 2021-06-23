@@ -1194,6 +1194,8 @@ cp_genericize_r (tree *stmt_p, int *walk_subtrees, void *data)
       {
 	if (tree check = build_contract_check (stmt))
 	  {
+	//     verbatim ("MAKE CHECK");
+	//     debug_expression (check);
 	    /* Mark the current function as possibly throwing exceptions
 	       (through invocation of the contract violation handler).  */
 	    current_function_returns_abnormally = 1;
@@ -1693,6 +1695,9 @@ void
 cp_genericize (tree fndecl)
 {
   tree t;
+
+//   inform (DECL_SOURCE_LOCATION (fndecl), "GENERICIZE %q#D", fndecl);
+//   debug_declaration (fndecl);
 
   /* Fix up the types of parms passed by invisible reference.  */
   for (t = DECL_ARGUMENTS (fndecl); t; t = DECL_CHAIN (t))

@@ -5189,7 +5189,7 @@ handle_abi_tag_attribute (tree* node, tree name, tree args,
 tree
 handle_contract_attribute (tree *ARG_UNUSED (node), tree ARG_UNUSED (name),
 			   tree ARG_UNUSED (args), int ARG_UNUSED (flags),
-			   bool *no_add_attrs)
+			   bool *ARG_UNUSED (no_add_attrs))
 {
   /* TODO: Is there any checking we could do here?  */
   return NULL_TREE;

@@ -11506,43 +11506,41 @@ static tree
 tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
 		 tree in_decl)
 {
+  tree type = decl ? TREE_TYPE (TREE_TYPE (decl)) : NULL_TREE;
+  bool auto_p  = type_uses_auto (type);
+
   tree r = copy_node (t);
 
-  tree type = decl ? TREE_TYPE (TREE_TYPE (decl)) : NULL_TREE;
-
-  /* Rebuild the return variable identifier.  */
-  if (TREE_CODE (t) == POSTCONDITION_STMT && POSTCONDITION_IDENTIFIER (t))
+  /* Rebuild the result variable.  */
+  if (POSTCONDITION_P (t) && POSTCONDITION_IDENTIFIER (t))
     {
-      gcc_assert (decl);
-
       tree oldvar = POSTCONDITION_IDENTIFIER (t);
-
-      /* Make sure the postcondition is valid.  */
-      location_t loc = DECL_SOURCE_LOCATION (oldvar);
-      if (!check_postcondition_result (decl, type, loc))
-	return invalidate_contract (r);
 
       tree newvar = copy_node (oldvar);
       TREE_TYPE (newvar) = type;
       DECL_CONTEXT (newvar) = decl;
       POSTCONDITION_IDENTIFIER (r) = newvar;
 
+      /* Make sure the postcondition is valid.  */
+      location_t loc = DECL_SOURCE_LOCATION (oldvar);
+      if (!auto_p)
+        if (!check_postcondition_result (decl, type, loc))
+	  return invalidate_contract (r);
+
       /* Make the variable available for lookup.  */
       register_local_specialization (newvar, oldvar);
     }
 
-  /* If the template has a deduced return type, we end up instantiating
-     postconditions before instantiating the body and deducing the result. We
-     still perform the substitution to remap parameter bindings, but don't emit
-     any errors.  */
-  if (type && is_auto (type))
-    complain = tf_none;
-
-  /* Instantiate the condition.  */
+  /* Instantiate the condition.  If the return type is undeduced, process
+     the expression as if inside a template to avoid spurious type errors.  */
+  if (auto_p)
+    ++processing_template_decl;
   ++cp_contract_operand;
   CONTRACT_CONDITION (r)
       = tsubst_expr (CONTRACT_CONDITION (t), args, complain, in_decl, false);
   --cp_contract_operand;
+  if (auto_p)
+    --processing_template_decl;
 
   /* And the comment.  */
   CONTRACT_COMMENT (r)
@@ -11551,9 +11549,9 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
   return r;
 }
 
-/* Instantiate a contract attribute for DECL.  */
+/* Update T by instantiating its contract attribute.  */
 
-static tree
+static void
 tsubst_contract_attribute (tree decl, tree t, tree args,
 			   tsubst_flags_t complain, tree in_decl)
 {
@@ -11567,11 +11565,8 @@ tsubst_contract_attribute (tree decl, tree t, tree args,
   local_specialization_stack specs (lss_copy);
   register_parameter_specializations (in_decl, decl);
 
-  /* Get the identifier.  */
-  tree attribute = TREE_VALUE (TREE_PURPOSE (t));
-
-  /* Instantiate the contract.  */
-  tree contract = TREE_VALUE (TREE_VALUE (t));
+  /* Get the contract to be instantiated.  */
+  tree contract = CONTRACT_STATEMENT (t);
 
   /* Use the complete set of template arguments for instantiation. The
      contract may not have been instantiated and still refer to outer levels
@@ -11593,7 +11588,23 @@ tsubst_contract_attribute (tree decl, tree t, tree args,
   current_class_ptr = save_ccp;
   current_class_ref = save_ccr;
 
-  return finish_contract_attribute (attribute, contract);
+  /* Rebuild the attribute.  */
+  TREE_VALUE (t) = build_tree_list (NULL_TREE, contract);
+}
+
+/* Rebuild the attribute list for DECL, substituting into contracts
+   as needed.  */
+
+void
+tsubst_contract_attributes (tree decl, tree args, tsubst_flags_t complain, tree in_decl)
+{
+  tree list = copy_list (DECL_ATTRIBUTES (decl));
+  for (tree attr = list; attr; attr = CONTRACT_CHAIN (attr))
+    {
+      if (cxx_contract_attribute_p (attr))
+        tsubst_contract_attribute (decl, attr, args, complain, in_decl);
+    }
+  DECL_ATTRIBUTES (decl) = list;
 }
 
 /* Instantiate a single dependent attribute T (a TREE_LIST), and return either
@@ -16820,6 +16831,8 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 
 	    Contracts may reference this, but all dummies references are
 	    replaced just before building the contract check. */
+	  if (!cp_unevaluated_operand)
+	    debug_declaration (t);
 	  gcc_assert (cp_unevaluated_operand);
 	  r = tsubst_decl (t, args, complain);
 	  /* Give it the template pattern as its context; its true context
@@ -21283,6 +21296,10 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
   if (modules_p ())
     lazy_load_pendings (tmpl);
 
+//   verbatim ("INSTANTIATE %q#D", tmpl);
+//   debug_declaration (tmpl);
+//   debug_template_arguments (orig_args);
+
   /* If this function is a clone, handle it specially.  */
   if (DECL_CLONED_FUNCTION_P (tmpl))
     {
@@ -25692,6 +25709,10 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 							  specs);
 	  }
 
+//       verbatim ("BEFORE REGENERATE PARMS");
+//       debug_declaration (code_pattern);
+//       debug_declaration (decl);
+
       /* Merge parameter declarations.  */
       if (tree pattern_parm
 	  = skip_artificial_parms_for (code_pattern,
@@ -25705,6 +25726,9 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	    DECL_CONTEXT (t) = decl;
 	}
 
+//       verbatim ("AFTER REGENERATE PARMS");
+//       debug_declaration (decl);
+
       if (DECL_CONTRACTS (decl))
 	{
 	  /* If we're regenerating a specialization, the contracts will have
@@ -25717,19 +25741,24 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	      copy_contract_attributes (decl, code_pattern);
 	    }
 
-	  /* Instantiate any pending contracts and replace references to
-	     orig_parms to their current value.  */
-	  DECL_ATTRIBUTES (decl) = copy_list (DECL_ATTRIBUTES (decl));
-	  for (tree a = DECL_ATTRIBUTES (decl); a; a = CONTRACT_CHAIN (a))
-	    {
-	      if (!cxx_contract_attribute_p (a))
-		continue;
-	      tree r = tsubst_contract_attribute (decl, a, args,
-						  tf_warning_or_error,
-						  code_pattern);
-	      TREE_VALUE (a) = TREE_VALUE (r);
-	    }
+	//   inform (DECL_SOURCE_LOCATION (decl), "SUBST CONTRACTS FOR %q#D", decl);
+	//   verbatim ("SPECIALIZATION");
+	//   debug_declaration (decl);
+	//   debug_tree (DECL_ATTRIBUTES (decl));
+	//   verbatim ("PATTERN");
+	//   debug_declaration (code_pattern);
+	//   debug_tree (DECL_ATTRIBUTES (code_pattern));
+	
+	  tsubst_contract_attributes (decl, args, tf_warning_or_error, code_pattern);
 	}
+
+//       verbatim ("AFTER REGENERATE CONTRACTS");
+//       verbatim ("SPECIALIZATION");
+//       debug_declaration (decl);
+//       debug_tree (DECL_ATTRIBUTES (decl));
+//       verbatim ("PATTERN");
+//       debug_declaration (code_pattern);
+//       debug_tree (DECL_ATTRIBUTES (code_pattern));
 
       /* Merge additional specifiers from the CODE_PATTERN.  */
       if (DECL_DECLARED_INLINE_P (code_pattern)
@@ -26202,6 +26231,9 @@ instantiate_decl (tree d, bool defer_ok, bool expl_inst_class_mem_p)
   gcc_assert (!DECL_DECLARED_CONCEPT_P (d));
 
   gcc_checking_assert (!DECL_FUNCTION_SCOPE_P (d));
+
+//   verbatim ("INSTANTIATE_DECL %q#D", d);
+//   debug_declaration (d);
 
   if (modules_p ())
     /* We may have a pending instantiation of D itself.  */

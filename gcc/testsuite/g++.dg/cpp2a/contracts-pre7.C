@@ -108,27 +108,27 @@ int main(int, char**)
   return 0;
 }
 
-// { dg-output "default std::handle_contract_violation called: .*.C 9 ns0::f<int> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 13 ns0::f<int> .*(\n|\r\n|\r)*" }
 // { dg-output "1(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 23 ns0::ns1::f<int> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 28 ns0::ns1::f<int> .*(\n|\r\n|\r)*" }
 // { dg-output "2(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 38 ns0::ns1::f2<int> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 46 ns0::ns1::f2<int> .*(\n|\r\n|\r)*" }
 // { dg-output "3(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 42 ns0::ns1::ns2::f<int> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 53 ns0::ns1::ns2::f<int> .*(\n|\r\n|\r)*" }
 // { dg-output "4(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 63 ns0::S<int>::f .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 76 ns0::S<int>::f .*(\n|\r\n|\r)*" }
 // { dg-output "5(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 70 ns0::ns1::S2<int>::f .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 82 ns0::ns1::S2<int>::f .*(\n|\r\n|\r)*" }
 // { dg-output "6(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 9 ns0::f<double> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 13 ns0::f<double> .*(\n|\r\n|\r)*" }
 // { dg-output "7(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 23 ns0::ns1::f<double> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 28 ns0::ns1::f<double> .*(\n|\r\n|\r)*" }
 // { dg-output "8(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 38 ns0::ns1::f2<double> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 46 ns0::ns1::f2<double> .*(\n|\r\n|\r)*" }
 // { dg-output "9(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 42 ns0::ns1::ns2::f<double> .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 53 ns0::ns1::ns2::f<double> .*(\n|\r\n|\r)*" }
 // { dg-output "10(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 63 ns0::S<double>::f .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 76 ns0::S<double>::f .*(\n|\r\n|\r)*" }
 // { dg-output "11(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 70 ns0::ns1::S2<double>::f .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 82 ns0::ns1::S2<double>::f .*(\n|\r\n|\r)*" }
 // { dg-output "12(\n|\r\n|\r)*" }

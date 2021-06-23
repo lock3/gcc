@@ -94,7 +94,7 @@ struct F1
   virtual int f(int a);
 };
 
-int F1::f(int a) [[ pre: a > 0 ]] // { dg-error "cannot add contracts to virtual" }
+int F1::f(int a) [[ pre: a > 0 ]] // { dg-error "cannot add" }
 {
   return -a;
 }

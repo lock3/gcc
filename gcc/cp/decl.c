@@ -971,9 +971,9 @@ diagnose_mismatched_contracts (tree old_attr, tree new_attr,
   tree t2 = cp_fully_fold_init (CONTRACT_CONDITION (new_contract));
 
   /* Compare the contracts. The fold doesn't eliminate conversions to members.
-     Set the comparing_override_contrarcts flag to ensure that references
+     Set the comparing_override_contracts flag to ensure that references
      through 'this' are equal if they designate the same member, regardless of
-     base class conversions.  */
+     the path those members.  */
   bool saved_comparing_contracts = comparing_override_contracts;
   comparing_override_contracts = (ctx == cmc_override);
   bool matching_p = cp_tree_equal (t1, t2);
@@ -1223,31 +1223,6 @@ defer_guarded_contract_match (tree fndecl, tree fn, tree contracts)
     }
 }
 
-/* Register a late parse for the ATTRIBUTES list of FNDECL.  For friends that
-   match existing declarations, duplicate_decls() will copy attributes from the
-   existing declaration to the "unfinished" friend declaration before calling
-   cplus_decl_attributes().  We need to register a deferred comparison for the
-   copied attributes to the late-parsed attributes of the new declaration.
-   For example:
-
-      void f(int n) [[pre: n != 0]];
-	struct s {
-	friend void f(int n) [[pre: n < 0]]; // #1
-      };
-
-   The precondition at #1 is parsed in the complete class context, so the
-   attribute node is a deferred parse when grokdeclarator() is called.  When
-   do_friend() is called and finds the previous declaration, duplicate_decls()
-   simply copies its attribute list onto the declaration of `f`.  At this
-   point, we need to register the late parse and comparison.  */
-
-static void
-defer_guarded_contract_match_for_friend (tree fndecl, tree attributes)
-{
-  gcc_assert (find_contract (attributes));
-  defer_guarded_contract_match (fndecl, NULL_TREE, attributes);
-}
-
 /* If the FUNCTION_DECL DECL has any contracts that had their matching
    deferred earlier, do that checking now.  */
 
@@ -1262,23 +1237,17 @@ match_deferred_contracts (tree decl)
   if (contract_any_deferred_p (DECL_CONTRACTS (decl)))
     return;
 
-  tree old_contracts = DECL_CONTRACTS (decl);
-  location_t old_loc = CONTRACT_SOURCE_LOCATION (old_contracts);
-
   /* Do late contract matching.  */
   for (tree pending = *tp; pending; pending = TREE_CHAIN (pending))
     {
-      tree base = TREE_PURPOSE (pending);
       tree new_contracts = TREE_VALUE (pending);
       location_t new_loc = CONTRACT_SOURCE_LOCATION (new_contracts);
-      if (base)
-	match_contract_conditions (new_loc, new_contracts,
-				   old_loc, old_contracts,
-				   cmc_override);
-      else
-	match_contract_conditions (old_loc, old_contracts,
-				   new_loc, new_contracts,
-				   cmc_declaration);
+      tree old_contracts = DECL_CONTRACTS (decl);
+      location_t old_loc = CONTRACT_SOURCE_LOCATION (old_contracts);
+      tree base = TREE_PURPOSE (pending);
+      match_contract_conditions (new_loc, new_contracts,
+				 old_loc, old_contracts,
+				 base ? cmc_override : cmc_declaration);
     }
 
   /* Clear out deferred match list so we don't check it twice.  */
@@ -1836,6 +1805,118 @@ copy_argument_names (tree from, tree to)
       to_arg && from_arg;
       to_arg = TREE_CHAIN (to_arg), from_arg = TREE_CHAIN (from_arg))
     DECL_NAME (to_arg) = DECL_NAME (from_arg);
+}
+
+/* This temporarily contains the attribute list for a friend declaration in
+   grokdecl. Friend declarations are merged together before attributes are
+   processed, which complicates the processing of contracts. In particular, we
+   need to compare and possibly remap contracts in duplicate_decls.  */
+
+static tree friend_attributes;
+
+/* A subroutine of duplicate_decls. Diagnose issues in the redeclaration of
+   guarded functions.  Note that attributes on new friend declarations have not
+   been processed yet, so we take those from the global above.  */
+
+static void
+duplicate_contracts (tree newdecl, tree olddecl)
+{
+  /* Compare contracts to see if they match.    */
+  tree old_contracts = DECL_CONTRACTS (olddecl);
+  tree new_contracts;
+  if (friend_attributes)
+    new_contracts = friend_attributes;
+  else
+    new_contracts = DECL_CONTRACTS (newdecl);
+
+  if (!old_contracts && !new_contracts)
+    return;
+
+  location_t old_loc = DECL_SOURCE_LOCATION (olddecl);
+  location_t new_loc = DECL_SOURCE_LOCATION (newdecl);
+
+  /* If both declarations specify contracts, ensure they match.
+  
+     TODO: This handles a potential error a little oddly. Consider:
+
+	struct B {
+	  virtual void f(int n) [[pre: n == 0]];
+	};
+	struct D : B {
+	  void f(int n) override; // inherits contracts
+	};
+	void D::f(int n) [[pre: n == 0]] // OK
+	{ }
+
+    It's okay because we're explicitly restating the inherited contract.
+    Changing the precondition on the definition D::f causes match_contracts
+    to complain about the mismatch.
+    
+    This would previously have been diagnosed as adding contracts to an
+    override, but this seems like it should be well-formed.  */
+  if (old_contracts && new_contracts)
+    {
+      if (!match_contract_conditions (old_loc, old_contracts,
+				      new_loc, new_contracts,
+			     	      cmc_declaration))
+	return;
+    }
+
+  /* Handle cases where contracts are omitted in one or the other
+     declaration.  */
+  if (old_contracts)
+    {
+      /* Contracts have been previously specified by are no omitted. The
+         new declaration inherits the existing contracts. */
+      if (!new_contracts)
+	copy_contract_attributes (newdecl, olddecl);
+
+      /* In all cases, remove existing contracts from OLDDECL to prevent the
+	 attribute merging function from adding excess contracts.  */
+      remove_contract_attributes (olddecl);
+    }
+  else if (!old_contracts)
+    {
+      /* We are adding contracts to a declaration.  */
+      if (new_contracts)
+        {
+	  /* We can't add to a previously defined function.  */
+	  if (DECL_INITIAL (olddecl))
+	    {
+	      auto_diagnostic_group d;
+	      error_at (new_loc, "cannot add contracts after definition");
+	      inform (DECL_SOURCE_LOCATION (olddecl), "original definition here");
+	      return;
+	    }
+	
+	  /* We can't add to an unguarded virtual function declaration.  */
+	  if (DECL_VIRTUAL_P (olddecl) && new_contracts)
+	    {
+	      auto_diagnostic_group d;
+	      error_at (new_loc, "cannot add contracts to a virtual function");
+	      inform (DECL_SOURCE_LOCATION (olddecl), "original declaration here");
+	      return;
+	    }
+
+	  /* Depending on the "first declaration" rule, we may not be able
+	     to add contracts to a function after the fact.  */
+	  if (flag_contract_strict_declarations)
+	    {
+	      warning_at (new_loc,
+			  OPT_fcontract_strict_declarations_,
+			  "declaration adds contracts to %q#D",
+			  olddecl);
+	      return;
+	    }
+
+	  /* Copy the contracts from NEWDECL to OLDDECL. We shouldn't need to
+	     remap them because NEWDECL's parameters will replace those of
+	     OLDDECL.  Remove the contracts from NEWDECL so they aren't
+	     cloned when merging.  */
+	  copy_contract_attributes (olddecl, newdecl);
+	  remove_contract_attributes (newdecl);
+	}
+    }
 }
 
 /* If NEWDECL is a redeclaration of OLDDECL, merge the declarations.
@@ -2513,21 +2594,15 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  = DECL_OVERLOADED_OPERATOR_CODE_RAW (olddecl);
       new_defines_function = DECL_INITIAL (newdecl) != NULL_TREE;
 
-      merge_contracts (olddecl, newdecl);
-      /* Ensure contracts, if any, are present on the newdecl so they're saved
-	 when olddecl is overwritten later.  */
-      if (DECL_CONTRACTS (olddecl))
-	set_decl_contracts (newdecl, DECL_CONTRACTS (olddecl));
+//       verbatim ("BEFORE MERGE ATTRS");
+//       inform (DECL_SOURCE_LOCATION (olddecl), "OLD");
+//       debug_declaration (olddecl);
+//       inform (DECL_SOURCE_LOCATION (newdecl), "NEW");
+//       debug_declaration (newdecl);
 
-      /* Otherwise, rewrite references to newdecl's parms in its contracts, if
-	 any. Unless this is a defining declaration newdecl's DECL_ARGUMENTS
-	 will be thrown away.
+      duplicate_contracts (newdecl, olddecl);
 
-	 TODO: we may be able to keep newdecl's DECL_ARGUMENTs instead, though
-	 there are some sharp corners, see note about
-	 modules/contracts-tpl-friend-1 further down for instance.  */
-      if (DECL_CONTRACTS (newdecl))
-	remap_contracts (newdecl, olddecl, DECL_CONTRACTS (newdecl));
+      // FIXME: Kill this, probably.
       DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
 	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
 
@@ -2595,21 +2670,56 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
   else
     DECL_ATTRIBUTES (olddecl) = DECL_ATTRIBUTES (newdecl);
 
+//   verbatim ("AFTER MERGE ATTRS");
+//   inform (DECL_SOURCE_LOCATION (olddecl), "OLD");
+//   debug_declaration (olddecl);
+//   inform (DECL_SOURCE_LOCATION (newdecl), "NEW");
+//   debug_declaration (newdecl);
+
   if (TREE_CODE (newdecl) == TEMPLATE_DECL)
     {
       tree old_result = DECL_TEMPLATE_RESULT (olddecl);
       tree new_result = DECL_TEMPLATE_RESULT (newdecl);
       TREE_TYPE (olddecl) = TREE_TYPE (old_result);
 
+//       verbatim ("COMPARING");
+//       inform (DECL_SOURCE_LOCATION (olddecl), "%OLD q#D", olddecl);
+//       debug_declaration (old_result);
+//       inform (DECL_SOURCE_LOCATION (newdecl), "%NEW q#D", newdecl);
+//       debug_declaration (new_result);
+
       /* The new decl should not already have gathered any
 	 specializations.  */
       gcc_assert (!DECL_TEMPLATE_SPECIALIZATIONS (newdecl));
 
-      /* Remove contracts from new_result so they aren't appended to
-	 old_result by the merge function.  */
-      remove_contract_attributes (new_result);
+      /* Make sure the contracts are equivalent.  */
+      tree old_contracts = DECL_CONTRACTS (old_result);
+      tree new_contracts = friend_attributes
+	? find_contract (friend_attributes)
+	: DECL_CONTRACTS (new_result);
+      if (DECL_CONTRACTS (old_result) && new_contracts)
+        {
+	  match_contract_conditions (DECL_SOURCE_LOCATION (old_result),
+	  			     old_contracts,
+				     DECL_SOURCE_LOCATION (new_result),
+				     new_contracts,
+				     cmc_declaration);
+	}
+
+      /* Remove contracts from old_result so they aren't appended to
+	 old_result by the merge function.  If we're duplicating because
+	 NEWDECL is a friend, do not do this!  */
+      if (!friend_attributes)
+	remove_contract_attributes (old_result);
+
+//       duplicate_contracts (old_result, new_result);
+
       DECL_ATTRIBUTES (old_result)
 	= (*targetm.merge_decl_attributes) (old_result, new_result);
+      
+//       verbatim ("AFTER MERGE ATTRS");
+//       debug_declaration (old_result);
+//       debug_declaration (new_result);
 
       if (DECL_FUNCTION_TEMPLATE_P (newdecl))
 	{
@@ -2671,18 +2781,31 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  DECL_INITIAL (old_result) = DECL_INITIAL (new_result);
 	  if (DECL_FUNCTION_TEMPLATE_P (newdecl))
 	    {
-	      /* Remap contracts in the old declaration so they refer to their
-		 new parameters.  */
-	      if (DECL_CONTRACTS (old_result))
-		remap_contracts (old_result, new_result, DECL_CONTRACTS (old_result));
-
-	      tree parm;
 	      DECL_ARGUMENTS (old_result) = DECL_ARGUMENTS (new_result);
-	      for (parm = DECL_ARGUMENTS (old_result); parm;
-		   parm = DECL_CHAIN (parm))
-		DECL_CONTEXT (parm) = old_result;
+	      for (tree p = DECL_ARGUMENTS (old_result); p; p = DECL_CHAIN (p))
+		DECL_CONTEXT (p) = old_result;
 	    }
 
+	  /* In general, contracts are re-mapped to their parameters when
+	     instantiated. However, for friends, we need to update the
+	     previous declaration here.
+
+	     TODO: It would be nice if we could avoid doing this here.  */
+	  if (friend_attributes)
+	    {
+	      remove_contract_attributes (old_result);
+	      tree list = NULL_TREE;
+	      for (tree p = new_contracts; p; p = TREE_CHAIN (p))
+		{
+		  if (cxx_contract_attribute_p (p))
+		    list = tree_cons (TREE_PURPOSE (p),
+				      TREE_VALUE (p),
+				      NULL_TREE);
+		}
+	      nreverse (list);
+	      DECL_ATTRIBUTES (old_result)
+		= chainon (DECL_ATTRIBUTES (old_result), list);
+	    }
 	}
 
       return olddecl;
@@ -3117,12 +3240,26 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  /* These are the final DECL_ARGUMENTS that will be used within the
 	     body; update any references to old DECL_ARGUMENTS in the
 	     contracts, if present.  */
-	  remap_contracts (olddecl, newdecl, DECL_CONTRACTS (newdecl));
+	  if (tree contracts = DECL_CONTRACTS (newdecl))
+	    remap_contracts (olddecl, newdecl, contracts, true);
+
 	  /* These need to be copied so that the names are available.
 	     Note that if the types do match, we'll preserve inline
 	     info and other bits, but if not, we won't.  */
 	  DECL_ARGUMENTS (olddecl) = DECL_ARGUMENTS (newdecl);
 	  DECL_RESULT (olddecl) = DECL_RESULT (newdecl);
+	  
+	  /* In some cases, duplicate_contracts will remove contracts from
+	     OLDDECL, to avoid duplications. Sometimes, the contracts end up
+	     shared. If we removed them, re-add them.  */
+	  if (!DECL_CONTRACTS (olddecl))
+	    copy_contract_attributes (olddecl, newdecl);
+
+	//   verbatim ("REMAP FOR DEFINITION");
+	//   inform (DECL_SOURCE_LOCATION (olddecl), "AFTER REMAP %q#D", olddecl);
+	//   debug_declaration (olddecl);
+	//   inform (DECL_SOURCE_LOCATION (newdecl), "NEW %q#D", newdecl);
+	//   debug_declaration (newdecl);
 	}
       /* If redeclaring a builtin function, it stays built in
 	 if newdecl is a gnu_inline definition, or if newdecl is just
@@ -3167,13 +3304,33 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	     function.  */
 	  if (DECL_ARGUMENTS (olddecl))
 	    {
+	      /* If we removed contracts from previous definition, re-attach
+	         them. Otherwise, rewrite the contracts so they match the
+		 parameters of the new declaration.  */
+	      if (DECL_INITIAL (olddecl)
+	          && DECL_CONTRACTS (newdecl)
+		  && !DECL_CONTRACTS (olddecl))
+		    copy_contract_attributes (olddecl, newdecl);
+	      else {
+	//       verbatim ("REMAP SIMPLE REDECL");
+	      /* Temporarily undo the re-contexting of parameters so we
+	         can actually remap parameters.  The inliner won't replace
+		 parameters if we don't do this.  */
+	      tree args = DECL_ARGUMENTS (newdecl);
+	      for (tree p = args; p; p = DECL_CHAIN (p))
+		DECL_CONTEXT (p) = newdecl;
+
 	      /* Save new argument names for use in contracts parsing, unless
 		 we've already started parsing the body of olddecl (particular
 		 issues arise when newdecl is from a prior friend decl with no
 		 argument names, see modules/contracts-tpl-friend-1).  */
-	      if (flag_contracts && DECL_ARGUMENTS (olddecl)
-		  && DECL_INITIAL (olddecl) != error_mark_node)
-		copy_argument_names (newdecl, olddecl);
+	      if (tree contracts = DECL_CONTRACTS (olddecl))
+		remap_contracts (newdecl, olddecl, contracts, true);
+
+	      /* And reverse this operation again. */
+	      for (tree p = args; p; p = DECL_CHAIN (p))
+		DECL_CONTEXT (p) = olddecl;
+	      }
 
 	      DECL_ARGUMENTS (newdecl) = DECL_ARGUMENTS (olddecl);
 	    }
@@ -3438,6 +3595,9 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
     set_contract_functions (newdecl, NULL_TREE, NULL_TREE);
 
   ggc_free (newdecl);
+
+//   verbatim ("AFTER DUP\n");
+//   debug_declaration (olddecl);
 
   return olddecl;
 }
@@ -10261,7 +10421,6 @@ grokfndecl (tree ctype,
 	      return NULL_TREE;
 	    }
 
-
 	  /* A friend declaration of the form friend void f<>().  Record
 	     the information in the TEMPLATE_ID_EXPR.  */
 	  SET_DECL_IMPLICIT_INSTANTIATION (decl);
@@ -10578,6 +10737,9 @@ grokfndecl (tree ctype,
 
   if (DECL_HAS_CONTRACTS_P (decl))
     rebuild_postconditions (decl, TREE_TYPE (type));
+
+//   inform (DECL_SOURCE_LOCATION (decl), "GROK %q#D", decl);
+//   debug_declaration (decl);
 
   /* Check main's type after attributes have been applied.  */
   if (ctype == NULL_TREE && DECL_MAIN_P (decl))
@@ -14243,20 +14405,38 @@ grokdeclarator (const cp_declarator *declarator,
 		    if (decl == error_mark_node)
 		      return error_mark_node;
 		  }
+		
+		// inform (DECL_SOURCE_LOCATION (decl), "BEFORE FRIEND");
+		// debug_declaration (decl);
+		// if (DECL_USE_TEMPLATE (decl))
+		//   debug_declaration (DECL_TI_TEMPLATE (decl));
 
+		auto fao = make_temp_override(friend_attributes, *attrlist);
+		tree orig_decl = decl;
 		decl = do_friend (ctype, unqualified_id, decl,
 				  flags, funcdef_flag);
 
-		/* If do_friend calls duplicate_decl(), attributes will either
-		   be merged or copied, so we shouldn't need to process this
-		   list any further.  However, contracts in the list will
-		   still need to be parsed and then checked against the
-		   contracts inherited by do_friend.  */
-		if (DECL_CONTRACTS (decl) && find_contract (*attrlist))
-		  {
-		    defer_guarded_contract_match_for_friend (decl, *attrlist);
-		    *attrlist = NULL_TREE;
-		  }
+		// inform (DECL_SOURCE_LOCATION (decl), "AFTER FRIEND");
+		// debug_declaration (decl);
+
+		// /* If do_friend merged the original declaration, compare the
+		//    any contracts with those in the attribute list.  */
+		// if (decl != orig_decl)
+		//   {
+		//     tree old_contracts = DECL_CONTRACTS (decl);
+		//     tree new_contracts = find_contract (*attrlist);
+		//     if (old_contracts || new_contracts)
+		//       {
+		// 	match_contract_conditions (DECL_SOURCE_LOCATION (decl),
+		// 				   old_contracts,
+		// 				   id_loc,
+		// 				   new_contracts,
+		// 				   cmc_declaration);
+
+		// 	/* Remove contracts so we don't append them later.  */
+		// 	*attrlist = splice_out_contracts (*attrlist);
+		//       }
+		//   }
 
 		return decl;
 	      }
@@ -17870,7 +18050,6 @@ finish_function (bool inline_p)
 			      current_eh_spec_block);
     }
 
-  //gcc_checking_assert (!pending_guarded_decls.get (fndecl));
   bool finishing_guarded_p = !processing_template_decl
     && DECL_ORIGINAL_FN (fndecl) == NULL_TREE
     && contract_any_active_p (DECL_CONTRACTS (fndecl))
@@ -17878,11 +18057,12 @@ finish_function (bool inline_p)
     && !DECL_DESTRUCTOR_P (fndecl);
   if (finishing_guarded_p)
     {
-      /* Save our function name for diagnostics generated by our contracts.  */
-      if (DECL_PRE_FN (fndecl) && DECL_PRE_FN (fndecl) != error_mark_node)
-	set_contracts_original_fn (DECL_PRE_FN (fndecl), fndecl);
-      if (DECL_POST_FN (fndecl) && DECL_POST_FN (fndecl) != error_mark_node)
-	set_contracts_original_fn (DECL_POST_FN (fndecl), fndecl);
+      /* FIXME: We've already set the original function when created.
+         Why are we doing this again?  */
+      if (tree pre = DECL_PRE_FN (fndecl))
+	set_contracts_original_fn (pre, fndecl);
+      if (tree post = DECL_POST_FN (fndecl))
+	set_contracts_original_fn (post, fndecl);
     }
 
   /* If we're saving up tree structure, tie off the function now.  */
@@ -18165,6 +18345,8 @@ finish_function (bool inline_p)
 static void
 finish_function_contracts (tree fndecl)
 {
+//   verbatim ("FINISH CONTRACTS");
+//   debug_declaration (fndecl);
   for (tree ca = DECL_CONTRACTS (fndecl); ca; ca = CONTRACT_CHAIN (ca))
     {
       tree contract = CONTRACT_STATEMENT (ca);
@@ -18177,36 +18359,39 @@ finish_function_contracts (tree fndecl)
   int flags = SF_DEFAULT | SF_PRE_PARSED;
   tree finished_pre = NULL_TREE, finished_post = NULL_TREE;
 
-  /* Create a copy of the contracts with refreences to fndecl's args replaced
-     with references to either the args of DECL_PRE_FN or DECL_POST_FN.  */
+  /* If either the pre or post functions are bad, don't bother emitting
+     any contracts.  The program is already ill-formed.  */
+  tree pre = DECL_PRE_FN (fndecl);
+  tree post = DECL_POST_FN (fndecl);
+  if (pre == error_mark_node || post == error_mark_node)
+    return;
+
+  /* Create a copy of the contracts with references to fndecl's args replaced
+     with references to either the args of pre or post function.  */
   tree contracts = copy_list (DECL_CONTRACTS (fndecl));
   for (tree attr = contracts; attr; attr = CONTRACT_CHAIN (attr))
     {
       tree contract = copy_node (CONTRACT_STATEMENT (attr));
       if (TREE_CODE (contract) == PRECONDITION_STMT)
-	remap_contract (fndecl, DECL_PRE_FN (fndecl), contract);
+	remap_contract (fndecl, pre, contract, /*duplicate_p=*/false);
       else if (TREE_CODE (contract) == POSTCONDITION_STMT)
-	remap_contract (fndecl, DECL_POST_FN (fndecl), contract);
+	remap_contract (fndecl, post, contract, /*duplicate_p=*/false);
       TREE_VALUE (attr) = build_tree_list (NULL_TREE, contract);
     }
 
-  if (DECL_PRE_FN (fndecl) && DECL_INITIAL (fndecl) != error_mark_node
-      && DECL_PRE_FN (fndecl) != error_mark_node)
+  if (pre && DECL_INITIAL (fndecl) != error_mark_node)
     {
-      DECL_PENDING_INLINE_P (DECL_PRE_FN (fndecl)) = false;
-      start_preparsed_function (DECL_PRE_FN (fndecl),
-				DECL_ATTRIBUTES (DECL_PRE_FN (fndecl)),
-				flags);
+      DECL_PENDING_INLINE_P (pre) = false;
+      start_preparsed_function (pre, DECL_ATTRIBUTES (pre), flags);
       emit_preconditions (contracts);
       finished_pre = finish_function (false);
       expand_or_defer_fn (finished_pre);
     }
-  if (DECL_POST_FN (fndecl) && DECL_INITIAL (fndecl) != error_mark_node
-      && DECL_POST_FN (fndecl) != error_mark_node)
+  if (post && DECL_INITIAL (fndecl) != error_mark_node)
     {
-      DECL_PENDING_INLINE_P (DECL_POST_FN (fndecl)) = false;
-      start_preparsed_function (DECL_POST_FN (fndecl),
-				DECL_ATTRIBUTES (DECL_POST_FN (fndecl)),
+      DECL_PENDING_INLINE_P (post) = false;
+      start_preparsed_function (post,
+				DECL_ATTRIBUTES (post),
 				flags);
       emit_postconditions (contracts);
 
@@ -18216,8 +18401,6 @@ finish_function_contracts (tree fndecl)
       finished_post = finish_function (false);
       expand_or_defer_fn (finished_post);
     }
-
-  set_contract_functions (fndecl, finished_pre, finished_post);
 }
 
 

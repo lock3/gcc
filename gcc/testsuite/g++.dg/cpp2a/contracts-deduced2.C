@@ -48,8 +48,8 @@ auto g6(S s) [[ post q: q == s ]]
   return -s;
 }
 
-template<typename T>
-T g7(T t) [[ post r: r == t ]];
+// template<typename T>
+// T g7(T t) [[ post r: r == t ]];
 
 template<typename S>
 S g7(S s) [[ post q: q == s ]]
@@ -73,15 +73,12 @@ int main(int, char**) {
 
 // { dg-output "default std::handle_contract_violation called: .*.C 5 g0 .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 5 g0 .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 10 g1 .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 18 g2 .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 26 g3 .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 31 g4 .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 38 g5 .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 12 g1 .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 23 g3 .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 30 g4 .*(\n|\r\n|\r)*" }
+// { dg-output "default std::handle_contract_violation called: .*.C 37 g5 .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 46 g6<int> .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 46 g6<double> .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 55 g7<int> .*(\n|\r\n|\r)*" }
 // { dg-output "default std::handle_contract_violation called: .*.C 55 g7<double> .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 64 g8<int> .*(\n|\r\n|\r)*" }
-// { dg-output "default std::handle_contract_violation called: .*.C 64 g8<char> .*(\n|\r\n|\r)*" }
 

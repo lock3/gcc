@@ -1923,20 +1923,24 @@ maybe_check_overriding_exception_spec (tree overrider, tree basefn)
    PARM_DECL in OVERRIDER.  */
 
 static void
-remap_overrider_contracts (tree overrider, tree basefn)
+inherit_base_contracts (tree overrider, tree basefn)
 {
+//   verbatim ("INHERIT CONTRACTS");
+//   debug_declaration (overrider);
+//   debug_declaration (basefn);
   tree last = NULL_TREE, contract_attrs = NULL_TREE;
   for (tree a = DECL_CONTRACTS (basefn);
       a != NULL_TREE;
       a = CONTRACT_CHAIN (a))
     {
       tree c = copy_node (a);
-      // FIXME can we just contract_statement (c) = copy...
       TREE_VALUE (c) = build_tree_list (TREE_PURPOSE (TREE_VALUE (c)),
 					copy_node (CONTRACT_STATEMENT (c)));
+
       tree src = basefn;
       tree dst = overrider;
-      remap_contract (src, dst, CONTRACT_STATEMENT (c));
+      remap_contract (src, dst, CONTRACT_STATEMENT (c), /*duplicate_p=*/true);
+
       CONTRACT_COMMENT (CONTRACT_STATEMENT (c)) =
 	copy_node (CONTRACT_COMMENT (CONTRACT_STATEMENT (c)));
 
@@ -1945,6 +1949,7 @@ remap_overrider_contracts (tree overrider, tree basefn)
       if (!contract_attrs)
 	contract_attrs = c;
     }
+
   set_decl_contracts (overrider, contract_attrs);
 }
 
@@ -2119,12 +2124,9 @@ check_final_overrider (tree overrider, tree basefn)
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && !DECL_HAS_CONTRACTS_P (overrider))
     {
-      /* FIXME this results in an almost exact duplicate of the final pre/post
-	 fns, with just the name of the caller changing. It may be beneficial
-	 to collapse these ourselves.  */
       /* We're inheriting basefn's contracts; create a copy of them but
 	 replace references to their parms to our parms.  */
-      remap_overrider_contracts (overrider, basefn);
+      inherit_base_contracts (overrider, basefn);
     }
   else if (DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
     {
