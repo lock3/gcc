@@ -958,16 +958,6 @@ build_contract_condition_function (tree fndecl, bool pre)
   DECL_DISREGARD_INLINE_LIMITS (fn) = true;
   TREE_NO_WARNING (fn) = 1;
 
-  if (!DECL_TEMPLATE_INFO (fn))
-    return fn;
-
-  /* Create new template decl for UNCHECKED and rename it properly.  */
-  // FIXME: Do we really want to do this? I would think the unchecked
-  // function is never a template.
-  unshare_template (fn);
-  tree tmpl = DECL_TI_TEMPLATE (fn);
-  DECL_NAME (tmpl) = DECL_NAME (fn);
-
   return fn;
 }
 
