@@ -16831,8 +16831,6 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 
 	    Contracts may reference this, but all dummies references are
 	    replaced just before building the contract check. */
-	  if (!cp_unevaluated_operand)
-	    debug_declaration (t);
 	  gcc_assert (cp_unevaluated_operand);
 	  r = tsubst_decl (t, args, complain);
 	  /* Give it the template pattern as its context; its true context
@@ -21296,10 +21294,6 @@ instantiate_template_1 (tree tmpl, tree orig_args, tsubst_flags_t complain)
   if (modules_p ())
     lazy_load_pendings (tmpl);
 
-//   verbatim ("INSTANTIATE %q#D", tmpl);
-//   debug_declaration (tmpl);
-//   debug_template_arguments (orig_args);
-
   /* If this function is a clone, handle it specially.  */
   if (DECL_CLONED_FUNCTION_P (tmpl))
     {
@@ -25709,10 +25703,6 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 							  specs);
 	  }
 
-//       verbatim ("BEFORE REGENERATE PARMS");
-//       debug_declaration (code_pattern);
-//       debug_declaration (decl);
-
       /* Merge parameter declarations.  */
       if (tree pattern_parm
 	  = skip_artificial_parms_for (code_pattern,
@@ -25726,9 +25716,6 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	    DECL_CONTEXT (t) = decl;
 	}
 
-//       verbatim ("AFTER REGENERATE PARMS");
-//       debug_declaration (decl);
-
       if (DECL_CONTRACTS (decl))
 	{
 	  /* If we're regenerating a specialization, the contracts will have
@@ -25741,24 +25728,8 @@ regenerate_decl_from_template (tree decl, tree tmpl, tree args)
 	      copy_contract_attributes (decl, code_pattern);
 	    }
 
-	//   inform (DECL_SOURCE_LOCATION (decl), "SUBST CONTRACTS FOR %q#D", decl);
-	//   verbatim ("SPECIALIZATION");
-	//   debug_declaration (decl);
-	//   debug_tree (DECL_ATTRIBUTES (decl));
-	//   verbatim ("PATTERN");
-	//   debug_declaration (code_pattern);
-	//   debug_tree (DECL_ATTRIBUTES (code_pattern));
-	
 	  tsubst_contract_attributes (decl, args, tf_warning_or_error, code_pattern);
 	}
-
-//       verbatim ("AFTER REGENERATE CONTRACTS");
-//       verbatim ("SPECIALIZATION");
-//       debug_declaration (decl);
-//       debug_tree (DECL_ATTRIBUTES (decl));
-//       verbatim ("PATTERN");
-//       debug_declaration (code_pattern);
-//       debug_tree (DECL_ATTRIBUTES (code_pattern));
 
       /* Merge additional specifiers from the CODE_PATTERN.  */
       if (DECL_DECLARED_INLINE_P (code_pattern)
@@ -26231,9 +26202,6 @@ instantiate_decl (tree d, bool defer_ok, bool expl_inst_class_mem_p)
   gcc_assert (!DECL_DECLARED_CONCEPT_P (d));
 
   gcc_checking_assert (!DECL_FUNCTION_SCOPE_P (d));
-
-//   verbatim ("INSTANTIATE_DECL %q#D", d);
-//   debug_declaration (d);
 
   if (modules_p ())
     /* We may have a pending instantiation of D itself.  */

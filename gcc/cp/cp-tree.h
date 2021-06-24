@@ -6932,7 +6932,6 @@ enum contract_matching_context
   cmc_override
 };
 
-extern void merge_contracts			(tree, const cp_declarator *);
 extern void match_deferred_contracts		(tree);
 
 /* in decl2.c */

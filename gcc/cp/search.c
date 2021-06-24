@@ -1925,9 +1925,6 @@ maybe_check_overriding_exception_spec (tree overrider, tree basefn)
 static void
 inherit_base_contracts (tree overrider, tree basefn)
 {
-//   verbatim ("INHERIT CONTRACTS");
-//   debug_declaration (overrider);
-//   debug_declaration (basefn);
   tree last = NULL_TREE, contract_attrs = NULL_TREE;
   for (tree a = DECL_CONTRACTS (basefn);
       a != NULL_TREE;

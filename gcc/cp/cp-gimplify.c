@@ -1696,9 +1696,6 @@ cp_genericize (tree fndecl)
 {
   tree t;
 
-//   inform (DECL_SOURCE_LOCATION (fndecl), "GENERICIZE %q#D", fndecl);
-//   debug_declaration (fndecl);
-
   /* Fix up the types of parms passed by invisible reference.  */
   for (t = DECL_ARGUMENTS (fndecl); t; t = DECL_CHAIN (t))
     if (TREE_ADDRESSABLE (TREE_TYPE (t)))
