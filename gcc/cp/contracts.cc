@@ -1031,6 +1031,194 @@ remap_dummy_this (tree fn, tree *expr)
   walk_tree (expr, remap_dummy_this_1, fn, NULL);
 }
 
+/* Contract matching.  */
+
+/* True if the contract is valid.  */
+
+static bool
+contract_valid_p (tree contract)
+{
+  return CONTRACT_CONDITION (contract) != error_mark_node;
+}
+
+/* True if the contract attribute is valid.  */
+
+static bool
+contract_attribute_valid_p (tree attribute)
+{
+  return contract_valid_p (TREE_VALUE (TREE_VALUE (attribute)));
+}
+
+/* Compare the contract conditions of OLD_ATTR and NEW_ATTR. Returns false
+   if the conditions are equivalent, and true otherwise.  */
+
+static bool
+check_for_mismatched_contracts (tree old_attr, tree new_attr,
+			       contract_matching_context ctx)
+{
+  tree old_contract = CONTRACT_STATEMENT (old_attr);
+  tree new_contract = CONTRACT_STATEMENT (new_attr);
+
+  /* Different kinds of contracts do not match.  */
+  if (TREE_CODE (old_contract) != TREE_CODE (new_contract))
+    {
+      auto_diagnostic_group d;
+      error_at (EXPR_LOCATION (new_contract),
+		ctx == cmc_declaration
+		? "mismatched contract attribute in declaration"
+		: "mismatched contract attribute in override");
+      inform (EXPR_LOCATION (old_contract), "previous contract here");
+      return true;
+    }
+
+  /* Two deferred contracts tentatively match.  */
+  if (CONTRACT_CONDITION_DEFERRED_P  (old_contract)
+      && CONTRACT_CONDITION_DEFERRED_P (new_contract))
+    return false;
+
+  /* Compare the conditions of the contracts.  We fold immediately to avoid
+     issues comparing contracts on overrides that use parameters -- see
+     contracts-pre3.  */
+  tree t1 = cp_fully_fold_init (CONTRACT_CONDITION (old_contract));
+  tree t2 = cp_fully_fold_init (CONTRACT_CONDITION (new_contract));
+
+  /* Compare the contracts. The fold doesn't eliminate conversions to members.
+     Set the comparing_override_contracts flag to ensure that references
+     through 'this' are equal if they designate the same member, regardless of
+     the path those members.  */
+  bool saved_comparing_contracts = comparing_override_contracts;
+  comparing_override_contracts = (ctx == cmc_override);
+  bool matching_p = cp_tree_equal (t1, t2);
+  comparing_override_contracts = saved_comparing_contracts;
+
+  if (!matching_p)
+    {
+      auto_diagnostic_group d;
+      error_at (EXPR_LOCATION (CONTRACT_CONDITION (new_contract)),
+		ctx == cmc_declaration
+		? "mismatched contract condition in declaration"
+		: "mismatched contract condition in override");
+      inform (EXPR_LOCATION (CONTRACT_CONDITION (old_contract)),
+	      "previous contract here");
+      return true;
+    }
+
+  return false;
+}
+
+/* Compare the contract attributes of OLDDECL and NEWDECL. Returns true
+   if the contracts match, and false if they differ.  */
+
+bool
+match_contract_conditions (location_t oldloc, tree old_attrs,
+			   location_t newloc, tree new_attrs,
+			   contract_matching_context ctx)
+{
+  /* Contracts only match if they are both specified.  */
+  if (!old_attrs || !new_attrs)
+    return true;
+
+  /* Compare each contract in turn.  */
+  while (old_attrs && new_attrs)
+    {
+      /* If either contract is ill-formed, skip the rest of the comparison,
+	 since we've already diagnosed an error.  */
+      if (!contract_attribute_valid_p (new_attrs)
+	  || !contract_attribute_valid_p (old_attrs))
+	return false;
+
+      if (check_for_mismatched_contracts (old_attrs, new_attrs, ctx))
+	return false;
+      old_attrs = CONTRACT_CHAIN (old_attrs);
+      new_attrs = CONTRACT_CHAIN (new_attrs);
+    }
+
+  /* If we didn't compare all attributes, the contracts don't match.  */
+  if (old_attrs || new_attrs)
+    {
+      auto_diagnostic_group d;
+      error_at (newloc,
+		ctx == cmc_declaration
+		? "declaration has a different number of contracts than "
+		  "previously declared"
+		: "override has a different number of contracts than "
+		  "previously declared");
+      inform (oldloc,
+	      new_attrs
+	      ? "original declaration with fewer contracts here"
+	      : "original declaration with more contracts here");
+      return false;
+    }
+
+  return true;
+}
+
+
+/* Deferred contract mapping.
+
+   This is used to compare late-parsed contracts on overrides with their
+   base class functions.
+   
+   TODO: It's possible that this extra processing queue isn't needed.  */
+
+/* Map from FUNCTION_DECL to a tree list of contracts that have not
+   been matched or diagnosed yet.  The TREE_PURPOSE is the basefn we're
+   overriding or NULL_TREE if this is a redecl, and the TREE_VALUE is the list
+   of contract attrs.  */
+hash_map<tree_decl_hash, tree> pending_guarded_decls;
+
+void
+defer_guarded_contract_match (tree fndecl, tree fn, tree contracts)
+{
+  if (!pending_guarded_decls.get (fndecl))
+    {
+      pending_guarded_decls.put (fndecl, build_tree_list (fn, contracts));
+      return;
+    }
+  for (tree pending = *pending_guarded_decls.get (fndecl);
+      pending;
+      pending = TREE_CHAIN (pending))
+    {
+      if (TREE_VALUE (pending) == contracts)
+	return;
+      if (TREE_CHAIN (pending) == NULL_TREE)
+	TREE_CHAIN (pending) = build_tree_list (fn, contracts);
+    }
+}
+
+/* If the FUNCTION_DECL DECL has any contracts that had their matching
+   deferred earlier, do that checking now.  */
+
+void
+match_deferred_contracts (tree decl)
+{
+  tree *tp = pending_guarded_decls.get (decl);
+  if (!tp)
+    return;
+
+  /* If we're still deferring, defer even more.  */
+  if (contract_any_deferred_p (DECL_CONTRACTS (decl)))
+    return;
+
+  /* Do late contract matching.  */
+  for (tree pending = *tp; pending; pending = TREE_CHAIN (pending))
+    {
+      tree new_contracts = TREE_VALUE (pending);
+      location_t new_loc = CONTRACT_SOURCE_LOCATION (new_contracts);
+      tree old_contracts = DECL_CONTRACTS (decl);
+      location_t old_loc = CONTRACT_SOURCE_LOCATION (old_contracts);
+      tree base = TREE_PURPOSE (pending);
+      match_contract_conditions (new_loc, new_contracts,
+				 old_loc, old_contracts,
+				 base ? cmc_override : cmc_declaration);
+    }
+
+  /* Clear out deferred match list so we don't check it twice.  */
+  pending_guarded_decls.remove (decl);
+}
+
+
+
 /* Debugging stuff.  */
 
 static int depth;

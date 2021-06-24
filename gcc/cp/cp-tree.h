@@ -6926,14 +6926,6 @@ extern tree build_explicit_specifier		(tree, tsubst_flags_t);
 extern void do_push_parm_decls			(tree, tree, tree *);
 extern tree do_aggregate_paren_init		(tree, tree);
 
-enum contract_matching_context
-{
-  cmc_declaration,
-  cmc_override
-};
-
-extern void match_deferred_contracts		(tree);
-
 /* in decl2.c */
 extern void record_mangling			(tree, bool);
 extern void overwrite_mangling			(tree, tree);
@@ -7567,6 +7559,12 @@ extern bool perform_or_defer_access_check	(tree, tree, tree,
 						 access_failure_info *afi = NULL);
 
 /* contracts.cc */
+enum contract_matching_context
+{
+  cmc_declaration,
+  cmc_override
+};
+
 extern tree invalidate_contract			(tree);
 extern tree make_postcondition_variable		(cp_expr);
 extern tree make_postcondition_variable		(cp_expr, tree);
@@ -7579,6 +7577,10 @@ extern tree finish_contract_condition		(cp_expr);
 extern void remove_contract_attributes		(tree);
 extern void copy_contract_attributes		(tree, tree);
 extern tree splice_out_contracts		(tree);
+extern bool match_contract_conditions		(location_t, tree, location_t, tree, contract_matching_context);
+extern void defer_guarded_contract_match	(tree, tree, tree);
+extern void match_deferred_contracts		(tree);
+extern hash_map<tree_decl_hash, tree> pending_guarded_decls;
 extern void remap_contract			(tree, tree, tree, bool);
 extern void remap_contracts			(tree, tree, tree, bool);
 extern void remap_dummy_this			(tree, tree *);
@@ -7601,6 +7603,7 @@ extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);
 extern void emit_postconditions			(tree);
 
+
 /* FIXME: Remove these */
 void debug_type (tree);
 void debug_expression (tree);
@@ -7619,10 +7622,6 @@ set_decl_contracts (tree decl, tree contract_attrs)
   remove_contract_attributes (decl);
   DECL_ATTRIBUTES (decl) = chainon (DECL_ATTRIBUTES (decl), contract_attrs);
 }
-
-/* in decl.c */
-extern hash_map<tree_decl_hash, tree> pending_guarded_decls;
-extern void defer_guarded_contract_match	(tree, tree, tree);
 
 /* RAII sentinel to ensures that deferred access checks are popped before
   a function returns.  */
