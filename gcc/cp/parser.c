@@ -28386,8 +28386,6 @@ contains_error_p (tree t)
   return walk_tree (&t, find_error, NULL, NULL);
 }
 
-int cp_contract_operand = 0;
-
 /* Parse a standard C++20 contract attribute specifier.
 
   contract-attribute-specifier:
@@ -28474,9 +28472,9 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 
       /* Parse the condition, ensuring that parameters or the return variable
          aren't flagged for use outside the body of a function.  */
-      ++cp_contract_operand;
+      ++processing_contract_condition;
       cp_expr condition = cp_parser_conditional_expression (parser);
-      --cp_contract_operand;
+      --processing_contract_condition;
 
       /* Try to recover from errors by scanning up to the end of the
 	 attribute.  Sometimes we get partially parsed expressions, so
@@ -28560,9 +28558,9 @@ void cp_parser_late_contract_condition (cp_parser *parser,
 
   /* Parse the condition, ensuring that parameters or the return variable
      aren't flagged for use outside the body of a function.  */
-  ++cp_contract_operand;
+  ++processing_contract_condition;
   condition = cp_parser_conditional_expression (parser);
-  --cp_contract_operand;
+  --processing_contract_condition;
 
   /* Revert to the main lexer.  */
   cp_parser_pop_lexer (parser);

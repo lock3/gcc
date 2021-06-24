@@ -679,10 +679,10 @@ rebuild_postconditions (tree decl, tree type)
         register_local_identity (t);
       register_local_specialization (newvar, oldvar);
 
-      ++cp_contract_operand;
+      ++processing_contract_condition;
       condition = tsubst_expr (condition, make_tree_vec (0),
 			       tf_warning_or_error, decl, false);
-      --cp_contract_operand;
+      --processing_contract_condition;
 
       /* Update the contract condition and result.  */
       POSTCONDITION_IDENTIFIER (contract) = newvar;

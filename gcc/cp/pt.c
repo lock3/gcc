@@ -11535,10 +11535,10 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
      the expression as if inside a template to avoid spurious type errors.  */
   if (auto_p)
     ++processing_template_decl;
-  ++cp_contract_operand;
+  ++processing_contract_condition;
   CONTRACT_CONDITION (r)
       = tsubst_expr (CONTRACT_CONDITION (t), args, complain, in_decl, false);
-  --cp_contract_operand;
+  --processing_contract_condition;
   if (auto_p)
     --processing_template_decl;
 
@@ -16990,7 +16990,7 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 			  = do_auto_deduction (TREE_TYPE (r), init, auto_node,
 					       complain, adc_variable_type);
 		    }
-		  gcc_assert (cp_unevaluated_operand || cp_contract_operand || TREE_STATIC (r)
+		  gcc_assert (cp_unevaluated_operand || processing_contract_condition || TREE_STATIC (r)
 			      || decl_constant_var_p (r)
 			      || seen_error ());
 		  if (!processing_template_decl

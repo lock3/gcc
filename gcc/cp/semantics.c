@@ -2635,11 +2635,13 @@ finish_non_static_data_member (tree decl, tree object, tree qualifying_scope)
       if (current_function_decl
 	  && DECL_STATIC_FUNCTION_P (current_function_decl))
 	error ("invalid use of member %qD in static member function", decl);
-      else if (current_function_decl && cp_contract_operand
-	  && DECL_CONSTRUCTOR_P (current_function_decl))
+      else if (current_function_decl
+	       && processing_contract_condition
+	       && DECL_CONSTRUCTOR_P (current_function_decl))
 	error ("invalid use of member %qD in constructor %<pre%> contract", decl);
-      else if (current_function_decl && cp_contract_operand
-	  && DECL_DESTRUCTOR_P (current_function_decl))
+      else if (current_function_decl
+	       && processing_contract_condition
+	       && DECL_DESTRUCTOR_P (current_function_decl))
 	error ("invalid use of member %qD in destructor %<post%> contract", decl);
       else
 	error ("invalid use of non-static data member %qD", decl);
@@ -3450,9 +3452,9 @@ finish_this_expr (void)
   tree fn = current_nonlambda_function ();
   if (fn && DECL_STATIC_FUNCTION_P (fn))
     error ("%<this%> is unavailable for static member functions");
-  else if (fn && cp_contract_operand && DECL_CONSTRUCTOR_P (fn))
+  else if (fn && processing_contract_condition && DECL_CONSTRUCTOR_P (fn))
     error ("invalid use of %<this%> before it is valid");
-  else if (fn && cp_contract_operand && DECL_DESTRUCTOR_P (fn))
+  else if (fn && processing_contract_condition && DECL_DESTRUCTOR_P (fn))
     error ("invalid use of %<this%> after it is valid");
   else if (fn)
     error ("invalid use of %<this%> in non-member function");
@@ -4349,7 +4351,7 @@ process_outer_var_ref (tree decl, tsubst_flags_t complain, bool odr_use)
 	}
       return error_mark_node;
     }
-  else if (cp_contract_operand && (TREE_CODE (decl) == PARM_DECL))
+  else if (processing_contract_condition && (TREE_CODE (decl) == PARM_DECL))
     /* Use of a parameter in a contract condition is fine.  */
     return decl;
   else
@@ -4485,7 +4487,7 @@ finish_id_expression_1 (tree id_expression,
       if (TREE_CODE (decl) == PARM_DECL
 	  && DECL_CONTEXT (decl) == NULL_TREE
 	  && !cp_unevaluated_operand
-	  && !cp_contract_operand)
+	  && !processing_contract_condition)
 	{
 	  *error_msg = G_("use of parameter outside function body");
 	  return error_mark_node;

@@ -1907,6 +1907,8 @@ struct GTY(()) saved_scope {
   BOOL_BITFIELD x_processing_explicit_instantiation : 1;
   BOOL_BITFIELD need_pop_function_context : 1;
 
+  int x_processing_contract_condition;
+
 /* Nonzero if we are parsing the discarded statement of a constexpr
    if-statement.  */
   BOOL_BITFIELD discarded_stmt : 1;
@@ -1971,6 +1973,12 @@ extern GTY(()) struct saved_scope *scope_chain;
 #define processing_template_decl scope_chain->x_processing_template_decl
 #define processing_specialization scope_chain->x_processing_specialization
 #define processing_explicit_instantiation scope_chain->x_processing_explicit_instantiation
+
+/* Nonzero if we are parsing the conditional expression of a contract
+   condition. These expressions appear outside the paramter list (like a
+   trailing return type), but are potentially evaluated.  */
+
+#define processing_contract_condition scope_chain->x_processing_contract_condition
 
 #define in_discarded_stmt scope_chain->discarded_stmt
 
@@ -5679,12 +5687,6 @@ public:
   { cp_unevaluated_operand = uneval;
     c_inhibit_evaluation_warnings = inhibit; }
 };
-
-/* Nonzero if we are parsing the condition of a precondition or postcondition.
-   These occur after the parameters of a declarator (as with a late return
-   type), but the operands may be evaluated.  */
-
-extern int cp_contract_operand;
 
 /* in pt.c  */
 
