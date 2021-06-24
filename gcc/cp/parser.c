@@ -15957,69 +15957,6 @@ cp_parser_conversion_declarator_opt (cp_parser* parser)
   return NULL;
 }
 
-int cp_contract_operand = 0;
-tree cp_contract_return_value = NULL_TREE;
-
-/* Manage translation semantics around the parsing of the condition of
-   a contract.
-
-   NOTE: If we need to parse contracts as unevaluated operands, then
-   we should do that here.  */
-
-struct cp_contract_sentinel
-{
-  cp_contract_sentinel(tree contract, tree fn = NULL_TREE)
-    : stmt(NULL_TREE),
-    saved_current_class_ptr(current_class_ptr),
-    saved_current_class_ref(current_class_ref)
-  {
-    ++cp_contract_operand;
-    push_deferring_access_checks (dk_no_check);
-
-    /* pre construction and post destruction the object pointed to by `this`
-       is invalid; clear out some global state so diagnostics can be issued
-       appropriately.  */
-    bool ctor_pre_p = fn && TREE_CODE (contract) == PRECONDITION_STMT
-      && DECL_CONSTRUCTOR_P (fn);
-    bool dtor_post_p = fn && TREE_CODE (contract) == POSTCONDITION_STMT
-      && DECL_DESTRUCTOR_P (fn);
-
-    if (fn && DECL_FUNCTION_MEMBER_P (fn) && (ctor_pre_p || dtor_post_p))
-      {
-	current_class_ptr = NULL_TREE;
-	current_class_ref = NULL_TREE;
-      }
-
-    if (TREE_CODE (contract) == POSTCONDITION_STMT)
-      {
-	tree result = DECL_UNCHECKED_RESULT (fn);
-	/* Make sure we don't have named void results.  */
-	if (!result && POSTCONDITION_IDENTIFIER (contract))
-	  error_at (EXPR_LOCATION (POSTCONDITION_IDENTIFIER (contract)),
-		    "function does not return a value");
-	if (!result)
-	  return;
-
-	stmt = start_postcondition_statement ();
-	cp_contract_return_value = result;
-      }
-  }
-  ~cp_contract_sentinel()
-  {
-    if (stmt)
-      finish_postcondition_statement (stmt);
-
-    cp_contract_return_value = NULL_TREE;
-
-    pop_deferring_access_checks ();
-    --cp_contract_operand;
-  }
-
-  tree stmt;
-  temp_override<tree> saved_current_class_ptr;
-  temp_override<tree> saved_current_class_ref;
-};
-
 /* Parse a conditional-expression.  */
 
 static cp_expr
@@ -28463,6 +28400,8 @@ contains_error_p (tree t)
 {
   return walk_tree (&t, find_error, NULL, NULL);
 }
+
+int cp_contract_operand = 0;
 
 /* Parse a standard C++20 contract attribute specifier.
 

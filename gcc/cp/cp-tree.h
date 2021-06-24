@@ -5697,7 +5697,6 @@ public:
    type), but the operands may be evaluated.  */
 
 extern int cp_contract_operand;
-extern tree cp_contract_return_value;
 
 /* in pt.c  */
 

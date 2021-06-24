@@ -4372,8 +4372,7 @@ process_outer_var_ref (tree decl, tsubst_flags_t complain, bool odr_use)
 	}
       return error_mark_node;
     }
-  else if (cp_contract_operand
-      && (TREE_CODE (decl) == PARM_DECL || decl == cp_contract_return_value))
+  else if (cp_contract_operand && (TREE_CODE (decl) == PARM_DECL))
     /* Use of a parameter in a contract condition is fine.  */
     return decl;
   else

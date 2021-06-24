@@ -1167,12 +1167,15 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
 /* Deferred contract mapping.
 
    This is used to compare late-parsed contracts on overrides with their
-   base class functions.   */
+   base class functions.
+   
+   TODO: It seems like this could be replaced by a simple list that maps from
+   overrides to their base functions. It's not clear that we really need
+   a map to a function + a list of contracts.   */
 
-/* Map from FUNCTION_DECL to a tree list of contracts that have not
-   been matched or diagnosed yet.  The TREE_PURPOSE is the basefn we're
-   overriding or NULL_TREE if this is a redecl, and the TREE_VALUE is the list
-   of contract attrs.  */
+/* Map from FNDECL to a tree list of contracts that have not been matched or
+   diagnosed yet.  The TREE_PURPOSE is the basefn we're overriding, and the
+   TREE_VALUE is the list of contract attrs for BASEFN.  */
 hash_map<tree_decl_hash, tree> pending_guarded_decls;
 
 void
