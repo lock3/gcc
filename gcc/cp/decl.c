@@ -12587,10 +12587,8 @@ grokdeclarator (const cp_declarator *declarator,
 
       inner_declarator = declarator->declarator;
 
-      /* FIXME: This needs to be updated or removed.  */
-      tree contract_attr = declarator->contracts;
-      if (!contract_attr)
-	contract_attr = find_contract (declarator->std_attributes);
+      /* Check that contracts aren't misapplied.  */
+      tree contract_attr = find_contract (declarator->std_attributes);
       if (contract_attr && !function_declarator_p (declarator))
 	diagnose_misapplied_contracts (contract_attr);
 

@@ -1524,7 +1524,6 @@ make_declarator (cp_declarator_kind kind)
   declarator->parenthesized = UNKNOWN_LOCATION;
   declarator->attributes = NULL_TREE;
   declarator->std_attributes = NULL_TREE;
-  declarator->contracts = NULL_TREE;
   declarator->declarator = NULL;
   declarator->parameter_pack_p = false;
   declarator->id_loc = UNKNOWN_LOCATION;
@@ -26581,22 +26580,8 @@ cp_parser_member_declaration (cp_parser* parser)
 	      /* If we've declared a member function with contracts, ensure we
 		 do late parsing for the contracts even if we have no function
 		 body to parse at that time.  */
-	      if (DECL_DECLARES_FUNCTION_P (decl)
-		  && DECL_HAS_CONTRACTS_P (decl))
-		{
-		  const cp_declarator *fn
-		    = find_innermost_function_declarator (declarator);
-		  /* Emit an error if this is a (non-defining) friend decl with
-		     contract attributes. */
-		  if (friend_p && fn->contracts)
-		    {
-		      error_at (fn->id_loc,
-				"non-defining friend declaration %qD "
-				"cannot use contract attributes", decl);
-		      remove_contract_attributes (decl);
-		    }
-		  vec_safe_push (unparsed_funs_with_definitions, decl);
-		}
+	      if (DECL_DECLARES_FUNCTION_P (decl) && DECL_CONTRACTS (decl))
+		vec_safe_push (unparsed_funs_with_definitions, decl);
 
 	      if (parser->fully_implicit_function_template_p)
 		{

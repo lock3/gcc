@@ -6357,8 +6357,6 @@ struct cp_declarator {
      declarator is a pointer or a reference, these attributes apply
      to the pointer, rather than to the type pointed to.  */
   tree std_attributes;
-  /* The contracts, if any. */
-  tree contracts;
   /* For all but cdk_id, cdk_decomp and cdk_error, the contained declarator.
      For cdk_id, cdk_decomp and cdk_error, guaranteed to be NULL.  */
   cp_declarator *declarator;
