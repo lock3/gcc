@@ -7579,7 +7579,6 @@ extern tree splice_out_contracts		(tree);
 extern bool match_contract_conditions		(location_t, tree, location_t, tree, contract_matching_context);
 extern void defer_guarded_contract_match	(tree, tree, tree);
 extern void match_deferred_contracts		(tree);
-extern hash_map<tree_decl_hash, tree> pending_guarded_decls;
 extern void remap_contract			(tree, tree, tree, bool);
 extern void remap_contracts			(tree, tree, tree, bool);
 extern void remap_dummy_this			(tree, tree *);

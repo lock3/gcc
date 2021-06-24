@@ -1176,7 +1176,8 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
 /* Map from FNDECL to a tree list of contracts that have not been matched or
    diagnosed yet.  The TREE_PURPOSE is the basefn we're overriding, and the
    TREE_VALUE is the list of contract attrs for BASEFN.  */
-hash_map<tree_decl_hash, tree> pending_guarded_decls;
+
+static hash_map<tree_decl_hash, tree> pending_guarded_decls;
 
 void
 defer_guarded_contract_match (tree fndecl, tree fn, tree contracts)
