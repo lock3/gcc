@@ -937,25 +937,6 @@ determine_local_discriminator (tree decl)
   timevar_cond_stop (TV_NAME_LOOKUP, subtime);
 }
 
-/* Check that we aren't adding contracts to an already defined function.  */
-
-static bool
-diagnose_contracts_after_definition (tree olddecl, location_t newloc)
-{
-  /* Contracts cannot be added after the definition of an unguarded
-     function.  */
-  if (DECL_INITIAL (olddecl)
-      && DECL_INITIAL (olddecl) != error_mark_node
-      && !DECL_HAS_CONTRACTS_P (olddecl))
-    {
-      auto_diagnostic_group d;
-      error_at (newloc, "cannot add contracts after definition");
-      inform (DECL_SOURCE_LOCATION (olddecl), "original definition here");
-      return true;
-    }
-  return false;
-}
-
 /* Called on attribute lists that must not contain contracts.  If any
    contracts are present, issue an error diagnostic and return true.  */
 
@@ -3242,10 +3223,6 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
      reclaiming memory. */
   if (flag_concepts)
     remove_constraints (newdecl);
-
-  /* Remove the associated contracts and unchecked result, if any.  */
-  if (flag_contracts && TREE_CODE (newdecl) == FUNCTION_DECL)
-    set_contract_functions (newdecl, NULL_TREE, NULL_TREE);
 
   ggc_free (newdecl);
 
@@ -17665,20 +17642,12 @@ finish_function (bool inline_p)
 			      current_eh_spec_block);
     }
 
+  /* True if this is a guarded function.  */
   bool finishing_guarded_p = !processing_template_decl
     && DECL_ORIGINAL_FN (fndecl) == NULL_TREE
     && contract_any_active_p (DECL_CONTRACTS (fndecl))
     && !DECL_CONSTRUCTOR_P (fndecl)
     && !DECL_DESTRUCTOR_P (fndecl);
-  if (finishing_guarded_p)
-    {
-      /* FIXME: We've already set the original function when created.
-         Why are we doing this again?  */
-      if (tree pre = DECL_PRE_FN (fndecl))
-	set_contracts_original_fn (pre, fndecl);
-      if (tree post = DECL_POST_FN (fndecl))
-	set_contracts_original_fn (post, fndecl);
-    }
 
   /* If we're saving up tree structure, tie off the function now.  */
   DECL_SAVED_TREE (fndecl) = pop_stmt_list (DECL_SAVED_TREE (fndecl));
