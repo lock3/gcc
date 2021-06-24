@@ -25403,14 +25403,6 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 		cp_parser_late_contract_condition (parser, decl, a);
 	    }
 
-	  /* Ensure all contracts on pending matches are also parsed.  */
-	  if (tree *tp = pending_guarded_decls.get (decl))
-	    {
-	      for (tree pending = *tp; pending; pending = TREE_CHAIN (pending))
-		for (tree a = TREE_VALUE (pending); a; a = CONTRACT_CHAIN (a))
-		  cp_parser_late_contract_condition (parser, decl, a);
-	    }
-	
 	  /* Restore the state of local_variables_forbidden_p.  */
 	  parser->local_variables_forbidden_p = local_variables_forbidden_p;
 

@@ -2129,7 +2129,10 @@ check_final_overrider (tree overrider, tree basefn)
     {
       /* We're in the process of completing the overrider's class, which means
 	 our conditions definitely are not parsed so simply chain on the
-	 basefn for later checking.  */
+	 basefn for later checking.
+	 
+	 Note that OVERRIDER's contracts will have been fully parsed at the
+	 point the deferred match is run.  */
       defer_guarded_contract_match (overrider, basefn, DECL_CONTRACTS (basefn));
     }
 

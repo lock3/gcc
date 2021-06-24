@@ -550,6 +550,17 @@ compute_concrete_semantic (tree contract)
   gcc_assert (false);
 }
 
+/* Return true if any contract in CONTRACT_ATTRs is not yet parsed.  */
+
+bool
+contract_any_deferred_p (tree contract_attr)
+{
+  for (; contract_attr; contract_attr = CONTRACT_CHAIN (contract_attr))
+    if (CONTRACT_CONDITION_DEFERRED_P (CONTRACT_STATEMENT (contract_attr)))
+      return true;
+  return false;
+}
+
 /* Mark most of a contract as being invalid.  */
 
 tree
@@ -1153,13 +1164,10 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
   return true;
 }
 
-
 /* Deferred contract mapping.
 
    This is used to compare late-parsed contracts on overrides with their
-   base class functions.
-   
-   TODO: It's possible that this extra processing queue isn't needed.  */
+   base class functions.   */
 
 /* Map from FUNCTION_DECL to a tree list of contracts that have not
    been matched or diagnosed yet.  The TREE_PURPOSE is the basefn we're
@@ -1196,9 +1204,7 @@ match_deferred_contracts (tree decl)
   if (!tp)
     return;
 
-  /* If we're still deferring, defer even more.  */
-  if (contract_any_deferred_p (DECL_CONTRACTS (decl)))
-    return;
+  gcc_assert(!contract_any_deferred_p (DECL_CONTRACTS (decl)));
 
   /* Do late contract matching.  */
   for (tree pending = *tp; pending; pending = TREE_CHAIN (pending))
@@ -1216,8 +1222,6 @@ match_deferred_contracts (tree decl)
   /* Clear out deferred match list so we don't check it twice.  */
   pending_guarded_decls.remove (decl);
 }
-
-
 
 /* Debugging stuff.  */
 

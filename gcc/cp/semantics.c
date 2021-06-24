@@ -1131,17 +1131,6 @@ contract_any_active_p (tree contract)
   return false;
 }
 
-/* Return true if any contract in CONTRACT_ATTRs is not yet parsed.  */
-
-bool
-contract_any_deferred_p (tree contract_attr)
-{
-  for (; contract_attr; contract_attr = CONTRACT_CHAIN (contract_attr))
-    if (CONTRACT_CONDITION_DEFERRED_P (CONTRACT_STATEMENT (contract_attr)))
-      return true;
-  return false;
-}
-
 /* Generate the code that checks or assumes a contract, but do not attach
    it to the current context.  This is called during genericization.  */
 
