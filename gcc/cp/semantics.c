@@ -938,7 +938,8 @@ build_contract_condition_function (tree fndecl, bool pre)
   return fn;
 }
 
-static bool has_active_contract_condition (tree d, tree_code c)
+static bool
+has_active_contract_condition (tree d, tree_code c)
 {
   for (tree as = DECL_CONTRACTS (d) ; as != NULL_TREE; as = TREE_CHAIN (as))
     {
@@ -949,21 +950,23 @@ static bool has_active_contract_condition (tree d, tree_code c)
   return false;
 }
 
-/* True if `d` has any checked or assumed preconditions.  */
+/* True if D has any checked or assumed preconditions.  */
 
-static bool has_active_preconditions (tree d)
+static bool
+has_active_preconditions (tree d)
 {
   return has_active_contract_condition (d, PRECONDITION_STMT);
 }
 
-/* True if `d` has any checked or assumed postconditions.  */
+/* True if D has any checked or assumed postconditions.  */
 
-static bool has_active_postconditions (tree d)
+static bool 
+has_active_postconditions (tree d)
 {
   return has_active_contract_condition (d, POSTCONDITION_STMT);
 }
 
-/* Build the precondition checking function for `d`.  */
+/* Build the precondition checking function for D.  */
 
 static tree
 build_precondition_function (tree d)
@@ -974,7 +977,7 @@ build_precondition_function (tree d)
   return build_contract_condition_function (d, /*pre=*/true);
 }
 
-/* Build the postcondition checking function for `d`. If the return
+/* Build the postcondition checking function for D. If the return
    type is undeduced, don't build the function yet. We do that in
    apply_deduced_return_type.  */
 
@@ -1055,8 +1058,6 @@ build_contract_handler_fn (tree contract,
 
   expanded_location loc = expand_location (EXPR_LOCATION (contract));
 
-  /* FIXME: It looks  like we have two bits of information for
-     continuing.  Is this right?  */
   tree continue_mode = build_int_cst (boolean_type_node, cmode != NEVER_CONTINUE);
   tree line_number = build_int_cst (integer_type_node, loc.line);
   tree file_name = build_string_literal (strlen (loc.file) + 1, loc.file);
