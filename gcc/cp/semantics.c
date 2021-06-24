@@ -832,29 +832,6 @@ set_contracts_original_fn (tree d, tree orig)
   decl_original_fn->put (d, orig);
 }
 
-/* Returns the unchecked result of the guarded FUNCTION_DECL D, or null if it
-   doesn't (yet) exist.  */
-
-tree
-get_unchecked_result (tree d)
-{
-  if (!d || d == error_mark_node)
-    return NULL_TREE;
-
-  if (VOID_TYPE_P (TREE_TYPE (TREE_TYPE (d))))
-    return NULL_TREE;
-
-  tree post = DECL_POST_FN (d);
-  if (!post || post == error_mark_node)
-    return NULL_TREE;
-
-  for (tree arg = DECL_ARGUMENTS (post); arg; arg = TREE_CHAIN (arg))
-    if (!TREE_CHAIN (arg))
-      return arg;
-
-  return NULL_TREE;
-}
-
 /* Return a copy of the FUNCTION_DECL IDECL with its own unshared 
    PARM_DECL and DECL_ATTRIBUTEs.  */
 

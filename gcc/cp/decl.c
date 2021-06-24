@@ -2284,10 +2284,6 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 
       duplicate_contracts (newdecl, olddecl);
 
-      // FIXME: Kill this, probably.
-      DECL_SEEN_WITHOUT_CONTRACTS_P (newdecl)
-	= DECL_SEEN_WITHOUT_CONTRACTS_P (olddecl);
-
       /* Optionally warn about more than one declaration for the same
 	 name, but don't warn about a function declaration followed by a
 	 definition.  */
@@ -18014,7 +18010,7 @@ finish_function_contracts (tree fndecl)
 				flags);
       emit_postconditions (contracts);
 
-      tree res = DECL_UNCHECKED_RESULT (fndecl);
+      tree res = get_postcondition_result_parameter (fndecl);
       if (res)
 	finish_return_stmt (res);
       finished_post = finish_function (false);

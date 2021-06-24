@@ -1424,7 +1424,8 @@ set_contract_semantic (tree t, contract_semantic semantic)
 #define CONTRACT_COMMENT(NODE) \
   (TREE_OPERAND (CONTRACT_CHECK (NODE), 2))
 
-/* The optional identifier declared for a postcondition with a loc wrapper.  */
+/* The VAR_DECL of a postcondition result. For deferred contracts, this
+   is an IDENTIFIER.  */
 #define POSTCONDITION_IDENTIFIER(NODE) \
   (TREE_OPERAND (POSTCONDITION_STMT_CHECK (NODE), 3))
 
@@ -3699,18 +3700,9 @@ find_contract (tree attrs)
 #define CONTRACT_SOURCE_LOCATION(NODE) \
   (EXPR_LOCATION (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
 
-/* The original decl a list of contracts was declared on.  */
-#define CONTRACT_ORIGINAL_DECL(NODE) \
-  (tree_strip_any_location_wrapper (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
-
 /* The actual code _STMT for a contract attribute.  */
 #define CONTRACT_STATEMENT(NODE) \
   (TREE_VALUE (TREE_VALUE (NODE)))
-
-/* For a FUNCTION_DECL of a guarded function, this holds the var decl
-   capturing the result of the call to the unchecked function.  */
-#define DECL_UNCHECKED_RESULT(NODE) \
-  (get_unchecked_result (NODE))
 
 /* For a FUNCTION_DECL of a guarded function, this holds the function decl
    where pre contract checks are emitted.  */
@@ -3734,10 +3726,6 @@ find_contract (tree attrs)
 /* True iff the FUNCTION_DECL is the post function for a guarded function.  */
 #define DECL_IS_POST_FN_P(NODE) \
   (DECL_ORIGINAL_FN (NODE) && DECL_POST_FN (DECL_ORIGINAL_FN (NODE)) == NODE)
-
-/* True the FUNCTION_DECL NODE was initially declared without contracts.  */
-#define DECL_SEEN_WITHOUT_CONTRACTS_P(NODE) \
-  (LANG_DECL_FN_CHECK (DECL_COMMON_CHECK (NODE))->seen_without_contracts_p)
 
 /* Nonzero for TYPE_DECL means that it was written 'using name = type'.  */
 #define TYPE_DECL_ALIAS_P(NODE) \
@@ -7592,7 +7580,7 @@ extern tree start_postcondition_statement	();
 extern void finish_postcondition_statement	(tree);
 extern tree build_contract_check		(tree);
 extern vec<tree, va_gc> *build_arg_list		(tree);
-extern tree get_unchecked_result		(tree);
+extern tree get_postcondition_result_parameter	(tree);
 extern tree get_precondition_function		(tree);
 extern tree get_postcondition_function		(tree);
 extern tree get_contracts_original_fn		(tree);
@@ -7600,7 +7588,6 @@ extern tree get_contracts_original_fn		(tree);
 extern void emit_assertion			(tree);
 extern void emit_preconditions			(tree);
 extern void emit_postconditions			(tree);
-
 
 /* FIXME: Remove these */
 void debug_type (tree);

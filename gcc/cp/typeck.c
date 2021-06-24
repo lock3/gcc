@@ -10039,7 +10039,7 @@ apply_postcondition_to_return (tree post, tree expr)
   vec<tree, va_gc> *args = build_arg_list (current_function_decl);
 
   // FIXME: do we need forward_parm or similar?
-  if (DECL_UNCHECKED_RESULT (current_function_decl))
+  if (get_postcondition_result_parameter (current_function_decl))
     vec_safe_push (args, expr); 
 
   push_deferring_access_checks (dk_no_check);

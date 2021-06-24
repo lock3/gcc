@@ -897,6 +897,30 @@ void copy_contract_attributes (tree newdecl, tree olddecl)
   DECL_ATTRIBUTES (newdecl) = attrs;
 }
 
+/* Returns the parameter corresponding to the return value of a guarded
+   function D.  Returns NULL_TREE if D has no postconditions or is void.  */
+
+tree
+get_postcondition_result_parameter (tree d)
+{
+  if (!d || d == error_mark_node)
+    return NULL_TREE;
+
+  if (VOID_TYPE_P (TREE_TYPE (TREE_TYPE (d))))
+    return NULL_TREE;
+
+  tree post = DECL_POST_FN (d);
+  if (!post || post == error_mark_node)
+    return NULL_TREE;
+
+  for (tree arg = DECL_ARGUMENTS (post); arg; arg = TREE_CHAIN (arg))
+    if (!TREE_CHAIN (arg))
+      return arg;
+
+  return NULL_TREE;
+}
+
+
 /* For use with the tree inliner. This preserves non-mapped local variables,
    such as postcondition result variables, during remapping.  */
 
