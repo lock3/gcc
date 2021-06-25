@@ -144,7 +144,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-inline.h"
 #include "attribs.h"
 #include "tree-iterator.h"
-#include "print-tree.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
