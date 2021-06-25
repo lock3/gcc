@@ -11725,17 +11725,20 @@ cp_parser_statement (cp_parser* parser, tree in_statement_expr,
   token = cp_lexer_peek_token (parser->lexer);
 
   /* If we have contracts, check that they're valid in this context.  */
-  if (tree pre = lookup_attribute ("pre", std_attrs))
-    error_at (EXPR_LOCATION (TREE_VALUE (pre)),
-	      "preconditions cannot be statements");
-  else if (tree post = lookup_attribute ("post", std_attrs))
-    error_at (EXPR_LOCATION (TREE_VALUE (post)),
-	      "postconditions cannot be statements");
+  if (std_attrs != error_mark_node)
+    {
+      if (tree pre = lookup_attribute ("pre", std_attrs))
+	error_at (EXPR_LOCATION (TREE_VALUE (pre)),
+		  "preconditions cannot be statements");
+      else if (tree post = lookup_attribute ("post", std_attrs))
+	error_at (EXPR_LOCATION (TREE_VALUE (post)),
+		  "postconditions cannot be statements");
 
-  /* Check that assertions are null statements.  */
-  if (cp_contract_assertion_p (std_attrs))
-    if (token->type != CPP_SEMICOLON)
-      error_at (token->location, "assertions must be followed by %<;%>");
+    /* Check that assertions are null statements.  */
+    if (cp_contract_assertion_p (std_attrs))
+      if (token->type != CPP_SEMICOLON)
+	error_at (token->location, "assertions must be followed by %<;%>");
+    }
 
   /* Remember the location of the first token in the statement.  */
   cp_token *statement_token = token;
