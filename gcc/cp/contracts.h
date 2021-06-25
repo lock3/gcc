@@ -82,9 +82,9 @@ struct contract_configuration
   contract_role* role;
 };
 
-/* A contract mode contains information used to derive the checking 
+/* A contract mode contains information used to derive the checking
    and assumption semantics of a contract. This is either a dynamic
-   configuration, meaning it derives from the build mode, or it is 
+   configuration, meaning it derives from the build mode, or it is
    explicitly specified.  */
 
 struct contract_mode

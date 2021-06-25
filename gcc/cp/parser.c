@@ -25442,7 +25442,7 @@ cp_parser_class_specifier_1 (cp_parser* parser)
 
       /* Now contract attributes.  */
       FOR_EACH_VEC_SAFE_ELT (unparsed_contracts, ix, decl)
-        {
+	{
 	  tree ctx = DECL_CONTEXT (decl);
 	  if (class_type != ctx)
 	    {
@@ -28409,8 +28409,8 @@ cp_parser_contract_role (cp_parser *parser)
 /* Parse an optional contract mode.
 
      contract-mode:
-     	contract-semantic
-     	[contract-level] [contract-role]
+	contract-semantic
+	[contract-level] [contract-role]
 
      contract-semantic:
        check_never_continue
@@ -28534,8 +28534,8 @@ contains_error_p (tree t)
   contract-attribute-specifier:
     [ [ assert contract-level [opt] : conditional-expression ] ]
     [ [ pre contract-level [opt] : conditional-expression ] ]
-    [ [ post contract-level [opt] identifier [opt] : conditional-expression ] ] 
-    
+    [ [ post contract-level [opt] identifier [opt] : conditional-expression ] ]
+
    For free functions, we cannot determine the type of the postcondition
    identifier because the we haven't called grokdeclarator yet. In those
    cases we parse the postcondition as if the identifier was declared as
@@ -28579,16 +28579,16 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
       && !parser->declaring_friend_p)
     {
       /* Skip until we reach an unenclose ']'. If we ran into an unnested ']'
-         that doesn't close the attribute, return an error and let the attribute
-         handling code emit an error for missing ']]'.  */
+	 that doesn't close the attribute, return an error and let the attribute
+	 handling code emit an error for missing ']]'.  */
       cp_token *first = cp_lexer_peek_token (parser->lexer);
       cp_parser_skip_to_closing_parenthesis_1 (parser,
 					       /*recovering=*/false,
 					       CPP_CLOSE_SQUARE,
 					       /*consume_paren=*/false);
       if (cp_lexer_peek_token (parser->lexer)->type != CPP_CLOSE_SQUARE
-          || cp_lexer_peek_nth_token (parser->lexer, 2)->type != CPP_CLOSE_SQUARE)
-        return error_mark_node;
+	  || cp_lexer_peek_nth_token (parser->lexer, 2)->type != CPP_CLOSE_SQUARE)
+	return error_mark_node;
       cp_token *last = cp_lexer_peek_token (parser->lexer);
 
       /* Build a deferred-parse node.  */
@@ -28614,7 +28614,7 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 	}
 
       /* Parse the condition, ensuring that parameters or the return variable
-         aren't flagged for use outside the body of a function.  */
+	 aren't flagged for use outside the body of a function.  */
       ++processing_contract_condition;
       cp_expr condition = cp_parser_conditional_expression (parser);
       --processing_contract_condition;
@@ -28648,7 +28648,7 @@ cp_parser_contract_attribute_spec (cp_parser *parser, tree attribute)
 /* Parse a contract condition for a deferred contract.  */
 
 void cp_parser_late_contract_condition (cp_parser *parser,
-					tree fn, 
+					tree fn,
 					tree attribute)
 {
   tree contract = TREE_VALUE (TREE_VALUE (attribute));
@@ -28745,7 +28745,7 @@ void cp_parser_late_contract_condition (cp_parser *parser,
      [ [ assert :  contract-mode [opt] : conditional-expression ] ]
      [ [ pre :  contract-mode [opt] : conditional-expression ] ]
      [ [ post :  contract-mode [opt] identifier [opt] :
-         conditional-expression ] ]  */
+	 conditional-expression ] ]  */
 
 static tree
 cp_parser_std_attribute_spec (cp_parser *parser)
@@ -31748,7 +31748,7 @@ cp_parser_save_default_args (cp_parser* parser, tree decl)
     {
       if (cxx_contract_attribute_p (attr))
 	{
- 	  vec_safe_push (unparsed_contracts, decl);
+	  vec_safe_push (unparsed_contracts, decl);
 	  break;
 	}
     }

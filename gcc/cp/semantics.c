@@ -46,7 +46,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "predict.h"
 #include "memmodel.h"
 #include "contracts.h"
-#include "print-tree.h"
 
 /* There routines provide a modular interface to perform many parsing
    operations.  They may therefore be used during actual parsing, or
@@ -831,7 +830,7 @@ set_contracts_original_fn (tree d, tree orig)
   decl_original_fn->put (d, orig);
 }
 
-/* Return a copy of the FUNCTION_DECL IDECL with its own unshared 
+/* Return a copy of the FUNCTION_DECL IDECL with its own unshared
    PARM_DECL and DECL_ATTRIBUTEs.  */
 
 static tree
@@ -959,7 +958,7 @@ has_active_preconditions (tree d)
 
 /* True if D has any checked or assumed postconditions.  */
 
-static bool 
+static bool
 has_active_postconditions (tree d)
 {
   return has_active_contract_condition (d, POSTCONDITION_STMT);

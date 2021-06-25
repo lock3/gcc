@@ -49,7 +49,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-family/c-ada-spec.h"
 #include "asan.h"
 #include "optabs-query.h"
-#include "print-tree.h"
 
 /* Id for dumping the raw trees.  */
 int raw_dump_id;

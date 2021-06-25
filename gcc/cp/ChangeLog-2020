@@ -4393,25 +4393,6 @@
 	* decl.c (grokdeclarator): Don't splice template attributes in
 	parm context -- they can apply to the parm.
 
-2020-05-05  Jeff Chapman II  <jchapman@lock3software.com>
-
-	Diagnose misapplied contracts. Allow contracts after virt specifier.
-	* cp-tree.h (diagnose_misapplied_contracts): New.
-	* decl.c (diagnose_misapplied_contracts): Same.
-	(check_tag_decl): Use above to diagnose contracts on tag decls.
-	(grokdeclarator): Diagnose contracts in declspecs and declaration
-	attrlist if any. Extract diagnostic into
-	diagnose_misapplied_contracts.
-	* parser.c (cp_separate_contracts): Now works when passed in contracts
-	list is not already empty.
-	(cp_parser_statement): Initialize contract_attrs before call to
-	cp_separate_contracts.
-	(cp_parser_decl_specifier_seq): Diagnose invalid application of
-	contracts.
-	(cp_parser_class_head): Ditto.
-	(cp_parser_member_declaration): Handle contracts appearing after a
-	function's virt-specifier.
-
 2020-05-05  Iain Sandoe  <iain@sandoe.co.uk>
 
 	* coroutines.cc: Remove references to n4849 throughout.
@@ -4755,15 +4736,6 @@
 	* constraint.cc (diagnose_valid_expression): Check convert_to_void here
 	as well as in tsubst_valid_expression_requirement.
 
-2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
-
-	Fix style and comments in several places.
-	* parser.c (get_source): Move to input.c.
-	* pt.c (tsubst_expr): Remove outdated TODO and unneeded
-	PRECONDITION_STMT and POSTCONDITION_STMT cases.
-	* search.c (check_final_overrider): Reword guarded override
-	diagnostic.
-
 2020-04-21  Patrick Palka  <ppalka@redhat.com>
 
 	PR c++/94549
@@ -4793,42 +4765,6 @@
 	(is_nondependent_constant_expression): Don't check
 	BRACE_ENCLOSED_INITIALIZER_P.
 	(is_nondependent_static_init_expression): Likewise.
-
-2020-04-20  Jeff Chapman II  <jchapman@lock3software.com>
-
-	Correctly treat contract attributes on friend and static member
-	function decls as a complete class context.
-	* cp-tree.h (CONTRACT_SOURCE_LOCATION_WRAPPER): New helper.
-	(CONTRACT_SOURCE_LOCATION): Ditto.
-	(pending_guarded_decls): Newly extern.
-	(defer_guarded_contract_match): Now accepts both a source function and
-	list of contract attributes to distinguish between overrides and
-	redeclarations.
-	* decl.c (merge_contracts): Defer contract matching when the new or
-	existing contracts are not fully parsed. Use new contract location
-	helpers.
-	(pending_guarded_overrides): Renamed to:
-	(pending_guarded_decls): and made extern.
-	(defer_guarded_contract_match): Accepts and stores both a function and
-	list of contracts.
-	(match_deferred_contracts): Uses the contract location helpers.
-	Determines arguments to match_contract_conditions based on the
-	information saved by defer_guarded_contract_match.
-	(finish_function): New checking assertion that there are no
-	outstanding pending contract matching required.
-	* parser.c (cp_parser_contracts): Now accepts a defer bool if the
-	caller knows the contracts cannot be parsed yet.
-	(cp_parser_member_declaration): Defer parsing of contracts when
-	calling cp_parser_contracts on friend decls.
-	(cp_parser_save_member_function_body): Always defer parsing of
-	contracts since we in an incomplete type.
-	(begin_contract_scope): Instead of calling inject_this_parameter,
-	directly inject the this parameter that's already been added to the
-	function's parameter list.
-	(cp_parser_late_parsing_for_contracts): Defer if this is a friend
-	decl. If we are parsing now, parse any deferred matches as well.
-	* search.c (check_final_overrider): Pass the basefn to
-	defer_guarded_contract_match.
 
 2020-04-20  Patrick Palka  <ppalka@redhat.com>
 
@@ -4871,15 +4807,6 @@
 	[node_class:TEMPLATE_TEMPLATE_PARM]: Hash by level & index.
 	[node_class:default]: Refactor.
 
-2020-04-19  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* parser.c (cp_parser_contract_condition): If needed, build a location
-	wrapper around the parsed condition for later diagnostics.
-	* pt.c (tsubst_contract): Use the original condition location as the
-	location of the substituted condition.
-	* semantics.c (start_contract): Remove FIXME about incorrect
-	diagnostic location.
-
 2020-04-18  Patrick Palka  <ppalka@redhat.com>
 
 	PR c++/94632
@@ -4906,12 +4833,6 @@
 	* call.c (build_conditional_expr_1): Remove redundant assignment to
 	arg2.
 
-2020-04-16  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* cp-tree.h (get_contract_semantic): Use TREE_LANG_FLAG_0, 2, and 3
-	instead of spare1.
-	(set_contract_semantic): Ditto.
-
 2020-04-16  Patrick Palka  <ppalka@redhat.com>
 
 	PR c++/94475
@@ -4923,23 +4844,6 @@
 	PR c++/94571
 	* parser.c (cp_parser_simple_declaration): Fix up a pasto in
 	diagnostics.
-
-2020-04-15  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* parser.c: Cleanup outdated FIXMEs.
-	(cp_parser_cache_contract_condition): Use
-	cp_parser_skip_to_closing_parenthesis_1.
-	* search.c (check_final_overrider): Remove outdated FIXME.
-	* semantics.c: Cleanup outdated FIXMEs.
-	(start_checked_function_definition): Begin BCS_FN_BODY instead of
-	BCS_NORMAL.
-	(finish_checked_function_definition): Use finish_compound_stmt instead
-	of finish_function_body.
-	(start_postcondition_statement): push_stmt_list to capture the built
-	tree.
-	(finish_postcondition_statement): Replace inlined version of
-	finish_compound_stmt with finish_compound_stmt and pop_stmt_list,
-	using the new list created in start_postcondition_statement.
 
 2020-04-15  Jakub Jelinek  <jakub@redhat.com>
 
@@ -4999,16 +4903,6 @@
 	* tree.c (no_linkage_check): Revert code looking at visibility of
 	lambda's extra scope.
 `
-2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* cp-tree.h (cp_tree_index): Remove CPTI_ON_CONTRACT_VIOLATION_ALWAYS.
-	(on_contract_violation_always_fn): Remove.
-	* except.c (init_exception_processing): Remove always continue handler
-	logic.
-	* semantics.c (build_contract_handler_fn): Remove ALWAYS_CONTINUE
-	related logic, including hacky workarounds.
-	(build_contract_check): Remove CCS_ALWAYS case.
-
 2020-04-10  Iain Sandoe  <iain@sandoe.co.uk>
 
 	PR c++/94528
@@ -5048,13 +4942,6 @@
 	try initializing from { }.
 	* decl.c (grok_reference_init): For T& t(e), set
 	LOOKUP_AGGREGATE_PAREN_INIT but don't build up a constructor yet.
-
-2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* semantics.c (build_checked_function_definition): Swap checked and
-	unchecked DECL_RESULT so any references in the body of the unchecked
-	function still point to its DECL_RESULT. This fixes a different
-	transform for large return types.
 
 2020-04-08  Iain Sandoe  <iain@sandoe.co.uk>
 	    Jun Ma  <JunMa@linux.alibaba.com>
@@ -5134,24 +5021,6 @@
 	* parser.c (cp_parser_omp_parallel): Set OMP_PARALLEL_COMBINED
 	if cp_parser_omp_master succeeded.
 
-2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* cp-tree.h (function_declarator_p): Newly public.
-	* decl.c (match_contract_conditions): Invert return value to match
-	name, update comments.
-	(match_contracts): Ditto, update usage of above.
-	(grokdeclarator): Use function_declarator_p, look for unseparated
-	contract attributes in std_attributes too.
-	* except.c (init_exception_processing): Remove TODO.
-	* parser.c (function_declarator_p): No longer static.
-	(stringify_tree): Remove.
-	(cp_parser_contract_condition): Use expr_to_string.
-	(begin_contract_scope): Use inject_parm_decls and
-	inject_this_parameter.
-	* semantics.c (build_arg_list): Use forward_parm.
-	(build_contract_check): Update comments; this is only called during
-	genericization and does not need to be done at gimplification time.
-
 2020-04-06  Jason Merrill  <jason@redhat.com>
 
 	PR c++/94462
@@ -5228,26 +5097,6 @@
 	PR c++/91966
 	* pt.c (complex_pack_expansion_r): New.
 	(complex_alias_template_p): Use it.
-
-2020-04-02  Jeff Chapman II  <jchapman@lock3software.com>
-
-	Store DECL_UNCHECKED_RESULT in separate hash_map instead of bloating
-	lang_decl_fn.
-	* cp-tree.h (lang_decl_fn): Remove unchecked_result.
-	(set_unchecked_result): New.
-	(get_unchecked_result): Ditto.
-	(DECL_UNCHECKED_RESULT): Use above.
-	* decl.c (duplicate_decls): Remove contracts and unchecked_result from
-	to-be-reused FUNCTION_DECL nodes before freeing them.
-	* pt.c (tsubst_contract_conditions): Use set_unchecked_result instead
-	of DECL_UNCHECKED_RESULT.
-	(instantiate_template_1): Ditto.
-	(regenerate_decl_from_template): Ditto.
-	* semantics.c (decl_unchecked_results): New hash_map to track
-	unchecked results.
-	(build_unchecked_result): Use set_unchecked_result.
-	(get_unchecked_result): New.
-	(set_unchecked_result): Ditto.
 
 2020-03-31  Jason Merrill  <jason@redhat.com>
 
@@ -5437,52 +5286,6 @@
 	PR c++/94272
 	* cp-gimplify.c (cp_genericize_r): Handle STATEMENT_LIST.
 
-2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
-
-	Store contracts in DECL_ATTRIBUTES.
-	* cp-tree.h (lang_decl_fn): Remove separate contracts member.
-	(find_contract): New.
-	(DECL_HAS_CONTRACTS_P): New.
-	(DECL_CONTRACTS): Use the above.
-	(CONTRACT_CHAIN): New. Find next contract attribute.
-	(remove_contract_attributes): New.
-	(set_decl_contracts): New.
-	* decl.c: Use above methods for interacting with contracts.
-	* pt.c: Ditto.
-	* semantics.c: Ditto.
-	(remove_contract_attributes): New. Deletes contract attributes from
-	regular attributes.
-
-	Stop using DECL_DEFERRED_CONTRACTS in favor of separate hash map for
-	guarded overrides.
-	* cp-tree.h (DECL_CONTRACTS): Look directly at contracts since
-	deferred contracts have been moved elsewhere.
-	(DECL_DEFERRED_CONTRACTS): Remove.
-	(defer_guarded_contract_match): New.
-	* decl.c: Use DECL_CONTRACTS instead of DECL_DEFERRED_CONTRACTS.
-	(merge_contracts): Save original decl and location in contracts.
-	(pending_guarded_overrides): New.
-	(defer_guarded_contract_match): New.
-	(match_deferred_contracts): Use the above instead of
-	DECL_DEFERRED_CONTRACTS.
-	* parser.c (cp_separate_contracts): Fix whitespace.
-	(cp_parser_late_parsing_for_contracts): Only worry about parsing
-	non-deferred contracts.
-	* pt.c (instantiate_class_template_1): We no longer need extra logic
-	to handle deferred contracts here.
-	(tsubst_contract_conditions_r): Handle DECL_CONTRACTS directly.
-	(instantiate_template_1): Ditto.
-	* search.c (check_final_overrider): Ditto.
-	Use defer_guarded_contract_match if needed.
-	* semantics.c (build_unchecked_function_declaration): Handle
-	DECL_CONTRACTS directly.
-
-	* cp-tree.h (DECL_SEEN_WITHOUT_CONTRACTS_P): New.
-	* decl.c (match_contracts): Use DECL_SEEN_WITHOUT_CONTRACTS_P instead
-	of looking for sentinel value.
-	(merge_contracts): Ditto.
-	(duplicate_decls): Save DECL_SEEN_WITHOUT_CONTRACTS_P.
-
 2020-03-25  Patrick Palka  <ppalka@redhat.com>
 
 	PR c++/94265
@@ -5599,20 +5402,6 @@
 	PR c++/91759
 	* decl.c (grokfndecl): Restore old diagnostics about deduction
 	guide declared in different scope if in_namespace is NULL_TREE.
-
-2020-03-17  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* cp-tree.h (CONTRACT_LITERAL_MODE_P): Examine shape of contract
-	configuration instead of TREE_CONSTANT flag.
-	* parser.c (cp_parser_contract_role): Just parse a role; don't build
-	the contract_mode along with it.
-	(cp_parser_contract_mode_opt): Ditto.
-	(cp_parser_contract_attribute_spec): Let start_contract build the
-	contract_mode.
-	* semantics.c (contract_config_to_mode): New.
-	(compute_contract_concrete_semantic): New; extracted from
-	start_contract.
-	(start_contract): Use the above.
 
 2020-03-17  Jakub Jelinek  <jakub@redhat.com>
 

@@ -24921,11 +24921,6 @@
 	an identity constructor, use a VIEW_CONVERT_EXPR to handle mixtures
 	of similarly-structured but distinct vector types.
 
-2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* input.c (get_source): Moved from cp/parser.c.
-	* input.h (get_source): Same.
-
 2020-04-21  Martin Sebor  <msebor@redhat.com>
 
 	PR middle-end/94647
@@ -25407,10 +25402,6 @@
 	or non-mode precision type, add candidate in unsigned type with the
 	same precision.
 
-2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* tree-inline.c (remap_unchecked_body): Leave DECL_RESULT alone.
-
 2020-04-08  Clement Chigot  <clement.chigot@atos.net>
 
 	* config/rs6000/aix61.h (LIB_SPEC): Add -lc128 with -mlong-double-128.
@@ -25629,11 +25620,6 @@
 	PR target/94500
 	* config/i386/i386-expand.c (emit_reduc_half): For V{64QI,32HI}mode
 	handle i < 64 using avx512bw_lshrv4ti3.  Formatting fixes.
-
-2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* Makefile.in (C_COMMON_OBJS): Rename contract to cxx-contracts.
-	* gimplify.c (gimplify_expr): Remove old debugging code.
 
 2020-04-06  Jakub Jelinek  <jakub@redhat.com>
 

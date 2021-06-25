@@ -575,7 +575,7 @@ invalidate_contract (tree t)
 
 /* Returns an invented parameter declration of the form 'TYPE ID' for the
    purpose of parsing the postcondition.
-   
+
    We use a PARM_DECL instead of a VAR_DECL so that tsubst forces a lookup
    in local specializations when we instantiate these things later.  */
 
@@ -635,7 +635,7 @@ rebuild_postconditions (tree decl, tree type)
   for (; attributes ; attributes = TREE_CHAIN (attributes))
     {
       if (!cxx_contract_attribute_p (attributes))
-        continue;
+	continue;
       tree contract = TREE_VALUE (TREE_VALUE (attributes));
       if (TREE_CODE (contract) != POSTCONDITION_STMT)
 	continue;
@@ -652,7 +652,7 @@ rebuild_postconditions (tree decl, tree type)
 	continue;
 
       /* Always update the context of the result variable so that it can
-         be remapped by remap_contracts.  */
+	 be remapped by remap_contracts.  */
       DECL_CONTEXT (oldvar) = decl;
 
       /* If the return type is undeduced, defer until later.  */
@@ -676,7 +676,7 @@ rebuild_postconditions (tree decl, tree type)
       /* Make parameters and result available for substitution.  */
       local_specialization_stack stack (lss_copy);
       for (tree t = DECL_ARGUMENTS (decl); t != NULL_TREE; t = TREE_CHAIN (t))
-        register_local_identity (t);
+	register_local_identity (t);
       register_local_specialization (newvar, oldvar);
 
       ++processing_contract_condition;
@@ -764,7 +764,7 @@ finish_contract_attribute (tree identifier, tree contract)
 {
   if (contract == error_mark_node)
     return error_mark_node;
-    
+
   tree attribute = build_tree_list (build_tree_list (NULL_TREE, identifier),
 				    build_tree_list (NULL_TREE, contract));
 
@@ -846,7 +846,7 @@ static tree find_first_non_contract (tree attributes)
   if (p == head)
     {
       while (cxx_contract_attribute_p (p))
-        p = TREE_CHAIN (p);
+	p = TREE_CHAIN (p);
       head = p;
     }
 
@@ -878,7 +878,7 @@ tree splice_out_contracts (tree attributes)
       else
 	p = TREE_CHAIN (p);
     }
-  
+
   return head;
 }
 
@@ -1192,7 +1192,7 @@ match_contract_conditions (location_t oldloc, tree old_attrs,
 
    This is used to compare late-parsed contracts on overrides with their
    base class functions.
-   
+
    TODO: It seems like this could be replaced by a simple list that maps from
    overrides to their base functions. It's not clear that we really need
    a map to a function + a list of contracts.   */
@@ -1324,14 +1324,14 @@ struct node_info
   {
     if (!t)
       return build_string ("31", "null");
-   
+
     void* ptr = t;
     if (t == error_mark_node)
       return build_string ("31", name, ptr);
-    
+
     if (DECL_P (t))
       return build_string ("33", name, ptr);
-    
+
     if (TYPE_P (t))
       return build_string ("34", name, ptr);
 
@@ -1429,11 +1429,11 @@ void debug_function (tree t)
   if (tree orig = DECL_ORIGINAL_FN (t))
     {
       if (t == DECL_PRE_FN (orig))
-        verbatim ("%sprecondition function for %q#D", tab(), orig);
+	verbatim ("%sprecondition function for %q#D", tab(), orig);
       else if (t == DECL_POST_FN (orig))
-        verbatim ("%spostcondition function for %q#D", tab(), orig);
+	verbatim ("%spostcondition function for %q#D", tab(), orig);
       else
-        gcc_unreachable ();
+	gcc_unreachable ();
     }
 
   debug_type (TREE_TYPE (t));
@@ -1571,7 +1571,7 @@ void debug_contract (tree t)
 
   tree condition = CONTRACT_CONDITION (t);
   tree comment = CONTRACT_COMMENT (t);
-  
+
   node_info info (t);
   verbatim ("%s%s %qE", tab (), info.str (), condition);
   indentation indent;

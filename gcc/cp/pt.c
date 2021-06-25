@@ -45,7 +45,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "gcc-rich-location.h"
 #include "selftest.h"
 #include "target.h"
-#include "print-tree.h"
 
 /* The type of functions taking a tree, and some additional data, and
    returning an int.  */
@@ -11517,7 +11516,7 @@ tsubst_contract (tree decl, tree t, tree args, tsubst_flags_t complain,
       /* Make sure the postcondition is valid.  */
       location_t loc = DECL_SOURCE_LOCATION (oldvar);
       if (!auto_p)
-        if (!check_postcondition_result (decl, type, loc))
+	if (!check_postcondition_result (decl, type, loc))
 	  return invalidate_contract (r);
 
       /* Make the variable available for lookup.  */
@@ -11595,7 +11594,7 @@ tsubst_contract_attributes (tree decl, tree args, tsubst_flags_t complain, tree 
   for (tree attr = list; attr; attr = CONTRACT_CHAIN (attr))
     {
       if (cxx_contract_attribute_p (attr))
-        tsubst_contract_attribute (decl, attr, args, complain, in_decl);
+	tsubst_contract_attribute (decl, attr, args, complain, in_decl);
     }
   DECL_ATTRIBUTES (decl) = list;
 }
@@ -18390,7 +18389,7 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl,
     case PRECONDITION_STMT:
     case POSTCONDITION_STMT:
       gcc_unreachable ();
-    
+
     case ASSERTION_STMT:
       {
 	r = tsubst_contract (NULL_TREE, t, args, complain, in_decl);

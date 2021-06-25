@@ -1516,7 +1516,7 @@ duplicate_contracts (tree newdecl, tree olddecl)
   location_t new_loc = DECL_SOURCE_LOCATION (newdecl);
 
   /* If both declarations specify contracts, ensure they match.
-  
+
      TODO: This handles a potential error a little oddly. Consider:
 
 	struct B {
@@ -1531,14 +1531,14 @@ duplicate_contracts (tree newdecl, tree olddecl)
     It's okay because we're explicitly restating the inherited contract.
     Changing the precondition on the definition D::f causes match_contracts
     to complain about the mismatch.
-    
+
     This would previously have been diagnosed as adding contracts to an
     override, but this seems like it should be well-formed.  */
   if (old_contracts && new_contracts)
     {
       if (!match_contract_conditions (old_loc, old_contracts,
 				      new_loc, new_contracts,
-			     	      cmc_declaration))
+				      cmc_declaration))
 	return;
     }
 
@@ -1547,7 +1547,7 @@ duplicate_contracts (tree newdecl, tree olddecl)
   if (old_contracts)
     {
       /* Contracts have been previously specified by are no omitted. The
-         new declaration inherits the existing contracts. */
+	 new declaration inherits the existing contracts. */
       if (!new_contracts)
 	copy_contract_attributes (newdecl, olddecl);
 
@@ -1559,7 +1559,7 @@ duplicate_contracts (tree newdecl, tree olddecl)
     {
       /* We are adding contracts to a declaration.  */
       if (new_contracts)
-        {
+	{
 	  /* We can't add to a previously defined function.  */
 	  if (DECL_INITIAL (olddecl))
 	    {
@@ -1568,7 +1568,7 @@ duplicate_contracts (tree newdecl, tree olddecl)
 	      inform (DECL_SOURCE_LOCATION (olddecl), "original definition here");
 	      return;
 	    }
-	
+
 	  /* We can't add to an unguarded virtual function declaration.  */
 	  if (DECL_VIRTUAL_P (olddecl) && new_contracts)
 	    {
@@ -2357,7 +2357,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
       if (DECL_CONTRACTS (old_result) && new_contracts)
         {
 	  match_contract_conditions (DECL_SOURCE_LOCATION (old_result),
-	  			     old_contracts,
+				     old_contracts,
 				     DECL_SOURCE_LOCATION (new_result),
 				     new_contracts,
 				     cmc_declaration);
@@ -2371,7 +2371,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 
       DECL_ATTRIBUTES (old_result)
 	= (*targetm.merge_decl_attributes) (old_result, new_result);
-      
+
       if (DECL_FUNCTION_TEMPLATE_P (newdecl))
 	{
 	  if (DECL_SOURCE_LOCATION (newdecl)
@@ -2899,7 +2899,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	     info and other bits, but if not, we won't.  */
 	  DECL_ARGUMENTS (olddecl) = DECL_ARGUMENTS (newdecl);
 	  DECL_RESULT (olddecl) = DECL_RESULT (newdecl);
-	  
+
 	  /* In some cases, duplicate_contracts will remove contracts from
 	     OLDDECL, to avoid duplications. Sometimes, the contracts end up
 	     shared. If we removed them, re-add them.  */
@@ -2950,15 +2950,15 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	  if (DECL_ARGUMENTS (olddecl))
 	    {
 	      /* If we removed contracts from previous definition, re-attach
-	         them. Otherwise, rewrite the contracts so they match the
+		 them. Otherwise, rewrite the contracts so they match the
 		 parameters of the new declaration.  */
 	      if (DECL_INITIAL (olddecl)
-	          && DECL_CONTRACTS (newdecl)
+		  && DECL_CONTRACTS (newdecl)
 		  && !DECL_CONTRACTS (olddecl))
 		    copy_contract_attributes (olddecl, newdecl);
 	      else {
 	      /* Temporarily undo the re-contexting of parameters so we
-	         can actually remap parameters.  The inliner won't replace
+		 can actually remap parameters.  The inliner won't replace
 		 parameters if we don't do this.  */
 	      tree args = DECL_ARGUMENTS (newdecl);
 	      for (tree p = args; p; p = DECL_CHAIN (p))
@@ -12656,10 +12656,8 @@ grokdeclarator (const cp_declarator *declarator,
 	    type = error_mark_node;
 
 	  if (declarator->std_attributes)
-	    /* [dcl.array]/1:
-
-	       The optional attribute-specifier-seq appertains to the
-	       array.  */
+	     /* [dcl.array]/1: The optional attribute-specifier-seq appertains
+	       to the array.  */
 	    returned_attrs = chainon (returned_attrs,
 				      declarator->std_attributes);
 	  break;
@@ -13038,11 +13036,9 @@ grokdeclarator (const cp_declarator *declarator,
 
 	    if (attrs)
 	      {
-	        /* [dcl.fct]/2:
-
-		   The optional attribute-specifier-seq appertains to
-		   the function type.  */
-	        cplus_decl_attributes (&type, attrs, 0);
+		/* [dcl.fct]/2: The optional attribute-specifier-seq appertains
+		   to the function type.  */
+		cplus_decl_attributes (&type, attrs, 0);
 	      }
 
 	    if (raises)
@@ -14076,7 +14072,7 @@ grokdeclarator (const cp_declarator *declarator,
 		    if (decl == error_mark_node)
 		      return error_mark_node;
 		  }
-		
+
 		auto fao = make_temp_override(friend_attributes, *attrlist);
 		return do_friend (ctype, unqualified_id, decl,
 				  flags, funcdef_flag);
