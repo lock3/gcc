@@ -11825,12 +11825,6 @@ apply_late_template_attributes (tree *decl_p, tree attributes, int attr_flags,
       /* DECL_ATTRIBUTES comes from copy_node in tsubst_decl, and is identical
          to our attributes parameter.  */
       gcc_assert (*p == attributes);
-
-      /* operator bindings may end up before depedent attributes, resplice so
-	 that the dependent are always at the front.  */
-      tree late = splice_template_attributes (&attributes, *decl_p);
-      DECL_ATTRIBUTES (*decl_p) = chainon (late, attributes);
-      attributes = DECL_ATTRIBUTES (*decl_p);
     }
   else
     {
