@@ -24,6 +24,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm.h"
 #include "hard-reg-set.h"
 #include "function.h"
+#include "contracts.h"
 
 /* In order for the format checking to accept the C++ front end
    diagnostic framework extensions, you must include this file before
@@ -221,6 +222,9 @@ enum cp_tree_index
     CPTI_DSO_HANDLE,
     CPTI_DCAST,
 
+    CPTI_ON_CONTRACT_VIOLATION,
+    CPTI_ON_CONTRACT_VIOLATION_NEVER,
+
     CPTI_SOURCE_LOCATION_IMPL,
 
     CPTI_FALLBACK_DFLOAT32_TYPE,
@@ -359,6 +363,9 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
 #define throw_fn			cp_global_trees[CPTI_THROW_FN]
 #define rethrow_fn			cp_global_trees[CPTI_RETHROW_FN]
 
+#define on_contract_violation_fn        cp_global_trees[CPTI_ON_CONTRACT_VIOLATION]
+#define on_contract_violation_never_fn  cp_global_trees[CPTI_ON_CONTRACT_VIOLATION_NEVER]
+
 /* The type of the function-pointer argument to "__cxa_atexit" (or
    "std::atexit", if "__cxa_atexit" is not being used).  */
 #define atexit_fn_ptr_type_node         cp_global_trees[CPTI_ATEXIT_FN_PTR_TYPE]
@@ -448,6 +455,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       ALIGNOF_EXPR_STD_P (in ALIGNOF_EXPR)
       OVL_DEDUP_P (in OVERLOAD)
       ATOMIC_CONSTR_MAP_INSTANTIATED_P (in ATOMIC_CONSTR)
+      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    1: IDENTIFIER_KIND_BIT_1 (in IDENTIFIER_NODE)
       TI_PENDING_TEMPLATE_FLAG.
       TEMPLATE_PARMS_FOR_INLINE.
@@ -483,6 +491,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       LAMBDA_EXPR_CAPTURE_OPTIMIZED (in LAMBDA_EXPR)
       IMPLICIT_CONV_EXPR_BRACED_INIT (in IMPLICIT_CONV_EXPR)
       PACK_EXPANSION_AUTO_P (in *_PACK_EXPANSION)
+      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    3: IMPLICIT_RVALUE_P (in NON_LVALUE_EXPR or STATIC_CAST_EXPR)
       ICS_BAD_FLAG (in _CONV)
       FN_TRY_BLOCK_P (in TRY_BLOCK)
@@ -492,6 +501,7 @@ extern GTY(()) tree cp_global_trees[CPTI_MAX];
       CONSTRUCTOR_C99_COMPOUND_LITERAL (in CONSTRUCTOR)
       OVL_NESTED_P (in OVERLOAD)
       DECL_MODULE_EXPORT_P (in _DECL)
+      contract_semantic (in ASSERTION_, PRECONDITION_, POSTCONDITION_STMT)
    4: IDENTIFIER_MARKED (IDENTIFIER_NODEs)
       TREE_HAS_CONSTRUCTOR (in INDIRECT_REF, SAVE_EXPR, CONSTRUCTOR,
 	  CALL_EXPR, or FIELD_DECL).
@@ -1336,6 +1346,90 @@ struct GTY (()) tree_static_assert {
   location_t location;
 };
 
+/* True if NODE is any kind of contract.  */
+#define CONTRACT_P(NODE)			\
+  (TREE_CODE (NODE) == ASSERTION_STMT		\
+   || TREE_CODE (NODE) == PRECONDITION_STMT	\
+   || TREE_CODE (NODE) == POSTCONDITION_STMT)
+
+/* True if NODE is a contract condition.  */
+#define CONTRACT_CONDITION_P(NODE)		\
+  (TREE_CODE (NODE) == PRECONDITION_STMT	\
+   || TREE_CODE (NODE) == POSTCONDITION_STMT)
+
+/* True if NODE is a precondition.  */
+#define PRECONDITION_P(NODE)           \
+  (TREE_CODE (NODE) == PRECONDITION_STMT)
+
+/* True if NODE is a postcondition.  */
+#define POSTCONDITION_P(NODE)          \
+  (TREE_CODE (NODE) == POSTCONDITION_STMT)
+
+#define CONTRACT_CHECK(NODE) \
+  (TREE_CHECK3 (NODE, ASSERTION_STMT, PRECONDITION_STMT, POSTCONDITION_STMT))
+
+/* Returns the computed semantic of the node.  */
+
+inline contract_semantic
+get_contract_semantic (const_tree t)
+{
+  return (contract_semantic) (TREE_LANG_FLAG_3 (CONTRACT_CHECK (t))
+      | (TREE_LANG_FLAG_2 (t) << 1)
+      | (TREE_LANG_FLAG_0 ((t)) << 2));
+}
+
+/* Sets the computed semantic of the node.  */
+
+inline void
+set_contract_semantic (tree t, contract_semantic semantic)
+{
+  TREE_LANG_FLAG_3 (CONTRACT_CHECK (t)) = semantic & 0x01;
+  TREE_LANG_FLAG_2 (t) = (semantic & 0x02) >> 1;
+  TREE_LANG_FLAG_0 (t) = (semantic & 0x04) >> 2;
+}
+
+/* True if the contract semantic was specified literally. If true, the
+   contract mode is an identifier containing the semantic. Otherwise,
+   it is a TREE_LIST whose TREE_VALUE is the level and whose TREE_PURPOSE
+   is the role.  */
+#define CONTRACT_LITERAL_MODE_P(NODE) \
+  (CONTRACT_MODE (NODE) != NULL_TREE \
+   && TREE_CODE (CONTRACT_MODE (NODE)) == IDENTIFIER_NODE)
+
+/* The identifier denoting the literal semantic of the contract.  */
+#define CONTRACT_LITERAL_SEMANTIC(NODE) \
+  (TREE_OPERAND (NODE, 0))
+
+/* The written "mode" of the contract. Either an IDENTIFIER with the
+   literal semantic or a TREE_LIST containing the level and role.  */
+#define CONTRACT_MODE(NODE) \
+  (TREE_OPERAND (CONTRACT_CHECK (NODE), 0))
+
+/* The identifier denoting the build level of the contract. */
+#define CONTRACT_LEVEL(NODE)		\
+  (TREE_VALUE (CONTRACT_MODE (NODE)))
+
+/* The identifier denoting the role of the contract */
+#define CONTRACT_ROLE(NODE)		\
+  (TREE_PURPOSE (CONTRACT_MODE (NODE)))
+
+/* The parsed condition of the contract.  */
+#define CONTRACT_CONDITION(NODE) \
+  (TREE_OPERAND (CONTRACT_CHECK (NODE), 1))
+
+/* True iff the condition of the contract NODE is not yet parsed.  */
+#define CONTRACT_CONDITION_DEFERRED_P(NODE) \
+  (TREE_CODE (CONTRACT_CONDITION (NODE)) == DEFERRED_PARSE)
+
+/* The raw comment of the contract.  */
+#define CONTRACT_COMMENT(NODE) \
+  (TREE_OPERAND (CONTRACT_CHECK (NODE), 2))
+
+/* The VAR_DECL of a postcondition result. For deferred contracts, this
+   is an IDENTIFIER.  */
+#define POSTCONDITION_IDENTIFIER(NODE) \
+  (TREE_OPERAND (POSTCONDITION_STMT_CHECK (NODE), 3))
+
 struct GTY (()) tree_argument_pack_select {
   struct tree_common common;
   tree argument_pack;
@@ -1814,8 +1908,10 @@ struct GTY(()) saved_scope {
   BOOL_BITFIELD x_processing_explicit_instantiation : 1;
   BOOL_BITFIELD need_pop_function_context : 1;
 
-  /* Nonzero if we are parsing the discarded statement of a constexpr
-     if-statement.  */
+  int x_processing_contract_condition;
+
+/* Nonzero if we are parsing the discarded statement of a constexpr
+   if-statement.  */
   BOOL_BITFIELD discarded_stmt : 1;
   /* Nonzero if we are parsing or instantiating the compound-statement
      of consteval if statement.  */
@@ -1881,6 +1977,12 @@ extern GTY(()) struct saved_scope *scope_chain;
 #define processing_template_decl scope_chain->x_processing_template_decl
 #define processing_specialization scope_chain->x_processing_specialization
 #define processing_explicit_instantiation scope_chain->x_processing_explicit_instantiation
+
+/* Nonzero if we are parsing the conditional expression of a contract
+   condition. These expressions appear outside the paramter list (like a
+   trailing return type), but are potentially evaluated.  */
+
+#define processing_contract_condition scope_chain->x_processing_contract_condition
 
 #define in_discarded_stmt scope_chain->discarded_stmt
 #define in_consteval_if_p scope_chain->consteval_if_p
@@ -2857,8 +2959,9 @@ struct GTY(()) lang_decl_fn {
   unsigned immediate_fn_p : 1;
   unsigned maybe_deleted : 1;
   unsigned coroutine_p : 1;
+  unsigned seen_without_contracts_p : 1;
 
-  unsigned spare : 10;
+  unsigned spare : 9;
 
   /* 32-bits padding on 64-bit host.  */
 
@@ -2892,7 +2995,6 @@ struct GTY(()) lang_decl_fn {
     struct cp_token_cache * GTY ((tag ("1"))) pending_inline_info;
     tree GTY ((tag ("0"))) saved_auto_return_type;
   } GTY ((desc ("%1.pending_inline_p"))) u;
-
 };
 
 /* DECL_LANG_SPECIFIC for namespaces.  */
@@ -3084,6 +3186,14 @@ struct GTY(()) lang_decl {
 #define DECL_MAYBE_IN_CHARGE_CDTOR_P(NODE)              \
   (DECL_MAYBE_IN_CHARGE_CONSTRUCTOR_P (NODE)            \
    || DECL_MAYBE_IN_CHARGE_DESTRUCTOR_P (NODE))
+
+/* Nonzero if NODE (a FUNCTION_DECL) is a ctor or dtor that needs the cdtor
+   label and associated goto built.  */
+#define DECL_CDTOR_NEEDS_LABLED_EXIT_P(NODE)            \
+  (DECL_DESTRUCTOR_P (NODE)                             \
+   || (DECL_CONSTRUCTOR_P (NODE)       \
+       && (targetm.cxx.cdtor_returns_this ()            \
+	   || contract_any_active_p (DECL_CONTRACTS (NODE)))))
 
 /* Nonzero if NODE (a _DECL) is a cloned constructor or
    destructor.  */
@@ -3572,6 +3682,64 @@ struct GTY(()) lang_decl {
    function.  */
 #define DECL_PENDING_INLINE_INFO(NODE) \
   (LANG_DECL_FN_CHECK (NODE)->u.pending_inline_info)
+
+/* Return the first contract in ATTRS, or NULL_TREE if there are none.  */
+
+inline tree
+find_contract (tree attrs)
+{
+  while (attrs && !cxx_contract_attribute_p (attrs))
+    attrs = TREE_CHAIN (attrs);
+  return attrs;
+}
+
+/* True iff the FUNCTION_DECL NODE currently has any contracts.  */
+#define DECL_HAS_CONTRACTS_P(NODE) \
+  (DECL_CONTRACTS (NODE) != NULL_TREE)
+
+/* For a FUNCTION_DECL of a guarded function, this points to a list of the pre
+   and post contracts of the first decl of NODE in original order. */
+#define DECL_CONTRACTS(NODE) \
+  (find_contract (DECL_ATTRIBUTES (NODE)))
+
+/* The next contract (if any) after this one in an attribute list.  */
+#define CONTRACT_CHAIN(NODE) \
+  (find_contract (TREE_CHAIN (NODE)))
+
+/* The wrapper of the original source location of a list of contracts.  */
+#define CONTRACT_SOURCE_LOCATION_WRAPPER(NODE) \
+  (TREE_PURPOSE (TREE_VALUE (NODE)))
+
+/* The original source location of a list of contracts.  */
+#define CONTRACT_SOURCE_LOCATION(NODE) \
+  (EXPR_LOCATION (CONTRACT_SOURCE_LOCATION_WRAPPER (NODE)))
+
+/* The actual code _STMT for a contract attribute.  */
+#define CONTRACT_STATEMENT(NODE) \
+  (TREE_VALUE (TREE_VALUE (NODE)))
+
+/* For a FUNCTION_DECL of a guarded function, this holds the function decl
+   where pre contract checks are emitted.  */
+#define DECL_PRE_FN(NODE) \
+  (get_precondition_function ((NODE)))
+
+/* For a FUNCTION_DECL of a guarded function, this holds the function decl
+   where post contract checks are emitted.  */
+#define DECL_POST_FN(NODE) \
+  (get_postcondition_function ((NODE)))
+
+/* For a FUNCTION_DECL of a pre/post function, this points back to the
+   original guarded function.  */
+#define DECL_ORIGINAL_FN(NODE) \
+  (get_contracts_original_fn (NODE))
+
+/* True iff the FUNCTION_DECL is the pre function for a guarded function.  */
+#define DECL_IS_PRE_FN_P(NODE) \
+  (DECL_ORIGINAL_FN (NODE) && DECL_PRE_FN (DECL_ORIGINAL_FN (NODE)) == NODE)
+
+/* True iff the FUNCTION_DECL is the post function for a guarded function.  */
+#define DECL_IS_POST_FN_P(NODE) \
+  (DECL_ORIGINAL_FN (NODE) && DECL_POST_FN (DECL_ORIGINAL_FN (NODE)) == NODE)
 
 /* Nonzero for TYPE_DECL means that it was written 'using name = type'.  */
 #define TYPE_DECL_ALIAS_P(NODE) \
@@ -5487,6 +5655,11 @@ extern int comparing_specializations;
    FIXME we should always do this except during deduction/ordering.  */
 extern int comparing_dependent_aliases;
 
+/* Nonzero if we want to consider different member expressions to compare
+   equal if they designate the same entity. This is set when comparing
+   contract conditions of overrides.  */
+extern bool comparing_override_contracts;
+
 /* In parser.c.  */
 
 /* Nonzero if we are parsing an unevaluated operand: an operand to
@@ -6665,6 +6838,7 @@ extern tree push_library_fn			(tree, tree, tree, int);
 extern tree push_throw_library_fn		(tree, tree);
 extern void warn_misplaced_attr_for_class_type  (location_t location,
 						 tree class_type);
+extern bool diagnose_misapplied_contracts	(tree);
 extern tree check_tag_decl			(cp_decl_specifier_seq *, bool);
 extern tree shadow_tag				(cp_decl_specifier_seq *);
 extern tree groktypename			(cp_decl_specifier_seq *, const cp_declarator *, bool);
@@ -6786,6 +6960,7 @@ extern void import_export_decl			(tree);
 extern tree build_cleanup			(tree);
 extern tree build_offset_ref_call_from_tree	(tree, vec<tree, va_gc> **,
 						 tsubst_flags_t);
+extern bool cp_tree_defined_p			(tree);
 extern bool decl_defined_p			(tree);
 extern bool decl_constant_var_p			(tree);
 extern bool decl_maybe_constant_var_p		(tree);
@@ -7094,6 +7269,8 @@ extern void inject_this_parameter (tree, cp_cv_quals);
 extern location_t defparse_location (tree);
 extern void maybe_show_extern_c_location (void);
 extern bool literal_integer_zerop (const_tree);
+extern bool function_declarator_p (const cp_declarator *);
+extern const cp_declarator *find_innermost_function_declarator (const cp_declarator *);
 
 /* in pt.c */
 extern tree canonical_type_parameter		(tree);
@@ -7263,12 +7440,14 @@ extern tree get_template_argument_pack_elems	(const_tree);
 extern tree get_function_template_decl		(const_tree);
 extern tree resolve_nondeduced_context		(tree, tsubst_flags_t);
 extern tree resolve_nondeduced_context_or_error	(tree, tsubst_flags_t);
-extern hashval_t iterative_hash_template_arg (tree arg, hashval_t val);
+extern hashval_t iterative_hash_template_arg	(tree arg, hashval_t val);
 extern tree coerce_template_parms               (tree, tree, tree);
 extern tree coerce_template_parms               (tree, tree, tree, tsubst_flags_t);
 extern tree canonicalize_type_argument		(tree, tsubst_flags_t);
+extern void register_local_identity		(tree);
 extern void register_local_specialization       (tree, tree);
 extern tree retrieve_local_specialization       (tree);
+extern void register_parameter_specializations	(tree, tree);
 extern tree extract_fnparm_pack                 (tree, tree *);
 extern tree template_parm_to_arg                (tree);
 extern tree dguide_name				(tree);
@@ -7278,6 +7457,7 @@ extern bool copy_guide_p			(const_tree);
 extern bool template_guide_p			(const_tree);
 extern bool builtin_guide_p			(const_tree);
 extern void store_explicit_specifier		(tree, tree);
+extern void unshare_template			(tree);
 extern void walk_specializations		(bool,
 						 void (*)(bool, spec_entry *,
 							  void *),
@@ -7323,7 +7503,7 @@ extern tree lookup_fnfields			(tree, tree, int, tsubst_flags_t);
 extern tree lookup_member			(tree, tree, int, bool,
 						 tsubst_flags_t,
 						 access_failure_info *afi = NULL);
-extern tree lookup_member_fuzzy		(tree, tree, bool);
+extern tree lookup_member_fuzzy			(tree, tree, bool);
 extern tree locate_field_accessor		(tree, tree, bool);
 extern int look_for_overrides			(tree, tree);
 extern void get_pure_virtuals			(tree);
@@ -7368,6 +7548,69 @@ extern bool perform_deferred_access_checks	(tsubst_flags_t);
 extern bool perform_or_defer_access_check	(tree, tree, tree,
 						 tsubst_flags_t,
 						 access_failure_info *afi = NULL);
+
+/* contracts.cc */
+enum contract_matching_context
+{
+  cmc_declaration,
+  cmc_override
+};
+
+extern tree invalidate_contract			(tree);
+extern tree make_postcondition_variable		(cp_expr);
+extern tree make_postcondition_variable		(cp_expr, tree);
+extern bool check_postcondition_result		(tree, tree, location_t);
+extern void rebuild_postconditions		(tree, tree);
+extern tree grok_contract			(tree, tree, tree, cp_expr, location_t);
+extern tree finish_contract_attribute		(tree, tree);
+extern void update_late_contract		(tree, tree, tree);
+extern tree finish_contract_condition		(cp_expr);
+extern void remove_contract_attributes		(tree);
+extern void copy_contract_attributes		(tree, tree);
+extern tree splice_out_contracts		(tree);
+extern bool match_contract_conditions		(location_t, tree, location_t, tree, contract_matching_context);
+extern void defer_guarded_contract_match	(tree, tree, tree);
+extern void match_deferred_contracts		(tree);
+extern void remap_contract			(tree, tree, tree, bool);
+extern void remap_contracts			(tree, tree, tree, bool);
+extern void remap_dummy_this			(tree, tree *);
+extern bool contract_active_p			(tree);
+extern bool contract_any_active_p		(tree);
+extern bool contract_any_deferred_p		(tree);
+extern void build_contract_function_decls	(tree);
+extern void set_contract_functions		(tree, tree, tree);
+extern void set_contracts_original_fn		(tree, tree);
+extern tree start_postcondition_statement	();
+extern void finish_postcondition_statement	(tree);
+extern tree build_contract_check		(tree);
+extern vec<tree, va_gc> *build_arg_list		(tree);
+extern tree get_postcondition_result_parameter	(tree);
+extern tree get_precondition_function		(tree);
+extern tree get_postcondition_function		(tree);
+extern tree get_contracts_original_fn		(tree);
+
+extern void emit_assertion			(tree);
+extern void emit_preconditions			(tree);
+extern void emit_postconditions			(tree);
+
+/* FIXME: Remove these */
+void debug_type (tree);
+void debug_expression (tree);
+void debug_declaration (tree);
+void debug_function (tree);
+void debug_parameters (tree);
+void debug_parameter (tree);
+void debug_contracts (tree);
+void debug_contract (tree);
+
+void debug_template_arguments (tree);
+
+inline void
+set_decl_contracts (tree decl, tree contract_attrs)
+{
+  remove_contract_attributes (decl);
+  DECL_ATTRIBUTES (decl) = chainon (DECL_ATTRIBUTES (decl), contract_attrs);
+}
 
 /* RAII sentinel to ensures that deferred access checks are popped before
   a function returns.  */

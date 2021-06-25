@@ -1578,10 +1578,41 @@
 	* semantics.c (finish_omp_clauses): Treat C++ references the same in
 	OpenACC as OpenMP.
 
+2018-08-28  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix assert contracts in templates and constexpr functions.  Fix
+	double evaluation of contracts when the continuation mode is on.
+	Better error reporting when the contract condition is not
+	convertible to bool.
+	* constexpr.c (potential_constant_expression_1): Handle
+	ASSERT_CONTRACT nodes by being the same
+	potential_constant_expression_1 value as the contract condition.
+	* pt.c (tsubst_expr): Do not recursively tsubst_expr an assert
+	contract check if the condition has encountered an error.
+	* semantics.c (build_contract_handler_fn): Do not add the
+	generated call statement to the current context.
+	(generate_assert_check): Do not finish and add the generated if
+	inside the contract check to the current context; only finish
+	it.
+	(build_contract_statement): Do not immediately coerce the
+	contract condition to boolean if the condition type dependent.
+	Do not generate an assert check if the contract condition is
+	error_mark_node.
+
 2018-08-28  Martin Liska  <mliska@suse.cz>
 
 	* constexpr.c (cxx_eval_call_expression): Add quotes
 	to -fconstexpr-depth=.
+
+2018-09-10  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add -fcontract-assumption-mode= flag used to promote unchecked
+	contracts into compile time assumptions.
+	* contract.h (cpp_get_contract_assumption_mode): New, get
+	current global contract assumption mode.
+	* semantics.c (generate_assert_check): Optionally promote
+	contract checks into compile time assumptions by generating
+	if (!cond) __builtin_unreachable() instead of a traditonal check.
 
 2018-09-10  Marek Polacek  <polacek@redhat.com>
 
@@ -1667,6 +1698,16 @@
 	* typeck2.c (store_init_value): ... to here.
 	(digest_init_r): Remove handing of signed/unsigned char strings.
 
+2018-08-31  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix function_name in template assert contracts by delaying check
+	generation until template substitution time when required
+	* cp-tree.h (generate_assert_check): Now visible.
+	* pt.c (tsubst_expr): generate assert contract check when
+	substituting ASSERT_CONTRACT.
+	* semantics.c (build_contract_statement): do not generate
+	underlying assert check tree while processing_template_decl.
+
 2018-08-31  Nathan Sidwell  <nathan@acm.org>
 
 	PR c++/87155
@@ -1715,6 +1756,26 @@
 	PR c++/86546
 	* decl.c (finish_case_label): If the type is erroneous early
 	return error_mark_node.
+
+2018-08-27  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Add custom contract level support through
+	-fcontract-build-level= and -fcontract-level=.
+	* contract.h: New. Defines a contract level name/value pair,
+	provides public access to read and add contract build levels.
+	* cp-tree.h: (tree_assert_contract): Update to use new
+	cpp_contract_level struct.
+	(build_contract_statement): Update to use new cpp_contract_level
+	struct.
+	* parser.c (cp_parser_contract_level_opt): Update to return a
+	cpp_contract_level instead of a naked int.
+	(cp_parser_contract_attribute_spec): Use cpp_contract_level.
+	* pt.c (tsubst_expr): Use cpp_contract_level.
+	* semantics.c (build_contract_handler_fn): Use cpp_contract_level.
+	(build_contract_handler_dummy_try_rethrow): Use cpp_contract_level.
+	(generate_assert_check): Handle custom contract levels. Never
+	generate axiom or invalid level checks.
+	(build_contract_statement): Use cpp_contract_level.
 
 2018-08-27  David Malcolm  <dmalcolm@redhat.com>
 
@@ -1782,6 +1843,19 @@
 	* typeck.c (treat_lvalue_as_rvalue_p): New function.
 	(maybe_warn_pessimizing_move): Call convert_from_reference.
 	Warn about redundant moves.
+
+2018-08-24  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix throwing exceptions inside contract assert violation handler.
+	* except.c (init_exception_processing): Remove ECF_NOTHROW and
+	ECF_NORETURN from on_contract_violation_fn.
+	* semantics.c (build_contract_handler_dummy_try_rethrow): New,
+	build a trivial try/catch/throw around the contract violation
+	handler call to ensure exception unwinding through the violation
+	handler works.
+	(generate_assert_check): HACK generate a wrapped call to the
+	violation handler using build_contract_handler_dummy_try_rethrow
+	instead of building a call directly to the handler fn.
 
 2018-08-24  Marek Polacek  <polacek@redhat.com>
 
@@ -1888,10 +1962,50 @@
 	* typeck2.c (abstract_virtuals_error_sfinae): Likewise.
 	(check_narrowing): Likewise.
 
+2018-08-18  Michael Lopez  <mlopez@lock3software.com>
+
+	Parsing and elaboration support for assert contracts.
+	* cp-gimplify.c (cp_genericize_r): Replace ASSERT_CONTRACT with
+	a NOP when not checked or with the genericized check when it is.
+	Emit a sorry for ensures and expects contracts.
+	* cp-objcp-common.c (cp_tree_size): Add size for ASSERT_CONTRACT.
+	* cp-tree.def: Define ASSERT_CONTRACT, EXPECTS_CONTRACT, and
+	ENSURES_CONTRACT nodes.
+	* cp-tree.h (ASSERT_CONTRACT_LEVEL): New.
+	(ASSERT_CONTRACT_CONDITION): New.
+	(ASSERT_CONTRACT_GEN_CHECK): New.
+	(tree_assert_contract): New node representing c++ contracts.
+	(build_contract_statement): Accept contract level int.
+	* parser.c (cp_parser_contract_attribute_spec): New. Parse a c++
+	contract attribute specifier.
+	(is_start_of_assertion_p): New.
+	(cp_parser_statement): Parse assert contracts on empty
+	statements under as-if rule.
+	(cp_parser_contract_level_opt): New.
+	(is_contract_attribute_p): New.
+	(cp_parser_contract_attribute): New.
+	(cp_parser_std_attribute_spec): Do not parse assert contracts
+	here; they don't interact with std attributes.
+	* pt.c (tsubst_expr): Handle ASSERT_CONTRACT by recursively
+	substituting each member.
+	* semantics.c (build_contract_handler_fn): Cleanup; pass the
+	correct number of arguments to fix the assertion_level argument.
+	(generate_assert_check): New.
+	(build_contract_statement): New.
+
 2018-08-17  David Malcolm  <dmalcolm@redhat.com>
 
 	* typeck.c (string_conv_p): Extract location from EXP and use it
 	in preference to input_location when issuing warnings.
+
+2018-08-15  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Complete contract_violation info.
+	* semantics.c (build_contract_handler_fn): Correctly pass the
+	function_name, a representation of the contract condition, and
+	the contract level to the contract violation handler.
+	(generate_assert_check): Pretty print the assert contract
+	condition for use in contract_violation info.
 
 2018-08-15  David Malcolm  <dmalcolm@redhat.com>
 
@@ -1942,6 +2056,13 @@
 
 	PR c++/86915
 	* decl.c (create_array_type_for_decl): Handle null name.
+
+2018-08-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Fix on_contract_violation_fn call synthesis.
+	* semantics.c (build_contract_handler_fn): Include the null
+	terminating character in all string arguments passed to the
+	violation handler.
 
 2018-08-10  Jason Merrill  <jason@redhat.com>
 
@@ -2082,6 +2203,24 @@
 	the switch statement, move cases 'G', 'H', 'I' and 'K' so that the
 	cases are in alphabetical order.
 
+2018-07-26  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add contract violation handler.
+	* cp-tree.h: Define on_contract_violation_fn.
+	* except.c (init_exception_processing): Build global reference to
+	contract violation handler function.
+	* parser.c: Cleanup.
+	* semantics.c (build_contract_handler_fn): Use
+	on_contract_violation_fn instead of looking up contract
+	violation handler each time.
+
+2018-07-25  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Refactor contract header and codegen.
+	* semantics.c (build_contract_handler_fn): Update name of
+	contract violation handler. Push conditional termination into
+	handler. Pass individual parameters to handler.
+
 2018-07-25  Jakub Jelinek  <jakub@redhat.com>
 
 	* cp-tree.h (enum cp_tree_index): Add
@@ -2127,6 +2266,12 @@
 	get_identifier ("__for_end").
 	* semantics.c (finish_for_stmt): Rename "__for_{range,begin,end} "
 	local symbols to "__for_{range,begin,end}".
+
+2018-07-23  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add contract violation handler.
+	* semantics.c (build_contract_handler_fn): Synthesize a call to
+	an internal contract violation hanlder.
 
 2018-07-23  Jakub Jelinek  <jakub@redhat.com>
 
@@ -2215,6 +2360,13 @@
 	* decl.c (cp_finish_decl): Diagnose vars without mappable type here,
 	and before calling cp_omp_mappable_type call complete_type.
 
+2018-07-11  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add contract continuation mode; refactor.
+	* semantics.c (build_contract_handler_fn): New.
+	(build_contract_statement): Now uses build_contract_handler_fn
+	to build call to violation handler.
+
 2018-07-10  Jakub Jelinek  <jakub@redhat.com>
 
 	PR sanitizer/86406
@@ -2270,6 +2422,17 @@
 	PR c++/86378 - functional cast in noexcept-specifier.
 	* tree.c (strip_typedefs_expr) [TREE_LIST]: Fix iteration.
 
+2018-07-02  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add contract build levels; fix parser ICEs.
+	* parser.c (cp_parser_skip_to_closing_square_bracket): Add bool
+	inclusive argument to optionally not conusme closing bracket.
+	(cp_parser_array_designator_p): Update usage of above.
+	(cp_parser_contract_attribute_spec): Refactor; error on invalid
+	contract levels.
+	* semantics.c (build_contract_statement): Check contract level
+	against global contract build level; conditionally omit runtime checks.
+
 2018-07-02  Paolo Carlini  <paolo.carlini@oracle.com>
 
 	* parser.c (set_and_check_decl_spec_loc): Use rich_location::add_range
@@ -2301,6 +2464,14 @@
 
 	* name-lookup.c (do_pushtag): If we skip a class level, also skip
 	its template level.
+
+2018-06-26  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Fix assert contract parser build errors.
+	* parser.c (cp_parser_contract_attribute_spec): Emit error on
+	invalid contract level. Emit error when missing the colon before
+	the contract condition. Remove debug.
+	(cp_parser_std_attribute_spec): Use local attr_name and attr_ns.
 
 2018-06-26  Jason Merrill  <jason@redhat.com>
 
@@ -2529,6 +2700,22 @@
 	* tree.c (maybe_warn_parm_abi, type_has_nontrivial_copy_init):
 	Handle v12 breakage.
 
+2018-06-12  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Refactorings.
+	* parser.c (cp_parser_contract_attribute_spec): Simplify attr_id
+	and contract_level logic. Normalize variable names and comments.
+	* semantics.c (build_contract_statement): Fix spacing.
+
+2018-06-12  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add assert attribute rewriting in parser.
+	* cp-tree.h (build_contract_statement): New.
+	* parser.c (cp_parser_statement): Parse contract attributes on
+	empty statements. Warn if non-empty. Update warning.
+	* semantics.c (build_contract_statement): New. Build a runtime
+	contract check.
+
 2018-06-12  Jason Merrill  <jason@redhat.com>
 
 	PR c++/86098 - ICE with template placeholder for TTP.
@@ -2562,6 +2749,14 @@
 	* decl.c (grok_op_properties): Consistently use the location
 	of the decl; remove special casing of POSTINCREMENT_EXPR and
 	POSTDECREMENT_EXPR wrt default arguments.
+
+2018-06-07  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Move contract parser and fix to correctly build tree.
+	* parser.c (cp_parser_std_attribute): Remove contract attribute
+	handling.
+	(cp_parser_contract_attribute_spec): New.
+	(cp_parser_std_attribute_spec): Parse assert contracts attributes.
 
 2018-06-05  Jason Merrill  <jason@redhat.com>
 
@@ -2643,6 +2838,12 @@
 	* pt.c (mark_decl_instantiated): Clear DECL_EXTERNAL.
 
 	* pt.c (instantiate_decl): Any defaulted function is defined.
+
+2018-05-31  Andrew Marmaduke  <amarmaduke@lock3software.com>
+
+	Add happy path assert contract to parser.
+	* parser.c (cp_parser_statement): Update warning, add FIXME.
+	(cp_parser_std_attribute): Parse assert contracts attributes.
 
 2018-05-30  Jonathan Wakely  <jwakely@redhat.com>
 

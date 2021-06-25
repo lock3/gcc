@@ -170,6 +170,9 @@ struct GTY(()) cp_unparsed_functions_entry {
 
   /* Functions with noexcept-specifiers that require post-processing.  */
   vec<tree, va_gc> *noexcepts;
+
+  /* Functions with contract attributes that require post-processing.  */
+  vec<tree, va_gc> *contracts;
 };
 
 
@@ -303,6 +306,11 @@ struct GTY(()) cp_parser {
      direct-declarator.  */
   bool in_declarator_p;
 
+  /* TRUE if the decl-specifier-seq preceding a declarator includes
+     the 'friend' specifier. This prevents attributes on friend function
+     declarations from being parsed in the complete class context.  */
+  bool declaring_friend_p;
+
   /* TRUE if we are presently parsing a template-argument-list.  */
   bool in_template_argument_list_p;
 
@@ -382,7 +390,7 @@ struct GTY(()) cp_parser {
   /* When parsing #pragma acc routine, this is a pointer to a helper data
      structure.  */
   cp_oacc_routine_data * GTY((skip)) oacc_routine;
-  
+
   /* Nonzero if parsing a parameter list where 'auto' should trigger an implicit
      template parameter.  */
   bool auto_is_implicit_function_template_parm_p;

@@ -65,6 +65,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "symbol-summary.h"
 #include "symtab-thunks.h"
 #include "symtab-clones.h"
+#include "print-tree.h"
 
 /* I'm not real happy about this, but we need to handle gimple and
    non-gimple trees.  */

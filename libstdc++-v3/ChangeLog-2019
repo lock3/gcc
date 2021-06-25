@@ -2619,6 +2619,11 @@
 	(~_Temporary_buffer()): Use latter.
 	(_Temporary_buffer(_FIterator, size_type)): Likewise.
 
+2019-07-17  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* src/c++17/contract.cc (__on_contract_violation): Do not squash
+	exceptions when the continuation mode is set to off.
+
 2019-07-17  Andreas Schwab  <schwab@suse.de>
 
 	* config/abi/post/ia64-linux-gnu/baseline_symbols.txt: Update.
@@ -2713,6 +2718,11 @@
 	the _Impl constructor.
 	* testsuite/27_io/filesystem/filesystem_error/cons.cc: Ensure that
 	filesystem_error::what() contains system_error::what().
+
+2019-06-26  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* src/c++17/contract.cc (__on_contract_violation): Change
+	std::terminate calls to std::abort.
 
 2019-06-26  Jonathan Wakely  <jwakely@redhat.com>
 
@@ -3579,6 +3589,12 @@
 	instead of fileno.
 	[!USE_MT19937] (mersenne_twister): Do not instantiate when not needed.
 	* testsuite/26_numerics/random/random_device/85494.cc: New test.
+
+2019-05-28  Andrew Sutton  <andrew.n.sutton@gmail.com>
+
+	Update contract diagnostics.
+	* src/c++17/contract.cc: Don't allocate strings when generating the
+	error message.
 
 2019-05-28  Jonathan Wakely  <jwakely@redhat.com>
 
@@ -6351,6 +6367,16 @@
 	* include/bits/stl_deque.h (__is_trivially_relocatable): Rename...
 	(__is_bitwise_relocatable): ... to this.
 
+2019-02-04  Jeff Chapman II  <jchapman@lock3software.com>
+
+	Move contract violation functions out of std.
+	* config/abi/pre/gnu.ver: Update mangled names for contract violation
+	functions.
+	* include/std/contract: Comment signatures of contract violation
+	functions for reference.
+	* src/c++17/contract.cc: Move contract violation functions. Add weak
+	attribute to custom handler.
+
 2019-01-30  Jonathan Wakely  <jwakely@redhat.com>
 
 	PR libstdc++/89117
@@ -6518,6 +6544,11 @@
 	* include/std/future: Add nodiscard attribute to async.
 	* libsupc++/new: Add nodiscard attribute to new.
 
+2019-01-18  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* src/c++17/contract.cc (std::on_contract_violation): Include % in the
+	assertion role name.
+
 2019-01-18  Jonathan Wakely  <jwakely@redhat.com>
 
 	PR libstdc++/87514
@@ -6574,6 +6605,26 @@
 	* testsuite/27_io/filesystem/operations/temp_directory_path.cc: Use
 	"TMP" instead of "TMPDIR" and clean environment before each test. Do
 	not test permissions on mingw targets.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* config/abi/pre/gnu.ver: Update symbols for
+	std::contract_violation::contract_violation and
+	std::__on_contract_violation to include role and continuation mode.
+	Add mangled symbol for std::contract_violation::assertion_role().
+	* include/std/contract (std::contract_violation_continuation_mode): New.
+	(std::contract_violation): Add role and continuation mode members and
+	associated getters.
+	(std::on_contract_violation): Now also takes a role and continuation
+	mode.
+	* src/c++17/contract.cc: Include new information detailed above.
+	(handle_contract_violation): Print role and continuation mode in
+	default handler.
+
+2019-01-16  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* src/c++17/contract.cc (std::on_contract_violation): Change return
+	type to int. Return 0 on success.
 
 2019-01-16  Jonathan Wakely  <jwakely@redhat.com>
 

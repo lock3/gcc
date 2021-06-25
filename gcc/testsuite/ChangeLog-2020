@@ -16590,6 +16590,12 @@
 	* gcc/testsuite/gcc.target/i386/sse-22.c: Ditto.
 	* gcc/testsuite/gcc.target/i386/sse-23.c: Ditto.
 
+2020-05-05  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre1.C: New test cases for misapplied
+	contracts.
+	* g++.dg/cpp2a/contracts-override.C: New test.
+
 2020-05-05  H.J. Lu  <hongjiu.lu@intel.com>
 
 	PR testsuite/84324
@@ -17391,6 +17397,10 @@
 	* g++.dg/concepts/diagnostic10.C: New test.
 	* g++.dg/cpp2a/concepts-pr67178.C: Adjust dg-message.
 
+2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl5.C: New test case.
+
 2020-04-21  Patrick Palka  <ppalka@redhat.com>
 
 	PR c++/94549
@@ -17478,6 +17488,14 @@
 	* g++.dg/cpp2a/nontype-class34.C: New test.
 	* g++.dg/cpp2a/nontype-class35.C: New test.
 
+2020-04-20  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl2.C: Remove outdated comment.
+	* g++.dg/cpp2a/contracts-redecl7.C: Additional cases around friends.
+	* g++.dg/cpp2a/contracts-redecl8.C: New test for failures in contract
+	matching on friend decls.
+	* g++.dg/cpp2a/contracts-friend1.C: New test.
+
 2020-04-20  Patrick Palka  <ppalka@redhat.com>
 
 	PR c++/94628
@@ -17527,6 +17545,10 @@
 
 	PR fortran/91800
 	* gfortran.dg/hollerith_9.f90: New test.
+
+2020-04-19  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-conversion1.C: New test.
 
 2020-04-19  David Edelsohn  <dje.gcc@gmail.com>
 
@@ -17705,6 +17727,10 @@
 	PR c++/94571
 	* g++.dg/cpp1z/decomp51.C: New test.
 
+2020-04-15  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre1.C: Add more missing close parse tests.
+
 2020-04-15  Uroš Bizjak  <ubizjak@gmail.com>
 
 	PR target/94603
@@ -17836,6 +17862,12 @@
 2020-04-13  Jozef Lawrynowicz  <jozef.l@mittosystems.com>
 
 	* gcc.target/msp430/operand-modifiers.c: New test.
+
+2020-04-12  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts1.C: Ensure check_always_continue emits a
+	diagnostic.
+	* g++.dg/cpp2a/contracts23.C: Remove.
 
 2020-04-12  Thomas Koenig  <tkoenig@gcc.gnu.org>
 
@@ -18087,6 +18119,10 @@
 	* gfortran.dg/vect/pr83232.f90: Expect 2 rather than 3 times SLP on
 	non-vect_hw_misalign targets.
 
+2020-04-08  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-large-return.C: New test.
+
 2020-04-08  Jakub Jelinek  <jakub@redhat.com>
 
 	PR middle-end/94526
@@ -18276,6 +18312,10 @@
 
 	PR target/94500
 	* gcc.target/i386/avx512bw-pr94500.c: New test.
+
+2020-04-06  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-pre1.C: New cases.
 
 2020-04-06  Steven G. Kargl  <kargl@gcc.gnu.org>
 
@@ -18817,6 +18857,10 @@
 
 	PR tree-optimization/94269
 	* gcc.dg/pr94269.c: New test.
+
+2020-03-25  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-redecl5.C: New cases.
 
 2020-03-25  Andrew Stubbs  <ams@codesourcery.com>
 
@@ -23415,6 +23459,10 @@
 
 	PR c++/91759
 	* g++.dg/cpp1z/class-deduction72.C: New test.
+
+2020-03-17  Jeff Chapman II  <jchapman@lock3software.com>
+
+	* g++.dg/cpp2a/contracts-config1.C: New test.
 
 2020-03-17  Uroš Bizjak  <ubizjak@gmail.com>
 
