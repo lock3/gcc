@@ -6437,11 +6437,6 @@
 	* testsuite/23_containers/unordered_set/erasure.cc: Likewise.
 	* testsuite/23_containers/vector/erasure.cc: Likewise.
 
-2020-04-21  Jeff Chapman II  <jchapman@lock3software.com>
-
-	* include/std/contract (contract_violation_continuation_mode): Remove
-	ALWAYS_CONTINUE.
-
 2020-04-21  Jonathan Wakely  <jwakely@redhat.com>
 
 	* include/bits/stl_iterator.h (__normal_iterator): Use synth-three-way
