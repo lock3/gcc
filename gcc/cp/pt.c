@@ -11855,7 +11855,6 @@ apply_late_template_attributes (tree *decl_p, tree attributes, int attr_flags,
 	q = &TREE_CHAIN (*q);
     }
 
-  if (late_attrs)
     cplus_decl_attributes (decl_p, late_attrs, attr_flags);
 
   return true;
@@ -13467,47 +13466,6 @@ copy_template_args (tree t)
     = NON_DEFAULT_TEMPLATE_ARGS_COUNT (t);
 
   return new_vec;
-}
-
-/* Replace the TEMPLATE_INFO and TEMPLATE_DECL related to the FUNCTION_DECL
-   DECL with a copy.  Update references between them.  */
-
-void
-unshare_template (tree decl)
-{
-  tree tinfo = DECL_TEMPLATE_INFO (decl);
-  bool is_primary_p = true; /* PRIMARY_TEMPLATE_P (TI_TEMPLATE (tinfo)); */
-  /* FIXME handle specializations? */
-
-  tree new_ti = copy_decl (TI_TEMPLATE (tinfo));
-  DECL_TEMPLATE_RESULT (new_ti) = decl;
-  DECL_CHAIN (new_ti) = NULL_TREE;
-
-  /* Unshare the template parms.  */
-  tree parms = DECL_TEMPLATE_PARMS (new_ti);
-  tree parms_val = TREE_VALUE (parms);
-  parms =
-    build_tree_list (TREE_PURPOSE (parms), copy_template_args (parms_val));
-  tree last = parms;
-  for (tree ps = TREE_CHAIN (DECL_TEMPLATE_PARMS (new_ti));
-      ps;
-      ps = TREE_CHAIN (ps))
-    {
-      TREE_CHAIN (last) =
-	build_tree_list (TREE_PURPOSE (ps),
-			 copy_template_args (TREE_VALUE (ps)));
-      last = TREE_CHAIN (last);
-    }
-  DECL_TEMPLATE_PARMS (new_ti) = parms;
-
-  DECL_TEMPLATE_INFO (decl) =
-    build_template_info (new_ti, (copy_template_args (TI_ARGS (tinfo))));
-  DECL_TI_TEMPLATE (decl) = new_ti;
-
-  /* FIXME: only do this if PRIMARY_TEMPLATE_P (original_decl) ?  */
-  /* Mark decl as its own primary template.  */
-  if (is_primary_p)
-    DECL_PRIMARY_TEMPLATE (DECL_TI_TEMPLATE (decl)) = DECL_TI_TEMPLATE (decl);
 }
 
 /* Substitute ARGS into the *_ARGUMENT_PACK orig_arg.  */
@@ -16763,10 +16721,7 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 
 	  /* This can happen for a parameter name used later in a function
 	     declaration (such as in a late-specified return type).  Just
-	     make a dummy decl, since it's only used for its type.
-
-	    Contracts may reference this, but all dummies references are
-	    replaced just before building the contract check. */
+	     make a dummy decl, since it's only used for its type.  */
 	  gcc_assert (cp_unevaluated_operand);
 	  r = tsubst_decl (t, args, complain);
 	  /* Give it the template pattern as its context; its true context
@@ -16926,7 +16881,9 @@ tsubst_copy (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 			  = do_auto_deduction (TREE_TYPE (r), init, auto_node,
 					       complain, adc_variable_type);
 		    }
-		  gcc_assert (cp_unevaluated_operand || processing_contract_condition || TREE_STATIC (r)
+		  gcc_assert (cp_unevaluated_operand
+			      || processing_contract_condition
+			      || TREE_STATIC (r)
 			      || decl_constant_var_p (r)
 			      || seen_error ());
 		  if (!processing_template_decl

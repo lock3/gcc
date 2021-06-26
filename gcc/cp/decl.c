@@ -14043,7 +14043,10 @@ grokdeclarator (const cp_declarator *declarator,
 	  {
 	    /* Packages tend to use GNU attributes on friends, so we only
 	       warn for standard attributes.  */
-	    if (attrlist && !funcdef_flag && cxx11_attribute_p (*attrlist))
+	    if (attrlist
+		&& !funcdef_flag
+		&& cxx11_attribute_p (*attrlist)
+		&& !all_attributes_are_contracts_p (*attrlist))
 	      {
 		*attrlist = NULL_TREE;
 		if (warning_at (id_loc, OPT_Wattributes, "attribute ignored"))

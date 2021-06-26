@@ -144,6 +144,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-inline.h"
 #include "attribs.h"
 #include "tree-iterator.h"
+#include "print-tree.h"
 
 const int max_custom_roles = 32;
 static contract_role contract_build_roles[max_custom_roles] = {
@@ -558,6 +559,17 @@ contract_any_deferred_p (tree contract_attr)
     if (CONTRACT_CONDITION_DEFERRED_P (CONTRACT_STATEMENT (contract_attr)))
       return true;
   return false;
+}
+
+/* Returns true if all attributes are contracts.  */
+
+bool
+all_attributes_are_contracts_p (tree attributes)
+{
+  for (; attributes; attributes = TREE_CHAIN (attributes))
+    if (!cxx_contract_attribute_p (attributes))
+      return false;
+  return true;
 }
 
 /* Mark most of a contract as being invalid.  */

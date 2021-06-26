@@ -1624,10 +1624,6 @@ gimplify_return_expr (tree stmt, gimple_seq *pre_p)
       if (TREE_CODE (result_decl) == INDIRECT_REF)
 	result_decl = TREE_OPERAND (result_decl, 0);
 
-      if (!((TREE_CODE (ret_expr) == MODIFY_EXPR
-		   || TREE_CODE (ret_expr) == INIT_EXPR)
-		  && TREE_CODE (result_decl) == RESULT_DECL))
-	gcc_unreachable ();
       gcc_assert ((TREE_CODE (ret_expr) == MODIFY_EXPR
 		   || TREE_CODE (ret_expr) == INIT_EXPR)
 		  && TREE_CODE (result_decl) == RESULT_DECL);

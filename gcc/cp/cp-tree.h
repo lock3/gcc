@@ -7457,7 +7457,6 @@ extern bool copy_guide_p			(const_tree);
 extern bool template_guide_p			(const_tree);
 extern bool builtin_guide_p			(const_tree);
 extern void store_explicit_specifier		(tree, tree);
-extern void unshare_template			(tree);
 extern void walk_specializations		(bool,
 						 void (*)(bool, spec_entry *,
 							  void *),
@@ -7577,6 +7576,7 @@ extern void remap_dummy_this			(tree, tree *);
 extern bool contract_active_p			(tree);
 extern bool contract_any_active_p		(tree);
 extern bool contract_any_deferred_p		(tree);
+extern bool all_attributes_are_contracts_p	(tree);
 extern void build_contract_function_decls	(tree);
 extern void set_contract_functions		(tree, tree, tree);
 extern void set_contracts_original_fn		(tree, tree);
