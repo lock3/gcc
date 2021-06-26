@@ -1,0 +1,10 @@
+2021-06-25  Jeff Chapman II  <jchapman@lock3software.com>
+	    Andrew Sutton  <asutton@lock3software.com>
+
+	Implement library support for contracts.
+
+	* config/abi/pre/gnu.ver: List symbols exported for contracts.
+	* include/Makefile.am: Add the contract header to the build.
+	* include/std/contract: New standard header.
+	* src/c++17/Makefile.am: Add contracts.cc.
+	* src/c++17/contract.cc: New implementation file for contracts.

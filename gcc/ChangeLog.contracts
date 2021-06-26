@@ -1,0 +1,153 @@
+2021-06-25  Jeff Chapman II  <jchapman@lock3software.com>
+	    Andrew Sutton  <asutton@lock3software.com>
+
+	Implement the P1492 versions of contracts, along with extensions that
+	support the emulation of N4820 and other proposals. This implementation
+	assigns a concrete semantic (one of: ignore, assume, enforce, or
+	observe) to each contract attribute depending on its labels and
+	configuration options.
+
+	* c-family/c-cppbuiltin.c (c_cpp_builtins): Add feature test macros
+	for contracts features.
+	* c-family/c.opt (contracts): Enable contracts.
+	(contract-assumption-mode): Allow assumptions to be assumed.
+	(contract-strict-declarations): Require contracts on the first
+	declaration. Also, allow out-of-class redeclaration of members.
+	(contract-mode): Enable or disable contracts.
+	(contract-continuation-mode): Allow contracts to resume after
+	invoking the violation handler.
+	(contract-role): Specifies semantics for a role label applied to
+	contracts.
+	(contract-semantic): Specifies the concrete semantic for a level.
+	* cp/Make-lang.in: Add contracts.cc to the build.
+	* cp/constexpr.c (cxx_eval_constant_expression): Support constexpr
+	checking of contracts.
+	(potential_constant_expression_1): Add cases for contracts.
+	* cp/contracts.[h|cc]: New. Implements much of the semantic support for
+	contracts.
+	* cp/cp-gimplify.c (cp_genericize_r): Emit code for contract checking
+	statements.
+	* cp/cp-objcp-common.c (cp_tree_size): Add contract nodes.
+	(cp_handle_option): Handle contracts-related options.
+	* cp/cp-tree.def: Add new statement nodes for contract attributes.
+	* cp/cp-tree.h: Add a bunch of new macros and functions for working
+	with contracts.
+	(saved_scope): Add a processing to specify that the parser is working
+	with contract attributes outside of a function's parameter list.
+	(comparing_override_contracts): Add a global to alter the behavior
+	of cp_tree_equal when comparing contracts of overrides.
+	* cp/decl.c (diagnose_misapplied_contracts): New.
+	(friend_attributes): Implicitly pass attributes from grokdeclarator to
+	duplicate_decls.
+	(duplicate_contracts): New.
+	(duplicate_decls): Compare contracts when duplicating. Diagnose various
+	mismatching errors.
+	(start_decl): Support redeclarations of members outside of classes.
+	(grokfndecl): Rebuild postconditions after the return type is likely
+	known (except when it is deduced).
+	(grokdeclarator): Diagnose the application of contracts outside of
+	functions. Also, make sure to attach contracts to the function
+	declaration, not its type. Suppress warnings about contracts on friends
+	since they're potentially used for declaration matching.
+	(start_preparsed_function): Build contract checking functions at the
+	start of a function definition.
+	(finish_constructor_body): Emit postconditions directly into the
+	body of a constructor.
+	(begin_destructor_body, finish_destructor_body): Emit pre/postconditions
+	directly into the bodyof a destructor.
+	(finish_function_contracts): Synthesize functions to check preconditions
+	and postconditions.
+	* cp/decl2.c (cp_check_const_attributes): Skip contracts.
+	(cp_tree_defined_r, cp_tree_defined): New. Ensure that functions and
+	variables used in pre/post are defined.
+	* cp/error.c (dump_type): Prevent crashes when the type is unnamed.
+	* cp/except.c (init_exception_processing): Build contract violation
+	handlers.
+	* cp/mangle.c (write_encoding): Add .pre and .post to checking
+	functions.
+	* cp/module.cc (fn_parms_init): Serialize contracts and pre/post
+	checking functions.
+	(check_mergeable_decl): Reject functions with invalid contracts.
+	* cp/parser.c (make_call_declarator): Pass standard attributes to the
+	call declarator.
+	(cp_parser_constant_expression): Cleanup redundant code by calling
+	cp_parser_conditional_expression.
+	(unparsed_contracts): New queue for late-parsed contracts.
+	(push_unparsed_function_queues): Update initializer.
+	(cp_parser_new): Initialize new declaring_friend_p flag.
+	(cp_parser_statement): Check for invalid contract attributes and handle
+	assertions.
+	(cp_parser_decl_specifier_seq, cp_parser_class_head): Check for
+	misapplied contracts.
+	(cp_parser_direct_declarator) Note when we're parsing a friend
+	declaration. This is needed to prevent deferred parsing of contract
+	attributes.
+	(cp_parser_class_specifier_1): Handle late-parsed contracts.
+	(cp_parser_std_attribute_spec): Parse contracts.
+	(cp_parser_member_declaration, cp_parser_late_parsing_for_member): Push
+	deferred contracts.
+	(cp_contract_assertion_p, function_declarator_p,
+	find_innermost_function_declarator, cp_parser_late_contract_condition,
+	cp_parser_skip_up_to_closing_square_bracket, contract_attribute_p,
+	cp_parser_conditional_expression, cp_parser_contract_role,
+	cp_parser_contract_mode_opt, find_error, contains_error_p,
+	cp_parser_contract_attribute_spec): New. Support the parsing contracs.
+	* cp/parser.h (cp_unparsed_functions_entry): Add queue for contracts.
+	(cp_parser): Add flag for processing friend declarations.
+	* cp/pt.c (register_parameter_specializations): Make non-static.
+	(register_local_identity): New. Used when rebuilding postconditions.
+	(remove_contracts_from_specialization): New. Ensure that specializations
+	don't inherit contracts from their more general template.
+	(tsubst_contract, tsubst_contract_attribute,
+	tsubst_contract_attributes): New.
+	(tsubst_copy): Allow parameters outside of parameter lists.
+	(tsubst_expr): Substitute through assertions.
+	(tsubst_copy_and_build): Re-enable handling FLOAT_EXPRs since
+	they still occur in the contract test suite.
+	(regenerate_decl_from_template): Instantiate contract attributes
+	as needed.
+	* cp/search.c (inherit_base_contracts): New. Copy base function
+	contracts onto an override.
+	(check_final_overrider): Check that contracts match by pushing a
+	deferred check.
+	* cp/semantics.c (decl_pre_fn, decl_post_fn, decl_original_fn,
+	get_precondition_function, get_postcondition_function,
+	set_precondition_function, set_postcondition_function,
+	set_contract_functions, get_contracts_original_fn,
+	set_contracts_original_fn): New. Manage associations between guarded
+	functions and their pre/post checking functions.
+	(build_arg_list, copy_fn_decl, build_contract_condition_function,
+	build_contract_condition_function, has_active_contract_condition,
+	has_active_preconditions, has_active_postconditions,
+	build_precondition_function, build_postcondition_function,
+	build_contract_function_decls): New. Create pre/post checking functions
+	for a guarded function.
+	(start_postcondition_statement, finish_postcondition_statement): New.
+	Build postconditions.
+	(get_contract_level_name, get_contract_role_name,
+	build_contract_handler_fn, contract_active_p, contract_any_active_p,
+	build_contract_check, emit_contract_statement, emit_contract_conditions,
+	emit_assertion, emit_preconditions, emit_postconditions,
+	finish_contract_condition): New. Emit checking for individual contract
+	attributes.
+	(finish_return_stmt): Simplify checks. Emit postconditions directly.
+	(finish_non_static_data_member): Add checks for contracts referring
+	to members in constructors and destructors.
+	(process_outer_var_ref): Allow parameter usage in contract attributes.
+	(finish_id_expression_1): Similarly.
+	(apply_deduced_return_type): Rebuild postconditions once the return
+	type has been deduced.
+	* cp/tree.c (comparing_override_contracts, get_innermost_component,
+	is_this_expression, comparing_this_references,
+	equivalent_member_references): New. Define expression equivalence for
+	contract conditions that refer to the same members, possibly through
+	different paths. Needed for contract matching with overrides.
+	(cp_tree_equal): Compare expressions differently when comparing
+	override and base function contracts.
+	(std_attribute_table): Add entries for pre and post.
+	(handle_contract_attribute): New.
+	* typeck.cpp (apply_postcondition_to_return): New. Wrap a return a call
+	to the postcondition.
+	(check_return_expr): Use the function above.
+	* input.[h|c] (get_source): New. Return the source text for a particular
+	location in a file.
