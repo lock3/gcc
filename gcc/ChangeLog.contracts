@@ -1,5 +1,7 @@
 2021-06-25  Jeff Chapman II  <jchapman@lock3software.com>
 	    Andrew Sutton  <asutton@lock3software.com>
+	    Andrew Marmaduke <amarmaduke@lock3software.com>
+	    Michael Lopez <mlopez@lock3software.com>
 
 	Implement the P1492 versions of contracts, along with extensions that
 	support the emulation of N4820 and other proposals. This implementation
