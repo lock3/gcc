@@ -10088,11 +10088,11 @@ apply_postcondition_to_return (tree post, tree expr)
 
   // FIXME: do we need forward_parm or similar?
   if (get_postcondition_result_parameter (current_function_decl))
-    vec_safe_push (args, expr); 
+    vec_safe_push (args, expr);
 
   push_deferring_access_checks (dk_no_check);
   tree call = finish_call_expr (post,
-  				&args,
+				&args,
 				/*disallow_virtual=*/true,
 				/*koenig_p=*/false,
 				/*complain=*/tf_warning_or_error);
@@ -10102,7 +10102,7 @@ apply_postcondition_to_return (tree post, tree expr)
      return type is large (contracts-large-return.C).  */
   if (TREE_CODE (call) == CALL_EXPR)
     CALL_FROM_THUNK_P (call) = 1;
-  
+
   pop_deferring_access_checks ();
 
   return call;

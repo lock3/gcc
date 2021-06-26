@@ -2354,7 +2354,7 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	? find_contract (friend_attributes)
 	: DECL_CONTRACTS (new_result);
       if (DECL_CONTRACTS (old_result) && new_contracts)
-        {
+	{
 	  match_contract_conditions (DECL_SOURCE_LOCATION (old_result),
 				     old_contracts,
 				     DECL_SOURCE_LOCATION (new_result),
